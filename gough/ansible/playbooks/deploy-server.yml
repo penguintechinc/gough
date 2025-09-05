@@ -1,0 +1,182 @@
+---
+# Main server deployment playbook
+# Deploys and configures servers through MaaS with post-deployment setup
+
+- name: Deploy Server Infrastructure
+  hosts: localhost
+  gather_facts: false
+  vars:
+    maas_url: "{{ hostvars['localhost']['maas_url'] | default('http://172.20.0.10:5240/MAAS/') }}"
+    management_url: "{{ hostvars['localhost']['management_server_url'] | default('http://172.20.0.2:8000') }}"
+  
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - target_hostname is defined
+          - server_mac_address is defined
+          - deployment_template is defined
+        fail_msg: "Required variables missing: target_hostname, server_mac_address, deployment_template"
+
+    - name: Check MaaS connectivity
+      uri:
+        url: "{{ maas_url }}api/2.0/version/"
+        method: GET
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+      register: maas_version_check
+
+    - name: Create or commission machine in MaaS
+      uri:
+        url: "{{ maas_url }}api/2.0/machines/"
+        method: POST
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+        body_format: form-urlencoded
+        body:
+          op: new
+          mac_addresses: "{{ server_mac_address }}"
+          hostname: "{{ target_hostname }}"
+          architecture: "{{ target_architecture | default('amd64/generic') }}"
+          power_type: "{{ power_type | default('manual') }}"
+      register: machine_creation
+      when: machine_system_id is not defined
+
+    - name: Set machine system ID
+      set_fact:
+        machine_system_id: "{{ machine_creation.json.system_id | default(machine_system_id) }}"
+
+    - name: Commission machine
+      uri:
+        url: "{{ maas_url }}api/2.0/machines/{{ machine_system_id }}/"
+        method: POST
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+        body_format: form-urlencoded
+        body:
+          op: commission
+          enable_ssh: true
+      register: commission_result
+      when: skip_commission is not defined or not skip_commission
+
+    - name: Wait for commissioning to complete
+      uri:
+        url: "{{ maas_url }}api/2.0/machines/{{ machine_system_id }}/"
+        method: GET
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+      register: machine_status
+      until: machine_status.json.status_name in ['Ready', 'Failed commissioning']
+      retries: 60
+      delay: 30
+      when: skip_commission is not defined or not skip_commission
+
+    - name: Fail if commissioning failed
+      fail:
+        msg: "Machine commissioning failed"
+      when: machine_status.json.status_name == 'Failed commissioning'
+
+    - name: Deploy machine with cloud-init
+      uri:
+        url: "{{ maas_url }}api/2.0/machines/{{ machine_system_id }}/"
+        method: POST
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+        body_format: form-urlencoded
+        body:
+          op: deploy
+          distro_series: "{{ distro_series | default('jammy') }}"
+          user_data: "{{ cloud_init_data | b64encode }}"
+          install_kvm: "{{ install_kvm | default(false) }}"
+      register: deploy_result
+
+    - name: Wait for deployment to complete
+      uri:
+        url: "{{ maas_url }}api/2.0/machines/{{ machine_system_id }}/"
+        method: GET
+        headers:
+          Authorization: "OAuth {{ maas_api_key }}"
+      register: deploy_status
+      until: deploy_status.json.status_name in ['Deployed', 'Failed deployment']
+      retries: 120
+      delay: 60
+
+    - name: Fail if deployment failed
+      fail:
+        msg: "Machine deployment failed"
+      when: deploy_status.json.status_name == 'Failed deployment'
+
+    - name: Get machine IP address
+      set_fact:
+        machine_ip: "{{ deploy_status.json.ip_addresses[0] }}"
+
+    - name: Add deployed machine to inventory
+      add_host:
+        name: "{{ target_hostname }}"
+        groups: "{{ target_groups | default(['deployed_servers']) }}"
+        ansible_host: "{{ machine_ip }}"
+        ansible_user: maas
+        maas_system_id: "{{ machine_system_id }}"
+        deployment_template: "{{ deployment_template }}"
+
+    - name: Wait for SSH to be available
+      wait_for:
+        host: "{{ machine_ip }}"
+        port: 22
+        delay: 60
+        timeout: 300
+
+    - name: Update management server with deployment info
+      uri:
+        url: "{{ management_url }}/api/servers/{{ machine_system_id }}/deployed"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ management_api_key | default('') }}"
+        body_format: json
+        body:
+          hostname: "{{ target_hostname }}"
+          ip_address: "{{ machine_ip }}"
+          status: "Deployed"
+          deployment_template: "{{ deployment_template }}"
+        status_code: [200, 201, 404]  # 404 if management server not configured
+
+# Post-deployment configuration
+- name: Post-Deployment Configuration
+  hosts: "{{ target_hostname }}"
+  gather_facts: true
+  become: true
+
+  roles:
+    - common-setup
+    - security-hardening
+    - monitoring-setup
+    - agent-deployment
+
+  tasks:
+    - name: Validate deployment success
+      command: /usr/local/bin/system-info
+      register: system_info
+      
+    - name: Display deployment summary
+      debug:
+        msg: |
+          Server {{ inventory_hostname }} deployed successfully!
+          IP: {{ ansible_default_ipv4.address }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Kernel: {{ ansible_kernel }}
+          Memory: {{ ansible_memtotal_mb }}MB
+          CPU: {{ ansible_processor_vcpus }} cores
+
+    - name: Send deployment notification
+      uri:
+        url: "{{ management_url }}/api/notifications/deployment"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ management_api_key | default('') }}"
+        body_format: json
+        body:
+          type: "deployment_success"
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          system_info: "{{ system_info.stdout }}"
+        status_code: [200, 201, 404]
