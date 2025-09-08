@@ -1,0 +1,62 @@
+{
+  "options": {
+    "config_plugin": "tls",
+    "logger_plugin": "tls",
+    "logger_tls_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/log",
+    "config_tls_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/config",
+    "config_refresh": 10,
+    "disable_distributed": false,
+    "distributed_plugin": "tls",
+    "distributed_interval": 10,
+    "distributed_tls_max_attempts": 3,
+    "distributed_tls_read_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/distributed/read",
+    "distributed_tls_write_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/distributed/write",
+    "enroll_tls_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/enroll",
+    "enroll_secret_path": "{{ osquery_config_path }}/enroll_secret",
+    "tls_server_certs": "/etc/ssl/certs/ca-certificates.crt",
+    "tls_hostname": "{{ fleet_url | default('https://fleetdm:8443') | regex_replace('^https?://([^/]+).*', '\\1') }}",
+    "host_identifier": "uuid",
+    "schedule_splay_percent": 10,
+    "carver_start_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/carve/begin",
+    "carver_continue_endpoint": "{{ fleet_url | default('https://fleetdm:8443') }}/api/osquery/carve/block",
+    "carver_block_size": 2000000,
+    "verbose": {{ 'true' if agent_config.log_level | default('INFO') == 'DEBUG' else 'false' }},
+    "logger_snapshot_event_type": true,
+    "disable_events": false,
+    "events_expiry": 3600,
+    "worker_threads": 2,
+    "enable_monitor": true
+  },
+  "schedule": {
+    "system_info": {
+      "query": "SELECT hostname, cpu_brand, physical_memory, hardware_vendor, hardware_model FROM system_info;",
+      "interval": 3600
+    },
+    "memory_usage": {
+      "query": "SELECT memory_total, memory_free, memory_available, memory_percent FROM memory_info;",
+      "interval": 300
+    },
+    "disk_usage": {
+      "query": "SELECT device, path, size, used, available, (used*100/size) as percent_used FROM mounts WHERE path IN ('/', '/home', '/var');",
+      "interval": 600
+    },
+    "network_interfaces": {
+      "query": "SELECT interface, mac, ip, mask, type FROM interface_addresses WHERE interface NOT LIKE 'lo%';",
+      "interval": 1800
+    },
+    "listening_ports": {
+      "query": "SELECT DISTINCT process.name, listening_ports.port, listening_ports.protocol, process.pid FROM listening_ports LEFT JOIN processes AS process ON listening_ports.pid = process.pid;",
+      "interval": 600
+    },
+    "user_logins": {
+      "query": "SELECT username, type, time, host FROM last;",
+      "interval": 300
+    }
+  },
+  "decorators": {
+    "load": [
+      "SELECT uuid AS host_uuid FROM system_info;",
+      "SELECT user AS username FROM logged_in_users ORDER BY time DESC LIMIT 1;"
+    ]
+  }
+}

@@ -1,0 +1,322 @@
+---
+# OSQuery Installation Role - Main Tasks
+# Installs and configures OSQuery for Fleet DM integration
+
+- name: Display OSQuery installation configuration
+  debug:
+    msg: |
+      === OSQuery Installation Configuration ===
+      OSQuery Version: {{ osquery_version | default('5.10.2') }}
+      Fleet Server: {{ osquery_config.server_url | default(fleet_url) }}
+      Environment: {{ server_environment | default('development') }}
+      Role: {{ server_role | default('general_server') }}
+      =========================================
+
+- name: Check if OSQuery is already installed
+  stat:
+    path: /usr/bin/osqueryd
+  register: osquery_installed
+
+- name: Get installed OSQuery version
+  command: osqueryd --version
+  register: osquery_current_version
+  when: osquery_installed.stat.exists
+  changed_when: false
+  failed_when: false
+
+- name: Install OSQuery
+  block:
+    - name: Add OSQuery GPG key
+      apt_key:
+        url: https://pkg.osquery.io/deb/pubkey.gpg
+        state: present
+
+    - name: Add OSQuery repository
+      apt_repository:
+        repo: "deb [arch=amd64] https://pkg.osquery.io/deb deb main"
+        state: present
+        update_cache: true
+
+    - name: Install OSQuery package
+      apt:
+        name: "osquery={{ osquery_version }}-1.linux"
+        state: present
+        allow_downgrade: true
+      notify: restart osqueryd
+
+  when: not osquery_installed.stat.exists or force_osquery_reinstall | default(false)
+
+- name: Create OSQuery directories
+  file:
+    path: "{{ item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  loop:
+    - "{{ osquery_config_path }}"
+    - "{{ osquery_log_path }}"
+    - "{{ osquery_config_path }}/packs"
+    - "{{ osquery_config_path }}/certs"
+
+- name: Generate OSQuery configuration
+  template:
+    src: osquery.conf.j2
+    dest: "{{ osquery_config_path }}/osquery.conf"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  vars:
+    fleet_server_url: "{{ osquery_config.server_url | default(fleet_url) }}"
+    enrollment_secret: "{{ osquery_config.enrollment_secret | default('') }}"
+  notify: restart osqueryd
+
+- name: Generate OSQuery flags configuration
+  template:
+    src: osquery.flags.j2
+    dest: "{{ osquery_config_path }}/osquery.flags"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+  vars:
+    fleet_server_url: "{{ osquery_config.server_url | default(fleet_url) }}"
+    log_level: "{{ osquery_log_level | default('INFO') }}"
+    verbose: "{{ osquery_verbose | default(false) }}"
+  notify: restart osqueryd
+
+- name: Configure Fleet DM enrollment
+  block:
+    - name: Write Fleet enrollment secret
+      copy:
+        content: "{{ osquery_config.enrollment_secret }}"
+        dest: "{{ osquery_config_path }}/enroll_secret"
+        owner: root
+        group: root
+        mode: '0600'
+      notify: restart osqueryd
+      when: osquery_config.enrollment_secret is defined
+
+    - name: Get Fleet DM enrollment secret (if not provided)
+      uri:
+        url: "{{ osquery_config.server_url | default(fleet_url) }}/api/v1/fleet/spec/enroll_secret"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ fleet_api_token }}"
+        validate_certs: false
+        timeout: 30
+      register: fleet_enrollment_secret
+      when: 
+        - osquery_config.enrollment_secret is not defined
+        - fleet_api_token is defined
+      delegate_to: localhost
+
+    - name: Write retrieved enrollment secret
+      copy:
+        content: "{{ fleet_enrollment_secret.json.spec.secrets[0].secret }}"
+        dest: "{{ osquery_config_path }}/enroll_secret"
+        owner: root
+        group: root
+        mode: '0600'
+      notify: restart osqueryd
+      when: 
+        - osquery_config.enrollment_secret is not defined
+        - fleet_enrollment_secret.json is defined
+
+- name: Configure SSL/TLS certificates
+  block:
+    - name: Download Fleet DM CA certificate
+      get_url:
+        url: "{{ osquery_config.server_url | default(fleet_url) }}/api/v1/fleet/certificate"
+        dest: "{{ osquery_config_path }}/certs/fleet-ca.crt"
+        mode: '0644'
+        timeout: 30
+        validate_certs: false
+      when: osquery_use_fleet_ca | default(false)
+
+    - name: Use system CA certificates
+      file:
+        src: /etc/ssl/certs/ca-certificates.crt
+        dest: "{{ osquery_config_path }}/certs/ca-certificates.crt"
+        state: link
+      when: not osquery_use_fleet_ca | default(false)
+
+- name: Install custom OSQuery packs
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ osquery_config_path }}/packs/{{ item.name }}.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: "{{ osquery_custom_packs | default([]) }}"
+  notify: restart osqueryd
+
+- name: Create role-specific OSQuery pack
+  template:
+    src: role-pack.conf.j2
+    dest: "{{ osquery_config_path }}/packs/{{ server_role | default('general') }}-pack.conf"
+    owner: root
+    group: root
+    mode: '0644'
+  vars:
+    role_queries: "{{ osquery_role_queries[server_role | default('general')] | default([]) }}"
+  notify: restart osqueryd
+
+- name: Configure OSQuery service
+  block:
+    - name: Create OSQuery systemd override directory
+      file:
+        path: /etc/systemd/system/osqueryd.service.d
+        state: directory
+        mode: '0755'
+
+    - name: Configure OSQuery systemd service override
+      template:
+        src: osqueryd-override.conf.j2
+        dest: /etc/systemd/system/osqueryd.service.d/override.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify:
+        - reload systemd
+        - restart osqueryd
+
+- name: Configure OSQuery log rotation
+  template:
+    src: osquery-logrotate.j2
+    dest: /etc/logrotate.d/osquery
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Enable and start OSQuery service
+  systemd:
+    name: osqueryd
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Wait for OSQuery to initialize
+  wait_for:
+    path: "{{ osquery_log_path }}/osqueryd.INFO"
+    timeout: 60
+  ignore_errors: true
+
+- name: Verify OSQuery installation
+  block:
+    - name: Check OSQuery service status
+      command: systemctl is-active osqueryd
+      register: osquery_service_status
+      changed_when: false
+
+    - name: Test OSQuery CLI
+      command: osqueryi --json "SELECT version FROM osquery_info;"
+      register: osquery_cli_test
+      changed_when: false
+      timeout: 30
+
+    - name: Display OSQuery verification results
+      debug:
+        msg: |
+          === OSQuery Installation Verified ===
+          Service Status: {{ osquery_service_status.stdout }}
+          Version: {{ (osquery_cli_test.stdout | from_json)[0].version if osquery_cli_test.stdout else 'Unknown' }}
+          Config Path: {{ osquery_config_path }}/osquery.conf
+          Log Path: {{ osquery_log_path }}
+          Fleet Enrollment: {{ 'Configured' if osquery_config.enrollment_secret is defined else 'Pending' }}
+          ===================================
+
+- name: Create OSQuery monitoring script
+  template:
+    src: osquery-monitor.sh.j2
+    dest: /usr/local/bin/osquery-monitor.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Schedule OSQuery monitoring
+  cron:
+    name: "osquery-monitor"
+    minute: "*/5"
+    job: "/usr/local/bin/osquery-monitor.sh >> /var/log/osquery-monitor.log 2>&1"
+  when: osquery_monitoring_enabled | default(true)
+
+- name: Create OSQuery maintenance script
+  template:
+    src: osquery-maintenance.sh.j2
+    dest: /usr/local/bin/osquery-maintenance.sh
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Schedule OSQuery maintenance
+  cron:
+    name: "osquery-maintenance"
+    hour: "2"
+    minute: "0"
+    weekday: "0"
+    job: "/usr/local/bin/osquery-maintenance.sh >> /var/log/osquery-maintenance.log 2>&1"
+  when: osquery_auto_maintenance | default(true)
+
+- name: Test Fleet DM enrollment
+  block:
+    - name: Wait for Fleet enrollment
+      pause:
+        seconds: 30
+        prompt: "Waiting for OSQuery to enroll with Fleet DM..."
+
+    - name: Check Fleet enrollment status
+      uri:
+        url: "{{ osquery_config.server_url | default(fleet_url) }}/api/v1/fleet/hosts"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ fleet_api_token }}"
+        validate_certs: false
+        timeout: 30
+      register: fleet_hosts
+      delegate_to: localhost
+      when: fleet_api_token is defined
+
+    - name: Verify host enrollment in Fleet
+      set_fact:
+        host_enrolled: "{{ fleet_hosts.json.hosts | selectattr('hostname', 'equalto', inventory_hostname) | list | length > 0 }}"
+      when: fleet_hosts.json is defined
+
+    - name: Display enrollment status
+      debug:
+        msg: |
+          === Fleet DM Enrollment Status ===
+          Host: {{ inventory_hostname }}
+          Enrolled: {{ host_enrolled | default('Unknown') }}
+          Fleet URL: {{ osquery_config.server_url | default(fleet_url) }}
+          ==================================
+
+  when: test_fleet_enrollment | default(true)
+
+- name: Create OSQuery installation summary
+  copy:
+    content: |
+      OSQuery installation completed successfully on {{ inventory_hostname }}
+      =====================================================
+      
+      Installation Details:
+      - OSQuery Version: {{ (osquery_cli_test.stdout | from_json)[0].version if osquery_cli_test.stdout else 'Unknown' }}
+      - Service Status: {{ osquery_service_status.stdout if osquery_service_status is defined else 'Unknown' }}
+      - Configuration: {{ osquery_config_path }}/osquery.conf
+      - Logs: {{ osquery_log_path }}
+      
+      Fleet Integration:
+      - Fleet Server: {{ osquery_config.server_url | default(fleet_url) }}
+      - Enrollment: {{ 'Configured' if osquery_config.enrollment_secret is defined else 'Pending' }}
+      - Host Enrolled: {{ host_enrolled | default('Unknown') }}
+      
+      Features:
+      - Monitoring: {{ 'Enabled' if osquery_monitoring_enabled | default(true) else 'Disabled' }}
+      - Maintenance: {{ 'Enabled' if osquery_auto_maintenance | default(true) else 'Disabled' }}
+      - Custom Packs: {{ osquery_custom_packs | length if osquery_custom_packs is defined else 0 }}
+      
+      Installation completed: {{ ansible_date_time.iso8601 }}
+      =====================================================
+    dest: "/var/log/osquery-setup-{{ ansible_date_time.epoch }}.log"
+    mode: '0644'

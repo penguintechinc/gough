@@ -1,0 +1,372 @@
+---
+# Docker Setup Role - Main Tasks
+# Installs and configures Docker for container workloads
+
+- name: Display Docker setup configuration
+  debug:
+    msg: |
+      === Docker Setup Configuration ===
+      Docker Version: {{ docker_version | default('latest') }}
+      Docker Compose Version: {{ docker_compose_version | default('v2.20.0') }}
+      Docker Registry: {{ docker_registry | default('none') }}
+      Enable Swarm: {{ docker_swarm_enabled | default(false) }}
+      Environment: {{ docker_environment | default('development') }}
+      ===================================
+
+- name: Update package cache
+  apt:
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Install prerequisite packages
+  apt:
+    name: "{{ docker_prerequisite_packages }}"
+    state: present
+
+- name: Add Docker GPG key
+  apt_key:
+    url: https://download.docker.com/linux/ubuntu/gpg
+    state: present
+    keyring: /usr/share/keyrings/docker-archive-keyring.gpg
+
+- name: Add Docker repository
+  apt_repository:
+    repo: "deb [arch=amd64 signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu {{ ansible_distribution_release }} stable"
+    state: present
+    update_cache: true
+
+- name: Install Docker packages
+  apt:
+    name: "{{ docker_packages }}"
+    state: present
+  notify:
+    - restart docker
+
+- name: Create Docker configuration directory
+  file:
+    path: /etc/docker
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker daemon
+  template:
+    src: daemon.json.j2
+    dest: /etc/docker/daemon.json
+    mode: '0644'
+    backup: true
+  notify:
+    - restart docker
+  vars:
+    docker_config:
+      log_driver: "{{ docker_log_driver | default('json-file') }}"
+      log_opts:
+        max_size: "{{ docker_log_max_size | default('10m') }}"
+        max_file: "{{ docker_log_max_file | default('3') }}"
+      storage_driver: "{{ docker_storage_driver | default('overlay2') }}"
+      data_root: "{{ docker_data_root | default('/var/lib/docker') }}"
+      insecure_registries: "{{ docker_insecure_registries | default([]) }}"
+      registry_mirrors: "{{ docker_registry_mirrors | default([]) }}"
+      metrics_addr: "{{ docker_metrics_addr | default('0.0.0.0:9323') }}"
+      experimental: "{{ docker_experimental | default(false) }}"
+      features:
+        buildkit: "{{ docker_buildkit | default(true) }}"
+      default_ulimits:
+        nofile:
+          hard: 65536
+          soft: 65536
+
+- name: Create Docker systemd service directory
+  file:
+    path: /etc/systemd/system/docker.service.d
+    state: directory
+    mode: '0755'
+
+- name: Configure Docker systemd service
+  template:
+    src: docker-service-override.conf.j2
+    dest: /etc/systemd/system/docker.service.d/override.conf
+    mode: '0644'
+  notify:
+    - reload systemd
+    - restart docker
+
+- name: Create Docker users and groups
+  block:
+    - name: Ensure docker group exists
+      group:
+        name: docker
+        state: present
+
+    - name: Add users to docker group
+      user:
+        name: "{{ item }}"
+        groups: docker
+        append: true
+      loop: "{{ docker_users | default(['ubuntu']) }}"
+
+- name: Enable and start Docker service
+  systemd:
+    name: docker
+    enabled: true
+    state: started
+    daemon_reload: true
+
+- name: Install Docker Compose
+  block:
+    - name: Download Docker Compose
+      get_url:
+        url: "https://github.com/docker/compose/releases/download/{{ docker_compose_version }}/docker-compose-linux-x86_64"
+        dest: /usr/local/bin/docker-compose
+        mode: '0755'
+        owner: root
+        group: root
+
+    - name: Create Docker Compose symlink
+      file:
+        src: /usr/local/bin/docker-compose
+        dest: /usr/bin/docker-compose
+        state: link
+
+    - name: Verify Docker Compose installation
+      command: docker-compose --version
+      register: compose_version
+      changed_when: false
+
+    - name: Display Docker Compose version
+      debug:
+        msg: "Docker Compose installed: {{ compose_version.stdout }}"
+
+- name: Install Docker Buildx
+  block:
+    - name: Create Docker CLI plugins directory
+      file:
+        path: /usr/local/lib/docker/cli-plugins
+        state: directory
+        mode: '0755'
+
+    - name: Download Docker Buildx
+      get_url:
+        url: "https://github.com/docker/buildx/releases/download/{{ docker_buildx_version | default('v0.11.0') }}/buildx-{{ docker_buildx_version | default('v0.11.0') }}.linux-amd64"
+        dest: /usr/local/lib/docker/cli-plugins/docker-buildx
+        mode: '0755'
+
+    - name: Verify Docker Buildx installation
+      command: docker buildx version
+      register: buildx_version
+      changed_when: false
+
+    - name: Display Docker Buildx version
+      debug:
+        msg: "Docker Buildx installed: {{ buildx_version.stdout }}"
+
+- name: Configure Docker networking
+  block:
+    - name: Configure Docker bridge network
+      template:
+        src: docker-bridge.conf.j2
+        dest: /etc/systemd/network/docker-bridge.conf
+        mode: '0644'
+      when: docker_custom_bridge | default(false)
+
+    - name: Configure iptables for Docker
+      lineinfile:
+        path: /etc/sysctl.conf
+        line: "{{ item }}"
+        state: present
+      loop:
+        - "net.ipv4.ip_forward=1"
+        - "net.bridge.bridge-nf-call-iptables=1"
+        - "net.bridge.bridge-nf-call-ip6tables=1"
+      notify: reload sysctl
+
+- name: Configure Docker registry authentication
+  block:
+    - name: Create Docker config directory for users
+      file:
+        path: "/home/{{ item }}/.docker"
+        state: directory
+        owner: "{{ item }}"
+        group: "{{ item }}"
+        mode: '0700'
+      loop: "{{ docker_users | default(['ubuntu']) }}"
+
+    - name: Configure Docker registry credentials
+      template:
+        src: docker-config.json.j2
+        dest: "/home/{{ item }}/.docker/config.json"
+        owner: "{{ item }}"
+        group: "{{ item }}"
+        mode: '0600'
+      loop: "{{ docker_users | default(['ubuntu']) }}"
+      when: docker_registries is defined and docker_registries | length > 0
+
+  when: docker_registry_auth | default(false)
+
+- name: Setup Docker Swarm
+  block:
+    - name: Initialize Docker Swarm
+      command: docker swarm init --advertise-addr {{ ansible_default_ipv4.address }}
+      register: swarm_init
+      failed_when: 
+        - swarm_init.rc != 0
+        - "'already part of a swarm' not in swarm_init.stderr"
+      changed_when: swarm_init.rc == 0
+
+    - name: Get Swarm join tokens
+      command: docker swarm join-token {{ item }}
+      register: swarm_tokens
+      loop:
+        - manager
+        - worker
+      when: swarm_init.rc == 0
+
+    - name: Display Swarm join tokens
+      debug:
+        msg: "{{ item.stdout }}"
+      loop: "{{ swarm_tokens.results }}"
+      when: swarm_tokens is defined
+
+  when: docker_swarm_enabled | default(false) and inventory_hostname == groups['docker_hosts'][0]
+
+- name: Configure Docker monitoring
+  block:
+    - name: Install Docker monitoring tools
+      apt:
+        name:
+          - docker-ce-rootless-extras
+        state: present
+
+    - name: Create Docker metrics directory
+      file:
+        path: /var/lib/docker-metrics
+        state: directory
+        mode: '0755'
+
+    - name: Configure Docker metrics collection
+      template:
+        src: docker-metrics.sh.j2
+        dest: /usr/local/bin/docker-metrics.sh
+        mode: '0755'
+
+    - name: Create Docker metrics cron job
+      cron:
+        name: "docker-metrics"
+        minute: "*/5"
+        job: "/usr/local/bin/docker-metrics.sh >> /var/log/docker-metrics.log 2>&1"
+
+  when: docker_monitoring_enabled | default(true)
+
+- name: Configure Docker log rotation
+  template:
+    src: docker-logrotate.j2
+    dest: /etc/logrotate.d/docker
+    mode: '0644'
+
+- name: Setup Docker health checks
+  block:
+    - name: Create Docker health check script
+      template:
+        src: docker-health.sh.j2
+        dest: /usr/local/bin/docker-health.sh
+        mode: '0755'
+
+    - name: Create Docker health check systemd service
+      template:
+        src: docker-health.service.j2
+        dest: /etc/systemd/system/docker-health.service
+        mode: '0644'
+
+    - name: Create Docker health check systemd timer
+      template:
+        src: docker-health.timer.j2
+        dest: /etc/systemd/system/docker-health.timer
+        mode: '0644'
+
+    - name: Enable Docker health check timer
+      systemd:
+        name: docker-health.timer
+        enabled: true
+        state: started
+        daemon_reload: true
+
+- name: Configure firewall for Docker
+  ufw:
+    rule: allow
+    port: "{{ item }}"
+    proto: tcp
+    comment: "Docker"
+  loop: "{{ docker_firewall_ports }}"
+  when: docker_configure_firewall | default(true)
+
+- name: Verify Docker installation
+  block:
+    - name: Check Docker version
+      command: docker --version
+      register: docker_version_check
+      changed_when: false
+
+    - name: Check Docker service status
+      command: systemctl is-active docker
+      register: docker_service_status
+      changed_when: false
+
+    - name: Run Docker hello-world test
+      command: docker run --rm hello-world
+      register: docker_test
+      changed_when: false
+      when: docker_run_tests | default(true)
+
+    - name: Display Docker verification results
+      debug:
+        msg: |
+          === Docker Installation Verified ===
+          Version: {{ docker_version_check.stdout }}
+          Service Status: {{ docker_service_status.stdout }}
+          Test Result: {{ 'PASSED' if docker_test.rc == 0 else 'FAILED' }}
+          ===================================
+
+- name: Create Docker cleanup script
+  template:
+    src: docker-cleanup.sh.j2
+    dest: /usr/local/bin/docker-cleanup.sh
+    mode: '0755'
+
+- name: Schedule Docker cleanup
+  cron:
+    name: "docker-cleanup"
+    hour: "2"
+    minute: "0"
+    weekday: "0"
+    job: "/usr/local/bin/docker-cleanup.sh >> /var/log/docker-cleanup.log 2>&1"
+  when: docker_auto_cleanup | default(true)
+
+- name: Final Docker setup tasks
+  block:
+    - name: Create Docker info summary
+      command: docker info --format "{{ '{{' }}.ServerVersion{{ '}}' }}"
+      register: docker_info
+      changed_when: false
+
+    - name: Log Docker setup completion
+      copy:
+        content: |
+          Docker setup completed successfully on {{ inventory_hostname }}
+          =====================================================
+          
+          Installation Details:
+          - Docker Version: {{ docker_info.stdout }}
+          - Docker Compose: {{ compose_version.stdout if compose_version is defined else 'Not installed' }}
+          - Docker Buildx: {{ buildx_version.stdout if buildx_version is defined else 'Not installed' }}
+          - Swarm Mode: {{ 'Enabled' if docker_swarm_enabled | default(false) else 'Disabled' }}
+          - Storage Driver: {{ docker_storage_driver | default('overlay2') }}
+          - Data Root: {{ docker_data_root | default('/var/lib/docker') }}
+          
+          Configuration:
+          - Registry Authentication: {{ 'Enabled' if docker_registry_auth | default(false) else 'Disabled' }}
+          - Monitoring: {{ 'Enabled' if docker_monitoring_enabled | default(true) else 'Disabled' }}
+          - Auto Cleanup: {{ 'Enabled' if docker_auto_cleanup | default(true) else 'Disabled' }}
+          
+          Setup completed: {{ ansible_date_time.iso8601 }}
+          =====================================================
+        dest: "/var/log/docker-setup-{{ ansible_date_time.epoch }}.log"
+        mode: '0644'

@@ -106,4 +106,93 @@ def define_tables(db):
         format='%(level)s - %(component)s'
     )
     
+    # FleetDM hosts tracking table
+    db.define_table('fleet_hosts',
+        Field('fleet_host_id', 'integer', notnull=True, unique=True),
+        Field('hostname', 'string', notnull=True),
+        Field('uuid', 'string', unique=True),
+        Field('server_id', 'reference servers'),
+        Field('last_seen', 'datetime'),
+        Field('status', 'string', default='offline'),  # online, offline, mia, new
+        Field('platform', 'string'),
+        Field('osquery_version', 'string'),
+        Field('enrollment_date', 'datetime'),
+        Field('created_on', 'datetime', default=datetime.datetime.now),
+        Field('updated_on', 'datetime', update=datetime.datetime.now),
+        format='%(hostname)s'
+    )
+    
+    # Saved FleetDM queries table
+    db.define_table('fleet_queries',
+        Field('name', 'string', notnull=True, unique=True),
+        Field('description', 'text'),
+        Field('query', 'text', notnull=True),
+        Field('fleet_query_id', 'integer'),
+        Field('category', 'string', default='custom'),
+        Field('is_scheduled', 'boolean', default=False),
+        Field('interval_seconds', 'integer', default=3600),
+        Field('created_by', 'string'),
+        Field('created_on', 'datetime', default=datetime.datetime.now),
+        Field('updated_on', 'datetime', update=datetime.datetime.now),
+        format='%(name)s'
+    )
+    
+    # Query execution history table
+    db.define_table('query_executions',
+        Field('query_id', 'reference fleet_queries'),
+        Field('campaign_id', 'integer'),
+        Field('executed_by', 'string'),
+        Field('target_hosts', 'text'),  # JSON array of host IDs
+        Field('status', 'string', default='pending'),  # pending, running, completed, failed
+        Field('results_count', 'integer', default=0),
+        Field('execution_time', 'integer'),  # in seconds
+        Field('error_message', 'text'),
+        Field('executed_on', 'datetime', default=datetime.datetime.now),
+        Field('completed_on', 'datetime'),
+        format='Query %(id)s'
+    )
+    
+    # FleetDM alerts configuration table
+    db.define_table('fleet_alerts',
+        Field('name', 'string', notnull=True, unique=True),
+        Field('description', 'text'),
+        Field('query_id', 'reference fleet_queries'),
+        Field('alert_condition', 'string', notnull=True),  # query_results, host_offline, etc.
+        Field('condition_parameters', 'text'),  # JSON parameters for condition
+        Field('notification_channels', 'text'),  # JSON array of notification methods
+        Field('is_active', 'boolean', default=True),
+        Field('severity', 'string', default='medium'),  # low, medium, high, critical
+        Field('cooldown_minutes', 'integer', default=60),
+        Field('last_triggered', 'datetime'),
+        Field('created_on', 'datetime', default=datetime.datetime.now),
+        Field('updated_on', 'datetime', update=datetime.datetime.now),
+        format='%(name)s'
+    )
+    
+    # Alert execution history table
+    db.define_table('alert_history',
+        Field('alert_id', 'reference fleet_alerts'),
+        Field('triggered_by', 'string'),  # query_result, system_event, etc.
+        Field('trigger_data', 'text'),  # JSON data that triggered the alert
+        Field('notification_sent', 'boolean', default=False),
+        Field('notification_channels_used', 'text'),  # JSON array
+        Field('resolved', 'boolean', default=False),
+        Field('resolved_by', 'string'),
+        Field('resolution_notes', 'text'),
+        Field('triggered_on', 'datetime', default=datetime.datetime.now),
+        Field('resolved_on', 'datetime'),
+        format='Alert %(alert_id)s - %(triggered_on)s'
+    )
+    
+    # OSQuery result cache table (for dashboard display)
+    db.define_table('osquery_results',
+        Field('host_id', 'reference fleet_hosts'),
+        Field('query_name', 'string', notnull=True),
+        Field('result_data', 'text'),  # JSON formatted query results
+        Field('result_hash', 'string'),  # Hash to detect changes
+        Field('execution_time', 'datetime'),
+        Field('created_on', 'datetime', default=datetime.datetime.now),
+        format='%(host_id)s - %(query_name)s'
+    )
+    
     return db

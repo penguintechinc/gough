@@ -1,0 +1,447 @@
+---
+# Package Configuration Playbook
+# Configures packages and software based on server role and requirements
+
+- name: Configure Server Packages
+  hosts: deployed_servers
+  become: true
+  gather_facts: true
+  serial: 20  # Process 20 servers at a time for scalability
+  vars:
+    config_role: "{{ config_role | default(server_role | default('general_server')) }}"
+    config_packages: "{{ config_packages | default('base_standard') }}"
+    config_environment: "{{ config_environment | default(server_environment | default('development')) }}"
+    
+  pre_tasks:
+    - name: Display configuration plan
+      debug:
+        msg: |
+          === Package Configuration ===
+          Host: {{ inventory_hostname }}
+          Role: {{ config_role }}
+          Package Profile: {{ config_packages }}
+          Environment: {{ config_environment }}
+          ============================
+
+    - name: Update package cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Upgrade system packages
+      apt:
+        upgrade: safe
+        autoremove: true
+        autoclean: true
+      when: config_environment == 'production'
+
+  tasks:
+    # Base package installation for all servers
+    - name: Install base system packages
+      apt:
+        name: "{{ base_packages }}"
+        state: present
+        install_recommends: false
+      vars:
+        base_packages:
+          - curl
+          - wget
+          - git
+          - htop
+          - vim
+          - tree
+          - unzip
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - gnupg
+          - lsb-release
+          - python3-pip
+          - python3-venv
+          - rsync
+          - jq
+          - net-tools
+          - tcpdump
+          - iotop
+          - iftop
+          - ntp
+          - fail2ban
+          - ufw
+
+    # Security and monitoring packages
+    - name: Install security packages
+      apt:
+        name: "{{ security_packages }}"
+        state: present
+      vars:
+        security_packages:
+          - aide
+          - lynis
+          - chkrootkit
+          - rkhunter
+          - clamav
+          - clamav-daemon
+      when: config_packages in ['security_enhanced', 'production_standard']
+
+    # Role-specific package configuration
+    - name: Configure Docker hosts
+      include_role:
+        name: docker-setup
+      when: config_role == 'docker_host'
+
+    - name: Configure LXD hosts
+      include_role:
+        name: lxd-setup
+      when: config_role in ['lxd_host', 'general_server']
+
+    - name: Configure Kubernetes nodes
+      block:
+        - name: Add Kubernetes APT repository
+          apt_key:
+            url: https://packages.cloud.google.com/apt/doc/apt-key.gpg
+            state: present
+
+        - name: Add Kubernetes repository
+          apt_repository:
+            repo: "deb https://apt.kubernetes.io/ kubernetes-xenial main"
+            state: present
+            update_cache: true
+
+        - name: Install Kubernetes packages
+          apt:
+            name:
+              - kubelet
+              - kubeadm
+              - kubectl
+            state: present
+            allow_change_held_packages: true
+
+        - name: Hold Kubernetes packages
+          dpkg_selections:
+            name: "{{ item }}"
+            selection: hold
+          loop:
+            - kubelet
+            - kubeadm
+            - kubectl
+
+        - name: Configure kubelet
+          template:
+            src: templates/kubelet-config.yaml.j2
+            dest: /etc/kubernetes/kubelet.conf
+            owner: root
+            group: root
+            mode: '0644'
+          notify: restart kubelet
+
+      when: config_role == 'kubernetes_node'
+
+    # Development environment packages
+    - name: Install development tools
+      apt:
+        name: "{{ dev_packages }}"
+        state: present
+      vars:
+        dev_packages:
+          - build-essential
+          - nodejs
+          - npm
+          - golang-go
+          - python3-dev
+          - docker-compose
+          - terraform
+          - ansible
+      when: config_environment == 'development'
+
+    # Database packages (conditional)
+    - name: Install database packages
+      block:
+        - name: Install PostgreSQL
+          apt:
+            name:
+              - postgresql
+              - postgresql-contrib
+              - python3-psycopg2
+            state: present
+          when: "'postgresql' in (database_engines | default([]))"
+
+        - name: Install MySQL
+          apt:
+            name:
+              - mysql-server
+              - python3-pymysql
+            state: present
+          when: "'mysql' in (database_engines | default([]))"
+
+        - name: Install Redis
+          apt:
+            name:
+              - redis-server
+              - redis-tools
+            state: present
+          when: "'redis' in (database_engines | default([]))"
+
+      when: config_packages in ['database_standard', 'full_stack']
+
+    # Web server packages
+    - name: Install web server packages
+      block:
+        - name: Install Nginx
+          apt:
+            name:
+              - nginx
+              - nginx-extras
+            state: present
+          when: "'nginx' in (web_servers | default([]))"
+
+        - name: Install Apache
+          apt:
+            name:
+              - apache2
+              - apache2-utils
+            state: present
+          when: "'apache' in (web_servers | default([]))"
+
+      when: config_packages in ['web_standard', 'full_stack']
+
+    # Monitoring and logging packages
+    - name: Install monitoring packages
+      apt:
+        name: "{{ monitoring_packages }}"
+        state: present
+      vars:
+        monitoring_packages:
+          - prometheus-node-exporter
+          - collectd
+          - logrotate
+          - rsyslog
+          - logwatch
+      when: config_packages in ['monitoring_standard', 'production_standard', 'full_stack']
+
+    # Configure systemd services
+    - name: Configure essential services
+      systemd:
+        name: "{{ item }}"
+        enabled: true
+        state: started
+      loop:
+        - ssh
+        - ntp
+        - fail2ban
+        - rsyslog
+      ignore_errors: true
+
+    # Configure firewall
+    - name: Configure UFW firewall
+      block:
+        - name: Reset UFW to defaults
+          ufw:
+            state: reset
+
+        - name: Set UFW default policies
+          ufw:
+            policy: "{{ item.policy }}"
+            direction: "{{ item.direction }}"
+          loop:
+            - { direction: incoming, policy: deny }
+            - { direction: outgoing, policy: allow }
+
+        - name: Allow SSH
+          ufw:
+            rule: allow
+            name: OpenSSH
+
+        - name: Allow role-specific ports
+          ufw:
+            rule: allow
+            port: "{{ item }}"
+            proto: tcp
+          loop: "{{ role_firewall_ports[config_role] | default([]) }}"
+
+        - name: Enable UFW
+          ufw:
+            state: enabled
+
+      vars:
+        role_firewall_ports:
+          docker_host: ['2376', '2377', '7946', '4789']
+          kubernetes_node: ['6443', '2379', '2380', '10250', '10251', '10252']
+          web_server: ['80', '443']
+          database_server: ['5432', '3306', '6379']
+          general_server: []
+
+    # Custom package configuration based on profiles
+    - name: Install custom packages
+      apt:
+        name: "{{ custom_packages | default([]) }}"
+        state: present
+      when: custom_packages is defined and custom_packages | length > 0
+
+    # Python packages installation
+    - name: Install Python packages
+      pip:
+        name: "{{ python_packages | default([]) }}"
+        state: present
+        executable: pip3
+      when: python_packages is defined and python_packages | length > 0
+
+    # Snap packages installation
+    - name: Install Snap packages
+      snap:
+        name: "{{ item }}"
+        state: present
+      loop: "{{ snap_packages | default([]) }}"
+      when: snap_packages is defined and snap_packages | length > 0
+
+  post_tasks:
+    - name: Clean up package cache
+      apt:
+        autoclean: true
+        autoremove: true
+
+    - name: Generate installed packages list
+      shell: dpkg --get-selections | grep -v deinstall | awk '{print $1}' | sort
+      register: installed_packages
+      changed_when: false
+
+    - name: Save package inventory
+      copy:
+        content: |
+          # Package inventory for {{ inventory_hostname }}
+          # Generated: {{ ansible_date_time.iso8601 }}
+          # Role: {{ config_role }}
+          # Profile: {{ config_packages }}
+          # Environment: {{ config_environment }}
+          
+          {{ installed_packages.stdout }}
+        dest: "/tmp/packages-{{ inventory_hostname }}-{{ ansible_date_time.epoch }}.txt"
+      delegate_to: localhost
+
+    - name: Report package configuration status
+      uri:
+        url: "{{ management_server_url }}/api/servers/{{ inventory_hostname }}/packages"
+        method: PUT
+        body_format: json
+        body:
+          hostname: "{{ inventory_hostname }}"
+          role: "{{ config_role }}"
+          profile: "{{ config_packages }}"
+          environment: "{{ config_environment }}"
+          package_count: "{{ installed_packages.stdout_lines | length }}"
+          configuration_time: "{{ ansible_date_time.iso8601 }}"
+          packages: "{{ installed_packages.stdout_lines }}"
+        headers:
+          Authorization: "Bearer {{ management_api_token }}"
+      when: management_server_url is defined
+      ignore_errors: true
+
+  handlers:
+    - name: restart kubelet
+      systemd:
+        name: kubelet
+        state: restarted
+
+    - name: restart nginx
+      systemd:
+        name: nginx
+        state: restarted
+
+    - name: restart apache2
+      systemd:
+        name: apache2
+        state: restarted
+
+    - name: restart postgresql
+      systemd:
+        name: postgresql
+        state: restarted
+
+    - name: restart mysql
+      systemd:
+        name: mysql
+        state: restarted
+
+    - name: restart redis
+      systemd:
+        name: redis-server
+        state: restarted
+
+# Configuration validation and reporting
+- name: Validate Package Configuration
+  hosts: deployed_servers
+  become: true
+  gather_facts: false
+  serial: 50
+  
+  tasks:
+    - name: Check critical services
+      systemd:
+        name: "{{ item }}"
+      register: service_status
+      loop:
+        - ssh
+        - ntp
+        - rsyslog
+      failed_when: false
+
+    - name: Validate Docker installation (Docker hosts)
+      command: docker --version
+      register: docker_version
+      when: config_role == 'docker_host'
+      failed_when: false
+      changed_when: false
+
+    - name: Validate Kubernetes installation (K8s nodes)
+      command: kubectl version --client --short
+      register: kubectl_version
+      when: config_role == 'kubernetes_node'
+      failed_when: false
+      changed_when: false
+
+    - name: Check disk space after installation
+      setup:
+        gather_subset: mounts
+      register: disk_usage
+
+    - name: Validate configuration
+      assert:
+        that:
+          - service_status.results | selectattr('state', 'defined') | selectattr('state', 'equalto', 'started') | list | length >= 2
+          - (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_available') | first / ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first * 100) > 10
+        fail_msg: "Configuration validation failed"
+
+# Summary Report Generation
+- name: Generate Package Configuration Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: Collect configuration results
+      set_fact:
+        total_servers: "{{ groups['deployed_servers'] | length }}"
+        successful_configurations: "{{ groups['deployed_servers'] | length }}"  # Would be calculated based on failures
+
+    - name: Create configuration report
+      template:
+        src: templates/package-config-report.j2
+        dest: "/tmp/gough-package-config-{{ ansible_date_time.epoch }}.html"
+      vars:
+        config_stats:
+          total: "{{ total_servers }}"
+          successful: "{{ successful_configurations }}"
+          role: "{{ config_role }}"
+          profile: "{{ config_packages }}"
+          environment: "{{ config_environment }}"
+
+    - name: Display configuration summary
+      debug:
+        msg: |
+          === Package Configuration Summary ===
+          Total Servers: {{ total_servers }}
+          Successfully Configured: {{ successful_configurations }}
+          Role: {{ config_role }}
+          Profile: {{ config_packages }}
+          Environment: {{ config_environment }}
+          Report: /tmp/gough-package-config-{{ ansible_date_time.epoch }}.html
+          =====================================

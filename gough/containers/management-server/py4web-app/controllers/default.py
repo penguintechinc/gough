@@ -21,6 +21,9 @@ def index():
     completed_jobs = db(db.deployment_jobs.status == 'Completed').count()
     failed_jobs = db(db.deployment_jobs.status == 'Failed').count()
     
+    # Get FleetDM/OSQuery statistics
+    fleet_stats = get_fleet_dashboard_data()
+    
     # Get recent logs
     recent_logs = db(db.system_logs).select(
         orderby=~db.system_logs.created_on,
@@ -40,6 +43,9 @@ def index():
         status_labels.append(row.servers.status or 'Unknown')
         status_data.append(row._extra[db.servers.status.count()])
     
+    # Get recent OSQuery results for key metrics
+    recent_osquery_results = get_recent_osquery_results()
+    
     return {
         'stats': {
             'total_servers': total_servers,
@@ -47,12 +53,110 @@ def index():
             'completed_jobs': completed_jobs,
             'failed_jobs': failed_jobs
         },
+        'fleet_stats': fleet_stats,
         'recent_logs': recent_logs,
+        'recent_osquery_results': recent_osquery_results,
         'status_chart_data': {
             'labels': status_labels,
             'data': status_data
         }
     }
+
+
+def get_fleet_dashboard_data():
+    """Get FleetDM statistics for dashboard display"""
+    try:
+        from ..modules.fleet_client import FleetClient
+        
+        # Get FleetDM configuration
+        fleet_config = db(db.fleetdm_config.is_active == True).select().first()
+        if not fleet_config:
+            return {
+                'configured': False,
+                'total_hosts': 0,
+                'online_hosts': 0,
+                'offline_hosts': 0
+            }
+        
+        # Create FleetDM client
+        client = FleetClient(fleet_config.fleet_url, fleet_config.api_token)
+        if not client.test_connection():
+            return {
+                'configured': True,
+                'connected': False,
+                'total_hosts': 0,
+                'online_hosts': 0,
+                'offline_hosts': 0
+            }
+        
+        # Get system statistics
+        stats = client.get_system_stats()
+        host_status = client.get_host_status_summary()
+        
+        return {
+            'configured': True,
+            'connected': True,
+            'total_hosts': stats.get('total_hosts', 0),
+            'online_hosts': host_status.get('online', 0),
+            'offline_hosts': host_status.get('offline', 0),
+            'new_hosts': host_status.get('new', 0),
+            'mia_hosts': host_status.get('missing_in_action', 0),
+            'total_queries': stats.get('total_queries', 0),
+            'total_packs': stats.get('total_packs', 0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting Fleet dashboard data: {e}")
+        return {
+            'configured': True,
+            'connected': False,
+            'error': str(e),
+            'total_hosts': 0,
+            'online_hosts': 0,
+            'offline_hosts': 0
+        }
+
+
+def get_recent_osquery_results():
+    """Get recent OSQuery results for dashboard display"""
+    try:
+        # Get recent cached results
+        recent_results = db(db.osquery_results).select(
+            db.osquery_results.host_id,
+            db.osquery_results.query_name,
+            db.osquery_results.result_data,
+            db.osquery_results.execution_time,
+            orderby=~db.osquery_results.created_on,
+            limitby=(0, 20)
+        )
+        
+        results_summary = []
+        for result in recent_results:
+            try:
+                # Parse JSON result data
+                import json
+                result_data = json.loads(result.result_data) if result.result_data else []
+                
+                # Get host information
+                host = db(db.fleet_hosts.id == result.host_id).select().first()
+                hostname = host.hostname if host else f"Host-{result.host_id}"
+                
+                results_summary.append({
+                    'hostname': hostname,
+                    'query_name': result.query_name,
+                    'result_count': len(result_data) if isinstance(result_data, list) else 1,
+                    'execution_time': result.execution_time,
+                    'sample_data': result_data[:3] if isinstance(result_data, list) else result_data
+                })
+            except (json.JSONDecodeError, AttributeError):
+                continue
+        
+        return results_summary
+        
+    except Exception as e:
+        logger.error(f"Error getting recent OSQuery results: {e}")
+        return []
+
 
 @action("about")
 @action.uses("about.html")

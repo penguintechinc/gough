@@ -1,0 +1,153 @@
+---
+# Cloud-Init Configuration Role - Main Tasks
+# Generates and manages cloud-init configurations for different server roles
+
+- name: Validate cloud-init parameters
+  assert:
+    that:
+      - cloud_init_role is defined
+      - cloud_init_role in ['docker_host', 'kubernetes_node', 'general_server', 'lxd_host']
+      - cloud_init_env is defined
+      - cloud_init_env in ['development', 'staging', 'production']
+    fail_msg: "Invalid cloud-init configuration parameters"
+
+- name: Display cloud-init configuration
+  debug:
+    msg: |
+      === Cloud-Init Configuration ===
+      Role: {{ cloud_init_role }}
+      Environment: {{ cloud_init_env }}
+      Template: {{ cloud_init_template | default(cloud_init_role + '.yaml') }}
+      Output: {{ cloud_init_output_path | default('/tmp') }}
+      ==============================
+
+- name: Set role-specific variables
+  set_fact:
+    role_packages: "{{ cloud_init_packages[cloud_init_role] | default([]) }}"
+    role_services: "{{ cloud_init_services[cloud_init_role] | default([]) }}"
+    role_users: "{{ cloud_init_users[cloud_init_role] | default([]) }}"
+    role_commands: "{{ cloud_init_commands[cloud_init_role] | default([]) }}"
+    role_files: "{{ cloud_init_files[cloud_init_role] | default([]) }}"
+
+- name: Generate SSH key for management access
+  openssh_keypair:
+    path: "{{ ssh_key_path | default('/tmp/gough-ssh-key') }}"
+    type: ed25519
+    comment: "gough-management-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}"
+    force: false
+  register: management_ssh_key
+  delegate_to: localhost
+  run_once: true
+
+- name: Read SSH public key
+  slurp:
+    src: "{{ management_ssh_key.filename }}.pub"
+  register: ssh_public_key
+  delegate_to: localhost
+
+- name: Generate cloud-init user data
+  template:
+    src: "{{ cloud_init_template | default(cloud_init_role + '.yaml.j2') }}"
+    dest: "{{ cloud_init_output_path | default('/tmp') }}/cloud-init-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+  vars:
+    server_role: "{{ cloud_init_role }}"
+    server_environment: "{{ cloud_init_env }}"
+    ssh_authorized_key: "{{ ssh_public_key.content | b64decode | trim }}"
+    packages_to_install: "{{ base_packages + role_packages + (env_packages[cloud_init_env] | default([])) }}"
+    services_to_enable: "{{ base_services + role_services }}"
+    users_to_create: "{{ base_users + role_users }}"
+    commands_to_run: "{{ base_commands + role_commands }}"
+    files_to_create: "{{ base_files + role_files }}"
+    hostname_prefix: "{{ cloud_init_hostname_prefix | default(cloud_init_role) }}"
+    domain_name: "{{ cloud_init_domain | default('gough.local') }}"
+    timezone: "{{ cloud_init_timezone | default('UTC') }}"
+    locale: "{{ cloud_init_locale | default('en_US.UTF-8') }}"
+  register: cloud_init_file
+
+- name: Validate generated cloud-init file
+  command: cloud-init schema --config-file {{ cloud_init_file.dest }}
+  register: cloud_init_validation
+  changed_when: false
+  failed_when: cloud_init_validation.rc != 0
+  delegate_to: localhost
+
+- name: Display validation result
+  debug:
+    msg: "Cloud-init configuration validated successfully"
+  when: cloud_init_validation.rc == 0
+
+- name: Generate cloud-init metadata
+  template:
+    src: metadata.j2
+    dest: "{{ cloud_init_output_path | default('/tmp') }}/metadata-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+  vars:
+    instance_id: "{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}"
+    hostname: "{{ hostname_prefix }}-{{ '%02d' | format(loop_index | default(1)) }}"
+    local_hostname: "{{ hostname }}"
+
+- name: Generate cloud-init network configuration
+  template:
+    src: network-config.j2
+    dest: "{{ cloud_init_output_path | default('/tmp') }}/network-config-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+  vars:
+    network_version: 2
+    network_renderer: "{{ cloud_init_network_renderer | default('networkd') }}"
+    dhcp_enabled: "{{ cloud_init_dhcp | default(true) }}"
+    static_ip: "{{ cloud_init_static_ip | default('') }}"
+    gateway: "{{ cloud_init_gateway | default('') }}"
+    dns_servers: "{{ cloud_init_dns | default(['8.8.8.8', '8.8.4.4']) }}"
+
+- name: Create cloud-init ISO (if needed)
+  block:
+    - name: Create temporary directory for ISO creation
+      tempfile:
+        state: directory
+        prefix: "cloud-init-iso-"
+      register: iso_temp_dir
+
+    - name: Copy cloud-init files to ISO directory
+      copy:
+        src: "{{ item }}"
+        dest: "{{ iso_temp_dir.path }}/{{ item | basename }}"
+      loop:
+        - "{{ cloud_init_file.dest }}"
+        - "{{ cloud_init_output_path | default('/tmp') }}/metadata-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+        - "{{ cloud_init_output_path | default('/tmp') }}/network-config-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+
+    - name: Create cloud-init ISO image
+      command: |
+        genisoimage -output {{ cloud_init_output_path | default('/tmp') }}/cloud-init-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.iso \
+        -volid cidata -joliet -rock {{ iso_temp_dir.path }}/*
+      register: iso_creation
+
+    - name: Clean up temporary directory
+      file:
+        path: "{{ iso_temp_dir.path }}"
+        state: absent
+
+  when: create_cloud_init_iso | default(false)
+
+- name: Generate configuration summary
+  set_fact:
+    cloud_init_summary:
+      role: "{{ cloud_init_role }}"
+      environment: "{{ cloud_init_env }}"
+      user_data_file: "{{ cloud_init_file.dest }}"
+      metadata_file: "{{ cloud_init_output_path | default('/tmp') }}/metadata-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+      network_config_file: "{{ cloud_init_output_path | default('/tmp') }}/network-config-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.yaml"
+      iso_file: "{{ cloud_init_output_path | default('/tmp') }}/cloud-init-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.iso if create_cloud_init_iso else 'N/A' }}"
+      packages_count: "{{ packages_to_install | length }}"
+      services_count: "{{ services_to_enable | length }}"
+      validation_status: "passed"
+      created_at: "{{ ansible_date_time.iso8601 }}"
+
+- name: Display cloud-init summary
+  debug:
+    var: cloud_init_summary
+
+- name: Create cloud-init usage instructions
+  template:
+    src: usage-instructions.j2
+    dest: "{{ cloud_init_output_path | default('/tmp') }}/cloud-init-usage-{{ cloud_init_role }}-{{ cloud_init_env }}-{{ ansible_date_time.epoch }}.md"
+  vars:
+    config_files: "{{ cloud_init_summary }}"

@@ -1,0 +1,36 @@
+[Unit]
+Description=Gough MaaS Agent
+Documentation=https://github.com/penguintechinc/gough
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User={{ agent_user }}
+Group={{ agent_group }}
+WorkingDirectory={{ agent_install_path }}
+ExecStart={{ agent_install_path }}/bin/agent.py --config {{ agent_config_path }}/config.yaml
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=maas-agent
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths={{ agent_install_path }} {{ agent_log_path }} {{ agent_config_path }}
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Environment
+Environment=PYTHONPATH={{ agent_install_path }}
+Environment=MAAS_AGENT_CONFIG={{ agent_config_path }}/config.yaml
+Environment=MAAS_AGENT_LOG_LEVEL={{ agent_config.log_level | default('INFO') }}
+
+[Install]
+WantedBy=multi-user.target
