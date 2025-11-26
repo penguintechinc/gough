@@ -122,7 +122,7 @@ Gough is an enterprise-grade bare metal automation system that combines Ubuntu M
 - **Repository**: [https://github.com/penguintechinc/gough](https://github.com/penguintechinc/gough)
 - **Issues**: Report bugs and feature requests via GitHub Issues
 - **Documentation**: This documentation is version-controlled with the codebase
-- **License**: MIT License (see LICENSE file)
+- **License**: GNU Affero General Public License v3.0 (AGPL-3.0) with commercial licensing options (see LICENSE file)
 
 ## Contributing
 

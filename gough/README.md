@@ -431,7 +431,23 @@ docker-compose exec mysql mysqldump fleet > fleet-backup.sql
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0) with additional commercial licensing options - see the [LICENSE](../LICENSE) file for details.
+
+**License Highlights:**
+- **Personal & Internal Use**: Free under AGPL-3.0
+- **Commercial Use**: Requires commercial license
+- **SaaS Deployment**: Requires commercial license if providing as a service
+
+### Contributor Employer Exception (GPL-2.0 Grant)
+
+Companies employing official contributors receive GPL-2.0 access to community features:
+
+- **Perpetual for Contributed Versions**: GPL-2.0 rights to versions where the employee contributed remain valid permanently, even after the employee leaves the company
+- **Attribution Required**: Employee must be credited in CONTRIBUTORS, AUTHORS, commit history, or release notes
+- **Future Versions**: New versions released after employment ends require standard licensing
+- **Community Only**: Enterprise features still require a commercial license
+
+This exception rewards contributors by providing lasting fair use rights to their employers.
 
 ## 🆘 Support
 
