@@ -3,8 +3,18 @@ name: Gough Testing Pipeline
 on:
   push:
     branches: [ main, develop ]
+    paths:
+      - 'gough/**'
+      - 'tests/**'
+      - '.version'
+      - '.github/workflows/tests.yml'
   pull_request:
     branches: [ main, develop ]
+    paths:
+      - 'gough/**'
+      - 'tests/**'
+      - '.version'
+      - '.github/workflows/tests.yml'
   schedule:
     # Run tests daily at 2 AM UTC
     - cron: '0 2 * * *'
@@ -24,7 +34,26 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+      with:
+        fetch-depth: 2
+
+    - name: Generate epoch64 timestamp
+      id: timestamp
+      run: |
+        EPOCH64=$(date +%s)
+        echo "epoch64=$EPOCH64" >> $GITHUB_OUTPUT
+
+    - name: Check version file
+      id: version
+      run: |
+        if [ -f .version ]; then
+          VERSION=$(cat .version | tr -d '[:space:]')
+          SEMVER=$(echo "$VERSION" | cut -d'.' -f1-3)
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+        else
+          echo "semver=0.0.0" >> $GITHUB_OUTPUT
+        fi
+
     - name: Set up Python ${{ matrix.python-version }}
       uses: actions/setup-python@v4
       with:
