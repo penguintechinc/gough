@@ -54,7 +54,7 @@ window.MaaSPortal = {
                 const statusIcon = document.getElementById('status-icon');
                 const statusIndicator = document.getElementById('status-indicator');
                 
-                if (!statusIcon || !statusIndicator) return;
+                if (!statusIcon || !statusIndicator) {return;}
                 
                 // Update status icon
                 statusIcon.className = 'bi bi-circle-fill';
@@ -262,7 +262,7 @@ window.MaaSPortal = {
         const chartType = canvas.dataset.chartType;
         const chartData = canvas.dataset.chartData;
         
-        if (!chartData) return;
+        if (!chartData) {return;}
         
         try {
             const data = JSON.parse(chartData);
@@ -302,7 +302,7 @@ window.MaaSPortal = {
         const interval = parseInt(viewer.dataset.autoUpdate) * 1000 || 5000;
         const endpoint = viewer.dataset.endpoint;
         
-        if (!endpoint) return;
+        if (!endpoint) {return;}
         
         setInterval(() => {
             this.updateLogViewer(viewer, endpoint);
@@ -373,7 +373,7 @@ window.MaaSPortal = {
     // Initialize deployment timeline
     initializeDeploymentTimeline: function() {
         const timeline = document.querySelector('.deployment-timeline');
-        if (!timeline) return;
+        if (!timeline) {return;}
         
         // Add animation effects
         const items = timeline.querySelectorAll('.timeline-item');
@@ -459,7 +459,7 @@ window.MaaSPortal = {
     // Refresh a section of the page
     refreshSection: function(sectionId) {
         const section = document.getElementById(sectionId);
-        if (!section) return;
+        if (!section) {return;}
         
         const refreshUrl = section.dataset.refreshUrl || window.location.href;
         
@@ -499,7 +499,7 @@ window.MaaSPortal = {
     // Show message to user
     showMessage: function(type, message) {
         const container = document.getElementById('flash-messages');
-        if (!container) return;
+        if (!container) {return;}
         
         const alert = document.createElement('div');
         alert.className = `alert alert-${type} alert-dismissible fade show`;
@@ -527,7 +527,7 @@ window.MaaSPortal = {
     
     // Utility: Format bytes
     formatBytes: function(bytes, decimals = 2) {
-        if (bytes === 0) return '0 Bytes';
+        if (bytes === 0) {return '0 Bytes';}
         
         const k = 1024;
         const dm = decimals < 0 ? 0 : decimals;

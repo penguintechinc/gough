@@ -1,0 +1,62 @@
+# Flask Backend - Requirements
+# Python 3.13+
+
+# Web Framework
+Flask==3.1.0
+flask-cors==5.0.0
+
+# Flask-Security-Too (mandatory per CLAUDE.md)
+Flask-Security-Too==5.5.2
+flask-mail==0.10.0
+
+# Database - PyDAL with multi-DB support
+pydal==20241031.1
+psycopg2-binary==2.9.10
+PyMySQL==1.1.0
+
+# Authentication (keep for API tokens)
+PyJWT==2.10.1
+bcrypt==4.2.1
+
+# Validation
+email-validator==2.2.0
+
+# Secrets Management
+hvac==2.3.0
+infisical-python==2.1.1
+cryptography==43.0.3
+boto3==1.35.78
+google-cloud-secret-manager==2.20.0
+azure-keyvault-secrets==4.8.0
+azure-identity==1.17.1
+
+# Cloud Provider SDKs
+pylxd==2.3.2
+google-cloud-compute==1.19.2
+azure-mgmt-compute==30.7.0
+
+# Async HTTP client (for MaaS OAuth)
+aiohttp==3.11.11
+oauthlib==3.2.2
+
+# Template rendering
+Jinja2==3.1.4
+PyYAML==6.0.2
+
+# WSGI Server
+gunicorn==23.0.0
+
+# Configuration
+python-decouple==3.8
+
+# Monitoring
+prometheus-client==0.21.1
+
+# Development
+pytest==8.3.4
+pytest-cov==6.0.0
+pytest-asyncio==0.24.0
+black==24.10.0
+flake8==7.1.1
+mypy==1.14.0
+bandit==1.7.10
