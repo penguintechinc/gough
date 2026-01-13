@@ -164,12 +164,12 @@ spec:
           
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "1000m"
+              memory: "512Mi"
+              cpu: "500m"
             limits:
               memory: "2Gi"
               cpu: "2000m"
-          
+
           # Health checks
           livenessProbe:
             httpGet:
@@ -366,12 +366,12 @@ spec:
           
           resources:
             requests:
-              memory: "1Gi"
-              cpu: "1000m"
+              memory: "512Mi"
+              cpu: "500m"
             limits:
               memory: "2Gi"
               cpu: "2000m"
-          
+
           livenessProbe:
             httpGet:
               path: /MAAS/api/2.0/version/
@@ -380,7 +380,7 @@ spec:
             periodSeconds: 30
             timeoutSeconds: 15
             failureThreshold: 3
-          
+
           readinessProbe:
             httpGet:
               path: /MAAS/api/2.0/version/
@@ -389,7 +389,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 10
             failureThreshold: 3
-          
+
           securityContext:
             privileged: true
             capabilities:
@@ -397,7 +397,7 @@ spec:
                 - NET_ADMIN
                 - SYS_ADMIN
                 - DAC_OVERRIDE
-      
+
       volumes:
         - name: maas-data
           persistentVolumeClaim:
@@ -411,7 +411,7 @@ spec:
         - name: maas-config
           configMap:
             name: maas-config
-      
+
       restartPolicy: Always
 
 ---
@@ -442,16 +442,16 @@ spec:
     spec:
       serviceAccountName: gough-maas
       hostNetwork: true  # Required for PXE boot networking
-      
+
       nodeSelector:
         gough.io/rack-controller: "true"
-      
+
       tolerations:
         - key: "gough.io/rack"
           operator: "Equal"
           value: "true"
           effect: "NoSchedule"
-      
+
       initContainers:
         - name: wait-for-region
           image: curlimages/curl:latest
@@ -464,12 +464,12 @@ spec:
                 sleep 10
               done
               echo "Region controller is ready"
-      
+
       containers:
         - name: maas-rack
           image: gough/maas:3.4-ha
           imagePullPolicy: IfNotPresent
-          
+
           ports:
             - name: rack
               containerPort: 5242
@@ -486,7 +486,7 @@ spec:
             - name: metrics
               containerPort: 8000
               protocol: TCP
-          
+
           env:
             - name: MAAS_MODE
               value: "rack"
@@ -511,7 +511,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-          
+
           volumeMounts:
             - name: maas-data
               mountPath: /var/lib/maas
@@ -522,11 +522,11 @@ spec:
             - name: maas-config
               mountPath: /etc/maas/config
               readOnly: true
-          
+
           resources:
             requests:
               memory: "512Mi"
-              cpu: "500m"
+              cpu: "250m"
             limits:
               memory: "1Gi"
               cpu: "1000m"
