@@ -17,6 +17,17 @@ const navigation: NavCategory[] = [
     ],
   },
   {
+    label: 'Provisioning',
+    roles: ['admin', 'maintainer'],
+    items: [
+      { label: 'Assets', path: '/provisioning/assets', icon: '🖥️', roles: ['admin', 'maintainer'] },
+      { label: 'Profiles', path: '/provisioning/profiles', icon: '📋', roles: ['admin', 'maintainer'] },
+      { label: 'Deployments', path: '/provisioning/deployments', icon: '🚀', roles: ['admin', 'maintainer'] },
+      { label: 'PXE Settings', path: '/provisioning/settings', icon: '⚙️', roles: ['admin', 'maintainer'] },
+      { label: 'Storage', path: '/provisioning/storage', icon: '💾', roles: ['admin', 'maintainer'] },
+    ],
+  },
+  {
     label: 'Management',
     roles: ['admin', 'maintainer'],
     items: [

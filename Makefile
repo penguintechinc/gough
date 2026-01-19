@@ -158,6 +158,18 @@ test-coverage: ## Testing - Generate coverage reports
 	@echo "  Python: coverage-python.xml, htmlcov-python/"
 	@echo "  Node.js: coverage/"
 
+smoke-test: ## Testing - Run alpha smoke tests (full local validation)
+	@echo "$(BLUE)Running alpha smoke tests...$(RESET)"
+	@./tests/smoke/run-smoke-tests.sh alpha
+
+smoke-test-quick: ## Testing - Run alpha smoke tests (skip builds)
+	@echo "$(BLUE)Running quick smoke tests...$(RESET)"
+	@./tests/smoke/run-smoke-tests.sh alpha quick
+
+smoke-test-beta: ## Testing - Run beta smoke tests against staging
+	@echo "$(BLUE)Running beta smoke tests against https://gough.penguintech.io...$(RESET)"
+	@./tests/smoke/run-smoke-tests.sh beta
+
 # Build Commands
 build: ## Build - Build all applications
 	@echo "$(BLUE)Building all applications...$(RESET)"
@@ -205,6 +217,32 @@ docker-clean: ## Docker - Clean up Docker resources
 	@echo "$(BLUE)Cleaning up Docker resources...$(RESET)"
 	@docker-compose down -v
 	@docker system prune -f
+
+# Kubernetes Commands
+k8s-deploy: ## Kubernetes - Deploy to K8s cluster (default registry)
+	@echo "$(BLUE)Deploying to Kubernetes...$(RESET)"
+	@./tests/k8s/deploy-k8s.sh
+
+k8s-deploy-custom: ## Kubernetes - Deploy to K8s with custom registry (usage: make k8s-deploy-custom REGISTRY=registry.example.com)
+	@echo "$(BLUE)Deploying to Kubernetes with custom registry...$(RESET)"
+	@./tests/k8s/deploy-k8s.sh $(REGISTRY)
+
+k8s-deploy-staging: ## Kubernetes - Deploy to staging namespace
+	@echo "$(BLUE)Deploying to staging...$(RESET)"
+	@./tests/k8s/deploy-k8s.sh registry.penguintech.io staging
+
+k8s-status: ## Kubernetes - Check deployment status
+	@echo "$(BLUE)Kubernetes deployment status:$(RESET)"
+	@kubectl get all -n gough
+
+k8s-logs: ## Kubernetes - View logs from all pods
+	@echo "$(BLUE)Fetching logs...$(RESET)"
+	@kubectl logs -n gough -l app=api-manager --tail=50
+	@kubectl logs -n gough -l app=webui --tail=50
+
+k8s-clean: ## Kubernetes - Delete all resources
+	@echo "$(RED)Deleting Kubernetes resources...$(RESET)"
+	@kubectl delete namespace gough --wait=true
 
 # Code Quality Commands
 lint: ## Code Quality - Run linting for all languages

@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: worker-ipxe-config
+data:
+  API_MANAGER_URL: http://api-manager:5000
+  DHCP_MODE: proxy
+  DHCP_INTERFACE: eth0
+  TFTP_ENABLED: "true"
+  HTTP_PORT: "8080"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: worker-ipxe-secret
+type: Opaque
+stringData:
+  WORKER_API_KEY: worker-secret
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: worker-ipxe
+  labels:
+    app: worker-ipxe
+spec:
+  selector:
+    matchLabels:
+      app: worker-ipxe
+  template:
+    metadata:
+      labels:
+        app: worker-ipxe
+    spec:
+      hostNetwork: true
+      containers:
+      - name: worker-ipxe
+        image: ${REGISTRY_URL}/gough/worker-ipxe:${IMAGE_VERSION}
+        securityContext:
+          capabilities:
+            add:
+            - NET_ADMIN
+            - NET_RAW
+        envFrom:
+        - configMapRef:
+            name: worker-ipxe-config
+        - secretRef:
+            name: worker-ipxe-secret
+        volumeMounts:
+        - name: ipxe-tftp
+          mountPath: /var/lib/ipxe/tftp
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+      volumes:
+      - name: ipxe-tftp
+        emptyDir: {}
