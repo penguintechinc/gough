@@ -1,0 +1,521 @@
+# Gough Resource Team Management & Shell Access Implementation Plan
+
+## Overview
+
+Implement team-based resource management with secure web-based shell access via rssh agents.
+Assumes Flask migration is complete with existing PyDAL models, JWT auth, and React WebUI.
+
+---
+
+## Architecture Summary
+
+```
++-------------------+     +------------------+     +-------------------+
+|     WebUI         |     |  Flask Backend   |     |   Access Agent    |
+|  (React/xterm.js) |<--->|  (JWT + SSH CA)  |<--->|  (rssh server)    |
+|                   | WS  |                  | JWT |                   |
++-------------------+     +------------------+     +-------------------+
+         |                        |                        |
+         |                        v                        |
+         |               +------------------+              |
+         +-------------->|   PostgreSQL     |<-------------+
+                         |  (PyDAL models)  |
+                         +------------------+
+```
+
+**Key Components:**
+1. **Teams** - Group users and resources with role-based permissions
+2. **SSH CA** - Sign short-lived certificates for shell access (private key in Vault)
+3. **Access Agent** - rssh server on managed nodes; enrolls with key, switches to JWT
+4. **WebSocket** - Real-time terminal via Flask-SocketIO + xterm.js
+
+---
+
+## Phase 1: Database Schema (Haiku Model)
+
+**Files to modify:**
+- `/home/penguin/code/Gough/services/flask-backend/app/models.py`
+
+**New Tables:**
+
+```python
+# Resource Teams
+db.define_table('resource_teams',
+    Field('name', 'string', length=128, unique=True, notnull=True),
+    Field('description', 'text'),
+    Field('created_by', 'reference auth_user'),
+    Field('is_active', 'boolean', default=True),
+    Field('metadata', 'json'),
+    Field('created_at', 'datetime', default=datetime.utcnow),
+    Field('updated_at', 'datetime', default=datetime.utcnow, update=datetime.utcnow),
+)
+
+# Team Members (users <-> teams)
+db.define_table('team_members',
+    Field('team_id', 'reference resource_teams', notnull=True, ondelete='CASCADE'),
+    Field('user_id', 'reference auth_user', notnull=True, ondelete='CASCADE'),
+    Field('role', 'string', length=32, default='member'),  # owner, admin, member, viewer
+    Field('added_by', 'reference auth_user'),
+    Field('added_at', 'datetime', default=datetime.utcnow),
+    Field('expires_at', 'datetime'),
+)
+
+# Resource Assignments (resources <-> teams)
+db.define_table('resource_assignments',
+    Field('team_id', 'reference resource_teams', notnull=True, ondelete='CASCADE'),
+    Field('resource_type', 'string', length=64, notnull=True),  # vm, cluster, container, server
+    Field('resource_id', 'string', length=128, notnull=True),
+    Field('permissions', 'list:string', default=['read']),  # read, write, execute, admin, shell
+    Field('assigned_by', 'reference auth_user'),
+    Field('assigned_at', 'datetime', default=datetime.utcnow),
+)
+
+# Access Agents
+db.define_table('access_agents',
+    Field('agent_id', 'string', length=64, unique=True, notnull=True),
+    Field('hostname', 'string', length=255, notnull=True),
+    Field('ip_address', 'string', length=45),
+    Field('enrollment_key_hash', 'string', length=128),
+    Field('enrollment_completed', 'boolean', default=False),
+    Field('jwt_token_id', 'string', length=64),  # JTI for revocation
+    Field('last_heartbeat', 'datetime'),
+    Field('status', 'string', length=32, default='pending'),  # pending, enrolled, active, suspended
+    Field('capabilities', 'json'),  # ['ssh', 'kubectl', 'docker', 'cloud_cli']
+    Field('created_at', 'datetime', default=datetime.utcnow),
+    Field('enrolled_at', 'datetime'),
+)
+
+# Enrollment Keys (one-time)
+db.define_table('enrollment_keys',
+    Field('key_hash', 'string', length=128, unique=True, notnull=True),
+    Field('created_by', 'reference auth_user', notnull=True),
+    Field('expires_at', 'datetime', notnull=True),
+    Field('is_used', 'boolean', default=False),
+    Field('used_by_agent', 'reference access_agents'),
+    Field('metadata', 'json'),
+    Field('created_at', 'datetime', default=datetime.utcnow),
+)
+
+# SSH CA Configuration
+db.define_table('ssh_ca_config',
+    Field('ca_name', 'string', length=128, unique=True, notnull=True),
+    Field('ca_type', 'string', length=32, default='user'),  # user or host
+    Field('public_key', 'text', notnull=True),
+    Field('private_key_vault_path', 'string', length=255),  # Vault path
+    Field('cert_validity_seconds', 'integer', default=3600),
+    Field('max_validity_seconds', 'integer', default=28800),
+    Field('principals_allowed', 'list:string'),
+    Field('is_active', 'boolean', default=True),
+    Field('created_at', 'datetime', default=datetime.utcnow),
+)
+
+# Shell Sessions (audit)
+db.define_table('shell_sessions',
+    Field('session_id', 'string', length=64, unique=True, notnull=True),
+    Field('user_id', 'reference auth_user', notnull=True),
+    Field('team_id', 'reference resource_teams'),
+    Field('resource_type', 'string', length=64, notnull=True),
+    Field('resource_id', 'string', length=128, notnull=True),
+    Field('agent_id', 'reference access_agents'),
+    Field('session_type', 'string', length=32),  # ssh, kubectl, docker, cloud_cli
+    Field('started_at', 'datetime', default=datetime.utcnow),
+    Field('ended_at', 'datetime'),
+    Field('client_ip', 'string', length=45),
+    Field('audit_log_path', 'string', length=255),
+)
+```
+
+**Tasks:**
+1. Add table definitions to `models.py`
+2. Create indexes for performance
+3. Add helper functions for CRUD operations
+
+---
+
+## Phase 2: Team Management APIs (Haiku Model)
+
+**Files to create:**
+- `/home/penguin/code/Gough/services/flask-backend/app/routes/teams.py`
+- `/home/penguin/code/Gough/services/flask-backend/app/permissions.py`
+
+**API Endpoints:**
+
+```
+POST   /api/v1/teams/                      Create team (admin)
+GET    /api/v1/teams/                      List teams (user's teams)
+GET    /api/v1/teams/{team_id}             Get team details
+PATCH  /api/v1/teams/{team_id}             Update team (team admin/owner)
+DELETE /api/v1/teams/{team_id}             Delete team (admin)
+
+POST   /api/v1/teams/{team_id}/members     Add member
+GET    /api/v1/teams/{team_id}/members     List members
+DELETE /api/v1/teams/{team_id}/members/{user_id}  Remove member
+
+POST   /api/v1/teams/{team_id}/resources   Assign resource
+GET    /api/v1/teams/{team_id}/resources   List resources
+DELETE /api/v1/teams/{team_id}/resources/{id}  Unassign
+
+GET    /api/v1/users/me/teams              User's teams
+GET    /api/v1/users/me/resources          User's accessible resources
+```
+
+**Permission Helpers:**
+```python
+def check_team_access(user_id, team_id, required_role='member') -> bool
+def check_resource_permission(user_id, resource_type, resource_id, permission='read') -> bool
+def check_shell_access(user_id, resource_type, resource_id) -> bool
+
+# Decorators
+@require_team_permission(required_role='admin')
+@require_resource_permission(permission='shell')
+```
+
+---
+
+## Phase 3: SSH CA Implementation (Sonnet Model)
+
+**Files to create:**
+- `/home/penguin/code/Gough/services/flask-backend/app/ssh_ca.py`
+- `/home/penguin/code/Gough/services/flask-backend/app/routes/ssh_ca.py`
+
+**Key Features:**
+1. **CA Initialization** - Generate RSA 4096-bit key pair, store private in Vault
+2. **Certificate Signing** - Use `ssh-keygen -s` to sign user public keys
+3. **Short-lived Certs** - Default 1 hour, max 8 hours validity
+4. **Principal Mapping** - Map users to allowed SSH principals (ubuntu, root, etc.)
+
+**API Endpoints:**
+
+```
+POST   /api/v1/ssh-ca/initialize           Initialize CA (admin, first-time)
+GET    /api/v1/ssh-ca/public-key           Get CA public key (all users)
+POST   /api/v1/ssh-ca/sign                 Sign user's SSH public key
+  Body: {
+    "public_key": "ssh-rsa AAAA...",
+    "resource_type": "vm",
+    "resource_id": "uuid",
+    "principals": ["ubuntu"],
+    "validity_seconds": 3600
+  }
+  Returns: { "certificate": "ssh-rsa-cert-v01...", "valid_until": "..." }
+```
+
+**Certificate Flow:**
+1. User clicks "Shell Access" on resource
+2. Frontend generates ephemeral SSH key pair (or uses cached)
+3. Frontend sends public key to `/ssh-ca/sign` with resource info
+4. Backend validates user has `shell` permission for resource
+5. Backend signs certificate with CA private key (from Vault)
+6. Certificate returned to frontend for SSH connection
+
+---
+
+## Phase 4: Access Agent Service (Sonnet Model)
+
+**New service directory:**
+```
+services/access-agent/
+├── Dockerfile
+├── requirements.txt
+├── agent/
+│   ├── __init__.py
+│   ├── main.py              # Entry point
+│   ├── enrollment.py        # Enrollment flow
+│   ├── auth.py              # JWT management
+│   ├── heartbeat.py         # Heartbeat to server
+│   ├── rssh_server.py       # Reverse SSH server (paramiko)
+│   ├── cert_validator.py    # Validate SSH certificates
+│   └── config.py
+└── scripts/
+    └── install.sh           # Agent installation
+```
+
+**Enrollment Flow:**
+
+```
+1. Admin generates enrollment key via:
+   POST /api/v1/agents/enrollment-keys
+   Returns: ENROLL-xxxx-xxxx-xxxx-xxxx (one-time, 24h expiry)
+
+2. Agent starts with enrollment key (env var or file):
+   ENROLLMENT_KEY=ENROLL-xxxx-xxxx-xxxx-xxxx
+   MANAGEMENT_SERVER=https://gough.example.com
+
+3. Agent calls enrollment endpoint:
+   POST /api/v1/agents/enroll
+   Headers: X-Enrollment-Key: ENROLL-...
+   Body: { "hostname": "node-01", "capabilities": ["ssh", "kubectl"] }
+
+4. Server validates key, creates agent record, issues JWT tokens:
+   Response: {
+     "agent_id": "uuid",
+     "access_token": "eyJ...",     # 1 hour
+     "refresh_token": "eyJ...",    # 30 days
+     "ca_public_key": "ssh-rsa...",
+     "config": { "heartbeat_interval": 30 }
+   }
+
+5. Agent stores JWT, starts heartbeat loop:
+   POST /api/v1/agents/heartbeat (every 30s)
+   Authorization: Bearer {access_token}
+
+6. Agent starts rssh server on port 2222
+```
+
+**rssh Server (paramiko):**
+- Listen on port 2222 for SSH connections
+- Validate incoming SSH certificates against CA public key
+- Extract principals from certificate
+- Create PTY session for authenticated user
+- Forward I/O to WebSocket or direct SSH
+
+**Agent JWT Token Structure:**
+```python
+# Access Token
+{
+  "jti": "unique-id",
+  "sub": "agent:uuid",
+  "typ": "access",
+  "capabilities": ["ssh", "kubectl"],
+  "exp": <1 hour>
+}
+```
+
+**Agent APIs:**
+```
+POST /api/v1/agents/enrollment-keys        Generate key (admin)
+POST /api/v1/agents/enroll                 Enroll agent (uses enrollment key)
+GET  /api/v1/agents/                       List agents (admin)
+POST /api/v1/agents/heartbeat              Agent heartbeat (JWT auth)
+POST /api/v1/agents/refresh                Refresh JWT
+POST /api/v1/agents/{id}/suspend           Suspend agent (admin)
+```
+
+---
+
+## Phase 5: WebSocket & Shell Sessions (Sonnet Model)
+
+**Files to create/modify:**
+- `/home/penguin/code/Gough/services/flask-backend/app/websocket.py`
+- `/home/penguin/code/Gough/services/flask-backend/app/routes/shell.py`
+- `/home/penguin/code/Gough/services/flask-backend/requirements.txt` (add flask-socketio)
+
+**Shell Session Flow:**
+
+```
+1. User clicks "Shell Access" button on resource
+
+2. Frontend creates session:
+   POST /api/v1/shell/sessions
+   Body: { "resource_type": "vm", "resource_id": "uuid", "session_type": "ssh" }
+   Returns: { "session_id": "uuid", "websocket_url": "wss://.../ws/uuid" }
+
+3. Frontend connects WebSocket to session_id
+
+4. Backend:
+   - Gets agent for resource
+   - Signs SSH certificate for user
+   - Opens PTY subprocess: ssh -i cert user@agent:2222
+   - Forwards PTY I/O <-> WebSocket
+
+5. User types in xterm.js -> WebSocket -> PTY -> Agent rssh -> Target machine
+```
+
+**WebSocket Protocol:**
+```json
+// Client -> Server
+{ "type": "input", "data": "ls -la\n" }
+{ "type": "resize", "cols": 120, "rows": 30 }
+
+// Server -> Client
+{ "type": "output", "data": "total 48\ndrwxr-xr-x..." }
+{ "type": "connected" }
+{ "type": "disconnected", "reason": "timeout" }
+```
+
+**Shell APIs:**
+```
+POST   /api/v1/shell/sessions              Create session
+GET    /api/v1/shell/sessions              List user's sessions
+DELETE /api/v1/shell/sessions/{id}         Terminate session
+
+WS     /api/v1/shell/ws/{session_id}       WebSocket connection
+```
+
+---
+
+## Phase 6: WebUI Components (Haiku Model)
+
+**Files to create:**
+- `/home/penguin/code/Gough/services/webui/src/components/Terminal/WebTerminal.tsx`
+- `/home/penguin/code/Gough/services/webui/src/components/Resources/ShellAccessButton.tsx`
+- `/home/penguin/code/Gough/services/webui/src/components/Teams/` (directory)
+- `/home/penguin/code/Gough/services/webui/src/pages/Teams.tsx`
+- `/home/penguin/code/Gough/services/webui/src/pages/Resources.tsx`
+- `/home/penguin/code/Gough/services/webui/src/stores/teamStore.ts`
+
+**Dependencies to add:**
+```json
+{
+  "@xterm/xterm": "^5.3.0",
+  "@xterm/addon-fit": "^0.8.0",
+  "@xterm/addon-web-links": "^0.9.0"
+}
+```
+
+**WebTerminal Component:**
+```typescript
+// Uses xterm.js for terminal rendering
+// Connects to WebSocket for shell session
+// Handles resize, copy/paste, links
+interface WebTerminalProps {
+  resourceType: string;
+  resourceId: string;
+  sessionType: 'ssh' | 'kubectl' | 'docker' | 'cloud_cli';
+  onClose?: () => void;
+}
+```
+
+**ShellAccessButton Component:**
+```typescript
+// Checks user permission for shell access
+// Opens modal with WebTerminal on click
+// Shows loading state while checking access
+```
+
+**Team Management Pages:**
+- Teams list with create/edit/delete
+- Team detail with members and resources tabs
+- Add/remove members with role selection
+- Assign/unassign resources with permission checkboxes
+
+**Routes to add (App.tsx):**
+```typescript
+<Route path="/teams" element={<RoleGuard allowedRoles={['admin', 'maintainer']}><Teams /></RoleGuard>} />
+<Route path="/teams/:id" element={<RoleGuard allowedRoles={['admin', 'maintainer']}><TeamDetail /></RoleGuard>} />
+<Route path="/resources" element={<Resources />} />
+```
+
+---
+
+## Phase 7: Security & Audit (Sonnet Model)
+
+**Files to create:**
+- `/home/penguin/code/Gough/services/flask-backend/app/audit.py`
+- `/home/penguin/code/Gough/services/flask-backend/app/rate_limit.py`
+
+**Audit Logging:**
+- Log all shell session create/terminate events
+- Log all certificate signing requests
+- Log all agent enrollment/heartbeat events
+- Store session recordings to `/var/log/gough/shell-sessions/`
+
+**Rate Limiting:**
+```python
+# Shell session creation: 10/minute per user
+# Certificate signing: 30/hour per user
+# Agent enrollment: 5/hour per IP
+```
+
+**Security Checklist:**
+- [ ] Validate user has `shell` permission before signing certs
+- [ ] Certificates short-lived (1hr default, 8hr max)
+- [ ] Audit log all shell access attempts
+- [ ] Rate limit sensitive endpoints
+- [ ] TLS required for WebSocket
+- [ ] Agent JWT tokens revocable via jti
+- [ ] Session recordings for compliance
+
+---
+
+## Phase 8: Integration & Testing (Haiku Model)
+
+**Test files to create:**
+- `/home/penguin/code/Gough/tests/api/flask-backend/test_teams.py`
+- `/home/penguin/code/Gough/tests/api/flask-backend/test_shell.py`
+- `/home/penguin/code/Gough/tests/api/flask-backend/test_agents.py`
+- `/home/penguin/code/Gough/tests/integration/test_shell_access.py`
+
+**Docker Compose updates:**
+```yaml
+# Add access-agent service
+access-agent:
+  build: ./services/access-agent
+  environment:
+    - MANAGEMENT_SERVER=http://flask-backend:5000
+    - ENROLLMENT_KEY=${AGENT_ENROLLMENT_KEY}
+  ports:
+    - "2222:2222"
+```
+
+---
+
+## Task Agent Model Summary
+
+| Phase | Model | Rationale |
+|-------|-------|-----------|
+| 1. Database Schema | Haiku | Standard PyDAL table definitions |
+| 2. Team APIs | Haiku | CRUD operations, existing patterns |
+| 3. SSH CA | **Sonnet** | Cryptography, security-critical |
+| 4. Access Agent | **Sonnet** | New service, complex enrollment flow |
+| 5. WebSocket/Shell | **Sonnet** | Real-time, PTY handling |
+| 6. WebUI | Haiku | Standard React components |
+| 7. Security/Audit | **Sonnet** | Security analysis |
+| 8. Integration | Haiku | Testing, configuration |
+
+---
+
+## Critical Files Summary
+
+| File | Purpose |
+|------|---------|
+| `services/flask-backend/app/models.py` | Add 7 new tables |
+| `services/flask-backend/app/ssh_ca.py` | SSH CA implementation |
+| `services/flask-backend/app/routes/teams.py` | Team management APIs |
+| `services/flask-backend/app/routes/shell.py` | Shell session APIs |
+| `services/flask-backend/app/websocket.py` | WebSocket server |
+| `services/access-agent/agent/rssh_server.py` | rssh server |
+| `services/access-agent/agent/enrollment.py` | Agent enrollment |
+| `services/webui/src/components/Terminal/WebTerminal.tsx` | xterm.js terminal |
+
+---
+
+## Prerequisites (Assumed Complete)
+
+- [x] Flask migration complete with PyDAL models
+- [x] JWT authentication working (`/api/v1/auth/*`)
+- [x] React WebUI with routing and RoleGuard
+- [x] Vault integration available (for SSH CA private key)
+- [x] This plan ready for implementation
+
+---
+
+## Implementation Status
+
+| Phase | Status | Notes |
+|-------|--------|-------|
+| 1. Database Schema | ✅ Complete | Tables added to models.py |
+| 2. Team APIs | ✅ Complete | CRUD + permissions in api/teams.py |
+| 3. SSH CA | ✅ Complete | ssh_ca.py with Vault integration |
+| 4. Access Agent | ✅ Complete | rssh server in services/access-agent/ |
+| 5. WebSocket/Shell | ✅ Complete | Flask-SocketIO + shell.py API |
+| 6. WebUI | ✅ Complete | WebTerminal, ShellAccessButton, TeamsPage |
+| 7. Security/Audit | ✅ Complete | audit.py + rate_limit.py |
+| 8. Integration | ✅ Complete | Tests + Docker Compose updates |
+
+**All phases implemented successfully.**
+
+---
+
+## Implementation Order
+
+1. **Phase 1**: Database schema (foundation)
+2. **Phase 2**: Team APIs (user-facing first)
+3. **Phase 3**: SSH CA (security foundation)
+4. **Phase 4**: Access Agent (parallel with Phase 5)
+5. **Phase 5**: WebSocket/Shell sessions
+6. **Phase 6**: WebUI components
+7. **Phase 7**: Security hardening
+8. **Phase 8**: Integration testing
+
+Phases 4 & 5 can be developed in parallel by different task agents.

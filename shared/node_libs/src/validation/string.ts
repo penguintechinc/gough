@@ -110,8 +110,8 @@ export function alphanumeric(options: AlphanumericOptions = {}): Validator<strin
   const errorMessage = options.errorMessage ?? 'Value must contain only alphanumeric characters';
 
   let chars = 'a-zA-Z0-9';
-  if (allowUnderscore) chars += '_';
-  if (allowDash) chars += '-';
+  if (allowUnderscore) {chars += '_';}
+  if (allowDash) {chars += '-';}
 
   const regex = new RegExp(`^[${chars}]+$`);
 

@@ -147,7 +147,7 @@ export class AuditLogger {
    * Rotate log files
    */
   private rotateLog(): void {
-    if (!this.options.logFilePath) return;
+    if (!this.options.logFilePath) {return;}
 
     // Close current stream
     this.writeStream?.end();

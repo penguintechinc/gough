@@ -29,7 +29,7 @@ export interface SecurityHeadersOptions {
   /**
    * X-Frame-Options value
    */
-  frameOptions?: 'DENY' | 'SAMEORIGIN' | string;
+  frameOptions?: string;
 
   /**
    * Enable nosniff for X-Content-Type-Options

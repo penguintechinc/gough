@@ -1,0 +1,211 @@
+---
+# Gough Hypervisor Automation System - Main Orchestration Playbook
+# This is the master playbook that coordinates all provisioning and deployment operations
+
+- name: Gough Infrastructure Orchestration
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  vars:
+    orchestration_mode: "{{ mode | default('full') }}"  # full, provision-only, configure-only, deploy-only
+    target_environment: "{{ env | default('development') }}"  # development, staging, production
+    server_count: "{{ count | default(1) | int }}"
+    server_role: "{{ role | default('general_server') }}"  # docker_host, kubernetes_node, general_server
+    package_profile: "{{ packages | default('base_standard') }}"
+  
+  pre_tasks:
+    - name: Validate orchestration parameters
+      assert:
+        that:
+          - orchestration_mode in ['full', 'provision-only', 'configure-only', 'deploy-only']
+          - target_environment in ['development', 'staging', 'production']
+          - server_count >= 1 and server_count <= 100
+          - server_role in ['docker_host', 'kubernetes_node', 'general_server']
+        fail_msg: "Invalid orchestration parameters provided"
+
+    - name: Display orchestration plan
+      debug:
+        msg: |
+          === Gough Orchestration Plan ===
+          Mode: {{ orchestration_mode }}
+          Environment: {{ target_environment }}
+          Server Count: {{ server_count }}
+          Server Role: {{ server_role }}
+          Package Profile: {{ package_profile }}
+          ===============================
+
+    - name: Create orchestration run directory
+      file:
+        path: "/tmp/gough-orchestration-{{ ansible_date_time.epoch }}"
+        state: directory
+      register: run_directory
+
+    - name: Log orchestration start
+      copy:
+        content: |
+          Orchestration started: {{ ansible_date_time.iso8601 }}
+          Mode: {{ orchestration_mode }}
+          Environment: {{ target_environment }}
+          Servers: {{ server_count }} x {{ server_role }}
+          Run ID: {{ ansible_date_time.epoch }}
+        dest: "{{ run_directory.path }}/orchestration.log"
+
+  tasks:
+    # Phase 1: Server Provisioning (via MaaS)
+    - name: Execute server provisioning
+      include: playbooks/provision-server.yml
+      vars:
+        provision_count: "{{ server_count }}"
+        provision_role: "{{ server_role }}"
+        provision_environment: "{{ target_environment }}"
+      when: orchestration_mode in ['full', 'provision-only']
+      tags: ['provision']
+
+    # Phase 2: Package Configuration
+    - name: Execute package configuration
+      include: playbooks/configure-packages.yml
+      vars:
+        config_role: "{{ server_role }}"
+        config_packages: "{{ package_profile }}"
+        config_environment: "{{ target_environment }}"
+      when: orchestration_mode in ['full', 'configure-only']
+      tags: ['configure']
+
+    # Phase 3: Agent Deployment
+    - name: Execute agent deployment
+      include: playbooks/deploy-agent.yml
+      vars:
+        deployment_environment: "{{ target_environment }}"
+        deployment_role: "{{ server_role }}"
+      when: orchestration_mode in ['full', 'deploy-only']
+      tags: ['deploy']
+
+    # Phase 4: Fleet Management Updates
+    - name: Execute fleet configuration updates
+      include: playbooks/update-fleet.yml
+      vars:
+        fleet_environment: "{{ target_environment }}"
+        fleet_role: "{{ server_role }}"
+      when: orchestration_mode in ['full', 'configure-only']
+      tags: ['fleet']
+
+  post_tasks:
+    - name: Gather deployment statistics
+      set_fact:
+        deployment_stats:
+          total_servers_provisioned: "{{ groups['deployed_servers'] | default([]) | length }}"
+          total_agents_deployed: "{{ groups['deployed_servers'] | default([]) | length }}"
+          deployment_duration: "{{ ansible_date_time.epoch | int - run_directory.path.split('-')[-1] | int }}"
+          environment: "{{ target_environment }}"
+
+    - name: Generate deployment report
+      template:
+        src: templates/deployment-report.j2
+        dest: "{{ run_directory.path }}/deployment-report.html"
+      vars:
+        report_title: "Gough Orchestration Report"
+        report_timestamp: "{{ ansible_date_time.iso8601 }}"
+        deployment_summary: "{{ deployment_stats }}"
+
+    - name: Send deployment notification
+      uri:
+        url: "{{ management_server_url }}/api/notifications/deployment"
+        method: POST
+        body_format: json
+        body:
+          event: "orchestration_completed"
+          environment: "{{ target_environment }}"
+          mode: "{{ orchestration_mode }}"
+          stats: "{{ deployment_stats }}"
+          run_id: "{{ ansible_date_time.epoch }}"
+      when: management_server_url is defined
+      ignore_errors: true
+
+    - name: Display orchestration summary
+      debug:
+        msg: |
+          === Orchestration Complete ===
+          Servers provisioned: {{ deployment_stats.total_servers_provisioned }}
+          Agents deployed: {{ deployment_stats.total_agents_deployed }}
+          Duration: {{ deployment_stats.deployment_duration }}s
+          Environment: {{ deployment_stats.environment }}
+          Report: {{ run_directory.path }}/deployment-report.html
+          ==============================
+
+# Infrastructure Management Tasks
+- name: Manage Infrastructure Services
+  hosts: infrastructure
+  become: true
+  gather_facts: true
+  
+  tasks:
+    - name: Verify infrastructure services
+      service:
+        name: "{{ item }}"
+        state: started
+      loop:
+        - docker
+        - ssh
+      ignore_errors: true
+
+    - name: Update infrastructure inventory
+      uri:
+        url: "{{ management_server_url }}/api/inventory/update"
+        method: POST
+        body_format: json
+        body:
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          role: "{{ server_role }}"
+          status: "active"
+          last_seen: "{{ ansible_date_time.iso8601 }}"
+      when: management_server_url is defined
+      ignore_errors: true
+
+# Deployed Servers Management
+- name: Manage Deployed Servers
+  hosts: deployed_servers
+  become: true
+  gather_facts: true
+  serial: 10  # Process 10 servers at a time for scalability
+  
+  pre_tasks:
+    - name: Verify server accessibility
+      ping:
+
+  tasks:
+    - name: Update server status
+      uri:
+        url: "{{ management_server_url }}/api/servers/{{ inventory_hostname }}/status"
+        method: PUT
+        body_format: json
+        body:
+          status: "managed"
+          last_check: "{{ ansible_date_time.iso8601 }}"
+          ansible_facts:
+            os_family: "{{ ansible_os_family }}"
+            distribution: "{{ ansible_distribution }}"
+            distribution_version: "{{ ansible_distribution_version }}"
+            architecture: "{{ ansible_architecture }}"
+            memory_mb: "{{ ansible_memtotal_mb }}"
+            processor_count: "{{ ansible_processor_count }}"
+            disk_usage: "{{ ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first | default(0) }}"
+      when: management_server_url is defined
+      ignore_errors: true
+
+  post_tasks:
+    - name: Run server health checks
+      script: scripts/server-health-check.sh
+      register: health_check
+      ignore_errors: true
+
+    - name: Report health status
+      uri:
+        url: "{{ management_server_url }}/api/servers/{{ inventory_hostname }}/health"
+        method: POST
+        body_format: json
+        body:
+          health_score: "{{ health_check.stdout | default('unknown') }}"
+          timestamp: "{{ ansible_date_time.iso8601 }}"
+      when: management_server_url is defined and health_check is succeeded
+      ignore_errors: true

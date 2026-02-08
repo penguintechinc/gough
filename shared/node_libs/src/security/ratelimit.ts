@@ -87,7 +87,7 @@ export class RateLimiter {
       redis: options.redis as Redis,
       keyPrefix: options.keyPrefix ?? 'ratelimit:',
       keyGenerator: options.keyGenerator ?? defaultKeyGenerator,
-      onLimitReached: options.onLimitReached ?? this.defaultLimitHandler,
+      onLimitReached: options.onLimitReached ?? ((req, res) => this.defaultLimitHandler(req, res)),
       skip: options.skip ?? (() => false),
       headers: options.headers ?? true,
     };

@@ -109,12 +109,12 @@ func WithLogger(logger func(format string, args ...interface{})) ClientOption {
 
 // Client is a production-ready HTTP client with retries and circuit breaker.
 type Client struct {
-	client          *http.Client
-	retryConfig     RetryConfig
-	circuitConfig   CircuitBreakerConfig
-	circuitState    circuitBreakerState
-	defaultHeaders  map[string]string
-	logger          func(format string, args ...interface{})
+	client         *http.Client
+	retryConfig    RetryConfig
+	circuitConfig  CircuitBreakerConfig
+	circuitState   circuitBreakerState
+	defaultHeaders map[string]string
+	logger         func(format string, args ...interface{})
 }
 
 // NewClient creates a new HTTP client with the provided options.
@@ -171,6 +171,7 @@ func (c *Client) calculateDelay(attempt int) time.Duration {
 
 	if c.retryConfig.Jitter {
 		// Add jitter: 50-150% of base delay
+		// #nosec G404 - math/rand is acceptable for jitter (not security-sensitive)
 		jitterFactor := 0.5 + rand.Float64()
 		delay = time.Duration(float64(delay) * jitterFactor)
 	}
@@ -312,7 +313,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 		if resp.StatusCode >= 400 {
 			// Read and close body for error responses
 			body, _ := io.ReadAll(resp.Body)
-			resp.Body.Close()
+			_ = resp.Body.Close() // Explicitly ignore close error for error response
 
 			lastErr = fmt.Errorf("HTTP %d: %s", resp.StatusCode, string(body))
 			c.logger("HTTP %s %s -> %d", req.Method, req.URL.String(), resp.StatusCode)

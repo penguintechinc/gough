@@ -1,0 +1,16 @@
+---
+# Docker Setup Role - Handlers
+
+- name: restart docker
+  systemd:
+    name: docker
+    state: restarted
+    daemon_reload: true
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: reload sysctl
+  command: sysctl -p
+  changed_when: false

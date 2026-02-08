@@ -1,0 +1,96 @@
+{
+  "platform": "linux",
+  "version": "1.0.0",
+  "queries": {
+    "system_info": {
+      "query": "SELECT hostname, cpu_brand, cpu_physical_cores, cpu_logical_cores, physical_memory, hardware_vendor, hardware_model FROM system_info;",
+      "interval": 86400,
+      "description": "Basic system information and hardware details",
+      "value": "Track hardware inventory and system specifications"
+    },
+    "uptime_monitoring": {
+      "query": "SELECT days, hours, minutes, seconds, total_seconds FROM uptime;",
+      "interval": 3600,
+      "description": "System uptime information",
+      "value": "Monitor system availability and reboot frequency"
+    },
+    "disk_usage": {
+      "query": "SELECT device, path, blocks_size, blocks, blocks_free, blocks_available, inodes, inodes_free FROM mounts WHERE path IN ('/', '/home', '/var', '/tmp', '/boot') AND device NOT LIKE 'tmpfs%';",
+      "interval": 1800,
+      "description": "Disk space usage for critical mount points",
+      "value": "Monitor disk space to prevent storage issues"
+    },
+    "memory_usage": {
+      "query": "SELECT memory_total, memory_free, memory_available, buffers, cached, swap_total, swap_free FROM memory_info;",
+      "interval": 600,
+      "description": "System memory and swap usage",
+      "value": "Track memory utilization for performance monitoring"
+    },
+    "cpu_utilization": {
+      "query": "SELECT user, nice, system, idle, iowait, irq, softirq, steal, guest, guest_nice FROM cpu_time WHERE cpu = 'cpu';",
+      "interval": 300,
+      "description": "CPU utilization statistics",
+      "value": "Monitor CPU performance and resource usage"
+    },
+    "load_average": {
+      "query": "SELECT period, average FROM load_average;",
+      "interval": 300,
+      "description": "System load average over different periods",
+      "value": "Track system load and performance trends"
+    },
+    "network_interfaces": {
+      "query": "SELECT interface, address, mask, broadcast, point_to_point, type, mtu FROM interface_addresses WHERE address != '127.0.0.1' AND address != '::1';",
+      "interval": 3600,
+      "description": "Network interface configuration",
+      "value": "Monitor network interface status and configuration"
+    },
+    "listening_ports": {
+      "query": "SELECT pid, family, protocol, local_address, local_port, path FROM listening_ports;",
+      "interval": 1800,
+      "description": "Services listening on network ports",
+      "value": "Track exposed network services for security assessment"
+    },
+    "running_services": {
+      "query": "SELECT name, status, pid FROM systemd_units WHERE sub = 'running' AND unit_file_state = 'enabled';",
+      "interval": 1800,
+      "description": "Active systemd services",
+      "value": "Monitor critical system services status"
+    },
+    "package_updates": {
+      "query": "SELECT name, version, source, size FROM deb_packages WHERE name IN (SELECT name FROM apt_sources);",
+      "interval": 86400,
+      "description": "Installed packages from configured repositories",
+      "value": "Track package installations for vulnerability management"
+    },
+    "os_version": {
+      "query": "SELECT name, version, major, minor, patch, build, codename, arch FROM os_version;",
+      "interval": 86400,
+      "description": "Operating system version information",
+      "value": "Track OS versions for patch management"
+    },
+    "kernel_info": {
+      "query": "SELECT version, arguments FROM kernel_info;",
+      "interval": 86400,
+      "description": "Kernel version and boot arguments",
+      "value": "Monitor kernel configuration and security parameters"
+    },
+    "filesystem_events": {
+      "query": "SELECT target_path, action, time FROM file_events WHERE target_path LIKE '/var/log/%' AND time > (SELECT max(time) FROM file_events) - 3600;",
+      "interval": 1800,
+      "description": "Log file system activity in the last hour",
+      "value": "Monitor log file changes and rotation"
+    },
+    "hardware_events": {
+      "query": "SELECT model, serial, removable, size FROM block_devices WHERE removable = 1;",
+      "interval": 3600,
+      "description": "Removable storage devices",
+      "value": "Track USB and removable media connections"
+    },
+    "temperature_monitoring": {
+      "query": "SELECT name, celsius, max_celsius, critical_celsius FROM temperature_sensors;",
+      "interval": 600,
+      "description": "System temperature sensors",
+      "value": "Monitor hardware temperature for thermal management"
+    }
+  }
+}

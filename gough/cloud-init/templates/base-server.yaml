@@ -1,0 +1,250 @@
+#cloud-config
+# Base Ubuntu 24.04 LTS Server Configuration
+# This template provides a foundation for all server deployments
+
+# Basic system configuration
+hostname: ${HOSTNAME}
+fqdn: ${HOSTNAME}.${DOMAIN:-local}
+manage_etc_hosts: true
+timezone: ${TIMEZONE:-UTC}
+
+# User configuration
+users:
+  - name: maas
+    groups: [adm, audio, cdrom, dialout, dip, floppy, lxd, netdev, plugdev, sudo, video]
+    lock_passwd: false
+    passwd: ${MAAS_USER_PASSWORD_HASH}
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - ${SSH_PUBLIC_KEY}
+
+  - name: ansible
+    groups: [sudo]
+    lock_passwd: false
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh_authorized_keys:
+      - ${ANSIBLE_SSH_PUBLIC_KEY}
+
+# SSH configuration
+ssh_pwauth: false
+disable_root: true
+ssh:
+  emit_keys_to_console: false
+
+# Package management
+package_update: true
+package_upgrade: true
+package_reboot_if_required: true
+
+# Essential packages
+packages:
+  - curl
+  - wget
+  - git
+  - vim
+  - htop
+  - iotop
+  - nethogs
+  - tree
+  - unzip
+  - jq
+  - python3
+  - python3-pip
+  - python3-venv
+  - build-essential
+  - apt-transport-https
+  - ca-certificates
+  - gnupg
+  - lsb-release
+  - software-properties-common
+  - fail2ban
+  - ufw
+  - chrony
+  - rsyslog
+  - logrotate
+
+# Docker installation
+runcmd:
+  # Install Docker
+  - curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+  - echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null
+  - apt-get update
+  - apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  - systemctl enable docker
+  - systemctl start docker
+  - usermod -aG docker maas
+  - usermod -aG docker ansible
+
+  # Install LXD/LXC
+  - snap install lxd
+  - usermod -aG lxd maas
+  - usermod -aG lxd ansible
+
+  # Configure UFW firewall
+  - ufw --force enable
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow ssh
+  - ufw allow from ${MANAGEMENT_SUBNET:-172.20.0.0/16}
+
+  # Configure fail2ban
+  - systemctl enable fail2ban
+  - systemctl start fail2ban
+
+  # Configure chrony for time synchronization
+  - systemctl enable chrony
+  - systemctl start chrony
+
+  # Set up system monitoring
+  - mkdir -p /opt/monitoring
+  - chown maas:maas /opt/monitoring
+
+  # Create agent installation script
+  - |
+    cat > /opt/install-agent.sh << 'EOF'
+    #!/bin/bash
+    # MaaS Agent Installation Script
+    
+    MANAGEMENT_URL="${MANAGEMENT_SERVER_URL:-http://172.20.0.2:8000}"
+    AGENT_VERSION="${AGENT_VERSION:-latest}"
+    
+    echo "Installing MaaS Agent..."
+    
+    # Download and install agent
+    wget -O /tmp/maas-agent.tar.gz "$MANAGEMENT_URL/static/downloads/maas-agent-$AGENT_VERSION.tar.gz"
+    tar -xzf /tmp/maas-agent.tar.gz -C /opt/
+    
+    # Install agent service
+    cp /opt/maas-agent/systemd/maas-agent.service /etc/systemd/system/
+    systemctl daemon-reload
+    systemctl enable maas-agent
+    systemctl start maas-agent
+    
+    echo "MaaS Agent installed successfully"
+    EOF
+  - chmod +x /opt/install-agent.sh
+
+write_files:
+  # Docker daemon configuration
+  - path: /etc/docker/daemon.json
+    content: |
+      {
+        "log-driver": "json-file",
+        "log-opts": {
+          "max-size": "10m",
+          "max-file": "3"
+        },
+        "storage-driver": "overlay2",
+        "dns": ["8.8.8.8", "8.8.4.4"],
+        "metrics-addr": "127.0.0.1:9323",
+        "experimental": false
+      }
+    permissions: '0644'
+
+  # Fail2ban jail configuration
+  - path: /etc/fail2ban/jail.local
+    content: |
+      [DEFAULT]
+      bantime = 3600
+      findtime = 600
+      maxretry = 5
+      ignoreip = 127.0.0.1/8 ${MANAGEMENT_SUBNET:-172.20.0.0/16}
+
+      [sshd]
+      enabled = true
+      port = ssh
+      filter = sshd
+      logpath = /var/log/auth.log
+    permissions: '0644'
+
+  # System information script
+  - path: /usr/local/bin/system-info
+    content: |
+      #!/bin/bash
+      # System Information Script
+      
+      echo "=== System Information ==="
+      echo "Hostname: $(hostname -f)"
+      echo "OS: $(lsb_release -d | cut -f2)"
+      echo "Kernel: $(uname -r)"
+      echo "Uptime: $(uptime -p)"
+      echo "Load: $(uptime | awk -F'load average:' '{ print $2 }')"
+      echo "Memory: $(free -h | grep '^Mem:' | awk '{print $3 "/" $2}')"
+      echo "Disk: $(df -h / | tail -1 | awk '{print $3 "/" $2 " (" $5 " used)"}')"
+      echo "Network: $(ip route get 8.8.8.8 | head -1 | awk '{print $7}')"
+      echo "Docker: $(docker --version 2>/dev/null || echo 'Not installed')"
+      echo "LXD: $(lxd --version 2>/dev/null || echo 'Not installed')"
+      echo ""
+      echo "=== Running Services ==="
+      systemctl list-units --type=service --state=running --no-pager --no-legend | head -10
+      echo ""
+      echo "=== Docker Containers ==="
+      docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" 2>/dev/null || echo "Docker not running"
+      echo ""
+      echo "=== LXD Containers ==="
+      lxc list --format csv -c n,s,4 2>/dev/null || echo "LXD not initialized"
+    permissions: '0755'
+
+  # Logrotate configuration for custom logs
+  - path: /etc/logrotate.d/maas-agent
+    content: |
+      /opt/maas-agent/logs/*.log {
+        daily
+        rotate 7
+        compress
+        delaycompress
+        missingok
+        notifempty
+        create 644 maas maas
+        postrotate
+          systemctl reload maas-agent || true
+        endscript
+      }
+    permissions: '0644'
+
+  # Network interface configuration template
+  - path: /etc/netplan/99-maas-config.yaml
+    content: |
+      network:
+        version: 2
+        renderer: networkd
+        ethernets:
+          ${PRIMARY_INTERFACE:-ens3}:
+            dhcp4: true
+            dhcp4-overrides:
+              use-hostname: true
+              send-hostname: true
+            nameservers:
+              addresses: [8.8.8.8, 8.8.4.4]
+    permissions: '0644'
+
+# Final commands to run after everything else
+final_message: |
+  Ubuntu 24.04 LTS server has been configured successfully!
+  
+  Key features installed:
+  - Docker and Docker Compose
+  - LXD/LXC containerization
+  - UFW firewall (enabled)
+  - Fail2ban intrusion prevention
+  - Chrony time synchronization
+  - System monitoring tools
+  
+  Users created:
+  - maas (admin user with sudo access)
+  - ansible (automation user with sudo access)
+  
+  Next steps:
+  1. Install MaaS agent: sudo /opt/install-agent.sh
+  2. Check system info: sudo system-info
+  3. Configure additional services as needed
+  
+  The system will reboot if package updates require it.
+
+# Power state management
+power_state:
+  delay: "+1"
+  mode: reboot
+  condition: test -f /var/run/reboot-required

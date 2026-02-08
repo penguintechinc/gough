@@ -1,0 +1,696 @@
+version: '3.8'
+
+# Gough Hypervisor Automation System - High Availability Configuration
+# Multi-node MaaS setup with failover, database replication, and load balancing
+# Designed for enterprise production environments with 99.9% uptime target
+
+services:
+  # ================================
+  # HIGH AVAILABILITY MAAS CLUSTER
+  # ================================
+
+  # MaaS Region Controller Primary
+  maas-region-primary:
+    build:
+      context: ../containers/maas
+      dockerfile: Dockerfile.ha
+      args:
+        - MAAS_VERSION=${MAAS_VERSION:-3.4}
+        - UBUNTU_VERSION=${UBUNTU_BASE_VERSION:-22.04}
+    container_name: gough-maas-region-primary
+    hostname: maas-region-primary
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - DAC_OVERRIDE
+    ports:
+      - "${MAAS_PRIMARY_WEB_PORT:-5240}:5240"
+      - "${MAAS_PRIMARY_API_PORT:-5241}:5241"
+      - "${MAAS_PRIMARY_META_PORT:-5247}:5247"
+    volumes:
+      - type: volume
+        source: maas_primary_data
+        target: /var/lib/maas
+      - type: volume
+        source: maas_primary_logs
+        target: /var/log/maas
+      - type: volume
+        source: maas_images_shared
+        target: /var/lib/maas/images
+      - type: bind
+        source: ./config/maas/ha
+        target: /etc/maas/config
+        read_only: true
+      - type: bind
+        source: ./scripts/maas/ha
+        target: /opt/maas/scripts
+        read_only: true
+    environment:
+      # HA Configuration
+      - MAAS_MODE=region-primary
+      - MAAS_REGION_SECRET=${MAAS_REGION_SECRET}
+      - MAAS_DATABASE_URI=postgres://maas:${MAAS_DB_PASSWORD}@postgres-primary:5432/maasdb
+      - MAAS_DATABASE_REPLICA_URI=postgres://maas:${MAAS_DB_PASSWORD}@postgres-replica:5432/maasdb
+      
+      # Clustering
+      - MAAS_CLUSTER_SECRET=${MAAS_CLUSTER_SECRET}
+      - MAAS_PRIMARY_ENDPOINT=http://maas-region-primary:5240/MAAS/
+      - MAAS_BACKUP_ENDPOINT=http://maas-region-secondary:5240/MAAS/
+      
+      # Network Configuration
+      - DHCP_SUBNET=${DHCP_SUBNET:-192.168.100.0/24}
+      - DHCP_RANGE_START=${DHCP_RANGE_START:-192.168.100.10}
+      - DHCP_RANGE_END=${DHCP_RANGE_END:-192.168.100.250}
+      - DHCP_GATEWAY=${DHCP_GATEWAY:-192.168.100.1}
+      
+      # Performance & HA Tuning
+      - MAAS_WORKERS=${MAAS_HA_WORKERS:-8}
+      - MAAS_DB_POOL_SIZE=${MAAS_HA_DB_POOL_SIZE:-50}
+      - ENABLE_CLUSTERING=true
+      - CLUSTER_HEARTBEAT_INTERVAL=30
+      
+      # Logging & Monitoring
+      - LOG_LEVEL=${MAAS_LOG_LEVEL:-INFO}
+      - ENABLE_METRICS=true
+      - METRICS_PORT=8000
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.10
+      maas-ha-provisioning:
+        ipv4_address: 192.168.100.10
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5240/MAAS/api/2.0/version/"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    labels:
+      - "gough.service=maas"
+      - "gough.role=region-primary"
+      - "gough.ha=enabled"
+
+  # MaaS Region Controller Secondary (Standby)
+  maas-region-secondary:
+    build:
+      context: ../containers/maas
+      dockerfile: Dockerfile.ha
+      args:
+        - MAAS_VERSION=${MAAS_VERSION:-3.4}
+        - UBUNTU_VERSION=${UBUNTU_BASE_VERSION:-22.04}
+    container_name: gough-maas-region-secondary
+    hostname: maas-region-secondary
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+      - DAC_OVERRIDE
+    ports:
+      - "${MAAS_SECONDARY_WEB_PORT:-5250}:5240"
+      - "${MAAS_SECONDARY_API_PORT:-5251}:5241"
+      - "${MAAS_SECONDARY_META_PORT:-5257}:5247"
+    volumes:
+      - type: volume
+        source: maas_secondary_data
+        target: /var/lib/maas
+      - type: volume
+        source: maas_secondary_logs
+        target: /var/log/maas
+      - type: volume
+        source: maas_images_shared
+        target: /var/lib/maas/images
+      - type: bind
+        source: ./config/maas/ha
+        target: /etc/maas/config
+        read_only: true
+      - type: bind
+        source: ./scripts/maas/ha
+        target: /opt/maas/scripts
+        read_only: true
+    environment:
+      # HA Configuration
+      - MAAS_MODE=region-secondary
+      - MAAS_REGION_SECRET=${MAAS_REGION_SECRET}
+      - MAAS_DATABASE_URI=postgres://maas:${MAAS_DB_PASSWORD}@postgres-primary:5432/maasdb
+      - MAAS_DATABASE_REPLICA_URI=postgres://maas:${MAAS_DB_PASSWORD}@postgres-replica:5432/maasdb
+      
+      # Clustering
+      - MAAS_CLUSTER_SECRET=${MAAS_CLUSTER_SECRET}
+      - MAAS_PRIMARY_ENDPOINT=http://maas-region-primary:5240/MAAS/
+      - MAAS_BACKUP_ENDPOINT=http://maas-region-secondary:5240/MAAS/
+      
+      # Network Configuration
+      - DHCP_SUBNET=${DHCP_SUBNET:-192.168.100.0/24}
+      - DHCP_RANGE_START=${DHCP_RANGE_START:-192.168.100.10}
+      - DHCP_RANGE_END=${DHCP_RANGE_END:-192.168.100.250}
+      - DHCP_GATEWAY=${DHCP_GATEWAY:-192.168.100.1}
+      
+      # Performance & HA Tuning
+      - MAAS_WORKERS=${MAAS_HA_WORKERS:-8}
+      - MAAS_DB_POOL_SIZE=${MAAS_HA_DB_POOL_SIZE:-50}
+      - ENABLE_CLUSTERING=true
+      - CLUSTER_HEARTBEAT_INTERVAL=30
+      - STANDBY_MODE=true
+      
+      # Logging & Monitoring
+      - LOG_LEVEL=${MAAS_LOG_LEVEL:-INFO}
+      - ENABLE_METRICS=true
+      - METRICS_PORT=8000
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.11
+      maas-ha-provisioning:
+        ipv4_address: 192.168.100.11
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5240/MAAS/api/2.0/version/"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+      maas-region-primary:
+        condition: service_healthy
+    labels:
+      - "gough.service=maas"
+      - "gough.role=region-secondary"
+      - "gough.ha=enabled"
+
+  # MaaS Rack Controller 1
+  maas-rack-1:
+    build:
+      context: ../containers/maas
+      dockerfile: Dockerfile.ha
+      args:
+        - MAAS_VERSION=${MAAS_VERSION:-3.4}
+        - UBUNTU_VERSION=${UBUNTU_BASE_VERSION:-22.04}
+    container_name: gough-maas-rack-1
+    hostname: maas-rack-1
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    ports:
+      - "${MAAS_RACK1_PORT:-5242}:5242"
+      - "${DNS_RACK1_PORT:-5353}:53/udp"
+      - "${DHCP_RACK1_PORT:-6767}:67/udp"
+      - "${TFTP_RACK1_PORT:-6969}:69/udp"
+    volumes:
+      - type: volume
+        source: maas_rack1_data
+        target: /var/lib/maas
+      - type: volume
+        source: maas_rack1_logs
+        target: /var/log/maas
+      - type: volume
+        source: maas_images_shared
+        target: /var/lib/maas/images
+      - type: bind
+        source: ./config/maas/ha
+        target: /etc/maas/config
+        read_only: true
+    environment:
+      - MAAS_MODE=rack
+      - MAAS_REGION_SECRET=${MAAS_REGION_SECRET}
+      - MAAS_REGION_URL=http://maas-region-primary:5240/MAAS/
+      - MAAS_REGION_BACKUP_URL=http://maas-region-secondary:5240/MAAS/
+      - ENABLE_DHCP=true
+      - DHCP_INTERFACE=eth0
+      - RACK_ID=rack-1
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.20
+      maas-ha-provisioning:
+        ipv4_address: 192.168.100.20
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "systemctl", "is-active", "maas-rackd"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      maas-region-primary:
+        condition: service_healthy
+    labels:
+      - "gough.service=maas"
+      - "gough.role=rack-controller"
+      - "gough.rack.id=rack-1"
+
+  # MaaS Rack Controller 2
+  maas-rack-2:
+    build:
+      context: ../containers/maas
+      dockerfile: Dockerfile.ha
+      args:
+        - MAAS_VERSION=${MAAS_VERSION:-3.4}
+        - UBUNTU_VERSION=${UBUNTU_BASE_VERSION:-22.04}
+    container_name: gough-maas-rack-2
+    hostname: maas-rack-2
+    privileged: true
+    cap_add:
+      - NET_ADMIN
+      - SYS_ADMIN
+    ports:
+      - "${MAAS_RACK2_PORT:-5243}:5242"
+      - "${DNS_RACK2_PORT:-5354}:53/udp"
+      - "${DHCP_RACK2_PORT:-6768}:67/udp"
+      - "${TFTP_RACK2_PORT:-6970}:69/udp"
+    volumes:
+      - type: volume
+        source: maas_rack2_data
+        target: /var/lib/maas
+      - type: volume
+        source: maas_rack2_logs
+        target: /var/log/maas
+      - type: volume
+        source: maas_images_shared
+        target: /var/lib/maas/images
+      - type: bind
+        source: ./config/maas/ha
+        target: /etc/maas/config
+        read_only: true
+    environment:
+      - MAAS_MODE=rack
+      - MAAS_REGION_SECRET=${MAAS_REGION_SECRET}
+      - MAAS_REGION_URL=http://maas-region-primary:5240/MAAS/
+      - MAAS_REGION_BACKUP_URL=http://maas-region-secondary:5240/MAAS/
+      - ENABLE_DHCP=true
+      - DHCP_INTERFACE=eth0
+      - RACK_ID=rack-2
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.21
+      maas-ha-provisioning:
+        ipv4_address: 192.168.100.21
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "systemctl", "is-active", "maas-rackd"]
+      interval: 15s
+      timeout: 10s
+      retries: 3
+    depends_on:
+      maas-region-primary:
+        condition: service_healthy
+    labels:
+      - "gough.service=maas"
+      - "gough.role=rack-controller"
+      - "gough.rack.id=rack-2"
+
+  # ================================
+  # DATABASE HA CLUSTER (PostgreSQL)
+  # ================================
+
+  # PostgreSQL Primary Database
+  postgres-primary:
+    image: postgres:15
+    container_name: postgres-primary
+    hostname: postgres-primary
+    ports:
+      - "${POSTGRES_PRIMARY_PORT:-5432}:5432"
+    volumes:
+      - postgres_primary_data:/var/lib/postgresql/data
+      - ./config/postgresql/ha:/etc/postgresql/config:ro
+      - ./scripts/postgresql/ha:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=maasdb
+      - POSTGRES_USER=maas
+      - POSTGRES_PASSWORD=${MAAS_DB_PASSWORD}
+      - POSTGRES_REPLICATION_USER=replica
+      - POSTGRES_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - PGUSER=maas
+      - POSTGRES_INITDB_ARGS="--encoding=UTF-8 --lc-collate=C.UTF-8 --lc-ctype=C.UTF-8"
+      
+      # Replication Configuration
+      - POSTGRES_MASTER_SERVICE=postgres-primary
+      - POSTGRES_SLAVE_SERVICE=postgres-replica
+      - POSTGRES_REPLICATION_MODE=master
+      - POSTGRES_WAL_LEVEL=replica
+      - POSTGRES_MAX_WAL_SENDERS=3
+      - POSTGRES_MAX_REPLICATION_SLOTS=3
+      - POSTGRES_WAL_KEEP_SEGMENTS=64
+      
+      # Performance Tuning for HA
+      - POSTGRES_SHARED_BUFFERS=256MB
+      - POSTGRES_EFFECTIVE_CACHE_SIZE=1GB
+      - POSTGRES_MAINTENANCE_WORK_MEM=64MB
+      - POSTGRES_CHECKPOINT_SEGMENTS=32
+      - POSTGRES_CHECKPOINT_COMPLETION_TARGET=0.9
+      - POSTGRES_WAL_BUFFERS=16MB
+      - POSTGRES_DEFAULT_STATISTICS_TARGET=100
+    command: |
+      postgres 
+      -c listen_addresses='*'
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c maintenance_work_mem=64MB
+      -c checkpoint_completion_target=0.9
+      -c wal_buffers=16MB
+      -c default_statistics_target=100
+      -c random_page_cost=1.1
+      -c effective_io_concurrency=200
+      -c work_mem=4MB
+      -c min_wal_size=1GB
+      -c max_wal_size=4GB
+      -c max_worker_processes=8
+      -c max_parallel_workers_per_gather=4
+      -c max_parallel_workers=8
+      -c max_parallel_maintenance_workers=4
+      -c wal_level=replica
+      -c max_wal_senders=3
+      -c max_replication_slots=3
+      -c hot_standby=on
+      -c archive_mode=on
+      -c archive_command='test ! -f /var/lib/postgresql/archive/%f && cp %p /var/lib/postgresql/archive/%f'
+      -c logging_collector=on
+      -c log_directory='/var/log/postgresql'
+      -c log_filename='postgresql-%a.log'
+      -c log_truncate_on_rotation=on
+      -c log_rotation_age=1d
+      -c log_rotation_size=100MB
+      -c log_min_duration_statement=1000
+      -c log_line_prefix='%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.30
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maas -d maasdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    labels:
+      - "gough.service=postgresql"
+      - "gough.role=primary"
+      - "gough.ha=enabled"
+
+  # PostgreSQL Replica Database
+  postgres-replica:
+    image: postgres:15
+    container_name: postgres-replica
+    hostname: postgres-replica
+    ports:
+      - "${POSTGRES_REPLICA_PORT:-5433}:5432"
+    volumes:
+      - postgres_replica_data:/var/lib/postgresql/data
+      - ./config/postgresql/ha:/etc/postgresql/config:ro
+      - ./scripts/postgresql/ha:/docker-entrypoint-initdb.d:ro
+    environment:
+      - POSTGRES_DB=maasdb
+      - POSTGRES_USER=maas
+      - POSTGRES_PASSWORD=${MAAS_DB_PASSWORD}
+      - POSTGRES_REPLICATION_USER=replica
+      - POSTGRES_REPLICATION_PASSWORD=${POSTGRES_REPLICATION_PASSWORD}
+      - PGUSER=maas
+      
+      # Replication Configuration
+      - POSTGRES_MASTER_SERVICE=postgres-primary
+      - POSTGRES_SLAVE_SERVICE=postgres-replica
+      - POSTGRES_REPLICATION_MODE=slave
+      - POSTGRES_MASTER_HOST=postgres-primary
+      - POSTGRES_MASTER_PORT=5432
+      
+      # Standby Configuration
+      - POSTGRES_HOT_STANDBY=on
+      - POSTGRES_WAL_RECEIVER_STATUS_INTERVAL=10s
+      - POSTGRES_MAX_STANDBY_STREAMING_DELAY=30s
+      - POSTGRES_MAX_STANDBY_ARCHIVE_DELAY=30s
+    command: |
+      bash -c "
+      if [ ! -f /var/lib/postgresql/data/PG_VERSION ]; then
+        echo 'Initializing replica from primary...'
+        pg_basebackup -h postgres-primary -D /var/lib/postgresql/data -U replica -W -v -P -R
+        echo 'standby_mode = on' >> /var/lib/postgresql/data/recovery.conf
+        echo 'primary_conninfo = \"host=postgres-primary port=5432 user=replica password=${POSTGRES_REPLICATION_PASSWORD}\"' >> /var/lib/postgresql/data/recovery.conf
+        echo 'trigger_file = \"/var/lib/postgresql/data/promote_trigger\"' >> /var/lib/postgresql/data/recovery.conf
+      fi
+      postgres 
+      -c listen_addresses='*'
+      -c max_connections=200
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c hot_standby=on
+      -c wal_receiver_status_interval=10s
+      -c max_standby_streaming_delay=30s
+      -c max_standby_archive_delay=30s
+      -c logging_collector=on
+      -c log_directory='/var/log/postgresql'
+      -c log_filename='postgresql-%a.log'
+      -c log_truncate_on_rotation=on
+      -c log_rotation_age=1d
+      -c log_rotation_size=100MB
+      -c log_min_duration_statement=1000
+      -c log_line_prefix='%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+      "
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.31
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maas -d maasdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      postgres-primary:
+        condition: service_healthy
+    labels:
+      - "gough.service=postgresql"
+      - "gough.role=replica"
+      - "gough.ha=enabled"
+
+  # ================================
+  # SERVICE DISCOVERY & COORDINATION
+  # ================================
+
+  # Consul for service discovery and health monitoring
+  consul:
+    image: consul:1.17
+    container_name: consul
+    hostname: consul
+    ports:
+      - "${CONSUL_HTTP_PORT:-8500}:8500"
+      - "${CONSUL_DNS_PORT:-8600}:8600/udp"
+      - "8300:8300"
+      - "8301:8301"
+      - "8302:8302"
+    volumes:
+      - consul_data:/consul/data
+      - ./config/consul/ha:/consul/config:ro
+    environment:
+      - CONSUL_BIND_INTERFACE=eth0
+      - CONSUL_CLIENT_INTERFACE=eth0
+    command: |
+      consul agent 
+      -server 
+      -bootstrap-expect=1 
+      -ui 
+      -client=0.0.0.0 
+      -bind=0.0.0.0
+      -data-dir=/consul/data
+      -config-dir=/consul/config
+      -enable-script-checks
+      -log-level=INFO
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.5
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "consul", "members"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "gough.service=consul"
+      - "gough.role=coordinator"
+      - "gough.ha=enabled"
+
+  # ================================
+  # LOAD BALANCERS
+  # ================================
+
+  # HAProxy Load Balancer for MaaS
+  haproxy-maas:
+    image: haproxy:2.8-alpine
+    container_name: haproxy-maas
+    hostname: haproxy-maas
+    ports:
+      - "${HAPROXY_MAAS_HTTP_PORT:-80}:80"
+      - "${HAPROXY_MAAS_HTTPS_PORT:-443}:443"
+      - "${HAPROXY_MAAS_STATS_PORT:-8404}:8404"
+      - "${HAPROXY_MAAS_API_PORT:-5240}:5240"
+    volumes:
+      - ./config/haproxy/maas.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+      - ./config/ssl:/etc/ssl/certs:ro
+      - haproxy_logs:/var/log/haproxy
+    environment:
+      - HAPROXY_USER=haproxy
+      - HAPROXY_GROUP=haproxy
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.40
+      maas-ha-provisioning:
+        ipv4_address: 192.168.100.40
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "haproxy", "-c", "-f", "/usr/local/etc/haproxy/haproxy.cfg"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - maas-region-primary
+      - maas-region-secondary
+      - consul
+    labels:
+      - "gough.service=haproxy"
+      - "gough.role=load-balancer"
+      - "gough.target=maas"
+
+  # Nginx Load Balancer for Management Services
+  nginx-lb:
+    image: nginx:alpine
+    container_name: nginx-lb
+    hostname: nginx-lb
+    ports:
+      - "${NGINX_HTTP_PORT:-8080}:80"
+      - "${NGINX_HTTPS_PORT:-8443}:443"
+      - "${NGINX_STATS_PORT:-9090}:9090"
+    volumes:
+      - ./config/nginx/ha/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./config/nginx/ha/conf.d:/etc/nginx/conf.d:ro
+      - ./config/ssl:/etc/nginx/ssl:ro
+      - nginx_ha_logs:/var/log/nginx
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.41
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nginx", "-t"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - consul
+    labels:
+      - "gough.service=nginx"
+      - "gough.role=load-balancer"
+      - "gough.target=management"
+
+  # ================================
+  # MONITORING & HEALTH CHECKS
+  # ================================
+
+  # Health Check Service
+  healthcheck-service:
+    build:
+      context: ../containers/healthcheck
+      dockerfile: Dockerfile
+    container_name: healthcheck-service
+    hostname: healthcheck-service
+    ports:
+      - "${HEALTHCHECK_PORT:-9999}:9999"
+    volumes:
+      - ./config/healthcheck:/etc/healthcheck:ro
+      - healthcheck_logs:/var/log/healthcheck
+    environment:
+      - CONSUL_ENDPOINT=http://consul:8500
+      - CHECK_INTERVAL=10
+      - FAILURE_THRESHOLD=3
+      - RECOVERY_THRESHOLD=2
+    networks:
+      maas-ha-management:
+        ipv4_address: 172.21.0.50
+    restart: unless-stopped
+    depends_on:
+      consul:
+        condition: service_healthy
+    labels:
+      - "gough.service=healthcheck"
+      - "gough.role=monitor"
+
+volumes:
+  # MaaS HA volumes
+  maas_primary_data:
+    driver: local
+  maas_primary_logs:
+    driver: local
+  maas_secondary_data:
+    driver: local
+  maas_secondary_logs:
+    driver: local
+  maas_rack1_data:
+    driver: local
+  maas_rack1_logs:
+    driver: local
+  maas_rack2_data:
+    driver: local
+  maas_rack2_logs:
+    driver: local
+  maas_images_shared:
+    driver: local
+  
+  # Database HA volumes
+  postgres_primary_data:
+    driver: local
+  postgres_replica_data:
+    driver: local
+  
+  # Service coordination
+  consul_data:
+    driver: local
+  
+  # Load balancer volumes
+  haproxy_logs:
+    driver: local
+  nginx_ha_logs:
+    driver: local
+  
+  # Monitoring volumes
+  healthcheck_logs:
+    driver: local
+
+networks:
+  # HA Management network
+  maas-ha-management:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.21.0.0/16
+          gateway: 172.21.0.1
+    driver_opts:
+      com.docker.network.bridge.name: br-ha-mgmt
+      com.docker.network.bridge.enable_ip_masquerade: "true"
+      com.docker.network.bridge.enable_icc: "true"
+    labels:
+      - "gough.network.type=ha-management"
+      - "gough.network.ha=enabled"
+
+  # HA PXE boot network
+  maas-ha-provisioning:
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 192.168.100.0/24
+          gateway: 192.168.100.1
+          ip_range: 192.168.100.10/28
+    driver_opts:
+      com.docker.network.bridge.name: br-ha-pxe
+      com.docker.network.bridge.enable_ip_masquerade: "false"
+      com.docker.network.bridge.enable_icc: "true"
+      com.docker.network.bridge.host_binding_ipv4: "0.0.0.0"
+    labels:
+      - "gough.network.type=ha-provisioning"
+      - "gough.network.pxe=enabled"
+      - "gough.network.ha=enabled"

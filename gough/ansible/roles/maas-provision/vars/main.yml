@@ -1,0 +1,32 @@
+---
+# MaaS Provision Role - Default Variables
+
+# MaaS API Configuration
+maas_api_version: "2.0"
+commissioning_timeout_minutes: 30
+deployment_timeout_minutes: 45
+
+# Default provisioning parameters
+architecture: "amd64"
+ubuntu_series: "jammy"  # Ubuntu 22.04 LTS (change to "noble" for 24.04 when available)
+hwe_kernel: "hwe-22.04"
+
+# Default commissioning and testing scripts
+commissioning_scripts: "update_firmware,internet-connectivity,configure_hba"
+testing_scripts: "smartctl-validate,7z,fio"
+
+# Machine selection criteria
+min_cpu_count: 1
+min_memory_mb: 2048
+min_storage_gb: 20
+
+# Default cloud-init settings
+cloud_init_template: "base-server.yaml"
+cloud_init_template_path: "{{ playbook_dir }}/../cloud-init/templates"
+
+# Reporting
+provisioning_report_path: "/tmp"
+
+# Retry settings
+api_retry_count: 3
+api_retry_delay: 5

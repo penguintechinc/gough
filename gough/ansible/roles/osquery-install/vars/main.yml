@@ -1,0 +1,111 @@
+---
+# OSQuery Installation Role - Variables
+
+# OSQuery configuration
+osquery_version: "5.10.2"
+osquery_config_path: "/etc/osquery"
+osquery_log_path: "/var/log/osquery"
+osquery_log_level: "INFO"
+osquery_verbose: false
+
+# Fleet DM configuration
+osquery_use_fleet_ca: false
+fleet_enrollment_timeout: 300
+
+# Feature flags
+osquery_monitoring_enabled: true
+osquery_auto_maintenance: true
+test_fleet_enrollment: true
+force_osquery_reinstall: false
+
+# Role-specific queries
+osquery_role_queries:
+  general_server:
+    - name: "system_info"
+      query: "SELECT hostname, cpu_brand, physical_memory, hardware_vendor, hardware_model FROM system_info;"
+      interval: 3600
+    - name: "memory_usage"
+      query: "SELECT memory_total, memory_free, memory_available, memory_percent FROM memory_info;"
+      interval: 300
+    - name: "disk_usage"
+      query: "SELECT device, path, size, used, available, (used*100/size) as percent_used FROM mounts WHERE path IN ('/', '/home', '/var');"
+      interval: 600
+    - name: "network_interfaces"
+      query: "SELECT interface, mac, ip, mask, type FROM interface_addresses WHERE interface NOT LIKE 'lo%';"
+      interval: 1800
+    - name: "listening_ports"
+      query: "SELECT DISTINCT process.name, listening_ports.port, listening_ports.protocol, process.pid FROM listening_ports LEFT JOIN processes AS process ON listening_ports.pid = process.pid;"
+      interval: 600
+    - name: "user_logins"
+      query: "SELECT username, type, time, host FROM last;"
+      interval: 300
+
+  docker_host:
+    - name: "docker_containers"
+      query: "SELECT id, name, image, image_id, command, created, state, status FROM docker_containers;"
+      interval: 300
+    - name: "docker_images"
+      query: "SELECT id, repository, tag, created, size_bytes, virtual_size FROM docker_images;"
+      interval: 600
+    - name: "docker_networks"
+      query: "SELECT id, name, driver, created FROM docker_networks;"
+      interval: 1800
+    - name: "docker_volumes"
+      query: "SELECT name, driver, mount_point FROM docker_volumes;"
+      interval: 1800
+
+  kubernetes_node:
+    - name: "k8s_pods"
+      query: "SELECT name, namespace, phase, node_name FROM kubernetes_pods;"
+      interval: 300
+    - name: "k8s_nodes"
+      query: "SELECT name, status FROM kubernetes_nodes;"
+      interval: 600
+    - name: "k8s_services"
+      query: "SELECT name, namespace, cluster_ip, external_ip FROM kubernetes_services;"
+      interval: 600
+
+# Custom query packs (can be overridden in group_vars or host_vars)
+osquery_custom_packs: []
+# Example:
+# osquery_custom_packs:
+#   - name: "security-monitoring"
+#     src: "security-pack.conf.j2"
+#   - name: "compliance-audit"
+#     src: "compliance-pack.conf.j2"
+
+# OSQuery configuration options
+osquery_config_options:
+  config_plugin: "tls"
+  logger_plugin: "tls"
+  config_refresh: 10
+  disable_distributed: false
+  distributed_plugin: "tls"
+  distributed_interval: 10
+  distributed_tls_max_attempts: 3
+  host_identifier: "uuid"
+  schedule_splay_percent: 10
+  carver_block_size: 2000000
+  logger_snapshot_event_type: true
+  disable_events: false
+  events_expiry: 3600
+  worker_threads: 2
+  enable_monitor: true
+
+# Environment-specific settings
+osquery_environment_config:
+  development:
+    log_level: "DEBUG"
+    verbose: true
+    monitoring: true
+    maintenance: true
+  staging:
+    log_level: "INFO"
+    verbose: false
+    monitoring: true
+    maintenance: true
+  production:
+    log_level: "WARN"
+    verbose: false
+    monitoring: true
+    maintenance: false  # Manual maintenance in production

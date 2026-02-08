@@ -1,0 +1,670 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-region-primary
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: primary
+    version: v1.0.0
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate  # Ensure only one primary at a time
+  selector:
+    matchLabels:
+      app: maas
+      component: region
+      role: primary
+  template:
+    metadata:
+      labels:
+        app: maas
+        component: region
+        role: primary
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: gough-maas
+      securityContext:
+        runAsNonRoot: false  # MaaS requires root privileges
+        fsGroup: 1000
+      
+      # Node selection for dedicated hardware
+      nodeSelector:
+        gough.io/node-type: "infrastructure"
+      
+      # Anti-affinity to spread across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: maas
+                    component: region
+                topologyKey: kubernetes.io/hostname
+      
+      # Tolerations for infrastructure nodes
+      tolerations:
+        - key: "gough.io/infrastructure"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15-alpine
+          command:
+            - sh
+            - -c
+            - |
+              until pg_isready -h postgres-primary -p 5432 -U maas; do
+                echo "Waiting for PostgreSQL..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+          env:
+            - name: PGUSER
+              value: "maas"
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: maas-db-secret
+                  key: password
+      
+      containers:
+        - name: maas-region
+          image: gough/maas:3.4-ha
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: web
+              containerPort: 5240
+              protocol: TCP
+            - name: api
+              containerPort: 5241
+              protocol: TCP
+            - name: metadata
+              containerPort: 5247
+              protocol: TCP
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+          
+          env:
+            # HA Configuration
+            - name: MAAS_MODE
+              value: "region-primary"
+            - name: MAAS_REGION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: region-secret
+            - name: MAAS_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: cluster-secret
+            
+            # Database Configuration
+            - name: MAAS_DATABASE_URI
+              value: "postgres://maas:$(DB_PASSWORD)@postgres-primary:5432/maasdb"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: maas-db-secret
+                  key: password
+            
+            # Network Configuration
+            - name: DHCP_SUBNET
+              value: "192.168.100.0/24"
+            - name: DHCP_RANGE_START
+              value: "192.168.100.10"
+            - name: DHCP_RANGE_END
+              value: "192.168.100.250"
+            - name: DHCP_GATEWAY
+              value: "192.168.100.1"
+            - name: DHCP_DNS_SERVERS
+              value: "8.8.8.8,8.8.4.4"
+            
+            # Performance Tuning
+            - name: MAAS_WORKERS
+              value: "8"
+            - name: MAAS_DB_POOL_SIZE
+              value: "50"
+            - name: ENABLE_CLUSTERING
+              value: "true"
+            - name: CLUSTER_HEARTBEAT_INTERVAL
+              value: "30"
+            
+            # Monitoring
+            - name: ENABLE_METRICS
+              value: "true"
+            - name: METRICS_PORT
+              value: "8000"
+            - name: LOG_LEVEL
+              value: "INFO"
+          
+          volumeMounts:
+            - name: maas-data
+              mountPath: /var/lib/maas
+            - name: maas-logs
+              mountPath: /var/log/maas
+            - name: maas-images
+              mountPath: /var/lib/maas/images
+            - name: maas-config
+              mountPath: /etc/maas/config
+              readOnly: true
+          
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+
+          # Health checks
+          livenessProbe:
+            httpGet:
+              path: /MAAS/api/2.0/version/
+              port: 5240
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /MAAS/api/2.0/version/
+              port: 5240
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          # Security context
+          securityContext:
+            privileged: true  # Required for MaaS networking
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+                - DAC_OVERRIDE
+      
+      volumes:
+        - name: maas-data
+          persistentVolumeClaim:
+            claimName: maas-primary-data
+        - name: maas-logs
+          persistentVolumeClaim:
+            claimName: maas-primary-logs
+        - name: maas-images
+          persistentVolumeClaim:
+            claimName: maas-images-shared
+        - name: maas-config
+          configMap:
+            name: maas-config
+      
+      # Restart policy
+      restartPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: maas-region-secondary
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: secondary
+    version: v1.0.0
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: maas
+      component: region
+      role: secondary
+  template:
+    metadata:
+      labels:
+        app: maas
+        component: region
+        role: secondary
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: gough-maas
+      securityContext:
+        runAsNonRoot: false
+        fsGroup: 1000
+      
+      nodeSelector:
+        gough.io/node-type: "infrastructure"
+      
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: maas
+                  component: region
+                  role: primary
+              topologyKey: kubernetes.io/hostname
+      
+      tolerations:
+        - key: "gough.io/infrastructure"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+      
+      initContainers:
+        - name: wait-for-primary
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              until curl -f http://maas-region-primary:5240/MAAS/api/2.0/version/; do
+                echo "Waiting for primary region controller..."
+                sleep 10
+              done
+              echo "Primary region controller is ready"
+      
+      containers:
+        - name: maas-region
+          image: gough/maas:3.4-ha
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: web
+              containerPort: 5240
+              protocol: TCP
+            - name: api
+              containerPort: 5241
+              protocol: TCP
+            - name: metadata
+              containerPort: 5247
+              protocol: TCP
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+          
+          env:
+            # HA Configuration
+            - name: MAAS_MODE
+              value: "region-secondary"
+            - name: MAAS_REGION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: region-secret
+            - name: MAAS_CLUSTER_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: cluster-secret
+            
+            # Database Configuration
+            - name: MAAS_DATABASE_URI
+              value: "postgres://maas:$(DB_PASSWORD)@postgres-primary:5432/maasdb"
+            - name: MAAS_DATABASE_REPLICA_URI
+              value: "postgres://maas:$(DB_PASSWORD)@postgres-replica:5432/maasdb"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: maas-db-secret
+                  key: password
+            
+            # Clustering Configuration
+            - name: MAAS_PRIMARY_ENDPOINT
+              value: "http://maas-region-primary:5240/MAAS/"
+            - name: STANDBY_MODE
+              value: "true"
+            
+            # Performance Tuning
+            - name: MAAS_WORKERS
+              value: "8"
+            - name: MAAS_DB_POOL_SIZE
+              value: "50"
+            - name: ENABLE_CLUSTERING
+              value: "true"
+            - name: CLUSTER_HEARTBEAT_INTERVAL
+              value: "30"
+            
+            # Monitoring
+            - name: ENABLE_METRICS
+              value: "true"
+            - name: METRICS_PORT
+              value: "8000"
+            - name: LOG_LEVEL
+              value: "INFO"
+          
+          volumeMounts:
+            - name: maas-data
+              mountPath: /var/lib/maas
+            - name: maas-logs
+              mountPath: /var/log/maas
+            - name: maas-images
+              mountPath: /var/lib/maas/images
+            - name: maas-config
+              mountPath: /etc/maas/config
+              readOnly: true
+          
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+
+          livenessProbe:
+            httpGet:
+              path: /MAAS/api/2.0/version/
+              port: 5240
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /MAAS/api/2.0/version/
+              port: 5240
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+                - DAC_OVERRIDE
+
+      volumes:
+        - name: maas-data
+          persistentVolumeClaim:
+            claimName: maas-secondary-data
+        - name: maas-logs
+          persistentVolumeClaim:
+            claimName: maas-secondary-logs
+        - name: maas-images
+          persistentVolumeClaim:
+            claimName: maas-images-shared
+        - name: maas-config
+          configMap:
+            name: maas-config
+
+      restartPolicy: Always
+
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: maas-rack-controllers
+  namespace: gough
+  labels:
+    app: maas
+    component: rack
+    version: v1.0.0
+spec:
+  selector:
+    matchLabels:
+      app: maas
+      component: rack
+  template:
+    metadata:
+      labels:
+        app: maas
+        component: rack
+        version: v1.0.0
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: gough-maas
+      hostNetwork: true  # Required for PXE boot networking
+
+      nodeSelector:
+        gough.io/rack-controller: "true"
+
+      tolerations:
+        - key: "gough.io/rack"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      initContainers:
+        - name: wait-for-region
+          image: curlimages/curl:latest
+          command:
+            - sh
+            - -c
+            - |
+              until curl -f http://maas-region-primary:5240/MAAS/api/2.0/version/; do
+                echo "Waiting for region controller..."
+                sleep 10
+              done
+              echo "Region controller is ready"
+
+      containers:
+        - name: maas-rack
+          image: gough/maas:3.4-ha
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: rack
+              containerPort: 5242
+              protocol: TCP
+            - name: dns
+              containerPort: 53
+              protocol: UDP
+            - name: dhcp
+              containerPort: 67
+              protocol: UDP
+            - name: tftp
+              containerPort: 69
+              protocol: UDP
+            - name: metrics
+              containerPort: 8000
+              protocol: TCP
+
+          env:
+            - name: MAAS_MODE
+              value: "rack"
+            - name: MAAS_REGION_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: maas-secrets
+                  key: region-secret
+            - name: MAAS_REGION_URL
+              value: "http://maas-region-primary:5240/MAAS/"
+            - name: MAAS_REGION_BACKUP_URL
+              value: "http://maas-region-secondary:5240/MAAS/"
+            - name: ENABLE_DHCP
+              value: "true"
+            - name: DHCP_INTERFACE
+              value: "eth0"
+            - name: RACK_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          volumeMounts:
+            - name: maas-data
+              mountPath: /var/lib/maas
+            - name: maas-logs
+              mountPath: /var/log/maas
+            - name: maas-images
+              mountPath: /var/lib/maas/images
+            - name: maas-config
+              mountPath: /etc/maas/config
+              readOnly: true
+
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "1000m"
+          
+          livenessProbe:
+            exec:
+              command:
+                - systemctl
+                - is-active
+                - maas-rackd
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+          
+          readinessProbe:
+            exec:
+              command:
+                - systemctl
+                - is-active
+                - maas-rackd
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          securityContext:
+            privileged: true
+            capabilities:
+              add:
+                - NET_ADMIN
+                - SYS_ADMIN
+      
+      volumes:
+        - name: maas-data
+          hostPath:
+            path: /var/lib/maas-rack
+            type: DirectoryOrCreate
+        - name: maas-logs
+          hostPath:
+            path: /var/log/maas-rack
+            type: DirectoryOrCreate
+        - name: maas-images
+          persistentVolumeClaim:
+            claimName: maas-images-shared
+        - name: maas-config
+          configMap:
+            name: maas-config
+      
+      restartPolicy: Always
+      terminationGracePeriodSeconds: 60
+
+---
+# Persistent Volume Claims
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maas-primary-data
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: primary
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maas-primary-logs
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: primary
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maas-secondary-data
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: secondary
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: fast-ssd
+  resources:
+    requests:
+      storage: 50Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maas-secondary-logs
+  namespace: gough
+  labels:
+    app: maas
+    component: region
+    role: secondary
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: standard
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: maas-images-shared
+  namespace: gough
+  labels:
+    app: maas
+    component: shared
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs-client
+  resources:
+    requests:
+      storage: 500Gi

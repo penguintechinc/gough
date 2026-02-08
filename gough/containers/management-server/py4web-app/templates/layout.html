@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>MaaS Infrastructure Automation Portal</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css" rel="stylesheet">
+    
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- Custom CSS -->
+    <link href="[[=URL('static/css/app.css')]]" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="[[=URL('index')]]">
+                <i class="bi bi-hdd-rack"></i> MaaS Portal
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="[[=URL('index')]]">
+                            <i class="bi bi-speedometer2"></i> Dashboard
+                        </a>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-servers"></i> Servers
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="[[=URL('maas/dashboard')]]">MaaS Dashboard</a></li>
+                            <li><a class="dropdown-item" href="[[=URL('servers/list')]]">Server Inventory</a></li>
+                            <li><a class="dropdown-item" href="[[=URL('servers/deploy')]]">Deploy Servers</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-cloud"></i> Templates
+                        </a>
+                        <ul class="dropdown-menu">
+                            <li><a class="dropdown-item" href="[[=URL('cloud_init/templates')]]">Cloud-Init Templates</a></li>
+                            <li><a class="dropdown-item" href="[[=URL('packages/configs')]]">Package Configurations</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="[[=URL('fleetdm/dashboard')]]">
+                            <i class="bi bi-shield-check"></i> Fleet Security
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="[[=URL('logs')]]">
+                            <i class="bi bi-journal-text"></i> Logs
+                        </a>
+                    </li>
+                </ul>
+                
+                <ul class="navbar-nav">
+                    <li class="nav-item dropdown">
+                        <a class="nav-link dropdown-toggle" href="#" role="button" data-bs-toggle="dropdown">
+                            <i class="bi bi-gear"></i> Settings
+                        </a>
+                        <ul class="dropdown-menu dropdown-menu-end">
+                            <li><a class="dropdown-item" href="[[=URL('maas/config')]]">MaaS Configuration</a></li>
+                            <li><a class="dropdown-item" href="[[=URL('fleetdm/config')]]">FleetDM Configuration</a></li>
+                            <li><hr class="dropdown-divider"></li>
+                            <li><a class="dropdown-item" href="[[=URL('settings')]]">System Settings</a></li>
+                        </ul>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" id="status-indicator">
+                            <i class="bi bi-circle-fill text-success" id="status-icon"></i>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="container-fluid mt-4">
+        <!-- Flash Messages -->
+        <div id="flash-messages"></div>
+        
+        <!-- Page Content -->
+        [[block page_content]][[end]]
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-light mt-5 py-4">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <p class="text-muted mb-0">
+                        <i class="bi bi-hdd-rack"></i> MaaS Infrastructure Automation Portal
+                    </p>
+                </div>
+                <div class="col-md-6 text-end">
+                    <p class="text-muted mb-0">
+                        Built with py4web, Bootstrap, and Chart.js
+                    </p>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JavaScript -->
+    <script src="[[=URL('static/js/app.js')]]"></script>
+    
+    <!-- Page-specific JavaScript -->
+    [[block page_scripts]][[end]]
+</body>
+</html>

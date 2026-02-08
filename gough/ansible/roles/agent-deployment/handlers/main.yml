@@ -1,0 +1,29 @@
+---
+# Agent Deployment Role - Handlers
+
+- name: restart maas-agent
+  systemd:
+    name: maas-agent
+    state: restarted
+    daemon_reload: true
+
+- name: reload systemd
+  systemd:
+    daemon_reload: true
+
+- name: restart osqueryd
+  systemd:
+    name: osqueryd
+    state: restarted
+    daemon_reload: true
+
+- name: restart docker-monitor
+  systemd:
+    name: docker-monitor
+    state: restarted
+  when: agent_config.enable_docker_monitoring | default(false)
+
+- name: restart rsyslog
+  systemd:
+    name: rsyslog
+    state: restarted

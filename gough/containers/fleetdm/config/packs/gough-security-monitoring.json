@@ -1,0 +1,67 @@
+{
+  "platform": "linux",
+  "version": "1.0.0",
+  "queries": {
+    "failed_ssh_logins": {
+      "query": "SELECT datetime(time,'unixepoch') AS datetime, username, address FROM last WHERE username != '' AND address != 'console' AND address != '' AND time > (SELECT max(time) FROM last) - 86400;",
+      "interval": 300,
+      "description": "Failed SSH login attempts in the last 24 hours",
+      "value": "Security monitoring for unauthorized access attempts"
+    },
+    "successful_ssh_logins": {
+      "query": "SELECT datetime(time,'unixepoch') AS datetime, username, tty, host FROM last WHERE tty LIKE 'pts%' AND username != '' AND time > (SELECT max(time) FROM last) - 3600;",
+      "interval": 300,
+      "description": "Successful SSH logins in the last hour",
+      "value": "Track successful remote logins for audit purposes"
+    },
+    "privileged_command_execution": {
+      "query": "SELECT datetime(time,'unixepoch') AS datetime, message FROM syslog WHERE facility = 'authpriv' AND message LIKE '%sudo%' AND time > (SELECT max(time) FROM syslog) - 3600;",
+      "interval": 300,
+      "description": "Privileged command executions via sudo in the last hour",
+      "value": "Monitor elevated privilege usage"
+    },
+    "user_account_changes": {
+      "query": "SELECT datetime(time,'unixepoch') AS datetime, message FROM syslog WHERE (message LIKE '%useradd%' OR message LIKE '%userdel%' OR message LIKE '%usermod%') AND time > (SELECT max(time) FROM syslog) - 86400;",
+      "interval": 3600,
+      "description": "User account modifications in the last 24 hours",
+      "value": "Track user account changes for security auditing"
+    },
+    "process_network_connections": {
+      "query": "SELECT p.name, p.pid, p.cmdline, ps.local_port, ps.remote_address, ps.remote_port, ps.state FROM processes p JOIN process_open_sockets ps ON p.pid = ps.pid WHERE ps.remote_address != '127.0.0.1' AND ps.remote_address != '::1' AND ps.remote_address != '';",
+      "interval": 600,
+      "description": "Processes with active network connections",
+      "value": "Monitor network activity for suspicious connections"
+    },
+    "file_integrity_monitoring": {
+      "query": "SELECT target_path, category, time, action FROM file_events WHERE target_path IN ('/etc/passwd', '/etc/shadow', '/etc/hosts', '/etc/ssh/sshd_config', '/etc/sudoers') AND time > (SELECT max(time) FROM file_events) - 3600;",
+      "interval": 300,
+      "description": "Critical system file modifications in the last hour",
+      "value": "Monitor changes to critical configuration files"
+    },
+    "suspicious_processes": {
+      "query": "SELECT name, pid, cmdline, parent, path FROM processes WHERE (name LIKE '%nc%' OR name LIKE '%netcat%' OR name LIKE '%nmap%' OR name LIKE '%telnet%' OR cmdline LIKE '%/dev/tcp%' OR cmdline LIKE '%bash -i%') AND pid > 1;",
+      "interval": 300,
+      "description": "Potentially suspicious processes and commands",
+      "value": "Detect potential malicious tools and reverse shells"
+    },
+    "docker_container_monitoring": {
+      "query": "SELECT name, image, status, created_at, ports FROM docker_containers;",
+      "interval": 600,
+      "description": "Docker container status and configuration",
+      "value": "Monitor container deployments and runtime status",
+      "platform": "linux"
+    },
+    "kernel_module_changes": {
+      "query": "SELECT name, size, used_by, status FROM kernel_modules WHERE name NOT IN (SELECT name FROM kernel_modules WHERE time < (SELECT max(time) FROM kernel_modules) - 3600);",
+      "interval": 3600,
+      "description": "Kernel modules loaded in the last hour",
+      "value": "Track kernel module changes for rootkit detection"
+    },
+    "cron_job_monitoring": {
+      "query": "SELECT command, path, minute, hour, day_of_month, month, day_of_week FROM crontab;",
+      "interval": 3600,
+      "description": "System and user cron jobs",
+      "value": "Monitor scheduled tasks for persistence mechanisms"
+    }
+  }
+}

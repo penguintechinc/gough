@@ -125,9 +125,9 @@ export function ipAddress(options: IpAddressOptions = {}): Validator<string, str
   const ipv6Regex = /^(?:(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,7}:|(?:[0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){1,5}(?::[0-9a-fA-F]{1,4}){1,2}|(?:[0-9a-fA-F]{1,4}:){1,4}(?::[0-9a-fA-F]{1,4}){1,3}|(?:[0-9a-fA-F]{1,4}:){1,3}(?::[0-9a-fA-F]{1,4}){1,4}|(?:[0-9a-fA-F]{1,4}:){1,2}(?::[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:(?::[0-9a-fA-F]{1,4}){1,6}|:(?:(?::[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(?::[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]+|::(?:ffff(?::0{1,4})?:)?(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])|(?:[0-9a-fA-F]{1,4}:){1,4}:(?:(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9])\.){3}(?:25[0-5]|(?:2[0-4]|1?[0-9])?[0-9]))$/;
 
   const getErrorMessage = (): string => {
-    if (options.errorMessage) return options.errorMessage;
-    if (version === 4) return 'Value must be a valid IPv4 address';
-    if (version === 6) return 'Value must be a valid IPv6 address';
+    if (options.errorMessage) {return options.errorMessage;}
+    if (version === 4) {return 'Value must be a valid IPv4 address';}
+    if (version === 6) {return 'Value must be a valid IPv6 address';}
     return 'Value must be a valid IP address';
   };
 
@@ -175,9 +175,6 @@ export function hostname(options: HostnameOptions = {}): Validator<string, strin
     requireTld = false,
   } = options;
   const errorMessage = options.errorMessage ?? 'Invalid hostname';
-
-  // RFC 1123 hostname pattern
-  const hostnameRegex = /^(?![-])[a-zA-Z0-9-]{1,63}(?<![])(?:\.(?![]))[a-zA-Z0-9-]{1,63}(?<![]))*$/;
 
   return (value: string): ValidationResult<string> => {
     if (typeof value !== 'string') {

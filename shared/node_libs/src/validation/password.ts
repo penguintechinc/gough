@@ -148,7 +148,7 @@ export function passwordStrengthScore(
   password: string,
   specialChars: string = DEFAULT_OPTIONS.specialChars
 ): number {
-  if (!password) return 0;
+  if (!password) {return 0;}
 
   let score = 0;
 
@@ -157,11 +157,11 @@ export function passwordStrengthScore(
 
   // Character variety (up to 40 points)
   let variety = 0;
-  if (/[a-z]/.test(password)) variety++;
-  if (/[A-Z]/.test(password)) variety++;
-  if (/\d/.test(password)) variety++;
+  if (/[a-z]/.test(password)) {variety++;}
+  if (/[A-Z]/.test(password)) {variety++;}
+  if (/\d/.test(password)) {variety++;}
   const specialRegex = new RegExp(`[${escapeRegex(specialChars)}]`);
-  if (specialRegex.test(password)) variety++;
+  if (specialRegex.test(password)) {variety++;}
   score += variety * 10;
 
   // Unique character ratio (up to 20 points)
@@ -190,10 +190,10 @@ export function passwordStrengthScore(
  * Gets a human-readable strength label for a password score.
  */
 export function passwordStrengthLabel(score: number): 'very weak' | 'weak' | 'fair' | 'strong' | 'very strong' {
-  if (score < 20) return 'very weak';
-  if (score < 40) return 'weak';
-  if (score < 60) return 'fair';
-  if (score < 80) return 'strong';
+  if (score < 20) {return 'very weak';}
+  if (score < 40) {return 'weak';}
+  if (score < 60) {return 'fair';}
+  if (score < 80) {return 'strong';}
   return 'very strong';
 }
 

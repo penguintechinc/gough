@@ -3,7 +3,6 @@
  */
 
 import * as grpc from '@grpc/grpc-js';
-import * as protoLoader from '@grpc/proto-loader';
 import { HealthImplementation } from 'grpc-health-check';
 
 export interface ServerOptions {
@@ -161,7 +160,6 @@ export function startServerWithGracefulShutdown(
   const handleShutdown = (signal: string) => {
     console.log(`Received signal ${signal}, initiating graceful shutdown`);
 
-    const deadline = Date.now() + gracePeriod;
     server.tryShutdown((error) => {
       if (error) {
         console.error('Error during graceful shutdown:', error);

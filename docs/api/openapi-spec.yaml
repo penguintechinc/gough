@@ -1,0 +1,1825 @@
+openapi: 3.0.3
+info:
+  title: Gough Hypervisor Automation System API
+  description: |
+    The Gough Management Server provides comprehensive RESTful APIs for managing the entire hypervisor automation system. 
+    This API enables automated provisioning of bare metal servers, template management, security monitoring integration, 
+    and complete system orchestration.
+    
+    ## Features
+    - Server discovery, commissioning, and deployment
+    - Cloud-init template management and customization  
+    - Real-time job monitoring and status updates
+    - Integration with MaaS and FleetDM systems
+    - User authentication and role-based access control
+    - Comprehensive system monitoring and metrics
+    
+    ## Authentication
+    All endpoints require JWT authentication. Obtain a token via the `/auth/login` endpoint.
+    
+    ## Rate Limiting  
+    - Authenticated: 1000 req/hour per user
+    - Unauthenticated: 100 req/hour per IP
+    - Bulk operations: 10 req/minute per user
+    
+    ## Support
+    - Documentation: https://github.com/penguintechinc/gough/docs
+    - Issues: https://github.com/penguintechinc/gough/issues
+    - Email: sales@penguintech.io
+  version: "1.0.0"
+  contact:
+    name: Penguin Tech Inc
+    email: sales@penguintech.io
+    url: https://github.com/penguintechinc/gough
+  license:
+    name: AGPL-3.0
+    url: https://www.gnu.org/licenses/agpl-3.0.en.html
+  termsOfService: https://github.com/penguintechinc/gough/blob/main/LICENSE
+
+servers:
+  - url: https://your-domain.com/api/v1
+    description: Production server
+  - url: http://localhost:8000/api/v1
+    description: Development server
+
+security:
+  - bearerAuth: []
+
+tags:
+  - name: Authentication
+    description: User authentication and token management
+  - name: System
+    description: System status, health, and statistics
+  - name: Servers
+    description: Server management and provisioning
+  - name: Jobs
+    description: Background job management and monitoring
+  - name: Templates
+    description: Cloud-init template management
+  - name: Configuration
+    description: System configuration management
+  - name: Users
+    description: User account management
+  - name: Monitoring
+    description: System monitoring and alerting
+  - name: Security
+    description: Security monitoring and compliance
+
+paths:
+  # Authentication Endpoints
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate user and obtain JWT token
+      description: Login with email and password to receive access and refresh tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+            example:
+              email: admin@gough.local
+              password: secure-password
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+      security: []
+
+  /auth/refresh:
+    post:
+      tags: [Authentication]
+      summary: Refresh JWT token
+      description: Use refresh token to obtain new access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+                  description: Valid refresh token
+      responses:
+        '200':
+          description: Token refreshed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+      security: []
+
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Logout and invalidate token
+      description: Invalidate the current access token
+      responses:
+        '200':
+          $ref: '#/components/responses/Success'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Get current user information
+      description: Retrieve information about the currently authenticated user
+      responses:
+        '200':
+          description: User information retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # System Status Endpoints
+  /status:
+    get:
+      tags: [System]
+      summary: Get system health status
+      description: Check overall system health and component connectivity
+      responses:
+        '200':
+          description: System status retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemStatus'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /stats:
+    get:
+      tags: [System]
+      summary: Get system statistics
+      description: Retrieve comprehensive system metrics and statistics
+      responses:
+        '200':
+          description: System statistics retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemStats'
+
+  # Server Management Endpoints
+  /servers:
+    get:
+      tags: [Servers]
+      summary: List all servers
+      description: Get paginated list of all managed servers with optional filtering
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          description: Filter by server status
+          schema:
+            type: string
+            enum: [new, commissioning, ready, deployed, broken, retired]
+        - name: search
+          in: query
+          description: Search by hostname or MAC address
+          schema:
+            type: string
+        - name: sort
+          in: query
+          description: Sort field
+          schema:
+            type: string
+            enum: [hostname, status, created_at, deployed_at]
+            default: hostname
+        - name: order
+          in: query
+          description: Sort order
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+      responses:
+        '200':
+          description: Servers retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Server'
+                      pagination:
+                        $ref: '#/components/schemas/PaginationInfo'
+
+    post:
+      tags: [Servers]
+      summary: Register a new server
+      description: Add a new server to the system for management
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerCreateRequest'
+      responses:
+        '201':
+          description: Server registered successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Server'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+
+  /servers/{serverId}:
+    get:
+      tags: [Servers]
+      summary: Get server details
+      description: Retrieve detailed information about a specific server
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      responses:
+        '200':
+          description: Server details retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ServerDetailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Servers]
+      summary: Update server information
+      description: Update server metadata and configuration
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ServerUpdateRequest'
+      responses:
+        '200':
+          description: Server updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Server'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Servers]
+      summary: Delete server
+      description: Remove server from management system
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      responses:
+        '204':
+          description: Server deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Cannot delete server in use
+
+  /servers/{serverId}/commission:
+    post:
+      tags: [Servers]
+      summary: Commission server
+      description: Start server commissioning process (hardware discovery and testing)
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CommissionRequest'
+      responses:
+        '202':
+          description: Commissioning started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /servers/{serverId}/deploy:
+    post:
+      tags: [Servers]
+      summary: Deploy server
+      description: Deploy operating system and applications to server
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DeployRequest'
+      responses:
+        '202':
+          description: Deployment started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/JobResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /servers/{serverId}/release:
+    post:
+      tags: [Servers]
+      summary: Release server
+      description: Release deployed server back to available pool
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReleaseRequest'
+      responses:
+        '202':
+          description: Release started
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/JobResponse'
+
+  /servers/{serverId}/power/{action}:
+    post:
+      tags: [Servers]
+      summary: Control server power
+      description: Control server power state (on, off, cycle, query)
+      parameters:
+        - $ref: '#/components/parameters/ServerIdParam'
+        - name: action
+          in: path
+          required: true
+          description: Power action to perform
+          schema:
+            type: string
+            enum: [on, off, cycle, query]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PowerRequest'
+      responses:
+        '200':
+          description: Power action completed
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          action:
+                            type: string
+                          previous_state:
+                            type: string
+                          current_state:
+                            type: string
+
+  # Job Management Endpoints
+  /jobs:
+    get:
+      tags: [Jobs]
+      summary: List jobs
+      description: Get paginated list of all jobs with optional filtering
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+        - name: status
+          in: query
+          description: Filter by job status
+          schema:
+            type: string
+            enum: [pending, running, completed, failed, cancelled]
+        - name: type
+          in: query
+          description: Filter by job type
+          schema:
+            type: string
+            enum: [deploy, commission, release, power]
+        - name: server_id
+          in: query
+          description: Filter by server ID
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Jobs retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Job'
+                      pagination:
+                        $ref: '#/components/schemas/PaginationInfo'
+
+  /jobs/{jobId}:
+    get:
+      tags: [Jobs]
+      summary: Get job details
+      description: Retrieve detailed information about a specific job
+      parameters:
+        - $ref: '#/components/parameters/JobIdParam'
+      responses:
+        '200':
+          description: Job details retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/JobDetailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /jobs/{jobId}/logs:
+    get:
+      tags: [Jobs]
+      summary: Get job logs
+      description: Retrieve execution logs for a specific job
+      parameters:
+        - $ref: '#/components/parameters/JobIdParam'
+        - name: level
+          in: query
+          description: Filter by log level
+          schema:
+            type: string
+            enum: [debug, info, warning, error]
+        - name: limit
+          in: query
+          description: Limit number of log entries
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 1000
+            default: 100
+      responses:
+        '200':
+          description: Job logs retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          logs:
+                            type: array
+                            items:
+                              $ref: '#/components/schemas/LogEntry'
+                          real_time_url:
+                            type: string
+                            format: uri
+                            description: WebSocket URL for real-time log streaming
+
+  /jobs/{jobId}/cancel:
+    post:
+      tags: [Jobs]
+      summary: Cancel job
+      description: Cancel a running or pending job
+      parameters:
+        - $ref: '#/components/parameters/JobIdParam'
+      responses:
+        '200':
+          description: Job cancelled successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiResponse'
+        '400':
+          description: Job cannot be cancelled
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # Template Management Endpoints
+  /templates:
+    get:
+      tags: [Templates]
+      summary: List templates
+      description: Get all available cloud-init templates
+      parameters:
+        - name: category
+          in: query
+          description: Filter by template category
+          schema:
+            type: string
+        - name: os_series
+          in: query
+          description: Filter by OS series compatibility
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Templates retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Template'
+
+    post:
+      tags: [Templates]
+      summary: Create template
+      description: Create a new cloud-init template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateCreateRequest'
+      responses:
+        '201':
+          description: Template created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Template'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /templates/{templateId}:
+    get:
+      tags: [Templates]
+      summary: Get template details
+      description: Retrieve detailed template information and content
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '200':
+          description: Template details retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/TemplateDetailed'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Templates]
+      summary: Update template
+      description: Update existing template content and metadata
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TemplateUpdateRequest'
+      responses:
+        '200':
+          description: Template updated successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/Template'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Templates]
+      summary: Delete template
+      description: Delete template (only if not in use)
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '204':
+          description: Template deleted successfully
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Template is in use and cannot be deleted
+
+  /templates/{templateId}/validate:
+    post:
+      tags: [Templates]
+      summary: Validate template
+      description: Validate template syntax and variable definitions
+      parameters:
+        - $ref: '#/components/parameters/TemplateIdParam'
+      responses:
+        '200':
+          description: Template validation results
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/ValidationResult'
+
+  # Configuration Management Endpoints
+  /config/maas:
+    get:
+      tags: [Configuration]
+      summary: Get MaaS configuration
+      description: Retrieve current MaaS connection and configuration settings
+      responses:
+        '200':
+          description: MaaS configuration retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MaasConfig'
+
+    put:
+      tags: [Configuration]
+      summary: Update MaaS configuration
+      description: Update MaaS connection settings and configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MaasConfigUpdate'
+      responses:
+        '200':
+          description: MaaS configuration updated
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/MaasConfig'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /config/fleetdm:
+    get:
+      tags: [Configuration]
+      summary: Get FleetDM configuration
+      description: Retrieve current FleetDM connection and configuration settings
+      responses:
+        '200':
+          description: FleetDM configuration retrieved
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/FleetDMConfig'
+
+    put:
+      tags: [Configuration]
+      summary: Update FleetDM configuration
+      description: Update FleetDM connection settings and configuration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FleetDMConfigUpdate'
+      responses:
+        '200':
+          description: FleetDM configuration updated
+
+  # User Management Endpoints
+  /users:
+    get:
+      tags: [Users]
+      summary: List users
+      description: Get all system users (admin only)
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/PerPageParam'
+      responses:
+        '200':
+          description: Users retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/User'
+                      pagination:
+                        $ref: '#/components/schemas/PaginationInfo'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+    post:
+      tags: [Users]
+      summary: Create user
+      description: Create a new user account (admin only)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserCreateRequest'
+      responses:
+        '201':
+          description: User created successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+
+  # Monitoring Endpoints
+  /metrics:
+    get:
+      tags: [Monitoring]
+      summary: Get system metrics
+      description: Retrieve current system performance metrics
+      responses:
+        '200':
+          description: Metrics retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        $ref: '#/components/schemas/SystemMetrics'
+
+  /alerts:
+    get:
+      tags: [Monitoring]
+      summary: Get active alerts
+      description: Retrieve all active system alerts
+      parameters:
+        - name: severity
+          in: query
+          description: Filter by alert severity
+          schema:
+            type: string
+            enum: [info, warning, error, critical]
+      responses:
+        '200':
+          description: Alerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          $ref: '#/components/schemas/Alert'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT token obtained from /auth/login endpoint
+
+  parameters:
+    ServerIdParam:
+      name: serverId
+      in: path
+      required: true
+      description: Server ID
+      schema:
+        type: integer
+        format: int64
+
+    JobIdParam:
+      name: jobId
+      in: path
+      required: true
+      description: Job ID
+      schema:
+        type: integer
+        format: int64
+
+    TemplateIdParam:
+      name: templateId
+      in: path
+      required: true
+      description: Template ID
+      schema:
+        type: integer
+        format: int64
+
+    PageParam:
+      name: page
+      in: query
+      description: Page number
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PerPageParam:
+      name: per_page
+      in: query
+      description: Items per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  schemas:
+    ApiResponse:
+      type: object
+      required:
+        - status
+        - timestamp
+      properties:
+        status:
+          type: string
+          enum: [success, error]
+        message:
+          type: string
+          description: Human readable message
+        timestamp:
+          type: string
+          format: date-time
+          description: Response timestamp
+
+    ErrorResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            error:
+              type: object
+              properties:
+                code:
+                  type: string
+                  description: Error code
+                message:
+                  type: string
+                  description: Error message
+                details:
+                  type: object
+                  description: Additional error details
+
+    PaginationInfo:
+      type: object
+      properties:
+        page:
+          type: integer
+          description: Current page number
+        per_page:
+          type: integer
+          description: Items per page
+        total:
+          type: integer
+          description: Total number of items
+        pages:
+          type: integer
+          description: Total number of pages
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          description: User email address
+        password:
+          type: string
+          format: password
+          description: User password
+
+    LoginResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/TokenResponse'
+
+    TokenResponse:
+      type: object
+      properties:
+        access_token:
+          type: string
+          description: JWT access token
+        refresh_token:
+          type: string
+          description: JWT refresh token
+        expires_in:
+          type: integer
+          description: Token expiration time in seconds
+        token_type:
+          type: string
+          enum: [Bearer]
+        user:
+          $ref: '#/components/schemas/User'
+
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+        permissions:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        last_login:
+          type: string
+          format: date-time
+
+    SystemStatus:
+      type: object
+      properties:
+        system:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        components:
+          type: object
+          properties:
+            database:
+              type: string
+              enum: [connected, disconnected, error]
+            maas:
+              type: string
+              enum: [connected, disconnected, error]
+            fleetdm:
+              type: string
+              enum: [connected, disconnected, error]
+            redis:
+              type: string
+              enum: [connected, disconnected, error]
+        uptime:
+          type: string
+          description: System uptime
+        version:
+          type: string
+          description: System version
+
+    SystemStats:
+      type: object
+      properties:
+        servers:
+          type: object
+          properties:
+            total:
+              type: integer
+            commissioned:
+              type: integer
+            deployed:
+              type: integer
+            failed:
+              type: integer
+        jobs:
+          type: object
+          properties:
+            pending:
+              type: integer
+            running:
+              type: integer
+            completed:
+              type: integer
+            failed:
+              type: integer
+        resources:
+          type: object
+          properties:
+            cpu_usage:
+              type: string
+            memory_usage:
+              type: string
+            disk_usage:
+              type: string
+
+    Server:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        hostname:
+          type: string
+        system_id:
+          type: string
+          description: MaaS system ID
+        mac_address:
+          type: string
+        ip_address:
+          type: string
+        status:
+          type: string
+          enum: [new, commissioning, ready, deployed, broken, retired]
+        architecture:
+          type: string
+        memory:
+          type: integer
+          description: Memory in MB
+        cpu_cores:
+          type: integer
+        storage:
+          type: integer
+          description: Storage in MB
+        tags:
+          type: array
+          items:
+            type: string
+        created_at:
+          type: string
+          format: date-time
+        deployed_at:
+          type: string
+          format: date-time
+        template:
+          type: string
+        agent_status:
+          type: string
+          enum: [online, offline, unknown]
+        last_seen:
+          type: string
+          format: date-time
+
+    ServerDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Server'
+        - type: object
+          properties:
+            power_state:
+              type: string
+              enum: [on, off, unknown]
+            cpu_speed:
+              type: integer
+              description: CPU speed in MHz
+            storage_devices:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  size:
+                    type: integer
+                  type:
+                    type: string
+                  model:
+                    type: string
+            network_interfaces:
+              type: array
+              items:
+                type: object
+                properties:
+                  name:
+                    type: string
+                  mac_address:
+                    type: string
+                  ip_address:
+                    type: string
+                  subnet:
+                    type: string
+                  vlan:
+                    type: integer
+            deployment_history:
+              type: array
+              items:
+                type: object
+                properties:
+                  timestamp:
+                    type: string
+                    format: date-time
+                  action:
+                    type: string
+                  template:
+                    type: string
+                  status:
+                    type: string
+            agent_info:
+              type: object
+              properties:
+                status:
+                  type: string
+                version:
+                  type: string
+                last_seen:
+                  type: string
+                  format: date-time
+                system_info:
+                  type: object
+                  properties:
+                    os:
+                      type: string
+                    kernel:
+                      type: string
+                    uptime:
+                      type: string
+
+    ServerCreateRequest:
+      type: object
+      required:
+        - mac_address
+      properties:
+        mac_address:
+          type: string
+          pattern: '^([0-9A-Fa-f]{2}[:-]){5}([0-9A-Fa-f]{2})$'
+        hostname:
+          type: string
+        architecture:
+          type: string
+          default: amd64/generic
+        power_type:
+          type: string
+          enum: [manual, ipmi, virsh, webhook]
+        power_parameters:
+          type: object
+          description: Power control parameters (varies by power_type)
+        tags:
+          type: array
+          items:
+            type: string
+
+    ServerUpdateRequest:
+      type: object
+      properties:
+        hostname:
+          type: string
+        tags:
+          type: array
+          items:
+            type: string
+        power_parameters:
+          type: object
+
+    CommissionRequest:
+      type: object
+      properties:
+        enable_ssh:
+          type: boolean
+          default: true
+        skip_networking:
+          type: boolean
+          default: false
+        testing_scripts:
+          type: array
+          items:
+            type: string
+          description: List of testing scripts to run
+
+    DeployRequest:
+      type: object
+      required:
+        - template
+      properties:
+        template:
+          type: string
+          description: Template name to use for deployment
+        hostname:
+          type: string
+        user_data:
+          type: string
+          description: Custom cloud-init user data
+        distro_series:
+          type: string
+          default: jammy
+        kernel:
+          type: string
+          description: Specific kernel to use (empty for default)
+        tags:
+          type: array
+          items:
+            type: string
+        environment_variables:
+          type: object
+          additionalProperties:
+            type: string
+
+    ReleaseRequest:
+      type: object
+      properties:
+        secure_erase:
+          type: boolean
+          default: true
+        quick_erase:
+          type: boolean
+          default: false
+
+    PowerRequest:
+      type: object
+      properties:
+        force:
+          type: boolean
+          default: false
+          description: Force the power action
+
+    Job:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        type:
+          type: string
+          enum: [deploy, commission, release, power]
+        server_id:
+          type: integer
+          format: int64
+        hostname:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, cancelled]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        template:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        started_at:
+          type: string
+          format: date-time
+        completed_at:
+          type: string
+          format: date-time
+        estimated_completion:
+          type: string
+          format: date-time
+        log_url:
+          type: string
+          format: uri
+
+    JobDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Job'
+        - type: object
+          properties:
+            parameters:
+              type: object
+              description: Job parameters
+            result:
+              type: object
+              description: Job result data
+            error_message:
+              type: string
+            retry_count:
+              type: integer
+
+    JobResponse:
+      type: object
+      properties:
+        job_id:
+          type: string
+        server_id:
+          type: integer
+        status:
+          type: string
+        estimated_duration:
+          type: string
+        template:
+          type: string
+
+    LogEntry:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        level:
+          type: string
+          enum: [debug, info, warning, error]
+        message:
+          type: string
+        component:
+          type: string
+        details:
+          type: object
+
+    Template:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        version:
+          type: string
+        os_series:
+          type: array
+          items:
+            type: string
+        architecture:
+          type: array
+          items:
+            type: string
+        packages:
+          type: array
+          items:
+            type: string
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateVariable'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    TemplateDetailed:
+      allOf:
+        - $ref: '#/components/schemas/Template'
+        - type: object
+          properties:
+            content:
+              type: string
+              description: Cloud-init template content
+            usage_count:
+              type: integer
+            last_used:
+              type: string
+              format: date-time
+
+    TemplateVariable:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [string, integer, boolean, array]
+        default:
+          oneOf:
+            - type: string
+            - type: integer
+            - type: boolean
+            - type: array
+        description:
+          type: string
+        required:
+          type: boolean
+          default: false
+        validation:
+          type: object
+          description: Validation rules
+
+    TemplateCreateRequest:
+      type: object
+      required:
+        - name
+        - content
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        os_series:
+          type: array
+          items:
+            type: string
+        architecture:
+          type: array
+          items:
+            type: string
+        content:
+          type: string
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateVariable'
+
+    TemplateUpdateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        category:
+          type: string
+        content:
+          type: string
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/TemplateVariable'
+
+    ValidationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        syntax_errors:
+          type: array
+          items:
+            type: string
+        warnings:
+          type: array
+          items:
+            type: string
+        variables_valid:
+          type: boolean
+        missing_variables:
+          type: array
+          items:
+            type: string
+
+    MaasConfig:
+      type: object
+      properties:
+        maas_url:
+          type: string
+          format: uri
+        connection_status:
+          type: string
+          enum: [connected, disconnected, error]
+        api_version:
+          type: string
+        region_name:
+          type: string
+        default_series:
+          type: string
+        default_kernel:
+          type: string
+        dns_servers:
+          type: array
+          items:
+            type: string
+        ntp_servers:
+          type: array
+          items:
+            type: string
+        proxy_url:
+          type: string
+          format: uri
+        enable_dhcp:
+          type: boolean
+        subnet_config:
+          type: object
+          properties:
+            subnet:
+              type: string
+            gateway:
+              type: string
+            range_start:
+              type: string
+            range_end:
+              type: string
+
+    MaasConfigUpdate:
+      type: object
+      properties:
+        maas_url:
+          type: string
+          format: uri
+        api_key:
+          type: string
+        dns_servers:
+          type: array
+          items:
+            type: string
+        ntp_servers:
+          type: array
+          items:
+            type: string
+        default_series:
+          type: string
+
+    FleetDMConfig:
+      type: object
+      properties:
+        fleet_url:
+          type: string
+          format: uri
+        connection_status:
+          type: string
+          enum: [connected, disconnected, error]
+        api_version:
+          type: string
+        enrollment_secret:
+          type: string
+        certificate_path:
+          type: string
+
+    FleetDMConfigUpdate:
+      type: object
+      properties:
+        fleet_url:
+          type: string
+          format: uri
+        api_token:
+          type: string
+        enrollment_secret:
+          type: string
+
+    UserCreateRequest:
+      type: object
+      required:
+        - email
+        - name
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+        name:
+          type: string
+        password:
+          type: string
+          format: password
+        role:
+          type: string
+          enum: [admin, operator, viewer]
+          default: viewer
+        permissions:
+          type: array
+          items:
+            type: string
+
+    SystemMetrics:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        system:
+          type: object
+          properties:
+            cpu_usage:
+              type: number
+              format: float
+            memory_usage:
+              type: number
+              format: float
+            disk_usage:
+              type: number
+              format: float
+            network_in:
+              type: integer
+              format: int64
+            network_out:
+              type: integer
+              format: int64
+        services:
+          type: object
+          properties:
+            active_connections:
+              type: integer
+            response_time_avg:
+              type: number
+              format: float
+            requests_per_second:
+              type: number
+              format: float
+        servers:
+          type: object
+          properties:
+            total:
+              type: integer
+            online:
+              type: integer
+            deploying:
+              type: integer
+            failed:
+              type: integer
+
+    Alert:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        severity:
+          type: string
+          enum: [info, warning, error, critical]
+        message:
+          type: string
+        component:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        acknowledged:
+          type: boolean
+        acknowledged_by:
+          type: string
+        resolved:
+          type: boolean
+        resolved_at:
+          type: string
+          format: date-time
+
+  responses:
+    Success:
+      description: Operation completed successfully
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ApiResponse'
+
+    BadRequest:
+      description: Invalid input data
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Unauthorized:
+      description: Authentication required or invalid token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    RateLimited:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+    ServiceUnavailable:
+      description: Service temporarily unavailable
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

@@ -1,0 +1,336 @@
+---
+# Agent Deployment Playbook
+# Deploys Gough management agents to provisioned servers
+
+- name: Deploy Gough Management Agents
+  hosts: deployed_servers
+  become: true
+  gather_facts: true
+  serial: 10  # Process 10 servers at a time for scalability
+  vars:
+    deployment_environment: "{{ deployment_environment | default('development') }}"
+    deployment_role: "{{ deployment_role | default('general_server') }}"
+    agent_version: "{{ agent_version | default('latest') }}"
+    force_reinstall: "{{ force_reinstall | default(false) | bool }}"
+    
+  pre_tasks:
+    - name: Verify server connectivity
+      ping:
+      
+    - name: Gather system information
+      setup:
+        gather_subset: 
+          - '!hardware'
+          - '!facter'
+          - '!ohai'
+      
+    - name: Display deployment info
+      debug:
+        msg: |
+          === Agent Deployment ===
+          Host: {{ inventory_hostname }}
+          IP: {{ ansible_default_ipv4.address }}
+          OS: {{ ansible_distribution }} {{ ansible_distribution_version }}
+          Role: {{ server_role | default(deployment_role) }}
+          Environment: {{ server_environment | default(deployment_environment) }}
+          =======================
+
+    - name: Validate deployment prerequisites
+      assert:
+        that:
+          - ansible_distribution == 'Ubuntu'
+          - ansible_distribution_version is version('22.04', '>=')
+          - ansible_default_ipv4.address is defined
+        fail_msg: "Server does not meet deployment prerequisites"
+
+  roles:
+    - role: agent-deployment
+      vars:
+        agent_config:
+          server_id: "{{ inventory_hostname }}"
+          server_role: "{{ server_role | default(deployment_role) }}"
+          environment: "{{ server_environment | default(deployment_environment) }}"
+          management_server_url: "{{ management_server_url }}"
+          agent_api_key: "{{ agent_api_key | default('') }}"
+          monitoring_interval: 60
+          log_level: "{{ 'DEBUG' if deployment_environment == 'development' else 'INFO' }}"
+          enable_osquery: "{{ osquery_enabled | default(true) }}"
+          enable_docker_monitoring: "{{ deployment_role == 'docker_host' }}"
+          enable_k8s_monitoring: "{{ deployment_role == 'kubernetes_node' }}"
+
+  tasks:
+    - name: Create server registration payload
+      set_fact:
+        server_registration:
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          role: "{{ server_role | default(deployment_role) }}"
+          environment: "{{ server_environment | default(deployment_environment) }}"
+          os_family: "{{ ansible_os_family }}"
+          distribution: "{{ ansible_distribution }}"
+          distribution_version: "{{ ansible_distribution_version }}"
+          architecture: "{{ ansible_architecture }}"
+          cpu_count: "{{ ansible_processor_count }}"
+          memory_mb: "{{ ansible_memtotal_mb }}"
+          disk_space_gb: "{{ (ansible_mounts | selectattr('mount', 'equalto', '/') | map(attribute='size_total') | first / 1024 / 1024 / 1024) | round(2) }}"
+          agent_version: "{{ agent_version }}"
+          deployment_timestamp: "{{ ansible_date_time.iso8601 }}"
+          maas_system_id: "{{ maas_system_id | default('') }}"
+
+    - name: Register server with management system
+      uri:
+        url: "{{ management_server_url }}/api/servers/register"
+        method: POST
+        body_format: json
+        body: "{{ server_registration }}"
+        headers:
+          Authorization: "Bearer {{ management_api_token }}"
+        status_code: [200, 201, 409]  # 409 if already registered
+      register: registration_result
+      when: management_server_url is defined
+      retries: 3
+      delay: 10
+
+    - name: Store server registration ID
+      set_fact:
+        server_id: "{{ registration_result.json.server_id | default(inventory_hostname) }}"
+      when: registration_result.json is defined
+
+    - name: Configure agent with server ID
+      lineinfile:
+        path: /etc/maas-agent/config.yaml
+        regexp: '^server_id:'
+        line: "server_id: {{ server_id }}"
+        backup: true
+      notify: restart maas-agent
+
+    - name: Install Docker monitoring (for Docker hosts)
+      block:
+        - name: Add docker group to maas user
+          user:
+            name: maas
+            groups: docker
+            append: true
+
+        - name: Install Docker monitoring script
+          template:
+            src: templates/docker-monitor.py.j2
+            dest: /opt/maas-agent/scripts/docker-monitor.py
+            owner: maas
+            group: maas
+            mode: '0755'
+
+        - name: Create Docker monitoring systemd service
+          template:
+            src: templates/docker-monitor.service.j2
+            dest: /etc/systemd/system/docker-monitor.service
+            owner: root
+            group: root
+            mode: '0644'
+          notify:
+            - reload systemd
+            - restart docker-monitor
+
+        - name: Enable Docker monitoring service
+          systemd:
+            name: docker-monitor
+            enabled: true
+            state: started
+            daemon_reload: true
+
+      when: deployment_role == 'docker_host' or server_role == 'docker_host'
+
+    - name: Install Kubernetes monitoring (for K8s nodes)
+      block:
+        - name: Install kubectl for monitoring
+          get_url:
+            url: "https://dl.k8s.io/release/{{ k8s_version | default('v1.28.0') }}/bin/linux/amd64/kubectl"
+            dest: /usr/local/bin/kubectl
+            mode: '0755'
+
+        - name: Install Kubernetes monitoring script
+          template:
+            src: templates/k8s-monitor.py.j2
+            dest: /opt/maas-agent/scripts/k8s-monitor.py
+            owner: maas
+            group: maas
+            mode: '0755'
+
+        - name: Create Kubernetes monitoring cron job
+          cron:
+            name: "k8s-monitoring"
+            user: maas
+            minute: "*/5"
+            job: "/opt/maas-agent/scripts/k8s-monitor.py >> /opt/maas-agent/logs/k8s-monitor.log 2>&1"
+
+      when: deployment_role == 'kubernetes_node' or server_role == 'kubernetes_node'
+
+    - name: Configure log forwarding
+      block:
+        - name: Install rsyslog configuration
+          template:
+            src: templates/50-gough-agent.conf.j2
+            dest: /etc/rsyslog.d/50-gough-agent.conf
+            owner: root
+            group: root
+            mode: '0644'
+          notify: restart rsyslog
+
+        - name: Configure logrotate for agent logs
+          copy:
+            dest: /etc/logrotate.d/gough-agent
+            content: |
+              /opt/maas-agent/logs/*.log {
+                daily
+                rotate 14
+                compress
+                delaycompress
+                missingok
+                notifempty
+                create 644 maas maas
+                postrotate
+                  systemctl reload maas-agent || true
+                endscript
+              }
+            owner: root
+            group: root
+            mode: '0644'
+
+    - name: Setup agent health monitoring
+      block:
+        - name: Create health check script
+          template:
+            src: templates/agent-health-check.sh.j2
+            dest: /opt/maas-agent/bin/health-check.sh
+            owner: maas
+            group: maas
+            mode: '0755'
+
+        - name: Create health check cron job
+          cron:
+            name: "agent-health-check"
+            user: maas
+            minute: "*/2"
+            job: "/opt/maas-agent/bin/health-check.sh"
+
+    - name: Configure firewall for agent communication
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+        comment: "Gough Agent"
+      loop:
+        - "9090"  # Agent API port
+        - "9091"  # Agent metrics port
+      when: ufw_enabled | default(true)
+
+    - name: Validate agent installation
+      uri:
+        url: "http://{{ ansible_default_ipv4.address }}:9090/health"
+        method: GET
+        timeout: 10
+      register: agent_health_check
+      retries: 5
+      delay: 10
+
+    - name: Verify agent response
+      assert:
+        that:
+          - agent_health_check.json.status == 'healthy'
+          - agent_health_check.json.version is defined
+        fail_msg: "Agent health check failed"
+
+    - name: Report deployment success
+      uri:
+        url: "{{ management_server_url }}/api/servers/{{ server_id }}/deployment"
+        method: PUT
+        body_format: json
+        body:
+          status: "deployed"
+          agent_version: "{{ agent_health_check.json.version }}"
+          deployment_timestamp: "{{ ansible_date_time.iso8601 }}"
+          health_check: "{{ agent_health_check.json }}"
+        headers:
+          Authorization: "Bearer {{ management_api_token }}"
+      when: management_server_url is defined and server_id is defined
+      ignore_errors: true
+
+  post_tasks:
+    - name: Create deployment summary
+      set_fact:
+        deployment_summary:
+          hostname: "{{ inventory_hostname }}"
+          ip_address: "{{ ansible_default_ipv4.address }}"
+          role: "{{ server_role | default(deployment_role) }}"
+          environment: "{{ server_environment | default(deployment_environment) }}"
+          agent_status: "{{ agent_health_check.json.status if agent_health_check.json is defined else 'unknown' }}"
+          deployment_time: "{{ ansible_date_time.iso8601 }}"
+
+    - name: Log deployment completion
+      copy:
+        content: |
+          === Agent Deployment Complete ===
+          Host: {{ deployment_summary.hostname }}
+          IP: {{ deployment_summary.ip_address }}
+          Role: {{ deployment_summary.role }}
+          Environment: {{ deployment_summary.environment }}
+          Agent Status: {{ deployment_summary.agent_status }}
+          Deployed: {{ deployment_summary.deployment_time }}
+          ==================================
+        dest: "/tmp/agent-deployment-{{ inventory_hostname }}-{{ ansible_date_time.epoch }}.log"
+
+  handlers:
+    - name: restart maas-agent
+      systemd:
+        name: maas-agent
+        state: restarted
+
+    - name: restart docker-monitor
+      systemd:
+        name: docker-monitor
+        state: restarted
+
+    - name: restart rsyslog
+      systemd:
+        name: rsyslog
+        state: restarted
+
+    - name: reload systemd
+      systemd:
+        daemon_reload: true
+
+# Summary Report Generation
+- name: Generate Agent Deployment Report
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  
+  tasks:
+    - name: Collect deployment results
+      set_fact:
+        successful_deployments: "{{ groups['deployed_servers'] | length }}"
+        failed_deployments: 0  # Would be calculated based on failures
+
+    - name: Create deployment report
+      template:
+        src: templates/agent-deployment-report.j2
+        dest: "/tmp/gough-agent-deployment-{{ ansible_date_time.epoch }}.html"
+      vars:
+        deployment_stats:
+          total_servers: "{{ groups['deployed_servers'] | length }}"
+          successful: "{{ successful_deployments }}"
+          failed: "{{ failed_deployments }}"
+          environment: "{{ deployment_environment }}"
+          role: "{{ deployment_role }}"
+
+    - name: Display deployment summary
+      debug:
+        msg: |
+          === Agent Deployment Summary ===
+          Total Servers: {{ successful_deployments }}
+          Successful: {{ successful_deployments }}
+          Failed: {{ failed_deployments }}
+          Environment: {{ deployment_environment }}
+          Role: {{ deployment_role }}
+          Report: /tmp/gough-agent-deployment-{{ ansible_date_time.epoch }}.html
+          ===============================
