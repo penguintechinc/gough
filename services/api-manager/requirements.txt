@@ -61,3 +61,8 @@ black==24.10.0
 flake8==7.1.1
 mypy==1.14.0
 bandit==1.7.10
+
+# Penguin shared libraries (published packages)
+penguin-libs>=0.1.0
+penguin-licensing>=0.1.0
+penguin-sal>=0.1.0

@@ -23,3 +23,7 @@ prometheus-client>=0.19.0
 
 # Process management
 psutil>=5.9.0
+
+# Penguin shared libraries (published packages)
+penguin-libs>=0.1.0
+penguin-licensing>=0.1.0

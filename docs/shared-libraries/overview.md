@@ -17,7 +17,13 @@ The shared libraries provide:
 ### [Python Library](./py-libs.md)
 
 ```bash
-pip install -e "py_libs[all]"
+pip install penguin-libs
+```
+
+Additional Python packages:
+```bash
+pip install penguin-licensing  # License validation
+pip install penguin-sal        # Secrets abstraction layer
 ```
 
 Full-featured Python library with Flask integration, gRPC support, and Redis connectivity.
@@ -32,7 +38,7 @@ Full-featured Python library with Flask integration, gRPC support, and Redis con
 ### [Go Library](./go-libs.md)
 
 ```bash
-go get github.com/penguintechinc/project-template/shared/go_libs
+go get github.com/penguintechinc/penguin-libs/packages/go-common
 ```
 
 High-performance Go library for microservices with Gin framework integration.
@@ -47,10 +53,10 @@ High-performance Go library for microservices with Gin framework integration.
 ### [Node.js/TypeScript Library](./node-libs.md)
 
 ```bash
-npm install @penguin/node_libs
+npm install @penguintechinc/react-libs
 ```
 
-Modern TypeScript library for Express.js applications with full type safety.
+Modern React/TypeScript library with full type safety (subsumes the former node_libs).
 
 **Key Features:**
 - Type-safe validators with chainable API
@@ -83,7 +89,7 @@ package main
 
 import (
     "fmt"
-    "github.com/penguintechinc/project-template/shared/go_libs/validation"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/validation"
 )
 
 func main() {
@@ -108,7 +114,7 @@ func main() {
 ### Node.js/TypeScript
 
 ```typescript
-import { chain, notEmpty, length, email } from '@penguin/node_libs/validation';
+import { chain, notEmpty, length, email } from '@penguintechinc/react-libs/validation';
 
 const validator = chain(
   notEmpty(),
@@ -124,41 +130,18 @@ if (!result.isValid) {
 }
 ```
 
-## Directory Structure
+## Published Packages
 
-```
-shared/
-├── py_libs/              # Python library
-│   ├── py_libs/
-│   │   ├── validation/   # Input validators
-│   │   ├── security/     # Security utilities
-│   │   ├── crypto/       # Cryptography
-│   │   ├── http/         # HTTP client
-│   │   └── grpc/         # gRPC support
-│   └── pyproject.toml
-├── go_libs/              # Go library
-│   ├── validation/       # Input validators
-│   ├── crypto/           # Cryptography
-│   ├── security/         # Security utilities
-│   ├── http/             # HTTP client
-│   ├── grpc/             # gRPC support
-│   └── go.mod
-├── node_libs/            # Node.js/TypeScript library
-│   ├── src/
-│   │   ├── validation/   # Input validators
-│   │   ├── security/     # Security utilities
-│   │   ├── crypto/       # Cryptography
-│   │   ├── http/         # HTTP client
-│   │   └── grpc/         # gRPC support
-│   ├── package.json
-│   └── tsconfig.json
-├── auth/                 # Shared authentication
-├── config/               # Configuration utilities
-├── database/             # Database utilities
-├── licensing/            # License validation
-├── monitoring/           # Monitoring helpers
-└── types/                # Shared type definitions
-```
+These libraries are published from the [`penguin-libs`](https://github.com/penguintechinc/penguin-libs) monorepo. Local copies are no longer maintained in this repository.
+
+| Package | Registry | Install |
+|---------|----------|---------|
+| `penguin-libs` | PyPI | `pip install penguin-libs` |
+| `penguin-licensing` | PyPI | `pip install penguin-licensing` |
+| `penguin-sal` | PyPI | `pip install penguin-sal` |
+| `penguintechinc-utils` | PyPI | `pip install penguintechinc-utils` |
+| `@penguintechinc/react-libs` | GitHub Packages (npm) | `npm install @penguintechinc/react-libs` |
+| `go-common` | Go modules | `go get github.com/penguintechinc/penguin-libs/packages/go-common` |
 
 ## Common Features Across All Libraries
 
@@ -202,56 +185,36 @@ Production-ready gRPC support:
 
 ## Development
 
-### Python Development
-
-```bash
-cd py_libs
-python -m venv venv
-source venv/bin/activate
-pip install -e ".[dev,all]"
-./scripts/lint.sh
-python -m pytest tests/
-```
-
-### Go Development
-
-```bash
-cd go_libs
-go mod download
-./scripts/lint.sh
-go test ./...
-```
-
-### Node.js Development
-
-```bash
-cd node_libs
-npm install
-./scripts/lint.sh
-npm test
-```
+Library development is done in the [`penguin-libs`](https://github.com/penguintechinc/penguin-libs) monorepo. See that repository for contributing guidelines, testing, and release workflows.
 
 ## Installation in Projects
 
-### Using Python Library
+### Using Python Libraries
 
 ```bash
-# In Flask backend
-pip install -e "../shared/py_libs[flask,redis]"
+# In requirements.txt
+penguin-libs>=0.1.0
+penguin-licensing>=0.1.0
+penguin-sal>=0.1.0
 ```
 
 ### Using Go Library
 
 ```bash
-# In go-backend
-go get -u github.com/penguintechinc/project-template/shared/go_libs
+go get github.com/penguintechinc/penguin-libs/packages/go-common
 ```
 
-### Using Node.js Library
+### Using React/Node.js Library
 
+Requires `.npmrc` with GitHub Packages auth:
+```
+@penguintechinc:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+```
+
+Then install:
 ```bash
-# In webui or Node.js service
-npm install file:../shared/node_libs
+npm install @penguintechinc/react-libs
 ```
 
 ## API Documentation
@@ -262,25 +225,12 @@ npm install file:../shared/node_libs
 
 ## Testing
 
-Each library includes comprehensive tests:
+Each published library includes comprehensive tests maintained in the `penguin-libs` monorepo:
 
 - Unit tests for all validators and utilities
 - Integration tests for middleware and frameworks
 - Type checking (mypy for Python, strict TypeScript)
 - Security scanning (bandit for Python, golangci-lint for Go)
-
-Run tests from each library directory:
-
-```bash
-# Python
-python -m pytest tests/
-
-# Go
-go test ./...
-
-# Node.js
-npm test
-```
 
 ## Security
 

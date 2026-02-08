@@ -11,7 +11,6 @@ export default [
             "*.min.js",
             "web/**",
             "services/webui/**",
-            "shared/node_libs/**",
             "app-skeleton/**",
             "gough/**",
             "**/static/js/**",

@@ -1,15 +1,17 @@
-# @penguin/node_libs - Node.js/TypeScript Shared Library
+# @penguintechinc/react-libs - React/TypeScript Shared Library
 
-Modern TypeScript library providing secure, reusable components for validation, security, cryptography, and more. Designed for Express.js applications with full type safety and ESM support.
+Modern React/TypeScript library providing secure, reusable components for validation, security, cryptography, and more. Published to GitHub Packages with full type safety and ESM support.
 
 **License**: GNU Affero General Public License v3 (AGPL-3.0)
 **Node.js**: 18.0.0+
-**Status**: Stable (v1.0.0)
+**Status**: Stable (v1.1.1)
 
 ## Installation
 
+Requires `.npmrc` with GitHub Packages auth (see [overview](./overview.md#installation-in-projects)).
+
 ```bash
-npm install @penguin/node_libs
+npm install @penguintechinc/react-libs
 ```
 
 ## Features
@@ -19,7 +21,7 @@ npm install @penguin/node_libs
 Input validators with chainable API and full TypeScript support:
 
 ```typescript
-import { chain, notEmpty, length, email } from '@penguin/node_libs/validation';
+import { chain, notEmpty, length, email } from '@penguintechinc/react-libs/validation';
 
 // Single validator
 const emailValidator = email();
@@ -42,7 +44,7 @@ if (result.isValid) {
 }
 
 // Strong password validation
-import { strongPassword, PasswordOptions } from '@penguin/node_libs/validation';
+import { strongPassword, PasswordOptions } from '@penguintechinc/react-libs/validation';
 
 const passwordValidator = strongPassword({
   minLength: 12,
@@ -100,7 +102,7 @@ import {
   rateLimit,
   csrfProtection,
   sanitizeInput
-} from '@penguin/node_libs/security';
+} from '@penguintechinc/react-libs/security';
 
 const app = express();
 
@@ -148,7 +150,7 @@ import {
   encryptChaCha20,
   decryptChaCha20,
   generateToken
-} from '@penguin/node_libs/crypto';
+} from '@penguintechinc/react-libs/crypto';
 
 // Password hashing (Argon2)
 const password = "user_password";
@@ -173,7 +175,7 @@ const token = await generateToken(32);
 console.log("Token:", token);
 
 // JWT operations
-import { generateJWT, verifyJWT } from '@penguin/node_libs/crypto';
+import { generateJWT, verifyJWT } from '@penguintechinc/react-libs/crypto';
 
 const payload = { userId: 123, email: "user@example.com" };
 const jwtToken = await generateJWT(payload, "secret-key");
@@ -198,7 +200,7 @@ console.log("User ID:", verified.userId);
 Resilient HTTP client with correlation IDs and retries:
 
 ```typescript
-import { createHttpClient } from '@penguin/node_libs/http';
+import { createHttpClient } from '@penguintechinc/react-libs/http';
 
 // Create HTTP client with retries
 const client = createHttpClient({
@@ -244,7 +246,7 @@ Production-ready gRPC server setup:
 import {
   createSecureServer,
   addAuthInterceptor
-} from '@penguin/node_libs/grpc';
+} from '@penguintechinc/react-libs/grpc';
 import * as protoLoader from '@grpc/proto-loader';
 
 const packageDefinition = protoLoader.loadSync('service.proto', {
@@ -284,7 +286,7 @@ await server.start();
 
 ```typescript
 import express from 'express';
-import { chain, notEmpty, length, email } from '@penguin/node_libs/validation';
+import { chain, notEmpty, length, email } from '@penguintechinc/react-libs/validation';
 
 const app = express();
 app.use(express.json());
@@ -316,7 +318,7 @@ app.listen(3000);
 ### Custom Validator
 
 ```typescript
-import { type Validator, success, failure } from '@penguin/node_libs/validation';
+import { type Validator, success, failure } from '@penguintechinc/react-libs/validation';
 
 /**
  * Validates US phone numbers in format (XXX) XXX-XXXX
@@ -353,7 +355,7 @@ import {
   email,
   length,
   strongPassword
-} from '@penguin/node_libs/validation';
+} from '@penguintechinc/react-libs/validation';
 
 interface UserRegistration {
   email: string;
@@ -438,7 +440,7 @@ import {
   email,
   unwrap,
   unwrapOr
-} from '@penguin/node_libs/validation';
+} from '@penguintechinc/react-libs/validation';
 
 // Typed validators
 const emailValidator: Validator<string, string> = email();
@@ -571,10 +573,11 @@ npm run clean
 
 ### Module not found errors
 
-**Solution**: Ensure library is installed correctly:
+**Solution**: Ensure `.npmrc` is configured and library is installed:
 ```bash
-npm install @penguin/node_libs
-npm install --save-dev  # For dev dependencies
+# Verify .npmrc has @penguintechinc scope configured
+cat .npmrc
+npm install @penguintechinc/react-libs
 ```
 
 ### TypeScript errors
@@ -611,10 +614,10 @@ This library uses ES Modules (ESM) exclusively:
 
 ```typescript
 // ✅ Supported
-import { email } from '@penguin/node_libs/validation';
+import { email } from '@penguintechinc/react-libs/validation';
 
 // ❌ Not supported
-const { email } = require('@penguin/node_libs/validation');
+const { email } = require('@penguintechinc/react-libs/validation');
 ```
 
 Ensure your `package.json` includes:
@@ -631,13 +634,13 @@ Ensure your `package.json` includes:
 
 GNU Affero General Public License v3 (AGPL-3.0)
 
-This library is part of the Penguin Tech Inc project template. See LICENSE file for details.
+This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE file for details.
 
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/penguintechinc/project-template/issues
-- Documentation: https://docs.penguintech.io/node-libs
+- GitHub Issues: https://github.com/penguintechinc/penguin-libs/issues
+- Documentation: https://docs.penguintech.io/react-libs
 - Email: dev@penguintech.io
 
 ## See Also

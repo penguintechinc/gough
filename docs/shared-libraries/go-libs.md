@@ -9,7 +9,7 @@ High-performance Go library providing secure, reusable components for validation
 ## Installation
 
 ```bash
-go get github.com/penguintechinc/project-template/shared/go_libs
+go get github.com/penguintechinc/penguin-libs/packages/go-common
 ```
 
 ## Features
@@ -23,7 +23,7 @@ package main
 
 import (
     "fmt"
-    "github.com/penguintechinc/project-template/shared/go_libs/validation"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/validation"
 )
 
 func main() {
@@ -102,7 +102,7 @@ package main
 
 import (
     "github.com/gin-gonic/gin"
-    "github.com/penguintechinc/project-template/shared/go_libs/security"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/security"
 )
 
 func main() {
@@ -147,7 +147,7 @@ package main
 
 import (
     "fmt"
-    "github.com/penguintechinc/project-template/shared/go_libs/crypto"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/crypto"
 )
 
 func main() {
@@ -210,7 +210,7 @@ package main
 
 import (
     "fmt"
-    "github.com/penguintechinc/project-template/shared/go_libs/http"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/http"
 )
 
 func main() {
@@ -256,7 +256,7 @@ package main
 
 import (
     "fmt"
-    "github.com/penguintechinc/project-template/shared/go_libs/grpc"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/grpc"
     "google.golang.org/grpc"
 )
 
@@ -296,7 +296,7 @@ package main
 
 import (
     "github.com/gin-gonic/gin"
-    "github.com/penguintechinc/project-template/shared/go_libs/validation"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/validation"
 )
 
 func main() {
@@ -343,7 +343,7 @@ package main
 import (
     "fmt"
     "regexp"
-    "github.com/penguintechinc/project-template/shared/go_libs/validation"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/validation"
 )
 
 // IsPhoneNumber validates US phone numbers
@@ -377,7 +377,7 @@ package main
 
 import (
     "github.com/gin-gonic/gin"
-    "github.com/penguintechinc/project-template/shared/go_libs/validation"
+    "github.com/penguintechinc/penguin-libs/packages/go-common/validation"
 )
 
 type UserRegistration struct {
@@ -572,7 +572,7 @@ GOOS=darwin GOARCH=arm64 go build ./...
 
 **Solution**: Update go.mod with your module path:
 ```bash
-go get -u github.com/penguintechinc/project-template/shared/go_libs
+go get -u github.com/penguintechinc/penguin-libs/packages/go-common
 go mod tidy
 ```
 
@@ -594,12 +594,12 @@ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365
 
 GNU Affero General Public License v3 (AGPL-3.0)
 
-This library is part of the Penguin Tech Inc project template. See LICENSE file for details.
+This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE file for details.
 
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/penguintechinc/project-template/issues
+- GitHub Issues: https://github.com/penguintechinc/penguin-libs/issues
 - Documentation: https://docs.penguintech.io/go-libs
 - Email: dev@penguintech.io
 

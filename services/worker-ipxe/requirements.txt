@@ -39,3 +39,7 @@ apscheduler>=3.10.4
 
 # Network utilities
 netifaces>=0.11.0
+
+# Penguin shared libraries (published packages)
+penguin-libs>=0.1.0
+penguin-licensing>=0.1.0

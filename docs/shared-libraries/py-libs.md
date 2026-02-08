@@ -8,29 +8,17 @@ Enterprise-grade Python library providing secure, reusable components for valida
 
 ## Installation
 
-### Basic Installation
+The Python library is published to PyPI as `penguin-libs`. Install via pip:
 
 ```bash
-pip install -e .
+pip install penguin-libs
 ```
 
-### With Optional Dependencies
-
+Additional related packages:
 ```bash
-# Flask integration only
-pip install -e ".[flask]"
-
-# gRPC support only
-pip install -e ".[grpc]"
-
-# Redis support only
-pip install -e ".[redis]"
-
-# All features (recommended for development)
-pip install -e ".[all]"
-
-# Development tools (testing, linting, type checking)
-pip install -e ".[dev]"
+pip install penguin-licensing  # License validation
+pip install penguin-sal        # Secrets abstraction layer
+pip install penguintechinc-utils  # Shared utilities
 ```
 
 ## Features
@@ -388,14 +376,15 @@ PY_LIBS_GRPC_KEY_FILE=/path/to/key.pem
 
 ## Development
 
+Library development is done in the [`penguin-libs`](https://github.com/penguintechinc/penguin-libs) monorepo. To contribute:
+
 ### Setup
 
 ```bash
-# Clone and setup virtual environment
+git clone https://github.com/penguintechinc/penguin-libs.git
+cd penguin-libs/packages/py-libs
 python -m venv venv
 source venv/bin/activate
-
-# Install with dev dependencies
 pip install -e ".[dev,all]"
 ```
 
@@ -475,19 +464,18 @@ mypy py_libs/ --strict
 
 ## Common Issues
 
-### ModuleNotFoundError: No module named 'py_libs'
+### ModuleNotFoundError: No module named 'penguin_libs'
 
-**Solution**: Install with `-e` flag from the correct directory:
+**Solution**: Install the published package:
 ```bash
-cd shared/py_libs
-pip install -e .
+pip install penguin-libs
 ```
 
 ### ImportError with optional dependencies
 
-**Solution**: Install optional dependencies:
+**Solution**: Ensure all required penguin packages are installed:
 ```bash
-pip install -e ".[all]"  # or specific extras [flask,grpc,redis]
+pip install penguin-libs penguin-licensing penguin-sal
 ```
 
 ### Type checking errors with mypy
@@ -501,12 +489,12 @@ pip install types-redis types-cryptography
 
 GNU Affero General Public License v3 (AGPL-3.0)
 
-This library is part of the Penguin Tech Inc project template. See LICENSE file for details.
+This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE file for details.
 
 ## Support
 
 For issues and questions:
-- GitHub Issues: https://github.com/penguintechinc/project-template/issues
+- GitHub Issues: https://github.com/penguintechinc/penguin-libs/issues
 - Documentation: https://docs.penguintech.io/py-libs
 - Email: dev@penguintech.io
 
