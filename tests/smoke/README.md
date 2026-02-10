@@ -12,36 +12,32 @@ Smoke tests verify:
 
 ## Running Smoke Tests
 
-### Run All Tests
+### Alpha (Local)
+Tests local Docker services on localhost:
 ```bash
-./run-all.sh
+./run-smoke-tests.sh alpha
+# or skip builds
+./run-smoke-tests.sh alpha quick
 ```
 
-### Run Specific Test
+### Beta (Staging - dal2 cluster)
+Tests dal2 staging deployment at https://dal2.penguintech.io with Cloudflare bypass:
 ```bash
-# Container health only
-./run-all.sh --test container
-
-# API health only
-./run-all.sh --test api
-
-# iPXE services only
-./run-all.sh --test ipxe
-
-# WebUI only
-./run-all.sh --test webui
+./run-smoke-tests.sh beta
 ```
 
-### Verbose Output
-```bash
-./run-all.sh --verbose
-```
+The beta tests automatically:
+- Use `https://dal2.penguintech.io` as the API/WebUI base URL
+- Send Host header `gough.penguintech.io` to bypass Cloudflare
+- Skip container builds (tests live deployment only)
+- Return appropriate HTTP status codes for validation
 
 ### From Project Root
 ```bash
 make smoke-test
-# or
-./tests/smoke/run-all.sh
+# or specific environment
+./tests/smoke/run-smoke-tests.sh alpha
+./tests/smoke/run-smoke-tests.sh beta
 ```
 
 ## Test Details

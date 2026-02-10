@@ -27,15 +27,18 @@ SUMMARY_LOG="${LOG_DIR}/summary.log"
 
 # URLs based on environment
 if [ "$ENVIRONMENT" == "beta" ]; then
-    BASE_URL="https://gough.penguintech.io"
+    # Use dal2.penguintech.io with Host header to bypass Cloudflare
+    BASE_URL="https://dal2.penguintech.io"
     API_URL="${BASE_URL}"
     WEBUI_URL="${BASE_URL}"
+    CURL_OPTS="-H 'Host: gough.penguintech.io'"
     SKIP_BUILD=true
     SKIP_DOCKER=true
 else
     BASE_URL="http://localhost:5001"
     API_URL="${BASE_URL}"
     WEBUI_URL="http://localhost:3000"
+    CURL_OPTS=""
     SKIP_BUILD=false
     SKIP_DOCKER=false
 fi
@@ -122,17 +125,17 @@ fi
 log_info "=== Phase 3: API Integration Tests ==="
 
 # Health/status endpoints
-run_test "API status endpoint" "curl -f -s ${API_URL}/api/v1/status | grep -q 'running'"
+run_test "API status endpoint" "curl -f -s ${CURL_OPTS} ${API_URL}/api/v1/status | grep -q 'running'"
 
 # Authentication endpoints
-run_test "Auth login endpoint exists" "curl -s -o /dev/null -w '%{http_code}' ${API_URL}/api/v1/auth/login | grep -qE '200|400|401|405'"
-run_test "Auth register endpoint exists" "curl -s -o /dev/null -w '%{http_code}' ${API_URL}/api/v1/auth/register | grep -qE '200|400|401|404|405'"
+run_test "Auth login endpoint exists" "curl -s -o /dev/null -w '%{http_code}' ${CURL_OPTS} ${API_URL}/api/v1/auth/login | grep -qE '200|400|401|405'"
+run_test "Auth register endpoint exists" "curl -s -o /dev/null -w '%{http_code}' ${CURL_OPTS} ${API_URL}/api/v1/auth/register | grep -qE '200|400|401|404|405'"
 
 # Users endpoints (should require auth)
-run_test "Users endpoint requires auth" "curl -s -o /dev/null -w '%{http_code}' ${API_URL}/api/v1/users | grep -q '401'"
+run_test "Users endpoint requires auth" "curl -s -o /dev/null -w '%{http_code}' ${CURL_OPTS} ${API_URL}/api/v1/users | grep -q '401'"
 
 # API versioning check
-run_test "API has v1 versioning" "curl -s ${API_URL}/api/v1/status | grep -q 'status'"
+run_test "API has v1 versioning" "curl -s ${CURL_OPTS} ${API_URL}/api/v1/status | grep -q 'status'"
 
 # ============================================================================
 # Phase 4: WebUI Tests (if webui is running)
@@ -142,15 +145,15 @@ if [ "$ENVIRONMENT" == "alpha" ]; then
     if [ "$SKIP_DOCKER" == "false" ]; then
         log_info "=== Phase 4: WebUI Tests (Optional) ==="
         if docker compose up -d webui > /dev/null 2>&1 && sleep 10; then
-            run_test "WebUI health" "curl -f -s ${WEBUI_URL}/ > /dev/null"
+            run_test "WebUI health" "curl -f -s ${CURL_OPTS} ${WEBUI_URL}/ > /dev/null"
         else
             log_warning "WebUI not available (port 3000 may be in use) - skipping"
         fi
     fi
 elif [ "$ENVIRONMENT" == "beta" ]; then
     log_info "=== Phase 4: WebUI Tests (Beta) ==="
-    run_test "WebUI loads" "curl -f -s ${WEBUI_URL}/ > /dev/null"
-    run_test "WebUI has assets" "curl -s ${WEBUI_URL}/ | grep -qE 'script|link'"
+    run_test "WebUI loads" "curl -f -s ${CURL_OPTS} ${WEBUI_URL}/ > /dev/null"
+    run_test "WebUI has assets" "curl -s ${CURL_OPTS} ${WEBUI_URL}/ | grep -qE 'script|link'"
 fi
 
 # ============================================================================
