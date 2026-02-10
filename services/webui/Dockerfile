@@ -6,11 +6,17 @@ FROM node:22-bookworm-slim AS builder
 
 WORKDIR /app
 
+# Copy react-libs from local source (until published to GitHub Packages)
+COPY --from=penguin-libs packages/react-libs /tmp/react-libs
+
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci
+# Rewrite @penguintechinc/react-libs to local file reference and install
+# Remove this block once the package is published to GitHub Packages
+RUN sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
+    rm -f package-lock.json && \
+    npm install
 
 # Copy source code
 COPY . .
@@ -26,11 +32,18 @@ WORKDIR /app
 # Create non-root user
 RUN groupadd -r webui && useradd -r -g webui webui
 
+# Copy react-libs from local source (until published to GitHub Packages)
+COPY --from=penguin-libs packages/react-libs /tmp/react-libs
+
 # Copy package files for production dependencies
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --omit=dev && npm cache clean --force
+# Rewrite @penguintechinc/react-libs to local file reference and install
+# Remove this block once the package is published to GitHub Packages
+RUN sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
+    rm -f package-lock.json && \
+    npm install --omit=dev && npm cache clean --force && \
+    rm -rf /tmp/react-libs
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist

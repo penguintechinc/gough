@@ -19,11 +19,21 @@ ENV PATH="/root/.cargo/bin:$PATH"
 # Copy requirements first for layer caching
 COPY requirements.txt .
 
+# Copy penguin-libs packages from local source (until published to PyPI)
+COPY --from=penguin-libs packages/python-libs /tmp/penguin-libs/python-libs
+COPY --from=penguin-libs packages/python-licensing /tmp/penguin-libs/python-licensing
+COPY --from=penguin-libs packages/python-secrets /tmp/penguin-libs/python-secrets
+
 # Create virtual environment and install dependencies
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir \
+        /tmp/penguin-libs/python-libs \
+        /tmp/penguin-libs/python-licensing \
+        /tmp/penguin-libs/python-secrets && \
+    pip install --no-cache-dir -r requirements.txt && \
+    rm -rf /tmp/penguin-libs
 
 # Production stage
 FROM python:3.13-slim AS runtime

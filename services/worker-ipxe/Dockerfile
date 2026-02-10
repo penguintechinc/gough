@@ -22,7 +22,16 @@ WORKDIR /app
 
 # Install Python dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy penguin-libs packages from local source (until published to PyPI)
+COPY --from=penguin-libs packages/python-libs /tmp/penguin-libs/python-libs
+COPY --from=penguin-libs packages/python-licensing /tmp/penguin-libs/python-licensing
+
+RUN pip install --no-cache-dir \
+        /tmp/penguin-libs/python-libs \
+        /tmp/penguin-libs/python-licensing && \
+    pip install --no-cache-dir -r requirements.txt && \
+    rm -rf /tmp/penguin-libs
 
 # Copy application code
 COPY . .

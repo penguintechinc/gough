@@ -53,6 +53,8 @@ services:
     build:
       context: ./services/api-manager
       dockerfile: Dockerfile
+      additional_contexts:
+        penguin-libs: ../penguin-libs
     container_name: gough-api-manager
     environment:
       # Database configuration
@@ -115,6 +117,8 @@ services:
     build:
       context: ./services/worker-ipxe
       dockerfile: Dockerfile
+      additional_contexts:
+        penguin-libs: ../penguin-libs
     container_name: gough-worker-ipxe
     environment:
       # API Manager connection
@@ -155,6 +159,8 @@ services:
     build:
       context: ./services/webui
       dockerfile: Dockerfile
+      additional_contexts:
+        penguin-libs: ../penguin-libs
     container_name: gough-webui
     environment:
       - NODE_ENV=${NODE_ENV:-production}
