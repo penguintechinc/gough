@@ -28,10 +28,11 @@ SUMMARY_LOG="${LOG_DIR}/summary.log"
 # URLs based on environment
 if [ "$ENVIRONMENT" == "beta" ]; then
     # Use dal2.penguintech.io with Host header to bypass Cloudflare
+    # Beta uses self-signed certificates, so skip SSL verification
     BASE_URL="https://dal2.penguintech.io"
     API_URL="${BASE_URL}"
     WEBUI_URL="${BASE_URL}"
-    CURL_OPTS="-H 'Host: gough.penguintech.io'"
+    CURL_OPTS="-k -H 'Host: gough.penguintech.io'"
     SKIP_BUILD=true
     SKIP_DOCKER=true
 else
