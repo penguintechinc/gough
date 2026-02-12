@@ -80,7 +80,7 @@ setup-node: ## Setup - Install Node.js dependencies and tools
 	@echo "$(BLUE)Setting up Node.js dependencies...$(RESET)"
 	@node --version || (echo "$(RED)Node.js $(NODE_VERSION) not installed$(RESET)" && exit 1)
 	@npm install
-	@cd web && npm install
+	@cd services/webui && npm install
 
 setup-git-hooks: ## Setup - Install Git pre-commit hooks
 	@echo "$(BLUE)Installing Git hooks...$(RESET)"
@@ -98,23 +98,7 @@ dev: ## Development - Start development environment
 
 dev-services: ## Development - Start all services for development
 	@echo "$(BLUE)Starting development services...$(RESET)"
-	@trap 'docker-compose down' INT; \
-	concurrently --names "API,Web-Python,Web-Node" --prefix name --kill-others \
-		"$(MAKE) dev-api" \
-		"$(MAKE) dev-web-python" \
-		"$(MAKE) dev-web-node"
-
-dev-api: ## Development - Start Go API in development mode
-	@echo "$(BLUE)Starting Go API...$(RESET)"
-	@cd apps/api && air
-
-dev-web-python: ## Development - Start Python web app in development mode
-	@echo "$(BLUE)Starting Python web app...$(RESET)"
-	@cd apps/web && python app.py
-
-dev-web-node: ## Development - Start Node.js web app in development mode
-	@echo "$(BLUE)Starting Node.js web app...$(RESET)"
-	@cd web && npm run dev
+	@docker-compose up -d api-manager webui worker-ipxe access-agent
 
 dev-db: ## Development - Start only database services
 	@docker-compose up -d postgres redis
@@ -139,17 +123,16 @@ test-go: ## Testing - Run Go tests
 
 test-python: ## Testing - Run Python tests
 	@echo "$(BLUE)Running Python tests...$(RESET)"
-	@pytest --cov=shared --cov=apps --cov-report=xml:coverage-python.xml --cov-report=html:htmlcov-python
+	@pytest --cov-report=xml:coverage-python.xml --cov-report=html:htmlcov-python
 
 test-node: ## Testing - Run Node.js tests
 	@echo "$(BLUE)Running Node.js tests...$(RESET)"
 	@npm test
-	@cd web && npm test
+	@cd services/webui && npm test
 
 test-integration: ## Testing - Run integration tests
 	@echo "$(BLUE)Running integration tests...$(RESET)"
-	@docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit
-	@docker-compose -f docker-compose.test.yml down
+	@docker-compose up --build --abort-on-container-exit
 
 test-coverage: ## Testing - Generate coverage reports
 	@$(MAKE) test
@@ -179,36 +162,29 @@ build: ## Build - Build all applications
 	@echo "$(GREEN)All builds completed!$(RESET)"
 
 build-go: ## Build - Build Go applications
-	@echo "$(BLUE)Building Go applications...$(RESET)"
-	@mkdir -p bin
-	@go build -ldflags "-X main.version=$(VERSION)" -o bin/api ./apps/api
+	@echo "$(BLUE)Building Go applications with Docker...$(RESET)"
+	@docker compose build worker-ipxe access-agent
 
 build-python: ## Build - Build Python applications
-	@echo "$(BLUE)Building Python applications...$(RESET)"
-	@python -m py_compile apps/web/app.py
+	@echo "$(BLUE)Building Python applications with Docker...$(RESET)"
+	@docker compose build api-manager
 
 build-node: ## Build - Build Node.js applications
-	@echo "$(BLUE)Building Node.js applications...$(RESET)"
-	@npm run build
-	@cd web && npm run build
+	@echo "$(BLUE)Building Node.js applications with Docker...$(RESET)"
+	@docker compose build webui
 
 build-production: ## Build - Build for production with optimizations
 	@echo "$(BLUE)Building for production...$(RESET)"
-	@CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -ldflags "-w -s -X main.version=$(VERSION)" -o bin/api ./apps/api
-	@cd web && npm run build
+	@docker compose build api-manager webui worker-ipxe access-agent
 
 # Docker Commands
 docker-build: ## Docker - Build all Docker images
 	@echo "$(BLUE)Building Docker images...$(RESET)"
-	@docker build -t $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-api:$(VERSION) -f apps/api/Dockerfile .
-	@docker build -t $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-web:$(VERSION) -f web/Dockerfile web/
-	@docker build -t $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-python:$(VERSION) -f apps/web/Dockerfile .
+	@docker compose build
 
 docker-push: ## Docker - Push Docker images to registry
 	@echo "$(BLUE)Pushing Docker images...$(RESET)"
-	@docker push $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-api:$(VERSION)
-	@docker push $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-web:$(VERSION)
-	@docker push $(DOCKER_REGISTRY)/$(DOCKER_ORG)/$(PROJECT_NAME)-python:$(VERSION)
+	@docker compose push
 
 docker-run: ## Docker - Run application with Docker Compose
 	@docker-compose up --build
@@ -263,28 +239,22 @@ lint-python: ## Code Quality - Run Python linting
 lint-node: ## Code Quality - Run Node.js linting
 	@echo "$(BLUE)Linting Node.js code...$(RESET)"
 	@npm run lint
-	@cd web && npm run lint
+	@cd services/webui && npm run lint
 
 format: ## Code Quality - Format code for all languages
 	@echo "$(BLUE)Formatting code...$(RESET)"
-	@$(MAKE) format-go
 	@$(MAKE) format-python
 	@$(MAKE) format-node
 
-format-go: ## Code Quality - Format Go code
-	@echo "$(BLUE)Formatting Go code...$(RESET)"
-	@go fmt ./...
-	@goimports -w .
-
 format-python: ## Code Quality - Format Python code
 	@echo "$(BLUE)Formatting Python code...$(RESET)"
-	@black .
-	@isort .
+	@black services/
+	@isort services/
 
 format-node: ## Code Quality - Format Node.js code
 	@echo "$(BLUE)Formatting Node.js code...$(RESET)"
 	@npm run format
-	@cd web && npm run format
+	@cd services/webui && npm run format
 
 # Database Commands
 db-migrate: ## Database - Run database migrations
@@ -376,14 +346,13 @@ clean: ## Clean - Clean build artifacts and caches
 	@rm -rf bin/
 	@rm -rf dist/
 	@rm -rf node_modules/
-	@rm -rf web/node_modules/
-	@rm -rf web/dist/
+	@rm -rf services/*/node_modules/
+	@rm -rf services/*/dist/
 	@rm -rf __pycache__/
 	@rm -rf .pytest_cache/
 	@rm -rf htmlcov-python/
 	@rm -rf coverage-*.out
 	@rm -rf coverage-*.xml
-	@go clean -cache -modcache
 
 clean-docker: ## Clean - Clean Docker resources
 	@$(MAKE) docker-clean
@@ -395,14 +364,12 @@ clean-all: ## Clean - Clean everything (build artifacts, Docker, etc.)
 # Security Commands
 security-scan: ## Security - Run security scans
 	@echo "$(BLUE)Running security scans...$(RESET)"
-	@go list -json -m all | nancy sleuth
 	@safety check --json
 
 audit: ## Security - Run security audit
 	@echo "$(BLUE)Running security audit...$(RESET)"
 	@npm audit
-	@cd web && npm audit
-	@$(MAKE) security-scan
+	@cd services/webui && npm audit
 
 # Monitoring Commands
 metrics: ## Monitoring - Show application metrics

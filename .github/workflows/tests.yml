@@ -2,16 +2,16 @@ name: Gough Testing Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches: [ main, v1.x ]
     paths:
-      - 'gough/**'
+      - 'services/**'
       - 'tests/**'
       - '.version'
       - '.github/workflows/tests.yml'
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, v1.x ]
     paths:
-      - 'gough/**'
+      - 'services/**'
       - 'tests/**'
       - '.version'
       - '.github/workflows/tests.yml'
@@ -118,23 +118,23 @@ jobs:
         pip install -r tests/requirements.txt
         
     - name: Run Black (code formatting)
-      run: black --check --diff gough/ tests/
+      run: black --check --diff services/ tests/
       
     - name: Run isort (import sorting)
-      run: isort --check-only --diff gough/ tests/
+      run: isort --check-only --diff services/ tests/
       
     - name: Run flake8 (style guide)
-      run: flake8 gough/ tests/
+      run: flake8 services/ tests/
       
     - name: Run mypy (type checking)
-      run: mypy gough/ --ignore-missing-imports
+      run: mypy services/ --ignore-missing-imports
       continue-on-error: true
       
     - name: Run pylint (code analysis)
-      run: pylint gough/ --exit-zero
+      run: pylint services/ --exit-zero
       
     - name: Run bandit (security analysis)
-      run: bandit -r gough/ -f json -o tests/reports/bandit-report.json
+      run: bandit -r services/ -f json -o tests/reports/bandit-report.json
       continue-on-error: true
       
     - name: Run safety (dependency security)
