@@ -27,7 +27,7 @@ NAMESPACE="gough-beta"
 CHART_PATH="k8s/helm"
 IMAGE_REGISTRY="registry-dal2.penguintech.io"
 KUBE_CONTEXT="dal2-beta"
-APP_HOST="gough.penguintech.io"
+APP_HOST="gough.penguintech.cloud"
 
 # Services to deploy
 SERVICES=("api-manager" "webui" "worker-ipxe")

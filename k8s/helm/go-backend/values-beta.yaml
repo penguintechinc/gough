@@ -13,14 +13,14 @@ ingress:
   enabled: true
   className: "nginx"
   hosts:
-    - host: gough.penguintech.io
+    - host: gough.penguintech.cloud
       paths:
         - path: /api/v1
           pathType: Prefix
   tls:
     - secretName: penguintech-wildcard-tls
       hosts:
-        - gough.penguintech.io
+        - gough.penguintech.cloud
 resources:
   limits:
     cpu: 1000m
