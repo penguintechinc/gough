@@ -1,0 +1,548 @@
+name: Gough Testing Pipeline
+
+on:
+  push:
+    branches: [ main, v1.x ]
+    paths:
+      - 'services/**'
+      - 'tests/**'
+      - '.version'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    branches: [ main, v1.x ]
+    paths:
+      - 'services/**'
+      - 'tests/**'
+      - '.version'
+      - '.github/workflows/tests.yml'
+  schedule:
+    # Run tests daily at 2 AM UTC
+    - cron: '0 2 * * *'
+
+env:
+  PYTHON_VERSION: '3.9'
+  NODE_VERSION: '18'
+
+jobs:
+  # Unit Tests - Fast feedback
+  unit-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.8, 3.9, '3.10', 3.11]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+
+    - name: Generate epoch64 timestamp
+      id: timestamp
+      run: |
+        EPOCH64=$(date +%s)
+        echo "epoch64=$EPOCH64" >> $GITHUB_OUTPUT
+
+    - name: Check version file
+      id: version
+      run: |
+        if [ -f .version ]; then
+          VERSION=$(cat .version | tr -d '[:space:]')
+          SEMVER=$(echo "$VERSION" | cut -d'.' -f1-3)
+          echo "semver=$SEMVER" >> $GITHUB_OUTPUT
+        else
+          echo "semver=0.0.0" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}-${{ hashFiles('tests/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+          
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Run unit tests
+      run: |
+        chmod +x scripts/run_tests.sh
+        ./scripts/run_tests.sh -t unit -e ci -j 4
+      env:
+        CI: true
+        TESTING: 1
+        
+    - name: Upload unit test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: unit-test-results-${{ matrix.python-version }}
+        path: |
+          tests/reports/
+          .coverage
+          
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      if: matrix.python-version == '3.9'
+      with:
+        files: ./tests/reports/coverage.xml
+        flags: unit-tests
+        name: unit-tests
+
+  # Linting and Code Quality
+  lint-and-quality:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install linting tools
+      run: |
+        python -m pip install --upgrade pip
+        pip install flake8 black isort mypy pylint bandit safety
+        pip install -r tests/requirements.txt
+        
+    - name: Run Black (code formatting)
+      run: black --check --diff services/ tests/
+      
+    - name: Run isort (import sorting)
+      run: isort --check-only --diff services/ tests/
+      
+    - name: Run flake8 (style guide)
+      run: flake8 services/ tests/
+      
+    - name: Run mypy (type checking)
+      run: mypy services/ --ignore-missing-imports
+      continue-on-error: true
+      
+    - name: Run pylint (code analysis)
+      run: pylint services/ --exit-zero
+      
+    - name: Run bandit (security analysis)
+      run: bandit -r services/ -f json -o tests/reports/bandit-report.json
+      continue-on-error: true
+      
+    - name: Run safety (dependency security)
+      run: safety check --json --output tests/reports/safety-report.json
+      continue-on-error: true
+      
+    - name: Upload lint results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: lint-results
+        path: tests/reports/
+
+  # Integration Tests with Services
+  integration-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    
+    services:
+      postgres:
+        image: postgres:13
+        env:
+          POSTGRES_DB: gough_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+          
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-integration-${{ hashFiles('**/requirements.txt') }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements.txt
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        
+    - name: Wait for services
+      run: |
+        # Wait for PostgreSQL
+        until pg_isready -h localhost -p 5432 -U test_user; do sleep 1; done
+        # Wait for Redis
+        until redis-cli -h localhost -p 6379 ping; do sleep 1; done
+        
+    - name: Run integration tests
+      run: |
+        chmod +x scripts/run_tests.sh
+        ./scripts/run_tests.sh -t integration -i -e ci
+      env:
+        CI: true
+        TESTING: 1
+        DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/gough_test
+        REDIS_URL: redis://localhost:6379/1
+        MAAS_URL: http://localhost:5240/MAAS
+        FLEET_URL: http://localhost:8080
+        
+    - name: Upload integration test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: integration-test-results
+        path: tests/reports/
+
+  # End-to-End Tests
+  e2e-tests:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests]
+    if: github.event_name == 'push' || github.event_name == 'schedule'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+      
+    - name: Start test environment
+      run: |
+        # Start complete test environment with docker-compose
+        if [ -f docker-compose.test.yml ]; then
+          docker-compose -f docker-compose.test.yml up -d
+          sleep 30  # Wait for services to be ready
+        fi
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements.txt
+        
+    - name: Run E2E tests
+      run: |
+        chmod +x scripts/run_tests.sh
+        ./scripts/run_tests.sh -t e2e -e docker
+      env:
+        CI: true
+        TESTING: 1
+        
+    - name: Collect logs on failure
+      if: failure()
+      run: |
+        mkdir -p tests/reports/logs
+        if [ -f docker-compose.test.yml ]; then
+          docker-compose -f docker-compose.test.yml logs > tests/reports/logs/docker-compose.log
+        fi
+        
+    - name: Upload E2E test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: e2e-test-results
+        path: tests/reports/
+        
+    - name: Cleanup test environment
+      if: always()
+      run: |
+        if [ -f docker-compose.test.yml ]; then
+          docker-compose -f docker-compose.test.yml down -v
+        fi
+
+  # Performance Tests
+  performance-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    if: github.event_name == 'schedule' || contains(github.event.head_commit.message, '[perf]')
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r tests/requirements.txt
+        pip install locust
+        
+    - name: Run performance tests
+      run: |
+        chmod +x scripts/run_tests.sh
+        ./scripts/run_tests.sh -t performance -p -e ci
+      env:
+        CI: true
+        TESTING: 1
+        
+    - name: Upload performance test results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: performance-test-results
+        path: tests/reports/
+        
+    - name: Performance regression check
+      run: |
+        python3 -c "
+import json
+import sys
+import os
+
+# Load current performance results
+if os.path.exists('tests/reports/performance_results.json'):
+    with open('tests/reports/performance_results.json') as f:
+        current = json.load(f)
+    
+    # Define performance thresholds
+    thresholds = {
+        'avg_response_time': 2.0,  # seconds
+        'p95_response_time': 5.0,  # seconds
+        'error_rate': 0.05,        # 5%
+        'throughput_rps': 50       # requests per second
+    }
+    
+    # Check thresholds
+    violations = []
+    for metric, threshold in thresholds.items():
+        if metric in current:
+            value = current[metric]
+            if metric == 'error_rate' and value > threshold:
+                violations.append(f'{metric}: {value:.3f} > {threshold}')
+            elif metric in ['avg_response_time', 'p95_response_time'] and value > threshold:
+                violations.append(f'{metric}: {value:.2f}s > {threshold}s')
+            elif metric == 'throughput_rps' and value < threshold:
+                violations.append(f'{metric}: {value:.1f} < {threshold}')
+    
+    if violations:
+        print('Performance regression detected:')
+        for violation in violations:
+            print(f'  - {violation}')
+        sys.exit(1)
+    else:
+        print('Performance tests passed all thresholds')
+else:
+    print('No performance results found, skipping regression check')
+"
+
+  # Security Tests
+  security-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+        
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+        
+    - name: Run CodeQL Analysis
+      uses: github/codeql-action/analyze@v2
+      with:
+        languages: python
+
+  # Test Report Generation
+  test-report:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, lint-and-quality]
+    if: always()
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Download all test artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts/
+        
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+        
+    - name: Generate combined test report
+      run: |
+        python3 -c "
+import json
+import os
+from pathlib import Path
+from datetime import datetime
+
+# Collect all test results
+results = {
+    'timestamp': datetime.now().isoformat(),
+    'commit': '${{ github.sha }}',
+    'branch': '${{ github.ref_name }}',
+    'workflow_run': '${{ github.run_number }}',
+    'tests': {},
+    'coverage': {},
+    'summary': {}
+}
+
+artifacts_dir = Path('artifacts')
+if artifacts_dir.exists():
+    for artifact_dir in artifacts_dir.iterdir():
+        if artifact_dir.is_dir():
+            # Look for pytest results
+            pytest_json = artifact_dir / 'pytest_report.json'
+            if pytest_json.exists():
+                with open(pytest_json) as f:
+                    test_data = json.load(f)
+                results['tests'][artifact_dir.name] = test_data
+            
+            # Look for coverage results
+            coverage_json = artifact_dir / 'coverage.json'
+            if coverage_json.exists():
+                with open(coverage_json) as f:
+                    coverage_data = json.load(f)
+                results['coverage'][artifact_dir.name] = coverage_data
+
+# Calculate summary
+total_tests = 0
+total_passed = 0
+total_failed = 0
+total_skipped = 0
+
+for test_suite, data in results['tests'].items():
+    if 'summary' in data:
+        summary = data['summary']
+        total_tests += summary.get('total', 0)
+        total_passed += summary.get('passed', 0)
+        total_failed += summary.get('failed', 0)
+        total_skipped += summary.get('skipped', 0)
+
+results['summary'] = {
+    'total_tests': total_tests,
+    'total_passed': total_passed,
+    'total_failed': total_failed,
+    'total_skipped': total_skipped,
+    'success_rate': (total_passed / total_tests * 100) if total_tests > 0 else 0
+}
+
+# Save combined results
+os.makedirs('test-reports', exist_ok=True)
+with open('test-reports/combined_results.json', 'w') as f:
+    json.dump(results, f, indent=2)
+
+print(f'Test Summary:')
+print(f'  Total Tests: {total_tests}')
+print(f'  Passed: {total_passed}')
+print(f'  Failed: {total_failed}')
+print(f'  Skipped: {total_skipped}')
+print(f'  Success Rate: {results[\"summary\"][\"success_rate\"]:.1f}%')
+"
+        
+    - name: Upload combined test report
+      uses: actions/upload-artifact@v3
+      with:
+        name: combined-test-report
+        path: test-reports/
+        
+    - name: Create test summary comment
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          
+          try {
+            const results = JSON.parse(fs.readFileSync('test-reports/combined_results.json', 'utf8'));
+            const summary = results.summary;
+            
+            const body = `## 🧪 Test Results Summary
+            
+            | Metric | Value |
+            |--------|-------|
+            | Total Tests | ${summary.total_tests} |
+            | ✅ Passed | ${summary.total_passed} |
+            | ❌ Failed | ${summary.total_failed} |
+            | ⏭️ Skipped | ${summary.total_skipped} |
+            | Success Rate | ${summary.success_rate.toFixed(1)}% |
+            
+            **Commit:** \`${results.commit.substring(0, 7)}\`
+            **Workflow Run:** #${results.workflow_run}
+            
+            ${summary.total_failed > 0 ? '❌ Some tests failed. Please check the detailed results above.' : '✅ All tests passed!'}
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+          } catch (error) {
+            console.log('Could not create test summary comment:', error.message);
+          }
+          
+    - name: Fail workflow if tests failed
+      if: always()
+      run: |
+        if [ -f test-reports/combined_results.json ]; then
+          python3 -c "
+import json
+import sys
+
+with open('test-reports/combined_results.json') as f:
+    results = json.load(f)
+
+if results['summary']['total_failed'] > 0:
+    print(f\"Workflow failed: {results['summary']['total_failed']} test(s) failed\")
+    sys.exit(1)
+else:
+    print('All tests passed')
+"
+        fi

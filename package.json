@@ -1,0 +1,38 @@
+{
+  "name": "gough",
+  "version": "1.0.0",
+  "description": "Gough bare metal provisioning platform with PenguinTech PXE boot services",
+  "main": "services/webui/src/index.ts",
+  "type": "module",
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev": "docker-compose up -d",
+    "build": "cd services/webui && npm run build",
+    "lint": "cd services/webui && npm run lint",
+    "format": "cd services/webui && npm run format",
+    "test": "npm run smoke-test",
+    "smoke-test": "./tests/smoke/run-smoke-tests.sh alpha",
+    "version:update": "./scripts/version/update-version.sh"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "keywords": [
+    "penguintech",
+    "template",
+    "enterprise",
+    "licensing",
+    "multi-language"
+  ],
+  "author": "Penguin Tech Inc",
+  "license": "Proprietary",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/penguintechinc/gough"
+  },
+  "bugs": {
+    "url": "https://github.com/penguintechinc/gough/issues"
+  }
+}

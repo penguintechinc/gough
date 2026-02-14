@@ -1,0 +1,60 @@
+import js from "@eslint/js";
+
+export default [
+    js.configs.recommended,
+    {
+        ignores: [
+            "node_modules/**",
+            "dist/**",
+            "build/**",
+            "coverage/**",
+            "*.min.js",
+            "web/**",
+            "services/webui/**",
+            "app-skeleton/**",
+            "gough/**",
+            "**/static/js/**",
+            "**/vendor/**",
+            "**/*.min.js",
+            "**/*.ts",
+            "**/*.tsx",
+            "**/*.cjs",
+        ],
+    },
+    {
+        files: ["**/*.js", "**/*.mjs"],
+        languageOptions: {
+            ecmaVersion: 2022,
+            sourceType: "module",
+            globals: {
+                // Node.js globals
+                console: "readonly",
+                process: "readonly",
+                Buffer: "readonly",
+                __dirname: "readonly",
+                __filename: "readonly",
+                module: "readonly",
+                require: "readonly",
+                exports: "readonly",
+                setTimeout: "readonly",
+                setInterval: "readonly",
+                clearTimeout: "readonly",
+                clearInterval: "readonly",
+                setImmediate: "readonly",
+                clearImmediate: "readonly",
+                Promise: "readonly",
+                URL: "readonly",
+                URLSearchParams: "readonly",
+                global: "readonly",
+            },
+        },
+        rules: {
+            "no-unused-vars": ["warn", { argsIgnorePattern: "^_" }],
+            "no-console": "off",
+            "prefer-const": "warn",
+            "no-var": "error",
+            "eqeqeq": ["error", "always"],
+            "curly": ["error", "all"],
+        },
+    },
+];
