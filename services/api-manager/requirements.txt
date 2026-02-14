@@ -24,7 +24,7 @@ email-validator==2.2.0
 # Secrets Management
 hvac==2.3.0
 infisical-python==2.1.1
-cryptography==43.0.3
+cryptography==46.0.5
 boto3==1.35.78
 google-cloud-secret-manager==2.20.0
 azure-keyvault-secrets==4.8.0
