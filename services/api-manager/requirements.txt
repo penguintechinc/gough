@@ -2,7 +2,7 @@
 # Python 3.13+
 
 # Web Framework
-Quart==0.19.4
+Quart==0.20.0
 quart-cors==0.7.0
 
 # Auth implemented separately for Quart
