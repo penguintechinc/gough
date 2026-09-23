@@ -1091,11 +1091,24 @@ async def upgrade_biome(biome_id: int):
                 ],
             )
 
-    # Create upgrade_run record
-    actor_sub = g.current_user.sub if hasattr(g, "current_user") and g.current_user else "unknown"
+    # Create upgrade_run record. g.current_user is normally a dict shaped by
+    # ``_populate_current_user`` (app/middleware.py) -- sub lives under
+    # ``_jwt_payload``, not as a top-level attribute -- but accept a plain
+    # object exposing ``.sub`` too (e.g. legacy test doubles).
+    actor_user = g.get("current_user")
+    if isinstance(actor_user, dict):
+        actor_sub = actor_user.get("_jwt_payload", {}).get("sub", "unknown")
+    else:
+        actor_sub = getattr(actor_user, "sub", "unknown")
 
     def _insert_run() -> Any:
+        # upgrade_runs.id is an app-supplied UUID string with no server-side
+        # default (same convention as deployments/joiner_secrets). Omitting it
+        # inserted NULL into a NOT NULL primary key on any real database; tests
+        # missed it because their fixture let penguin-dal auto-add an
+        # autoincrement integer id instead.
         return db.upgrade_runs.insert(
+            id=str(uuid.uuid4()),
             biome_id=biome_id,
             target_version=body.target_version,
             cluster_id=_g(biome, "cluster_id", "default"),
@@ -1147,7 +1160,7 @@ async def upgrade_biome(biome_id: int):
 
 
 async def _execute_upgrade_orchestration(
-    biome_id: int, run_id: str, target_version: str, rollout_plan: dict
+    biome_id: int, run_id: str, target_version: str, rollout_plan: dict | str | None
 ) -> None:
     """Execute upgrade orchestration: canary → batched → all phases.
 
@@ -1168,7 +1181,9 @@ async def _execute_upgrade_orchestration(
     from datetime import datetime, timezone
 
     db = get_db()
-    batch_size = rollout_plan.get("batch_size", 2) if rollout_plan else 2
+    # rollout_plan is either a named strategy string ("auto"/"canary") or an
+    # explicit config dict -- only the dict form carries a batch_size override.
+    batch_size = rollout_plan.get("batch_size", 2) if isinstance(rollout_plan, dict) else 2
 
     def _update_run(**fields: Any) -> None:
         db(db.upgrade_runs.id == run_id).update(**fields)

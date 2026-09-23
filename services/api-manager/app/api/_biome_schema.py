@@ -171,7 +171,10 @@ class BiomeUpgradeRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_version: Annotated[str, Field(min_length=1, max_length=64)]
     approval_token: Optional[str] = None
-    rollout_plan: Optional[dict[str, Any]] = None
+    # Either a named strategy ("auto"/"canary") or an explicit orchestration
+    # config dict (e.g. {"batch_size": 2}) consumed by
+    # ``_execute_upgrade_orchestration`` -- see app/api/biomes.py.
+    rollout_plan: Literal["auto", "canary"] | dict[str, Any] = "auto"
 
 
 class NodeBiomeAssignRequest(BaseModel):

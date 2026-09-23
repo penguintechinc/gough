@@ -127,13 +127,23 @@ class TestScriptRenderers:
         # Trailing slash normalized:
         assert "https://primary.example//ipxe" not in script
 
-    def test_deploy_script_chains_helper(self) -> None:
+    def test_deploy_script_boots_kernel_with_bootstrap_token(self) -> None:
         script = _render_deploy_ipxe_script(
             "aa:bb:cc:dd:ee:ff", "tok", "https://primary.example"
         )
         assert script.startswith("#!ipxe\n")
-        assert "Sprint 4" in script
-        assert "chain https://primary.example/ipxe/helper/aa:bb:cc:dd:ee:ff" in script
+        # The deploy phase boots a real kernel+initrd and carries the bootstrap
+        # token on the cmdline (added by "feat(ipxe): phase-2 + LUKS encryption
+        # tiers"). This test previously asserted a "Sprint 4" chain-to-helper
+        # stub -- it was written after that implementation landed and never ran,
+        # because the whole file errored at collection on the quart/flask pin
+        # bug, so the stale expectation went unnoticed.
+        assert "https://primary.example/ipxe/kernel/deploy-kernel" in script
+        assert "https://primary.example/ipxe/initrd/deploy.initrd" in script
+        assert "gough.bootstrap_token=tok" in script
+        assert "gough.mac=aa:bb:cc:dd:ee:ff" in script
+        assert "gough.phase=deploy" in script
+        assert "boot || goto fallback" in script
 
 
 # =============================================================================
@@ -312,8 +322,10 @@ class TestDeployEndpoint:
         assert resp.content_type.startswith("text/plain")
         body = (await resp.get_data()).decode()
         assert body.startswith("#!ipxe\n")
-        assert "Sprint 4" in body
-        assert "chain https://primary.test/ipxe/helper/aa:bb:cc:dd:ee:ff" in body
+        # See TestScriptRenderers::test_deploy_script_boots_kernel_with_bootstrap_token -- the
+        # deploy phase renders a full kernel/initrd boot, not a helper stub.
+        assert "https://primary.test/ipxe/kernel/deploy-kernel" in body
+        assert "gough.phase=deploy" in body
 
     @pytest.mark.asyncio
     async def test_unknown_mac_returns_404(self, client) -> None:
@@ -387,12 +399,19 @@ class TestBootstrapTokenValidation:
         vault = MagicMock()
 
         # First call succeeds.
-        principal = validate_one_time_bootstrap_token(token, vault, redis)
+        # signing_secret is required since the HS256 path became
+        # fail-closed; tokens here are minted by _hs256_token with its
+        # default secret.
+        principal = validate_one_time_bootstrap_token(
+            token, vault, redis, signing_secret="test-secret"
+        )
         assert principal.sub == "bootstrap:aa:bb:cc:dd:ee:ff"
 
         # Second call (replay) raises OneTimeTokenReplayError -> HTTP 409 by middleware.
         with pytest.raises(OneTimeTokenReplayError):
-            validate_one_time_bootstrap_token(token, vault, redis)
+            validate_one_time_bootstrap_token(
+                token, vault, redis, signing_secret="test-secret"
+            )
 
     def test_expired_token_raises_401(self) -> None:
         now = int(datetime.now(timezone.utc).timestamp())
@@ -407,7 +426,9 @@ class TestBootstrapTokenValidation:
         redis = MagicMock()
         redis.set = MagicMock(return_value=True)
         with pytest.raises(ExpiredCredentialError):
-            validate_one_time_bootstrap_token(token, MagicMock(), redis)
+            validate_one_time_bootstrap_token(
+                token, MagicMock(), redis, signing_secret="test-secret"
+            )
 
     def test_mac_mismatch_raises(self) -> None:
         now = int(datetime.now(timezone.utc).timestamp())
@@ -435,7 +456,9 @@ class TestBootstrapTokenValidation:
             "phase": "helper",
         })
         with pytest.raises(InvalidCredentialError):
-            validate_one_time_bootstrap_token(token, MagicMock(), MagicMock())
+            validate_one_time_bootstrap_token(
+                token, MagicMock(), MagicMock(), signing_secret="test-secret"
+            )
 
 
 class TestRateLimiterEdgeCases:
@@ -578,7 +601,8 @@ class TestBootstrapTokenValidationEdgeCases:
         redis.set = MagicMock(return_value=True)
 
         principal = validate_one_time_bootstrap_token(
-            token, MagicMock(), redis, expected_mac=mac
+            token, MagicMock(), redis, expected_mac=mac,
+            signing_secret="test-secret"
         )
         assert principal.sub == f"bootstrap:{mac}"
 
@@ -596,7 +620,9 @@ class TestBootstrapTokenValidationEdgeCases:
         redis = MagicMock()
         redis.set = MagicMock(return_value=True)
 
-        principal = validate_one_time_bootstrap_token(token, MagicMock(), redis)
+        principal = validate_one_time_bootstrap_token(
+            token, MagicMock(), redis, signing_secret="test-secret"
+        )
         # Phase should be in claims
         assert "phase" in principal.claims
         assert principal.claims["phase"] == "helper"
@@ -611,7 +637,9 @@ class TestBootstrapTokenValidationEdgeCases:
             "phase": "helper",
         })
         with pytest.raises(InvalidCredentialError):
-            validate_one_time_bootstrap_token(token, MagicMock(), MagicMock())
+            validate_one_time_bootstrap_token(
+                token, MagicMock(), MagicMock(), signing_secret="test-secret"
+            )
 
 
 # =============================================================================

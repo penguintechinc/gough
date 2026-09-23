@@ -29,35 +29,50 @@ def dal_with_clouds(dal):
     """Extend dal with cloud provider and machine tables."""
     from penguin_dal import Field
 
-    # Define cloud_providers table
+    # Column names here MUST track models_sqlalchemy's cloud tables. They used
+    # to describe a shape app/api/clouds.py assumed but that no deployment ever
+    # had, which is exactly why the drift between the two went unnoticed until
+    # the multi-cloud flag was switched on. See
+    # tests/test_multi_cloud_enabled.py, which builds the real schema instead.
     if "cloud_providers" not in dal._metadata.tables:
         dal.define_table(
             "cloud_providers",
             Field("name", "string", notnull=True, unique=True),
             Field("provider_type", "string", notnull=True),
-            Field("config", "json"),
+            Field("description", "text"),
+            Field("region", "string"),
+            Field("credentials_path", "string"),
+            Field("config_data", "json"),
             Field("status", "string", default="disconnected"),
-            Field("enabled", "boolean", default=True),
+            Field("is_active", "boolean", default=True),
+            Field("last_sync_at", "datetime"),
             Field("created_at", "datetime"),
             Field("updated_at", "datetime"),
             migrate=True,
         )
 
-    # Define cloud_machines table
     if "cloud_machines" not in dal._metadata.tables:
         dal.define_table(
             "cloud_machines",
             Field("provider_id", "integer", notnull=True),
-            Field("cloud_id", "string", notnull=True),
-            Field("name", "string", notnull=True),
-            Field("state", "string", default="unknown"),
-            Field("region", "string"),
-            Field("image", "string"),
-            Field("size", "string"),
+            Field("external_id", "string", notnull=True),
+            Field("hostname", "string"),
+            Field("ip_address", "string"),
+            Field("private_ip", "string"),
             Field("public_ips", "json"),
             Field("private_ips", "json"),
+            Field("status", "string", default="new"),
+            Field("machine_type", "string"),
+            Field("architecture", "string", default="amd64"),
+            Field("cpu_count", "integer"),
+            Field("memory_mb", "integer"),
+            Field("storage_gb", "integer"),
+            Field("os_image", "string"),
+            Field("zone", "string"),
             Field("tags", "json"),
-            Field("extra", "json"),
+            Field("metadata", "json"),
+            Field("lxd_cluster_id", "integer"),
+            Field("fleet_host_id", "integer"),
             Field("created_at", "datetime"),
             Field("updated_at", "datetime"),
             migrate=True,
@@ -83,6 +98,19 @@ def clouds_client(dal_with_clouds, monkeypatch):
     import app.api.clouds as clouds_mod
     clouds_mod = importlib.reload(clouds_mod)
     monkeypatch.setattr(clouds_mod, "get_db", lambda: dal_with_clouds)
+
+    # gh-38 gates this blueprint on the gough.multi-cloud PostHog flag (default
+    # OFF) and meters node activation on create_machine. Both are covered by
+    # tests/test_licensing.py and tests/test_multi_cloud_enabled.py; here they
+    # would only mask the behaviour under test.
+    async def _flag_on(*_a, **_k):
+        return True
+
+    async def _unlimited_allowance(*_a, **_k):
+        return float("inf")
+
+    monkeypatch.setattr(clouds_mod, "feature_enabled", _flag_on)
+    monkeypatch.setattr(clouds_mod, "node_allowance", _unlimited_allowance)
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -132,18 +160,18 @@ async def test_list_providers_with_data(clouds_client, dal_with_clouds):
     dal_with_clouds.cloud_providers.insert(
         name="AWS",
         provider_type="aws",
-        config={"region": "us-east-1"},
+        config_data={"region": "us-east-1"},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_providers.insert(
         name="GCP",
         provider_type="gcp",
-        config={"project": "my-project"},
+        config_data={"project": "my-project"},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -167,9 +195,9 @@ async def test_list_providers_config_redacted(clouds_client, dal_with_clouds):
     dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={"secret_key": "secret-123"},
+        config_data={"secret_key": "secret-123"},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -267,9 +295,9 @@ async def test_add_provider_duplicate_name(clouds_client, dal_with_clouds):
     dal_with_clouds.cloud_providers.insert(
         name="AWS",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -352,9 +380,9 @@ async def test_get_provider_found(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={"secret": "data"},
+        config_data={"secret": "data"},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -390,9 +418,9 @@ async def test_update_provider_name(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Old Name",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -414,9 +442,9 @@ async def test_update_provider_enabled(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -438,9 +466,9 @@ async def test_update_provider_config_auth_error(clouds_client, dal_with_clouds)
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={"region": "us-east-1"},
+        config_data={"region": "us-east-1"},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -477,17 +505,17 @@ async def test_delete_provider_with_machines(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_machines.insert(
         provider_id=provider_id,
-        cloud_id="i-12345",
-        name="machine-1",
-        state="running",
+        external_id="i-12345",
+        hostname="machine-1",
+        status="running",
         created_at=now,
         updated_at=now,
     )
@@ -506,9 +534,9 @@ async def test_delete_provider_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -539,9 +567,9 @@ async def test_test_provider_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="disconnected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -563,9 +591,9 @@ async def test_test_provider_auth_error(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -591,9 +619,9 @@ async def test_test_provider_cloud_error(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -630,17 +658,17 @@ async def test_list_machines_from_database(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_machines.insert(
         provider_id=provider_id,
-        cloud_id="i-12345",
-        name="machine-1",
-        state="running",
+        external_id="i-12345",
+        hostname="machine-1",
+        status="running",
         created_at=now,
         updated_at=now,
     )
@@ -663,9 +691,9 @@ async def test_list_machines_refresh_from_api(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -699,9 +727,9 @@ async def test_list_machines_refresh_api_error(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -740,9 +768,9 @@ async def test_create_machine_provider_disabled(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=False,
+        is_active=False,
         created_at=now,
         updated_at=now,
     )
@@ -764,9 +792,9 @@ async def test_create_machine_missing_body(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -783,9 +811,9 @@ async def test_create_machine_missing_name(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -807,9 +835,9 @@ async def test_create_machine_missing_image(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -831,9 +859,9 @@ async def test_create_machine_missing_size(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -857,9 +885,9 @@ async def test_create_machine_quota_error(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -884,9 +912,9 @@ async def test_create_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -943,9 +971,9 @@ async def test_get_machine_not_found(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -969,9 +997,9 @@ async def test_get_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1018,9 +1046,9 @@ async def test_destroy_machine_not_found(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1044,17 +1072,17 @@ async def test_destroy_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_machines.insert(
         provider_id=provider_id,
-        cloud_id="i-12345",
-        name="machine-1",
-        state="running",
+        external_id="i-12345",
+        hostname="machine-1",
+        status="running",
         created_at=now,
         updated_at=now,
     )
@@ -1076,17 +1104,17 @@ async def test_start_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_machines.insert(
         provider_id=provider_id,
-        cloud_id="i-12345",
-        name="machine-1",
-        state="stopped",
+        external_id="i-12345",
+        hostname="machine-1",
+        status="stopped",
         created_at=now,
         updated_at=now,
     )
@@ -1106,17 +1134,17 @@ async def test_stop_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
     dal_with_clouds.cloud_machines.insert(
         provider_id=provider_id,
-        cloud_id="i-12345",
-        name="machine-1",
-        state="running",
+        external_id="i-12345",
+        hostname="machine-1",
+        status="running",
         created_at=now,
         updated_at=now,
     )
@@ -1136,9 +1164,9 @@ async def test_reboot_machine_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1170,9 +1198,9 @@ async def test_list_images_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1198,9 +1226,9 @@ async def test_list_sizes_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1226,9 +1254,9 @@ async def test_list_regions_success(clouds_client, dal_with_clouds):
     provider_id = dal_with_clouds.cloud_providers.insert(
         name="Test",
         provider_type="aws",
-        config={},
+        config_data={},
         status="connected",
-        enabled=True,
+        is_active=True,
         created_at=now,
         updated_at=now,
     )
@@ -1287,8 +1315,8 @@ class TestSyncMachinesToDbBatching:
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config={}, status="connected",
-            enabled=True, created_at=now, updated_at=now,
+            name="Test", provider_type="aws", config_data={}, status="connected",
+            is_active=True, created_at=now, updated_at=now,
         )
         dal_with_clouds.commit()
 
@@ -1301,19 +1329,19 @@ class TestSyncMachinesToDbBatching:
         rows = dal_with_clouds(
             dal_with_clouds.cloud_machines.provider_id == provider_id
         ).select()
-        assert {r.cloud_id for r in rows} == {"i-1", "i-2"}
+        assert {r.external_id for r in rows} == {"i-1", "i-2"}
 
     def test_updates_existing_machine_in_place(self, dal_with_clouds) -> None:
         import app.api.clouds as clouds_mod
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config={}, status="connected",
-            enabled=True, created_at=now, updated_at=now,
+            name="Test", provider_type="aws", config_data={}, status="connected",
+            is_active=True, created_at=now, updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, cloud_id="i-1", name="old-name",
-            state="stopped", created_at=now, updated_at=now,
+            provider_id=provider_id, external_id="i-1", hostname="old-name",
+            status="stopped", created_at=now, updated_at=now,
         )
         dal_with_clouds.commit()
 
@@ -1325,27 +1353,27 @@ class TestSyncMachinesToDbBatching:
             dal_with_clouds.cloud_machines.provider_id == provider_id
         ).select()
         assert len(rows) == 1  # updated in place, not duplicated
-        assert rows[0].name == "new-name"
-        assert rows[0].state == "running"
+        assert rows[0].hostname == "new-name"
+        assert rows[0].status == "running"
 
     def test_deletes_stale_machines_via_batched_delete(self, dal_with_clouds) -> None:
         import app.api.clouds as clouds_mod
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config={}, status="connected",
-            enabled=True, created_at=now, updated_at=now,
+            name="Test", provider_type="aws", config_data={}, status="connected",
+            is_active=True, created_at=now, updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, cloud_id="i-gone-1", name="gone-1",
+            provider_id=provider_id, external_id="i-gone-1", hostname="gone-1",
             created_at=now, updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, cloud_id="i-gone-2", name="gone-2",
+            provider_id=provider_id, external_id="i-gone-2", hostname="gone-2",
             created_at=now, updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, cloud_id="i-stays", name="stays",
+            provider_id=provider_id, external_id="i-stays", hostname="stays",
             created_at=now, updated_at=now,
         )
         dal_with_clouds.commit()
@@ -1358,18 +1386,18 @@ class TestSyncMachinesToDbBatching:
         rows = dal_with_clouds(
             dal_with_clouds.cloud_machines.provider_id == provider_id
         ).select()
-        assert {r.cloud_id for r in rows} == {"i-stays"}
+        assert {r.external_id for r in rows} == {"i-stays"}
 
     def test_empty_machine_list_deletes_all_existing(self, dal_with_clouds) -> None:
         import app.api.clouds as clouds_mod
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config={}, status="connected",
-            enabled=True, created_at=now, updated_at=now,
+            name="Test", provider_type="aws", config_data={}, status="connected",
+            is_active=True, created_at=now, updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, cloud_id="i-1", name="host-1",
+            provider_id=provider_id, external_id="i-1", hostname="host-1",
             created_at=now, updated_at=now,
         )
         dal_with_clouds.commit()

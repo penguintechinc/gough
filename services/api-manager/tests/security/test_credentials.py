@@ -84,24 +84,41 @@ def mock_redis_client() -> Mock:
 
 @pytest.fixture
 def x509_cert_and_ca() -> tuple[str, str]:
-    """Generate self-signed X.509 certificate with SPIFFE SAN."""
-    # Generate key
-    private_key = rsa.generate_private_key(
+    """Generate a CA cert and a leaf SVID cert (with SPIFFE SAN) signed by it.
+
+    Mirrors real SPIRE topology: validate_service_svid's chain validation
+    requires the trust bundle to be a genuine CA (BasicConstraints ca=True)
+    and the leaf's issuer to match the CA's subject, so both certs must be
+    a real two-party chain rather than a single self-signed cert reused as
+    its own "CA".
+    """
+    ca_key = rsa.generate_private_key(
         public_exponent=65537, key_size=2048, backend=default_backend()
     )
-
-    # Build certificate
-    subject = issuer = x509.Name(
-        [x509.NameAttribute(NameOID.COMMON_NAME, "test-service")]
+    ca_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
+    ca_cert = (
+        x509.CertificateBuilder()
+        .subject_name(ca_subject)
+        .issuer_name(ca_subject)
+        .public_key(ca_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
+        .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .sign(ca_key, hashes.SHA256(), default_backend())
     )
 
-    cert = (
+    leaf_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
+    leaf_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-service")])
+    leaf_cert = (
         x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(issuer)
-        .public_key(private_key.public_key())
+        .subject_name(leaf_subject)
+        .issuer_name(ca_subject)
+        .public_key(leaf_key.public_key())
         .serial_number(x509.random_serial_number())
-        .not_valid_before(datetime.now(timezone.utc))
+        .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
         .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
         .add_extension(
             x509.SubjectAlternativeName([
@@ -109,11 +126,11 @@ def x509_cert_and_ca() -> tuple[str, str]:
             ]),
             critical=False,
         )
-        .sign(private_key, hashes.SHA256(), default_backend())
+        .sign(ca_key, hashes.SHA256(), default_backend())
     )
 
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
-    ca_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
+    cert_pem = leaf_cert.public_bytes(serialization.Encoding.PEM).decode()
+    ca_pem = ca_cert.public_bytes(serialization.Encoding.PEM).decode()
 
     return cert_pem, ca_pem
 
@@ -175,6 +192,47 @@ def test_credential_type_detect_case_insensitive() -> None:
 
     cred_type = detect_credential_type(headers)
     assert cred_type == CredentialType.USER_JWT
+
+
+# regression: audit unverified-jwt-decode-suppression 2026-09-22
+#
+# detect_credential_type()'s `jwt.decode(..., options={"verify_signature":
+# False})` is routing-only (reads "phase"/"sub" to pick a CredentialType) and
+# carries a line-scoped `# nosemgrep` / `# nosec` with that justification.
+# These tests prove the justification is actually true: routing succeeds on a
+# token with a BAD/forged signature (by design -- it never trusts the
+# signature), but the real downstream validator still rejects that same
+# forged token, so a caller can never use this decode to bypass verification.
+def test_unverified_routing_decode_ignores_bad_signature() -> None:
+    """Routing succeeds even with a garbage signature -- it never checks it."""
+    payload = {"sub": "user:attacker@example.com"}
+    token = jwt.encode(payload, "some-key", algorithm="HS256")
+    forged_token = token.rsplit(".", 1)[0] + ".not-a-real-signature"
+    headers = {"Authorization": f"Bearer {forged_token}"}
+
+    # Routing-only decode does not raise on a bad signature.
+    cred_type = detect_credential_type(headers)
+    assert cred_type == CredentialType.USER_JWT
+
+
+def test_forged_token_routed_but_rejected_by_real_verifier() -> None:
+    """A forged token routes to USER_JWT but validate_user_jwt still rejects it.
+
+    Proves the "verification happens downstream" claim behind the
+    nosemgrep/nosec suppression on the unverified routing decode: reaching a
+    CredentialType via detect_credential_type() never grants authentication --
+    the real validator (here, no JWKS keys configured) still fails closed.
+    """
+    payload = {"sub": "user:attacker@example.com", "phase": None}
+    token = jwt.encode(payload, "attacker-controlled-key", algorithm="HS256")
+
+    cred_type = detect_credential_type({"Authorization": f"Bearer {token}"})
+    assert cred_type == CredentialType.USER_JWT
+
+    with pytest.raises(InvalidCredentialError, match="No JWKS keys"):
+        validate_user_jwt(
+            token, [], audience="test-api", issuer="https://auth.example.com"
+        )
 
 
 # ==============================================================================
@@ -397,6 +455,7 @@ def test_validate_one_time_bootstrap_first_use_pass(
         token,
         mock_vault_client,
         mock_redis_client,
+        signing_secret="secret",
     )
 
     assert principal.cred_type == CredentialType.ONE_TIME_BOOTSTRAP
@@ -433,6 +492,7 @@ def test_validate_one_time_bootstrap_replay_raises_OneTimeTokenReplayError(
             token,
             mock_vault_client,
             mock_redis_client,
+            signing_secret="secret",
         )
 
     assert exc_info.value.nonce == "test-nonce-123"
@@ -459,6 +519,7 @@ def test_validate_one_time_bootstrap_expired_raises(
             token,
             mock_vault_client,
             mock_redis_client,
+            signing_secret="secret",
         )
 
 
@@ -483,6 +544,7 @@ def test_validate_one_time_bootstrap_ttl_exceeds_10min_raises(
             token,
             mock_vault_client,
             mock_redis_client,
+            signing_secret="secret",
         )
 
 
@@ -508,6 +570,7 @@ def test_validate_one_time_bootstrap_mac_mismatch_raises(
             mock_vault_client,
             mock_redis_client,
             expected_mac="different-mac",
+            signing_secret="secret",
         )
 
 

@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
+import api from '../../lib/api';
 
 interface Biome {
   id: number;
@@ -42,14 +43,8 @@ export default function BiomeGroupsPage() {
   const fetchGroups = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/v1/provisioning/biome-groups', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch biome groups');
-      const data = await response.json();
-      setGroups(data.items || []);
+      const response = await api.get('/provisioning/biome-groups');
+      setGroups(response.data.items || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load biome groups');
@@ -61,14 +56,8 @@ export default function BiomeGroupsPage() {
 
   const fetchAvailableEggs = async () => {
     try {
-      const response = await fetch('/api/v1/provisioning/biomes', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch biomes');
-      const data = await response.json();
-      setAvailableEggs(data.items || []);
+      const response = await api.get('/provisioning/biomes');
+      setAvailableEggs(response.data.items || []);
     } catch (err) {
       console.error('Failed to load biomes:', err);
       setAvailableEggs([]);
@@ -79,15 +68,7 @@ export default function BiomeGroupsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/v1/provisioning/biome-groups', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to create biome group');
+      await api.post('/provisioning/biome-groups', formData);
       setShowCreateModal(false);
       setFormData({ name: '', description: '', biomes: [] });
       fetchGroups();
@@ -103,15 +84,7 @@ export default function BiomeGroupsPage() {
     if (!selectedGroup) return;
     setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/v1/provisioning/biome-groups/${selectedGroup.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to update biome group');
+      await api.put(`/provisioning/biome-groups/${selectedGroup.id}`, formData);
       setShowEditModal(false);
       setSelectedGroup(null);
       setFormData({ name: '', description: '', biomes: [] });
@@ -126,13 +99,7 @@ export default function BiomeGroupsPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this biome group?')) return;
     try {
-      const response = await fetch(`/api/v1/provisioning/biome-groups/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to delete biome group');
+      await api.delete(`/provisioning/biome-groups/${id}`);
       fetchGroups();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete biome group');

@@ -20,17 +20,49 @@ from unittest.mock import MagicMock
 
 # Registers the pg_url / pg_db / pg_db_scoped real-Postgres fixtures
 # (tests/pg_fixtures.py) for tests under tests/workers/ specifically.
-# tests/conftest.py (one level up) already declares this, but pytest only
-# honors a conftest.py's `pytest_plugins` list when that conftest is loaded
-# as part of the *initial* collection root for a given invocation -- when
+# tests/conftest.py (one level up) already declares `pytest_plugins =
+# ["tests.pg_fixtures"]`, but pytest only honors a conftest.py's
+# `pytest_plugins` list when that conftest sits at the *rootdir* -- when
 # pytest is invoked with a path scoped to tests/workers/ (e.g. the Makefile's
 # `pytest tests/workers/` target), pytest can resolve its rootdir to
-# tests/workers/ itself, one level *below* tests/conftest.py, silently
-# dropping that outer declaration (confirmed empirically: tests/conftest.py's
-# own non-pytest_plugins fixtures, e.g. `dal`, still inherit normally in that
-# case -- only the plugin-loading mechanism is affected). Redeclaring it here
-# makes pg_db available regardless of invocation path.
-pytest_plugins = ["tests.pg_fixtures"]
+# tests/workers/ itself (it has its own pytest.ini), one level *below*
+# tests/conftest.py, silently dropping that outer declaration (confirmed
+# empirically: tests/conftest.py's own non-pytest_plugins fixtures, e.g.
+# `dal`, still inherit normally in that case -- only the plugin-loading
+# mechanism is affected). And when invoked from a path where rootdir climbs
+# all the way to the monorepo root (e.g. `pytest tests/` from this service
+# directory, which picks up ../../../pytest.ini), pytest 8 hard-errors on
+# *any* non-rootdir conftest declaring `pytest_plugins` at all -- see
+# https://docs.pytest.org/en/stable/deprecations.html#pytest-plugins-in-non-top-level-conftest-files
+#
+# Importing the fixtures directly sidesteps both failure modes: fixtures
+# pulled into a conftest.py via a plain import are registered on that
+# conftest's own scope regardless of rootdir, so pg_db et al. are available
+# to tests/workers/ under every invocation path.
+#
+# Only do this when tests/conftest.py's own `pytest_plugins` declaration
+# genuinely was NOT honored for this invocation (rootdir resolved to
+# tests/workers/ itself, so tests/conftest.py -- one level above rootdir --
+# never loads at all). Pytest processes `pytest_plugins` synchronously while
+# loading the conftest that declares it, and ancestor conftests always load
+# before descendant ones, so by the time *this* conftest is imported,
+# `tests.pg_fixtures` is already in `sys.modules` in every invocation where
+# tests/conftest.py did participate. Re-importing the names in that case
+# would register a *second*, independent set of session-scoped fixturedefs
+# local to this conftest -- pytest treats an imported `@pytest.fixture`
+# object as a new override at the importing module's scope regardless of
+# where it was originally defined -- spinning up a second, separate
+# Testcontainers Postgres + full Alembic migration run purely for tests
+# collected under tests/workers/, alongside the one tests/conftest.py's
+# plugin registration already provides for the rest of the session.
+if "tests.pg_fixtures" not in sys.modules:
+    from tests.pg_fixtures import (  # noqa: F401
+        _pg_schema,
+        _pg_scoped_role_password,
+        pg_db,
+        pg_db_scoped,
+        pg_url,
+    )
 
 
 def _stub(name: str, **attrs: object) -> types.ModuleType:
@@ -47,7 +79,18 @@ def _install_stubs() -> None:
     if "app" in sys.modules and not isinstance(sys.modules["app"], types.ModuleType):
         return
 
-    # Heavy third-party deps that may not be installed in CI worker envs
+    # Heavy third-party deps that may not be installed in CI worker envs.
+    # Stub only the ones genuinely missing here -- blindly stubbing anything
+    # merely absent from sys.modules (rather than absent from the
+    # environment) replaced real, installed packages (quart, hvac, nats,
+    # penguin_aaa) with a permanent, session-wide MagicMock the instant this
+    # conftest was imported during collection, corrupting unrelated tests
+    # (e.g. tests/test_grpc_server.py's Vault/AESGCM decrypt path) that
+    # import the real module later in the same pytest session -- sys.modules
+    # mutations here are never undone, so the corruption outlives this file's
+    # own tests entirely (regression: gh-41).
+    import importlib
+
     for dep in (
         "quart",
         "quart.globals",
@@ -68,7 +111,11 @@ def _install_stubs() -> None:
         "nats.aio",
         "nats.aio.client",
     ):
-        if dep not in sys.modules:
+        if dep in sys.modules:
+            continue
+        try:
+            importlib.import_module(dep)
+        except ImportError:
             sys.modules[dep] = MagicMock()
 
     # Stub the app package itself so __init__.py never executes.

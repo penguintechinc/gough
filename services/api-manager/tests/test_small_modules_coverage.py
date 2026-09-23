@@ -14,13 +14,17 @@ class TestGetUserById:
 
     def test_get_user_by_id_success(self):
         """Test successful user lookup."""
+        # Mocks db(query).select().first() -- the real call shape used by
+        # get_user_by_id (penguin_dal's TableProxy has no __call__, so a
+        # ``db.auth_user(id)`` shortcut only appears to work against a bare
+        # Mock and raises against the real DAL).
         mock_db = Mock()
         mock_row = Mock()
         mock_row.id = 123
         mock_row.email = "user@example.com"
         mock_row.full_name = "John Doe"
         mock_row.active = True
-        mock_db.auth_user.return_value = mock_row
+        mock_db.return_value.select.return_value.first.return_value = mock_row
 
         with patch("app.models.get_db", return_value=mock_db):
             with patch("app.models._get_user_role", return_value="admin"):
@@ -32,7 +36,7 @@ class TestGetUserById:
     def test_get_user_by_id_not_found(self):
         """Test user not found returns None."""
         mock_db = Mock()
-        mock_db.auth_user.return_value = None
+        mock_db.return_value.select.return_value.first.return_value = None
 
         with patch("app.models.get_db", return_value=mock_db):
             result = get_user_by_id(999)
@@ -41,7 +45,7 @@ class TestGetUserById:
     def test_get_user_by_id_exception(self):
         """Test exception during lookup returns None."""
         mock_db = Mock()
-        mock_db.auth_user.side_effect = Exception("DB error")
+        mock_db.return_value.select.side_effect = Exception("DB error")
 
         with patch("app.models.get_db", return_value=mock_db):
             result = get_user_by_id(123)
@@ -215,7 +219,7 @@ class TestEdgeCases:
     def test_models_with_exception(self):
         """Test models functions handle exceptions."""
         mock_db = Mock()
-        mock_db.auth_user.side_effect = RuntimeError("Connection lost")
+        mock_db.return_value.select.side_effect = RuntimeError("Connection lost")
 
         with patch("app.models.get_db", return_value=mock_db):
             result = get_user_by_id(123)

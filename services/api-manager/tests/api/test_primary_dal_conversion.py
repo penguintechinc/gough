@@ -231,9 +231,12 @@ class TestFrontendSwitchPrimaryNodeLookup:
 
         async def fake_update_endpoint(new_endpoint: str, node_ids: list) -> dict:
             captured["node_ids"] = node_ids
-            return {"ok": True}  # always truthy -- isolates this test from
-            # the unrelated `if not await _update_endpoint_on_nodes(...)`
-            # branch, which is not part of this conversion.
+            # Real shape: dict[node_id] -> {"success": bool, ...}. The stub used
+            # to return {"ok": True}, which only worked while the caller tested
+            # the dict for truthiness -- a bug that reported all-nodes-failed as
+            # success. Mirror the real contract so this test isolates the DB
+            # conversion without also pinning the broken one.
+            return {nid: {"success": True, "error": None} for nid in node_ids}
 
         async def fake_arp(*args: Any, **kwargs: Any) -> dict:
             return {}
@@ -260,7 +263,7 @@ class TestFrontendSwitchPrimaryNodeLookup:
 
         async def fake_update_endpoint(new_endpoint: str, node_ids: list) -> dict:
             captured["node_ids"] = node_ids
-            return {"ok": True}
+            return {nid: {"success": True, "error": None} for nid in node_ids}
 
         async def fake_arp(*args: Any, **kwargs: Any) -> dict:
             return {}
@@ -302,8 +305,8 @@ class TestFrontendSwitchPrimaryNodeLookup:
 
         async def fake_update_endpoint(
             new_endpoint: str, node_ids: list[int]
-        ) -> dict[str, Any]:
-            return {"ok": True}
+        ) -> dict[int, dict[str, Any]]:
+            return {nid: {"success": True, "error": None} for nid in node_ids}
 
         async def strict_fake_arp(vip: str, node_ids: list[int]) -> dict[str, Any]:
             captured["vip"] = vip

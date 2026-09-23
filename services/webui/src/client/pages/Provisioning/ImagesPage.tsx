@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
 import TabNavigation from '../../components/TabNavigation';
+import api, { getCsrfToken } from '../../lib/api';
 
 interface BootImage {
   id: number;
@@ -50,14 +51,8 @@ export default function ImagesPage() {
   const fetchImages = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/v1/provisioning/images', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch images');
-      const data = await response.json();
-      setImages(data.items || []);
+      const response = await api.get('/provisioning/images');
+      setImages(response.data.items || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load images');
@@ -122,7 +117,13 @@ export default function ImagesPage() {
       });
 
       xhr.open('POST', '/api/v1/provisioning/images/upload');
-      xhr.setRequestHeader('Authorization', `Bearer ${localStorage.getItem('access_token')}`);
+      // Cookies (gough_access) ride along automatically; CSRF token must be
+      // echoed explicitly since this is a state-changing request.
+      xhr.withCredentials = true;
+      const csrfToken = getCsrfToken();
+      if (csrfToken) {
+        xhr.setRequestHeader('X-CSRF-Token', csrfToken);
+      }
       xhr.send(formData);
 
     } catch (err) {
@@ -134,13 +135,7 @@ export default function ImagesPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this boot image?')) return;
     try {
-      const response = await fetch(`/api/v1/provisioning/images/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to delete image');
+      await api.delete(`/provisioning/images/${id}`);
       fetchImages();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete image');

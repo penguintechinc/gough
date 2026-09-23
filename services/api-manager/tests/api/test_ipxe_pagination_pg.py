@@ -42,6 +42,32 @@ def _passthrough_decorator(*dargs: Any, **dkwargs: Any) -> Any:
     return _wrap
 
 
+@pytest.fixture(autouse=True)
+def _restore_ipxe_module():
+    """Undo the in-place ``importlib.reload`` of ``app.api.ipxe`` after each test.
+
+    ``_build_app`` stubs the auth decorators and reloads ``app.api.ipxe`` in
+    place to pick them up. That mutation outlives the test and leaked the
+    stubbed module into whatever ipxe test ran next in the same process
+    (regression: test-isolation ipxe_pagination_pg poisoned test_ipxe). Snapshot
+    the real decorators before the test, then restore them and reload the module
+    clean afterwards. The restore is done here (not left to monkeypatch) so the
+    reload always binds the real decorators regardless of finalizer ordering.
+    """
+    import app.middleware as mw_mod
+
+    names = ("auth_required", "admin_required", "maintainer_or_admin_required")
+    saved = {n: getattr(mw_mod, n) for n in names}
+    try:
+        yield
+    finally:
+        for n, v in saved.items():
+            setattr(mw_mod, n, v)
+        import app.api.ipxe as ipxe_mod
+
+        importlib.reload(ipxe_mod)
+
+
 def _build_app(*, monkeypatch: pytest.MonkeyPatch, dal_db: Any) -> Quart:
     """Build an ephemeral Quart app with a freshly-reloaded ``ipxe_bp``."""
     import app.middleware as mw_mod

@@ -8,8 +8,14 @@ Implements the spec's "API Surface → Primary HA (M2)" section:
 * POST   /api/v1/primary/frontend-switch         gough.cluster.admin + MFA
 * POST   /api/v1/primary/rotate-ca               gough.cluster.superadmin + MFA
 
-M1 scope: Status endpoint returns per-service quorum state; mutating operations
-emit NATS events and defer execution to M2 with 202 + request_id.
+M2 scope (implemented): status returns per-service quorum state; each mutating
+operation executes synchronously against etcd/kubectl/etcdctl/Vault/gRPC and
+returns its terminal status code directly (200 success, 409 quorum loss, 422
+validation, 500/503 backend failure, 501 for the not-yet-built anycast mode,
+504 timeout) -- there is no 202-deferred-to-M2 stub response; that description
+described the not-yet-built state and was never accurate for this file's
+actual endpoint implementations (which have returned real synchronous results
+since the first commit that added them).
 """
 
 from __future__ import annotations
@@ -508,12 +514,17 @@ async def _update_endpoint_on_nodes(
     Uses Discovery gRPC ExecCommand RPC to invoke per-node update scripts.
     Returns dict[node_id] = {success, error, duration_ms} for each node.
     """
-    from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
-    import grpc
-
     results: dict[int, dict[str, Any]] = {}
 
     for node_id in node_ids:
+        # Deferred — module import shouldn't hard-require this (matches the
+        # `aetcd`/`etcdctl` deferred-import pattern used elsewhere in this
+        # file). Importing only when there is at least one node to update
+        # means a cluster with zero primary nodes doesn't hard-fail on the
+        # generated gRPC stub just to do nothing.
+        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
+        import grpc
+
         start_time = asyncio.get_event_loop().time()
         node_result = {
             "success": False,
@@ -522,32 +533,36 @@ async def _update_endpoint_on_nodes(
         }
 
         try:
-            # Resolve node endpoint from DB (MANAGEMENT_IP or CLUSTER_IP).
-            # NOTE: app.models_m1.Node has no management_ip/cluster_ip
-            # columns in the current schema -- this raw query has always
-            # failed against real Postgres ("column does not exist"), caught
-            # below exactly as before. Pre-existing, unrelated to this
-            # conversion; preserved verbatim via db.executesql() rather than
-            # guessing a column mapping (e.g. ipv4/ipv6).
+            # Resolve the node's address. This used to read
+            # ``management_ip``/``cluster_ip`` via raw SQL; neither column has
+            # ever existed on ``app.models_m1.Node`` (the real columns are
+            # ``ipv4``/``ipv6``/``preferred_addr_family``), so the query raised
+            # "column does not exist" for every node and was swallowed below --
+            # leaving this whole function a silent no-op. ``preferred_addr_family``
+            # is the schema's own expression of which family to use, so honouring
+            # it is the intended mapping rather than a guess. Going through the
+            # DAL also drops a ``%s`` placeholder that was not portable to SQLite.
             # Regression: gh-22. Off the event loop via run_db() instead of
             # blocking this coroutine inline for every node in the loop.
             db = get_db()
 
-            def _fetch_node_ip() -> Any:
-                return db.executesql(
-                    "SELECT management_ip, cluster_ip FROM nodes WHERE id=%s",
-                    (node_id,),
-                )
+            def _fetch_node_row() -> Any:
+                return db(db.nodes.id == node_id).select().first()
 
-            node_row = cast("list[tuple[Any, ...]]", await run_db(_fetch_node_ip))
-            if not node_row:
+            node_row = await run_db(_fetch_node_row)
+            if node_row is None:
                 node_result["error"] = f"Node {node_id} not found in DB"
                 results[node_id] = node_result
                 continue
 
-            node_ip = node_row[0][0] or node_row[0][1]  # prefer management_ip
+            ipv4 = getattr(node_row, "ipv4", None)
+            ipv6 = getattr(node_row, "ipv6", None)
+            if (getattr(node_row, "preferred_addr_family", None) or "").lower() == "ipv6":
+                node_ip = ipv6 or ipv4
+            else:
+                node_ip = ipv4 or ipv6
             if not node_ip:
-                node_result["error"] = f"Node {node_id} has no management or cluster IP"
+                node_result["error"] = f"Node {node_id} has no ipv4 or ipv6 address"
                 results[node_id] = node_result
                 continue
 
@@ -630,8 +645,6 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
     Uses Discovery gRPC ExecCommand RPC to run arping/ndisc6 on each node.
     Returns dict[node_id] = {success, error, duration_ms} for each node.
     """
-    from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
-    import grpc
     import ipaddress
 
     results: dict[int, dict[str, Any]] = {}
@@ -644,6 +657,10 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
         is_ipv6 = False
 
     for node_id in node_ids:
+        # Deferred — see the matching comment in _update_endpoint_on_nodes.
+        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
+        import grpc
+
         start_time = asyncio.get_event_loop().time()
         node_result = {
             "success": False,
@@ -836,11 +853,19 @@ async def switch_frontend():
 
     try:
         node_ids = await run_db(_fetch_primary_node_ids)
-        if not await _update_endpoint_on_nodes(new_endpoint or "", node_ids):
+        # _update_endpoint_on_nodes returns dict[node_id] -> {success, ...}, never
+        # a bool. Testing it for truthiness inverted the result both ways: an
+        # empty dict (no primary nodes, nothing to do) read as failure, while a
+        # dict whose every entry had success=False read as success. Check the
+        # per-node outcomes explicitly.
+        node_results = await _update_endpoint_on_nodes(new_endpoint or "", node_ids)
+        failed = [nid for nid, r in node_results.items() if not r.get("success")]
+        if failed:
             return jsonify({
                 "status": "error",
                 "error": {"code": "update_failed",
-                    "message": "Failed to update endpoints on nodes"},
+                    "message": "Failed to update endpoints on nodes",
+                    "details": {"failed_node_ids": failed}},
             }), 500
     except Exception as e:
         log.error(f"Failed to update endpoints: {e}")

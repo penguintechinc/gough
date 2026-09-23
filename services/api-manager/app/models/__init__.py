@@ -166,7 +166,15 @@ def get_db() -> DB | None:
 def get_user_by_id(user_id: int) -> dict | None:
     """Get user by ID with their role information."""
     db = get_db()
-    user = db(db.auth_user.id == user_id).select().first()
+    try:
+        # Graceful degradation: any DB error on lookup -> treat as not found
+        # rather than raising, mirroring _get_user_role below. Uses the
+        # query form (not the ``db.auth_user(id)`` shortcut) -- penguin_dal's
+        # TableProxy has no ``__call__``, so that shortcut raises against the
+        # real DAL (only appeared to work against Mock-based unit tests).
+        user = db(db.auth_user.id == user_id).select().first()
+    except Exception:  # noqa: BLE001
+        return None
     if not user:
         return None
 
@@ -209,11 +217,14 @@ def get_user_by_email(email: str) -> dict | None:
 
 def _get_user_role(db: DB, user_id: int) -> str:
     """Get the primary role name for a user."""
-    user_role = db(db.auth_user_roles.user_id == user_id).select().first()
-    if user_role:
-        role = db(db.auth_role.id == user_role.role_id).select().first()
-        if role:
-            return role.name
+    try:
+        user_role = db(db.auth_user_roles.user_id == user_id).select().first()
+        if user_role:
+            role = db(db.auth_role.id == user_role.role_id).select().first()
+            if role:
+                return role.name
+    except Exception:  # noqa: BLE001 - graceful degradation: DB error -> default role
+        return "viewer"
     return "viewer"  # Default role
 
 

@@ -270,8 +270,12 @@ class TestConstruction:
 
 class TestCertPinning:
     def test_first_connect_captures_pin(
-        self, patch_tls_handshake, vault, node_bmc, audit, fake_nats
+        self, patch_tls_handshake, vault, node_bmc, audit, fake_nats, monkeypatch
     ) -> None:
+        # TOFU capture with no pre-existing pin requires explicit operator
+        # opt-in (see TestTOFUEnvGating); this test exercises that fresh
+        # first-connect TOFU path.
+        monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         with rm_module.Mocker() as m:
             # All default-cred probes fail (401)
             m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
@@ -293,8 +297,10 @@ class TestCertPinning:
                 client.first_connect()
 
     def test_pin_persists_across_calls(
-        self, patch_tls_handshake, vault, node_bmc, audit
+        self, patch_tls_handshake, vault, node_bmc, audit, monkeypatch
     ) -> None:
+        # Fresh TOFU capture on first_connect() requires the explicit opt-in.
+        monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         with rm_module.Mocker() as m:
             m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
@@ -339,8 +345,11 @@ class TestCertPinning:
 
 class TestDefaultCredentialRefusal:
     def test_refuses_root_calvin(
-        self, patch_tls_handshake, vault, node_bmc, audit, fake_nats
+        self, patch_tls_handshake, vault, node_bmc, audit, fake_nats, monkeypatch
     ) -> None:
+        # Default-credential probing happens inside first_connect(); with no
+        # pre-existing pin, TOFU capture requires the explicit opt-in.
+        monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         with rm_module.Mocker() as m:
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
 
@@ -876,8 +885,11 @@ class TestAuditFailureIsolation:
 
 class TestPinCallback:
     def test_on_fingerprint_pinned_invoked(
-        self, patch_tls_handshake, vault, node_bmc, audit
+        self, patch_tls_handshake, vault, node_bmc, audit, monkeypatch
     ) -> None:
+        # on_fingerprint_pinned only fires on a fresh TOFU capture, which
+        # requires the explicit opt-in when no pin is pre-configured.
+        monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         captured = MagicMock()
         with rm_module.Mocker() as m:
             m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)

@@ -3,7 +3,7 @@
 # Managed via uv: uv pip compile --generate-hashes requirements.in -o requirements.txt
 
 # Web Framework
-Quart==0.19.4
+Quart==0.19.9
 quart-cors==0.7.0
 
 # Database - SQLAlchemy for schema, penguin-dal for runtime
@@ -116,6 +116,10 @@ pytest-cov==6.0.0
 pytest-asyncio==0.24.0
 pytest-benchmark==4.0.0  # Plan compiler performance benchmarks (50-egg p95 < 1s; 250-egg p95 < 5s)
 requests-mock==1.12.1  # LXD HTTPS API mocks for tests/clients/test_lxd_extra.py
+# tests/test_openapi_export.py has always imported this to validate the
+# generated OpenAPI 3.1 document, but it was never declared -- so that
+# assertion silently never ran.
+openapi-spec-validator==0.7.1
 testcontainers==4.8.1  # Real-Postgres pytest fixture (tests/pg_fixtures.py); needs Docker locally, or $DATABASE_URL in CI
 # moto==5.2.0 removed (boto3 conflicts)
 black==24.10.0

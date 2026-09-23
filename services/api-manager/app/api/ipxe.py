@@ -28,6 +28,7 @@ from ..db.run_db import run_db
 from ..middleware import auth_required, admin_required, maintainer_or_admin_required
 from ..models import get_db
 from .. import metrics as _metrics
+from ._dto import serialize_elder_config
 
 log = logging.getLogger(__name__)
 
@@ -2303,9 +2304,14 @@ async def update_elder_config():
         updated = await run_db(_apply_update)
         log.info("Elder configuration updated")
 
+        # Explicit allow-list projection -- never the raw row. Regression:
+        # audit output-validation. This handler used to echo the just-stored
+        # ``api_key`` straight back via ``.as_dict()``, the same raw-row-echo
+        # shape as the fixed clouds.py provider leak. See
+        # ``app.api._dto.ELDER_CONFIG_PUBLIC_FIELDS``.
         return jsonify({
             "message": "Configuration updated",
-            "config": updated.as_dict()
+            "config": serialize_elder_config(updated),
         }), 200
 
     else:
@@ -2321,7 +2327,9 @@ async def update_elder_config():
         created = await run_db(_create_config)
         log.info("Elder configuration created")
 
+        # Explicit allow-list projection -- never the raw row. See the
+        # matching comment in the update branch above.
         return jsonify({
             "message": "Configuration created",
-            "config": created.as_dict()
+            "config": serialize_elder_config(created),
         }), 201

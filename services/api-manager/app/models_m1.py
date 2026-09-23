@@ -251,6 +251,14 @@ class Biome(Base):
     snap_classic = Column(Boolean, nullable=False, server_default='false')
     cloud_init_content = Column(Text, nullable=True)
     lxd_image_alias = Column(String(255), nullable=True)
+    # Written by app/api/biomes.py:create_biome alongside lxd_image_alias --
+    # an alias names an image in a remote, a URL points at one directly, so
+    # both are carried. Absent until now, which made every POST /api/v1/biomes
+    # fail with CompileError("Unconsumed column names").
+    lxd_image_url = Column(String(1024), nullable=True)
+    # Operator-facing classification, distinct from biome_kind/workload_type
+    # (which describe runtime shape). Also written by create_biome.
+    biome_type = Column(String(64), nullable=True)
     lxd_profiles = Column(JSON, nullable=True)
     is_hypervisor_config = Column(Boolean, nullable=False, server_default='false')
     dependencies = Column(JSON, nullable=True)
@@ -384,6 +392,57 @@ class Deployment(Base):
     __table_args__ = (
         Index("ix_deployments_status", "status"),
         Index("ix_deployments_egg_node", "biome_id", "node_id"),
+        {"extend_existing": True},
+    )
+
+
+class UpgradeRun(Base):
+    """One biome upgrade rollout, tracked across its canary/rollout phases.
+
+    Backs ``POST /api/v1/biomes/{id}/upgrade`` (``app.api.biomes.upgrade_biome``
+    inserts, ``_execute_upgrade_orchestration`` updates as phases progress).
+
+    The table previously had no model: the baseline migration created it with
+    raw DDL, carried over from a pre-baseline migration, and left "giving them
+    proper models" as an explicit follow-up. That split the two schema-creation
+    paths -- alembic produced the table, while ``app.models.init_db``'s
+    ``create_all_tables()`` (which builds from ORM metadata) did not, so a
+    deployment initialised that way had no ``upgrade_runs`` at all. This model
+    is that follow-up; the column set matches the baseline's DDL exactly, and
+    the duplicate raw DDL has been removed from the baseline so the ORM is the
+    single source of truth.
+
+    ``id`` is an app-supplied UUID string, not an autoincrement integer -- the
+    same convention as ``deployments``/``joiner_secrets``. Callers must pass it.
+    """
+
+    __tablename__ = "upgrade_runs"
+
+    id = Column(String(36), primary_key=True)
+    biome_id = Column(Integer, ForeignKey("biomes.id"), nullable=False)
+    target_version = Column(String(50), nullable=False)
+    cluster_id = Column(String(100), nullable=False)
+    status = Column(String(50), nullable=False, server_default="pending")
+    phase = Column(String(50), nullable=False, server_default="canary")
+    nodes_total = Column(Integer, nullable=False, server_default="0")
+    nodes_completed = Column(Integer, nullable=False, server_default="0")
+    nodes_failed = Column(Integer, nullable=False, server_default="0")
+    started_at = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    rollback_reason = Column(Text, nullable=True)
+    #: OIDC ``sub`` of whoever requested the upgrade -- audit only.
+    actor_sub = Column(String(255), nullable=False)
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index("ix_upgrade_runs_biome_id", "biome_id"),
+        Index("ix_upgrade_runs_status", "status"),
+        Index("ix_upgrade_runs_cluster_id", "cluster_id"),
         {"extend_existing": True},
     )
 

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
 import TabNavigation from '../../components/TabNavigation';
+import api from '../../lib/api';
 
 interface Biome {
   id: number;
@@ -44,14 +45,8 @@ export default function BiomesPage() {
   const fetchEggs = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/v1/provisioning/biomes', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch biomes');
-      const data = await response.json();
-      setEggs(data.items || []);
+      const response = await api.get('/provisioning/biomes');
+      setEggs(response.data.items || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load biomes');
@@ -65,15 +60,7 @@ export default function BiomesPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/v1/provisioning/biomes', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to create biome');
+      await api.post('/provisioning/biomes', formData);
       setShowCreateModal(false);
       setFormData({ name: '', description: '', type: 'snap', config: '' });
       fetchEggs();
@@ -89,15 +76,7 @@ export default function BiomesPage() {
     if (!selectedEgg) return;
     setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/v1/provisioning/biomes/${selectedEgg.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to update biome');
+      await api.put(`/provisioning/biomes/${selectedEgg.id}`, formData);
       setShowEditModal(false);
       setSelectedEgg(null);
       setFormData({ name: '', description: '', type: 'snap', config: '' });
@@ -112,13 +91,7 @@ export default function BiomesPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this biome?')) return;
     try {
-      const response = await fetch(`/api/v1/provisioning/biomes/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to delete biome');
+      await api.delete(`/provisioning/biomes/${id}`);
       fetchEggs();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete biome');

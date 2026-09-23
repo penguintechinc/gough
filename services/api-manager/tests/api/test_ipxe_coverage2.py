@@ -34,19 +34,30 @@ def _passthrough_decorator(*dargs, **dkwargs):
 
 @pytest.fixture
 def ipxe_app(monkeypatch):
-    """Build Quart app with iPXE blueprint; patch auth at module level."""
-    import sys
+    """Build Quart app with iPXE blueprint; patch auth at module level.
+
+    The auth decorators bind at import time, so ``app.api.ipxe`` must be
+    reloaded after they are stubbed. ``importlib.reload`` mutates the module
+    object IN PLACE, so it is reloaded a second time on teardown with the real
+    decorators restored -- otherwise the stubbed module leaks into whatever
+    ipxe test runs next in the same process (regression: test-isolation
+    ipxe_coverage2 poisoned test_ipxe_coverage / test_ipxe). The decorator
+    save/restore is done by hand, not via ``monkeypatch``: monkeypatch's own
+    finalizer runs AFTER this fixture's teardown, so the real decorators would
+    not yet be restored at the moment of the teardown reload.
+    """
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
 
-    monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "admin_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "maintainer_or_admin_required", _passthrough_decorator)
-    monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
-
-    # Preserve original module in sys.modules so monkeypatch restores it after test
-    if "app.api.ipxe" in sys.modules:
-        monkeypatch.setitem(sys.modules, "app.api.ipxe", sys.modules["app.api.ipxe"])
+    _targets = [
+        (mw_mod, "auth_required"),
+        (mw_mod, "admin_required"),
+        (mw_mod, "maintainer_or_admin_required"),
+        (scope_mod, "require_scopes"),
+    ]
+    _saved = [(mod, name, getattr(mod, name)) for mod, name in _targets]
+    for mod, name in _targets:
+        setattr(mod, name, _passthrough_decorator)
 
     import app.api.ipxe as ipxe_mod
     ipxe_mod = importlib.reload(ipxe_mod)
@@ -69,7 +80,14 @@ def ipxe_app(monkeypatch):
         }
         g.tenant_context = SimpleNamespace(tenant_id="acme")
 
-    return app, ipxe_mod
+    try:
+        yield app, ipxe_mod
+    finally:
+        # Restore the real decorators, then reload once more so the module left
+        # in sys.modules carries them -- not the stubs -- for the next test.
+        for mod, name, original in _saved:
+            setattr(mod, name, original)
+        importlib.reload(ipxe_mod)
 
 
 @pytest.fixture

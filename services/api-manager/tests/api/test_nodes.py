@@ -225,7 +225,7 @@ def nodes_app(dal, monkeypatch):
     nodes_mod = importlib.reload(nodes_mod)
     monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
 
-    from quart import Quart, g
+    from quart import Quart, g, request
 
     application = Quart(__name__)
     application.register_blueprint(nodes_mod.nodes_bp)
@@ -246,8 +246,42 @@ def nodes_app(dal, monkeypatch):
             },
         }
         g.tenant_context = SimpleNamespace(tenant_id="acme", cross_tenant=False)
+        # Test-only mTLS shim: the discovery-agent/cloud-init events endpoint
+        # (POST /nodes/{id}/events) authenticates via a Service SVID
+        # (request.peer_cert_pem), never via a header bypass -- see
+        # tests/test_security_fixes.py::TestNodeEventAuthBypassRemoved. Tests
+        # that need to exercise that endpoint set this header and pair it
+        # with a patch of app.security.credentials.validate_service_svid
+        # (see _valid_service_svid_principal below) rather than relying on
+        # any production auth-bypass logic.
+        test_peer_cert = request.headers.get("X-Test-Peer-Cert")
+        if test_peer_cert:
+            request.peer_cert_pem = test_peer_cert
 
     return application
+
+
+_SVID_TEST_HEADERS = {"X-Test-Peer-Cert": "test-peer-cert-pem"}
+
+
+def _valid_service_svid_principal():
+    """Build a Principal representing an authenticated node Service SVID.
+
+    Used with ``patch("app.security.credentials.validate_service_svid", ...)``
+    to exercise the events endpoint's mTLS auth path in tests, in place of
+    the removed ``X-Gough-Test-Bypass-Auth`` header (gh-SECURITY-FIX-2).
+    """
+    from app.security.credentials import CredentialType, Principal
+
+    spiffe_id = "spiffe://gough.test/node/1"
+    return Principal(
+        cred_type=CredentialType.SERVICE_SVID,
+        sub=spiffe_id,
+        tenant_id="__default__",
+        scopes=frozenset(),
+        spiffe_id=spiffe_id,
+        claims={},
+    )
 
 
 @pytest.fixture()
@@ -845,11 +879,24 @@ class TestDeployNode:
 class TestEvacuateNode:
     @pytest.mark.asyncio
     async def test_evacuate_success(self, nodes_app, seed_node):
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/evacuate",
-                json={"reason": "maintenance"},
-            )
+        """Happy path: safety envelope passes, evacuation is accepted.
+
+        app.workers.migration_engine.evaluate_safety is a Phase-3 TODO stub
+        that always returns safe=False (fail closed) -- it must be mocked
+        to a passing result here to test the actual 202 accept path;
+        the fail-closed default is covered by
+        TestEvacuateEdgeCases (below) and test_nodes_coverage3/4.
+        """
+        with patch(
+            "app.workers.migration_engine.evaluate_safety",
+            new_callable=AsyncMock,
+            return_value={"safe": True, "note": "ok"},
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/evacuate",
+                    json={"reason": "maintenance"},
+                )
         assert resp.status_code == 202
 
     @pytest.mark.asyncio
@@ -881,9 +928,21 @@ class TestEvacuateNode:
 
 class TestNodeEvents:
     @pytest.mark.asyncio
-    async def test_post_event_with_bypass_header(self, nodes_app, seed_node, dal):
-        """Accept event when X-Gough-Test-Bypass-Auth header present."""
-        with patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock):
+    async def test_post_event_with_valid_service_svid(self, nodes_app, seed_node, dal):
+        """Accept event when a valid Service SVID (mTLS) is presented.
+
+        Regression: gh-SECURITY-FIX-2 removed the X-Gough-Test-Bypass-Auth
+        header bypass from app/api/nodes.py; the events endpoint is now
+        exercised the same way production traffic authenticates -- via
+        request.peer_cert_pem + validate_service_svid().
+        """
+        with (
+            patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
@@ -892,7 +951,7 @@ class TestNodeEvents:
                         "message": "Partitioning /dev/sda",
                         "progress_pct": 10,
                     },
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         assert resp.status_code == 201
         data = (await _json(resp))["data"]
@@ -900,7 +959,7 @@ class TestNodeEvents:
 
     @pytest.mark.asyncio
     async def test_post_event_no_auth(self, nodes_app, seed_node):
-        """401 when no mTLS cert and no test bypass header."""
+        """401 when no mTLS cert is presented."""
         async with nodes_app.test_client() as client:
             resp = await client.post(
                 f"/api/v1/nodes/{seed_node}/events",
@@ -913,41 +972,59 @@ class TestNodeEvents:
 
     @pytest.mark.asyncio
     async def test_post_event_not_found(self, nodes_app):
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                "/api/v1/nodes/99999/events",
-                json={"stage": "boot", "message": "msg"},
-                headers={"X-Gough-Test-Bypass-Auth": "1"},
-            )
+        with patch(
+            "app.security.credentials.validate_service_svid",
+            return_value=_valid_service_svid_principal(),
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    "/api/v1/nodes/99999/events",
+                    json={"stage": "boot", "message": "msg"},
+                    headers=_SVID_TEST_HEADERS,
+                )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_post_event_missing_required_fields(self, nodes_app, seed_node):
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/events",
-                json={"stage": "boot"},  # missing message
-                headers={"X-Gough-Test-Bypass-Auth": "1"},
-            )
+        with patch(
+            "app.security.credentials.validate_service_svid",
+            return_value=_valid_service_svid_principal(),
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/events",
+                    json={"stage": "boot"},  # missing message
+                    headers=_SVID_TEST_HEADERS,
+                )
         assert resp.status_code == 422
 
     @pytest.mark.asyncio
     async def test_post_event_no_body(self, nodes_app, seed_node):
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/events",
-                headers={"X-Gough-Test-Bypass-Auth": "1"},
-            )
+        with patch(
+            "app.security.credentials.validate_service_svid",
+            return_value=_valid_service_svid_principal(),
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/events",
+                    headers=_SVID_TEST_HEADERS,
+                )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
     async def test_post_event_persisted_in_db(self, nodes_app, seed_node, dal):
-        with patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock):
+        with (
+            patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
+        ):
             async with nodes_app.test_client() as client:
                 await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
                     json={"stage": "configure_network", "message": "setting up eth0"},
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         events = dal(dal.node_events.node_id == seed_node).select()
         assert len(events) == 1
@@ -956,16 +1033,22 @@ class TestNodeEvents:
     @pytest.mark.asyncio
     async def test_post_event_nats_failure_non_fatal(self, nodes_app, seed_node, dal):
         """NATS publish failure should not cause the request to fail."""
-        with patch(
-            "app.api.nodes._nats_publish_safe",
-            new_callable=AsyncMock,
-            side_effect=Exception("NATS down"),
+        with (
+            patch(
+                "app.api.nodes._nats_publish_safe",
+                new_callable=AsyncMock,
+                side_effect=Exception("NATS down"),
+            ),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
         ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
                     json={"stage": "test_stage", "message": "nats fail test"},
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         assert resp.status_code == 201
 
@@ -1332,12 +1415,22 @@ class TestEvacuateEdgeCases:
 
     @pytest.mark.asyncio
     async def test_evacuate_empty_body_accepted(self, nodes_app, seed_node):
-        """Empty JSON body is valid (all fields optional)."""
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/evacuate",
-                json={},
-            )
+        """Empty JSON body is valid (all fields optional); safety check mocked to pass.
+
+        force defaults to False, so a passing safety envelope (mocked, since
+        evaluate_safety is an unimplemented Phase-3 stub that always fails
+        closed) is required to reach 202.
+        """
+        with patch(
+            "app.workers.migration_engine.evaluate_safety",
+            new_callable=AsyncMock,
+            return_value={"safe": True, "note": "ok"},
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/evacuate",
+                    json={},
+                )
         assert resp.status_code == 202
 
 
@@ -1347,7 +1440,13 @@ class TestNodeEventsTimestamp:
     @pytest.mark.asyncio
     async def test_post_event_with_explicit_timestamp(self, nodes_app, seed_node, dal):
         """Custom timestamp in ISO format is accepted and persisted."""
-        with patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock):
+        with (
+            patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
@@ -1356,14 +1455,20 @@ class TestNodeEventsTimestamp:
                         "message": "Booting",
                         "timestamp": "2025-01-01T10:00:00+00:00",
                     },
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         assert resp.status_code == 201
 
     @pytest.mark.asyncio
     async def test_post_event_with_invalid_timestamp_uses_now(self, nodes_app, seed_node, dal):
         """Invalid timestamp string falls back to current time."""
-        with patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock):
+        with (
+            patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
@@ -1372,14 +1477,20 @@ class TestNodeEventsTimestamp:
                         "message": "Booting",
                         "timestamp": "not-a-date",
                     },
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         assert resp.status_code == 201
 
     @pytest.mark.asyncio
     async def test_post_event_with_naive_timestamp(self, nodes_app, seed_node, dal):
         """Naive (no timezone) ISO timestamp gets UTC attached."""
-        with patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock):
+        with (
+            patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
+            patch(
+                "app.security.credentials.validate_service_svid",
+                return_value=_valid_service_svid_principal(),
+            ),
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     f"/api/v1/nodes/{seed_node}/events",
@@ -1388,7 +1499,7 @@ class TestNodeEventsTimestamp:
                         "message": "Installing OS",
                         "timestamp": "2025-01-01T12:00:00",  # no timezone
                     },
-                    headers={"X-Gough-Test-Bypass-Auth": "1"},
+                    headers=_SVID_TEST_HEADERS,
                 )
         assert resp.status_code == 201
 

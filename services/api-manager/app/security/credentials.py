@@ -150,8 +150,16 @@ def detect_credential_type(
     token = auth_header[7:]
 
     try:
-        # Decode without verification to inspect routing claims only
-        payload = jwt.decode(token, options={"verify_signature": False})
+        # Decode without verification for ROUTING ONLY (reads "phase"/"sub" to
+        # pick a CredentialType below) -- real signature/exp/aud verification
+        # is enforced downstream in validate_user_jwt/validate_machine_jwt/etc.
+        # per CredentialType, before any claim is trusted for authz. This is a
+        # reviewed, line-scoped exception (not a genuinely-unverified decode).
+        # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
+        payload = jwt.decode(
+            token,
+            options={"verify_signature": False},  # nosec -- verified downstream per CredentialType
+        )
     except jwt.DecodeError as e:
         raise InvalidCredentialError(f"Cannot decode JWT: {e}")
 
@@ -482,12 +490,21 @@ def validate_one_time_bootstrap_token(
                 "Bootstrap token verification unavailable: no HS256 signing secret configured"
             )
         try:
+            # verify_exp=False: expiration is enforced explicitly below (TTL
+            # <=10min from iat, then now>exp) so this function raises its
+            # documented ExpiredCredentialError rather than a raw
+            # jwt.ExpiredSignatureError escaping past this function's
+            # contract uncaught (that type isn't a CredentialError subclass,
+            # so callers matching on ExpiredCredentialError/InvalidCredentialError
+            # would otherwise fall through to a generic 500 instead of 401).
             payload = jwt.decode(
                 token,
                 signing_secret,
                 algorithms=["HS256"],
-                options={"verify_signature": True},
+                options={"verify_signature": True, "verify_exp": False},
             )
+        except jwt.ExpiredSignatureError as e:  # defense in depth
+            raise ExpiredCredentialError(f"Bootstrap token has expired: {e}")
         except jwt.InvalidAlgorithmError as e:
             raise InvalidCredentialError(f"Unsupported JWT algorithm: {e}")
         except jwt.InvalidSignatureError as e:

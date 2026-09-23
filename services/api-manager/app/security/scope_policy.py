@@ -175,6 +175,12 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     ("GET", "/api/v1/auth/me"): frozenset(),
     ("POST", "/api/v1/auth/logout"): frozenset(),
     ("POST", "/api/v1/auth/change-password"): frozenset(),
+
+    # OpenAPI spec endpoints (regression: audit openapi-anon 2026-09-22).
+    # Require authentication but no specific scope -- any valid token may
+    # read the API surface documentation.
+    ("GET", "/api/v1/openapi.json"): frozenset(),
+    ("GET", "/api/v1/openapi.yaml"): frozenset(),
 }
 
 
@@ -189,8 +195,11 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     ("GET", "/readyz"),
     ("GET", "/metrics"),
     ("GET", "/api/v1/version"),
-    ("GET", "/api/v1/openapi.json"),
-    ("GET", "/api/v1/openapi.yaml"),
+    # openapi.json/.yaml are NOT anonymous (regression: audit openapi-anon
+    # 2026-09-22) -- the full 176-route spec is a reconnaissance map and
+    # requires a valid bearer token; see SCOPE_POLICY below (registered with
+    # an empty required-scope set: any authenticated principal, no specific
+    # scope needed).
     ("GET", "/api/v1/ipxe/helper/<string:mac>"),
     ("GET", "/api/v1/ipxe/deploy/<string:mac>"),
     ("GET", "/api/v1/ipxe/kernel/<string:name>"),

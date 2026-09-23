@@ -1,4 +1,31 @@
+from typing import Any
+
 from prometheus_client import Counter, Gauge, Histogram
+
+
+def get_or_create(factory: Any, name: str, doc: str, labels: Any = None) -> Any:
+    """Return the already-registered collector for ``name``, or create it.
+
+    prometheus_client raises ``ValueError`` on duplicate registration, and a
+    metric name can legitimately be declared by two modules that are imported
+    into the same process (``app.api.audit`` and
+    ``app.workers.audit_chain_writer`` both declare
+    ``gough_audit_chain_break_total``). Whichever imports second would otherwise
+    blow up at import time -- which surfaced as blueprint-import failures once
+    both modules ended up in one test session.
+    """
+    try:
+        if labels is not None:
+            return factory(name, doc, labels)
+        return factory(name, doc)
+    except ValueError:
+        from prometheus_client import REGISTRY
+
+        for collector in REGISTRY._collector_to_names:
+            if name in REGISTRY._collector_to_names.get(collector, ()):
+                return collector
+        raise
+
 
 bootstrap_window_expired: Counter = Counter(
     "gough_vault_bootstrap_window_expired_total",

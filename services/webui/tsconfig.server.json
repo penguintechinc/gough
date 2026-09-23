@@ -11,8 +11,10 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "composite": true,
     "declaration": true,
-    "declarationMap": true
+    "declarationMap": true,
+    "tsBuildInfoFile": "dist/server/tsconfig.server.tsbuildinfo"
   },
   "include": ["src/server"],
   "exclude": ["node_modules"]

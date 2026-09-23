@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
 from prometheus_client import Counter
+
+from ..metrics import get_or_create
 from quart import Blueprint, Response, current_app, g, jsonify, request
 from quart import stream_with_context
 
@@ -46,12 +48,18 @@ log = logging.getLogger(__name__)
 audit_bp = Blueprint("audit", __name__)
 
 
-# Module-level Prometheus counter — registered exactly once. Tests reset it
-# via ``audit_chain_break_total._value.set(0)``.
-audit_chain_break_total = Counter(
+# Module-level Prometheus counter. Tests reset it via
+# ``audit_chain_break_total._value.set(0)``.
+#
+# app.workers.audit_chain_writer declares the same metric name, so whichever
+# module imported second used to raise ValueError("Duplicated timeseries")
+# at import time -- which showed up as blueprint-import failures once both
+# landed in one test session. get_or_create() returns the existing collector.
+audit_chain_break_total = get_or_create(
+    Counter,
     "gough_audit_chain_break_total",
     "Audit hash-chain break detections",
-    labelnames=("cluster_id",),
+    ("cluster_id",),
 )
 
 

@@ -5,7 +5,9 @@ Provides REST API for agent enrollment, authentication, and management.
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import json
 import logging
 import secrets
 import uuid
@@ -23,6 +25,32 @@ from ..models import get_db
 log = logging.getLogger(__name__)
 
 agents_bp = Blueprint("agents", __name__, url_prefix="/api/v1/agents")
+
+
+def _parse_capabilities(raw: str | None) -> list[str]:
+    """Safely parse a stored ``capabilities`` value into a list of strings.
+
+    ``capabilities`` is persisted as a JSON-encoded string (rows written after
+    this fix). Rows written before this fix hold a Python ``repr()`` of a list
+    (``str(["ssh"])`` -> ``"['ssh']"``), so ``ast.literal_eval`` (literals
+    only -- never arbitrary code) is tried as a compatibility fallback.
+    NEVER uses ``eval``: an enrolling caller fully controls this field's
+    content via the request body, so ``eval`` on it is remote code execution
+    (regression: audit eval RCE agents.py:395). Anything falsy, unparsable, or
+    not a list of strings falls back to the safe default ``["ssh"]``.
+    """
+    if not raw:
+        return ["ssh"]
+    try:
+        parsed: Any = json.loads(raw)
+    except (ValueError, TypeError):
+        try:
+            parsed = ast.literal_eval(raw)
+        except (ValueError, SyntaxError, TypeError):
+            return ["ssh"]
+    if isinstance(parsed, list) and all(isinstance(c, str) for c in parsed):
+        return parsed
+    return ["ssh"]
 
 
 # ============================================================================
@@ -241,9 +269,20 @@ async def enroll_agent():
     if key_record.expires_at and key_record.expires_at < datetime.utcnow():
         return jsonify({"error": "Enrollment key expired"}), 401
 
+    # Validate capabilities is a list[str] before it ever touches storage or a
+    # JWT claim. Regression: audit eval RCE agents.py:395 -- the untrusted
+    # request body used to be stored via str(...) and later eval()'d on
+    # refresh; rejecting anything but list[str] here closes the taint path at
+    # its source.
+    raw_capabilities = data.get("capabilities", ["ssh"])
+    if not isinstance(raw_capabilities, list) or not all(
+        isinstance(c, str) for c in raw_capabilities
+    ):
+        return jsonify({"error": "capabilities must be a list of strings"}), 400
+    caps = raw_capabilities
+
     # Generate agent ID + JWT tokens (non-DB, pure/local)
     agent_id = str(uuid.uuid4())
-    caps = data.get("capabilities", ["ssh"])
     access_token = _create_agent_access_token(agent_id, caps)
     refresh_token, refresh_expires = _create_agent_refresh_token(agent_id)
 
@@ -273,7 +312,7 @@ async def enroll_agent():
                 enrollment_key_hash=key_hash,
                 enrollment_completed=True,
                 status="active",
-                capabilities=str(data.get("capabilities", ["ssh"])),
+                capabilities=json.dumps(caps),
                 enrolled_at=datetime.utcnow(),
                 last_heartbeat=datetime.utcnow(),
             )
@@ -304,7 +343,7 @@ async def enroll_agent():
                     agent_version=data.get("agent_version", "unknown"),
                     details={
                         "ip_address": data.get("ip_address"),
-                        "capabilities": data.get("capabilities"),
+                        "capabilities": caps,
                     },
                 )
 
@@ -391,9 +430,12 @@ async def refresh_agent_token():
         if agent.status != "active":
             return jsonify({"error": "Agent is not active"}), 401
 
-        # Generate new tokens
-        caps = eval(agent.capabilities) if agent.capabilities else ["ssh"]
-        capabilities = caps
+        # Generate new tokens. Regression: audit eval RCE agents.py:395 --
+        # agent.capabilities is attacker-influenced (set at enrollment from the
+        # request body), so it is parsed via _parse_capabilities (JSON, with a
+        # literal-only ast.literal_eval fallback for pre-fix rows) and NEVER
+        # eval()'d.
+        capabilities = _parse_capabilities(agent.capabilities)
         access_token = _create_agent_access_token(agent_id, capabilities)
         new_refresh_token, _ = _create_agent_refresh_token(agent_id)
 
@@ -506,7 +548,7 @@ async def list_agents():
             "hostname": agent["hostname"],
             "ip_address": agent["ip_address"],
             "status": agent["status"],
-            "capabilities": agent["capabilities"],
+            "capabilities": _parse_capabilities(agent["capabilities"]),
             "enrollment_completed": agent["enrollment_completed"],
             "last_heartbeat": agent["last_heartbeat"].isoformat()
             if agent["last_heartbeat"] else None,
@@ -550,7 +592,7 @@ async def get_agent(agent_id: str):
             "hostname": agent.hostname,
             "ip_address": agent.ip_address,
             "status": agent.status,
-            "capabilities": agent.capabilities,
+            "capabilities": _parse_capabilities(agent.capabilities),
             "enrollment_completed": agent.enrollment_completed,
             "last_heartbeat": agent.last_heartbeat.isoformat()
             if agent.last_heartbeat else None,

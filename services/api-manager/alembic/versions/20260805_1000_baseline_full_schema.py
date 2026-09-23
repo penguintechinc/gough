@@ -20,10 +20,12 @@ MySQL/MariaDB Galera, and SQLite the same way the models already are.
 
 Three tables are used at runtime via penguin-dal but have no SQLAlchemy
 model in either Base (pre-existing gap, not introduced here -- see
-tests/pg_fixtures.py's module docstring): ``vault_bootstrap_tokens``,
-``alert_rules``, ``upgrade_runs``. Their DDL is carried over verbatim from
-the migrations that used to create them so those tables keep being created;
-giving them proper models is a follow-up, not done here.
+tests/pg_fixtures.py's module docstring): ``vault_bootstrap_tokens`` and
+``alert_rules``. Their DDL is carried over verbatim from the migrations that
+used to create them so those tables keep being created; giving them proper
+models is a follow-up, not done here. ``upgrade_runs`` was a third such table
+until app.models_m1.UpgradeRun was added -- create_all() now builds it and its
+raw DDL has been removed from below.
 
 Also carries over, verbatim in intent, four PostgreSQL views, five DB roles
 with grants, and row-level-security policies that were previously created by
@@ -194,27 +196,10 @@ def upgrade() -> None:
         sa.UniqueConstraint("name"),
     )
 
-    op.create_table(
-        "upgrade_runs",
-        sa.Column("id", sa.String(36), primary_key=True),
-        sa.Column("biome_id", sa.Integer, sa.ForeignKey("biomes.id"), nullable=False),
-        sa.Column("target_version", sa.String(50), nullable=False),
-        sa.Column("cluster_id", sa.String(100), nullable=False),
-        sa.Column("status", sa.String(50), nullable=False, server_default="pending"),
-        sa.Column("phase", sa.String(50), nullable=False, server_default="canary"),
-        sa.Column("nodes_total", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("nodes_completed", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("nodes_failed", sa.Integer, nullable=False, server_default="0"),
-        sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("completed_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("rollback_reason", sa.Text, nullable=True),
-        sa.Column("actor_sub", sa.String(255), nullable=False),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-    )
-    op.create_index("ix_upgrade_runs_biome_id", "upgrade_runs", ["biome_id"])
-    op.create_index("ix_upgrade_runs_status", "upgrade_runs", ["status"])
-    op.create_index("ix_upgrade_runs_cluster_id", "upgrade_runs", ["cluster_id"])
+    # upgrade_runs now has a real model (app.models_m1.UpgradeRun), so
+    # create_all() above already built it -- the raw DDL that used to live
+    # here would now fail with "table already exists". This was the
+    # follow-up this migration's docstring called for.
 
     if dialect != 'postgresql':
         return

@@ -381,7 +381,10 @@ class TestEggUpgrade:
         response = await app_client.post(f"/api/v1/biomes/{egg_id}/upgrade", json=body)
         assert response.status_code == 202
         data = await response.get_json()
-        assert data["data"]["status"] == "upgrade_pending"
+        # "pending" (not "upgrade_pending") -- mirrors the literal
+        # upgrade_runs.status value set by _insert_run in app.api.biomes,
+        # verified against the DB row in tests/unit/test_biome_upgrade.py.
+        assert data["data"]["status"] == "pending"
 
     async def test_upgrade_egg_missing_target_version(self, app_client, sample_eggs):
         """Missing target_version is rejected."""

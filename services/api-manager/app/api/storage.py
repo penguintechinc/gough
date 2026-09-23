@@ -26,6 +26,7 @@ from ..services.storage import (
     StorageValidationError,
     get_storage_service,
 )
+from ._dto import serialize_storage_config
 from ._helpers import envelope_success, err_bad_request, err_not_found
 
 log = logging.getLogger(__name__)
@@ -65,23 +66,7 @@ async def list_storage_configs():
         lambda: db(db.storage_config).select(orderby=~db.storage_config.is_default)
     )
 
-    configs = []
-    for row in rows:
-        configs.append(
-            {
-                "id": row.id,
-                "name": row.name,
-                "provider_type": row.provider_type,
-                "endpoint_url": row.endpoint_url,
-                "region": row.region,
-                "bucket_name": row.bucket_name,
-                "is_default": row.is_default,
-                "is_active": row.is_active,
-                "use_ssl": row.use_ssl,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            }
-        )
+    configs = [serialize_storage_config(row) for row in rows]
 
     return jsonify({"configs": configs}), 200
 
@@ -178,23 +163,7 @@ async def create_storage_config():
 
     config_row = await run_db(_create)
 
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "created_at": config_row.created_at.isoformat(),
-            }
-        ),
-        201,
-    )
+    return jsonify(serialize_storage_config(config_row)), 201
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["GET"])
@@ -219,37 +188,13 @@ async def get_storage_config(config_id: int):
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
 
-    config_data = {}
-    if config_row.config_data:
-        try:
-            config_data = json.loads(config_row.config_data)
-        except json.JSONDecodeError:
-            log.warning(f"Invalid JSON in config_data for storage {config_id}")
-
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "credentials_path": config_row.credentials_path,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "config_data": config_data,
-                "created_at": config_row.created_at.isoformat()
-                if config_row.created_at
-                else None,
-                "updated_at": config_row.updated_at.isoformat()
-                if config_row.updated_at
-                else None,
-            }
-        ),
-        200,
-    )
+    # Explicit allow-list projection -- never the raw row. Regression: audit
+    # output-validation. This handler used to echo ``credentials_path`` (a
+    # secrets-manager pointer) and ``config_data`` (provider-specific JSON
+    # that can itself carry inline credentials, e.g. a GCS service-account
+    # key) straight from the row, the same raw-row-echo shape as the fixed
+    # clouds.py provider leak. See ``app.api._dto.STORAGE_CONFIG_PUBLIC_FIELDS``.
+    return jsonify(serialize_storage_config(config_row)), 200
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["PUT"])
@@ -343,23 +288,7 @@ async def update_storage_config(config_id: int):
 
     config_row = await run_db(_apply_update)
 
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "updated_at": config_row.updated_at.isoformat(),
-            }
-        ),
-        200,
-    )
+    return jsonify(serialize_storage_config(config_row)), 200
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["DELETE"])

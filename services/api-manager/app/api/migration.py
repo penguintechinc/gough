@@ -57,10 +57,16 @@ migration_bp = Blueprint("migration", __name__)
 def _scope_required(*required_scopes: str) -> Callable:
     """Enforce OIDC scope membership on the request principal.
 
-    Reads ``g.principal`` (set by the credentials middleware in production).
-    Falls back to legacy ``g.current_user.role`` for the pre-OIDC test harness:
-    ``admin`` is treated as superset; ``maintainer`` accepted for read-only
-    scopes.
+    Reads ``g.principal`` (set by the credentials middleware in production),
+    falling back to the scopes carried in ``g.current_user["_jwt_payload"]``.
+
+    Authorisation is on scopes only. This docstring used to promise a legacy
+    ``g.current_user.role`` fallback ("admin is treated as superset;
+    maintainer accepted for read-only scopes") that the body has never
+    implemented -- and must not: security.md requires every permission check to
+    go through OIDC scopes and forbids branching on role names, with roles
+    being pre-expanded scope bundles. A caller that should be allowed needs the
+    scope in its token, not a role string.
     """
     required = frozenset(required_scopes)
 
@@ -605,6 +611,13 @@ async def trigger_migration(instance_id: int):
         "dst_node_id": result.chosen_target_node_id,
         "verdict": result.verdict,
         "safety_check": safety_result_to_dict(result),
+        # Per this handler's docstring (step 5): M1 only runs the safety
+        # envelope and persists the event -- real execution is a Phase 3 /
+        # M2 concern (app.workers.migration_engine.execute_migration is a
+        # deliberate stub until then). ``synchronous`` only controls
+        # whether the (still-deferred) execution attempt is made inline;
+        # it does not make execution actually happen in M1.
+        "note": "execution-deferred-to-M2",
     }
 
     if synchronous:
@@ -627,16 +640,10 @@ async def trigger_migration(instance_id: int):
                 live=True,
                 reason=reason,
             )
-            # Check execution status
-            if exec_result.get("status") == "not_implemented":
-                return jsonify({
-                    "status": "error",
-                    "error": {
-                        "code": "not_implemented",
-                        "message": "Execution not implemented (Phase 3)",
-                    },
-                    "execution_result": exec_result,
-                }), 501
+            # execute_migration() stubs "not_implemented" until Phase 3 --
+            # that is expected/documented M1 behavior, not a caller error,
+            # so it still resolves 202 (like the asynchronous path) with
+            # the stub result attached rather than a hard failure.
             response_data["execution_result"] = exec_result
 
         return jsonify({"status": "success", "data": response_data}), 202

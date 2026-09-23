@@ -26,6 +26,16 @@ def app():
 
         import app.api.clouds as clouds_module
         clouds_module = importlib.reload(clouds_module)
+
+        # gh-38 added a blueprint-wide gate on the gough.multi-cloud PostHog flag,
+        # which defaults OFF -- without this every route here 404s "feature_disabled"
+        # before reaching the behaviour under test. The gate itself is covered by
+        # tests/test_licensing.py::TestCloudBlueprintGate and
+        # tests/test_multi_cloud_enabled.py::TestFlagControlsSurface.
+        async def _flag_on(*_a, **_k):
+            return True
+
+        clouds_module.feature_enabled = _flag_on
         test_app.register_blueprint(clouds_module.clouds_bp, url_prefix='/api/v1/clouds')
 
     @test_app.before_request
@@ -56,7 +66,9 @@ class TestListProviders:
              patch('app.api.clouds.list_available_providers') as mock_avail:
 
             fake_db = MagicMock()
-            # db(db.cloud_providers).select().as_list() pattern
+            # list_providers selects all rows via the house `id > 0` idiom;
+            # MagicMock returns NotImplemented for comparisons by default.
+            fake_db.cloud_providers.id.__gt__.return_value = MagicMock()
             fake_db.return_value.select.return_value.as_list.return_value = []
             mock_get_db.return_value = fake_db
             mock_avail.return_value = ['aws', 'gcp']
@@ -74,8 +86,12 @@ class TestListProviders:
              patch('app.api.clouds.list_available_providers') as mock_avail:
 
             fake_db = MagicMock()
+            # list_providers selects all rows via the house `id > 0` idiom;
+            # MagicMock returns NotImplemented for comparisons by default.
+            fake_db.cloud_providers.id.__gt__.return_value = MagicMock()
             providers_data = [
-                {'id': 1, 'name': 'AWS', 'provider_type': 'aws', 'config': {'secret': 'data'}},
+                {'id': 1, 'name': 'AWS', 'provider_type': 'aws',
+                 'config_data': {'secret': 'data'}},
             ]
             # Return a new copy each time since the code modifies it
             fake_db.return_value.select.return_value.as_list.side_effect = lambda: copy.deepcopy(providers_data)
@@ -446,7 +462,8 @@ class TestMachineOperations:
             fake_db = MagicMock()
 
             provider = MagicMock()
-            provider.enabled = False
+            # Shipped column is is_active; `enabled` was the API's own name.
+            provider.is_active = False
             fake_db.return_value.select.return_value.first.return_value = provider
             mock_get_db.return_value = fake_db
 
