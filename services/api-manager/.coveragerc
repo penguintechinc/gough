@@ -1,5 +1,6 @@
 [run]
 source = app
+parallel = true
 omit =
     # gRPC server/runner — requires live gRPC infrastructure
     app/grpc_server.py

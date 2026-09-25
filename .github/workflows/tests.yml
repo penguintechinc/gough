@@ -54,26 +54,23 @@ jobs:
     - name: Run unit tests with coverage
       working-directory: services/api-manager
       run: |
-        pytest tests/unit/ -v --cov=app --cov-report=xml --cov-report=term --cov-fail-under=90
+        pytest tests/unit/ -v --cov=app --cov-report=term
       env:
         CI: true
         TESTING: 1
+        # Per-job data file (distinct name per job) — combined + gated once in coverage-gate.
+        # NB: pytest-cov writes this literal name, not a parallel-suffixed one,
+        # despite .coveragerc's parallel=true (verified empirically).
+        COVERAGE_FILE: .coverage.unit
 
-    - name: Upload unit test results
+    - name: Upload unit coverage data
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
-        name: unit-test-results
-        path: |
-          services/api-manager/.coverage
-          services/api-manager/htmlcov/
-
-    - name: Upload coverage to Codecov
-      uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5.5.5
-      with:
-        files: ./services/api-manager/coverage.xml
-        flags: unit-tests
-        name: unit-tests
+        name: coverage-data-unit
+        path: services/api-manager/.coverage.unit*
+        include-hidden-files: true
+        if-no-files-found: error
 
   lint-and-quality:
     runs-on: ubuntu-latest
@@ -174,9 +171,14 @@ jobs:
         until pg_isready -h localhost -p 5432 -U test_user; do sleep 1; done
         until redis-cli -h localhost -p 6379 ping; do sleep 1; done
 
-    - name: Run integration tests with coverage
+    - name: Run integration tests
+      # NOT part of coverage-gate and deliberately emits no coverage data:
+      # this suite lives at repo root, predates the services/api-manager
+      # split, needs live external infra per test (MaaS/FleetDM/shell
+      # access), and does not import `app` at all — it cannot contribute real
+      # app/ coverage. Runs standalone here for its own pass/fail only.
       run: |
-        pytest tests/integration/ -v --cov=app --cov-report=xml --cov-fail-under=90
+        pytest tests/integration/ -v
       env:
         CI: true
         TESTING: 1
@@ -234,23 +236,31 @@ jobs:
       run: |
         python3 -m pip install --upgrade pip
         pip3 install -r tests/requirements.txt
+        pip3 install -r services/api-manager/requirements.txt
 
-    - name: Run security tests
+    - name: Run security tests with coverage
+      # Was repo root: tests/security/ does not exist there at all (empty/
+      # missing dir — this job was collecting zero tests). The real suite is
+      # services/api-manager/tests/security/ (13 files). Same class of bug
+      # already fixed for unit-tests/test-workers.
+      working-directory: services/api-manager
       run: |
-        pytest tests/security/ -v
+        pytest tests/security/ -v --cov=app --cov-report=term
       env:
         CI: true
         TESTING: 1
         DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/gough_test
         REDIS_URL: redis://localhost:6379/1
+        COVERAGE_FILE: .coverage.security
 
-    - name: Upload security test results
+    - name: Upload security coverage data
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
-        name: security-test-results
-        path: |
-          .coverage
+        name: coverage-data-security
+        path: services/api-manager/.coverage.security*
+        include-hidden-files: true
+        if-no-files-found: error
 
   test-workers:
     runs-on: ubuntu-latest
@@ -294,25 +304,168 @@ jobs:
       run: |
         python3 -m pip install --upgrade pip
         pip3 install -r tests/requirements.txt
-        if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+        pip3 install -r services/api-manager/requirements.txt
 
     - name: Run worker tests with coverage
+      # Was repo root: tests/workers/ imports `app.*` directly, which does not
+      # exist at repo root (package lives at services/api-manager/app) — same
+      # class of bug fixed for unit-tests. Required so this job can emit real
+      # coverage data for the aggregate gate at all.
+      working-directory: services/api-manager
       run: |
-        pytest tests/workers/ -v --cov=app --cov-report=xml --cov-fail-under=90
+        pytest tests/workers/ -v --cov=app --cov-report=term
       env:
         CI: true
         TESTING: 1
         DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/gough_test
         REDIS_URL: redis://localhost:6379/1
+        # Per-job data file (distinct name per job) — combined + gated once in coverage-gate.
+        # NB: pytest-cov writes this literal name, not a parallel-suffixed one,
+        # despite .coveragerc's parallel=true (verified empirically).
+        COVERAGE_FILE: .coverage.workers
 
-    - name: Upload worker test results
+    - name: Upload worker coverage data
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
-        name: worker-test-results
-        path: |
-          .coverage
-          htmlcov/
+        name: coverage-data-workers
+        path: services/api-manager/.coverage.workers*
+        include-hidden-files: true
+        if-no-files-found: error
+
+  # Covers every services/api-manager test tier no other job runs:
+  # tests/clients, tests/secrets, tests/models, tests/scripts, and the ~46
+  # top-level tests/*.py files (test_licensing.py, test_grpc_server.py,
+  # test_openapi_export.py, test_multi_cloud_enabled.py, etc.) — previously
+  # entirely unexecuted in CI.
+  misc-tests:
+    runs-on: ubuntu-latest
+    needs: unit-tests
+
+    services:
+      postgres:
+        image: postgres:16-bookworm@sha256:aefb61c5ac3326e56a7b769fa655fe00af0e335c1b9b65182bd6f6233dd12aad
+        env:
+          POSTGRES_DB: gough_test
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+      redis:
+        image: redis:7-bookworm@sha256:3e0669e42d4fe421c9dea0ba5fbc04d336b80b4f32a6c7d25bee3a1d089288a1
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+    - name: Set up Python
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Install dependencies
+      run: |
+        python3 -m pip install --upgrade pip
+        pip3 install -r tests/requirements.txt
+        pip3 install -r services/api-manager/requirements.txt
+
+    - name: Run remaining app tests with coverage
+      # Four separate pytest invocations, not one combined call: verified
+      # locally that tests/secrets/conftest.py does an unscoped, module-level
+      # `sys.modules["botocore"] = MagicMock()` (and boto3/hvac/google.cloud/
+      # infisical_client) with no teardown — a pre-existing test-suite bug,
+      # not fixed here. In one pytest process that permanently shadows the
+      # real botocore for every test collected afterward, so
+      # tests/test_storage_service.py (`from botocore.client import Config`)
+      # fails to collect at all. Never triggered before because these tiers
+      # were never run together. Separate invocations = separate processes,
+      # so the pollution can't leak; --cov-append accumulates all four into
+      # one COVERAGE_FILE for the gate. Recommend the app team convert that
+      # conftest.py to a scoped monkeypatch/fixture.
+      working-directory: services/api-manager
+      run: |
+        pytest tests/clients -v --cov=app --cov-report=term
+        pytest tests/models tests/scripts -v --cov=app --cov-append --cov-report=term
+        pytest tests/*.py -v --cov=app --cov-append --cov-report=term
+        pytest tests/secrets -v --cov=app --cov-append --cov-report=term
+      env:
+        CI: true
+        TESTING: 1
+        DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/gough_test
+        REDIS_URL: redis://localhost:6379/1
+        COVERAGE_FILE: .coverage.misc
+
+    - name: Upload misc coverage data
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      if: always()
+      with:
+        name: coverage-data-misc
+        path: services/api-manager/.coverage.misc*
+        include-hidden-files: true
+        if-no-files-found: error
+
+  # Single enforcement point for the 90% threshold: combines the per-job
+  # coverage DATA files (unit/api/security/workers/misc — every job that
+  # actually exercises services/api-manager/app) into one report and gates on
+  # the aggregate. Per-job jobs above only *emit* data now — none of them
+  # fail on coverage individually, since no single slice of the suite can
+  # reach 90% of app/ alone. integration-tests deliberately excluded — see
+  # its own job comment.
+  coverage-gate:
+    runs-on: ubuntu-latest
+    needs: [unit-tests, test-api, test-security, test-workers, misc-tests]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+    - name: Set up Python
+      uses: actions/setup-python@0b93645e9fea7318ecaed2b359559ac225c90a2b
+      with:
+        python-version: ${{ env.PYTHON_VERSION }}
+
+    - name: Download all coverage data files
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        pattern: coverage-data-*
+        path: services/api-manager
+        merge-multiple: true
+
+    - name: Install coverage
+      run: |
+        python3 -m pip install --upgrade pip
+        # Pinned to the exact version tests/requirements.txt installs in every
+        # producer job, so the combiner reads data written by the same
+        # coverage.py release.
+        pip3 install coverage==7.3.2
+
+    - name: Combine coverage and enforce the 90% gate
+      working-directory: services/api-manager
+      run: |
+        coverage combine
+        coverage report --fail-under=90 --show-missing
+        coverage xml
+
+    - name: Upload combined coverage to Codecov (informational only — not the gate)
+      if: always()
+      uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5.5.5
+      with:
+        files: ./services/api-manager/coverage.xml
+        flags: aggregate
+        name: aggregate-coverage
 
   test-api:
     runs-on: ubuntu-latest
@@ -356,24 +509,31 @@ jobs:
       run: |
         python3 -m pip install --upgrade pip
         pip3 install -r tests/requirements.txt
-        if [ -f requirements.txt ]; then pip3 install -r requirements.txt; fi
+        pip3 install -r services/api-manager/requirements.txt
 
-    - name: Run API tests
+    - name: Run API tests with coverage
+      # Was repo root: tests/api/ there is an unrelated 3-file legacy
+      # "flask-backend" tree — the real suite is
+      # services/api-manager/tests/api/ (71 files). Same class of bug already
+      # fixed for unit-tests/test-workers/test-security.
+      working-directory: services/api-manager
       run: |
-        pytest tests/api/ -v
+        pytest tests/api/ -v --cov=app --cov-report=term
       env:
         CI: true
         TESTING: 1
         DATABASE_URL: postgresql://test_user:test_pass@localhost:5432/gough_test
         REDIS_URL: redis://localhost:6379/1
+        COVERAGE_FILE: .coverage.api
 
-    - name: Upload API test results
+    - name: Upload API coverage data
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
       if: always()
       with:
-        name: api-test-results
-        path: |
-          .coverage
+        name: coverage-data-api
+        path: services/api-manager/.coverage.api*
+        include-hidden-files: true
+        if-no-files-found: error
 
   discovery-agent-tests:
     runs-on: ubuntu-latest
@@ -447,7 +607,7 @@ jobs:
 
   test-report:
     runs-on: ubuntu-latest
-    needs: [unit-tests, integration-tests, lint-and-quality, test-security, test-workers, test-api, discovery-agent-tests]
+    needs: [unit-tests, integration-tests, lint-and-quality, test-security, test-workers, test-api, discovery-agent-tests, coverage-gate]
     if: always()
 
     steps:
@@ -487,9 +647,15 @@ jobs:
 
     - name: Fail if required jobs failed
       run: |
+        # coverage-gate is checked with != success (not == failure): if any of
+        # its own `needs:` (unit-tests/test-api/test-security/test-workers/
+        # misc-tests) fails, GitHub Actions marks coverage-gate "skipped", not
+        # "failure" — a bare == "failure" check would silently miss that and
+        # report a false "All required test jobs passed".
         if [ "${{ needs.unit-tests.result }}" == "failure" ] || \
            [ "${{ needs.integration-tests.result }}" == "failure" ] || \
-           [ "${{ needs.lint-and-quality.result }}" == "failure" ]; then
+           [ "${{ needs.lint-and-quality.result }}" == "failure" ] || \
+           [ "${{ needs.coverage-gate.result }}" != "success" ]; then
           echo "One or more required test jobs failed"
           exit 1
         fi
