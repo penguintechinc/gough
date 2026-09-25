@@ -25,11 +25,32 @@ from .db.run_db import run_db
 from .models import init_db, get_db
 from .security_datastore import PyDALUserDatastore
 from .audit import init_audit_logger
-from .rate_limit import init_rate_limiter
+from .rate_limit import init_rate_limiter, install_global_rate_limiting
 from .ssh_ca import SSHCertificateAuthority
 from .websocket import init_websocket
-from .middleware import wire_middleware
+from .middleware import CookieAuthShimMiddleware, wire_middleware
 from .catalog import seed_builtin_biomes
+
+
+def _resolve_cors_origins(app: Quart) -> list[str]:
+    """Resolve CORS allow-origin list, fail-closed by default.
+
+    Regression: audit cors-wildcard 2026-09-22. ``CORS_ORIGINS`` unset means
+    "no explicit operator choice": under DEBUG/TESTING that resolves to a
+    permissive ``["*"]`` (local dev, test suites), otherwise to ``[]`` (no
+    cross-origin access -- same-origin only) so production never silently
+    defaults to a wildcard. An operator-set value is always honored as-is
+    (comma-separated list, or the literal ``*``) -- that is a deliberate
+    choice, not a default.
+    """
+    raw = app.config.get("CORS_ORIGINS") or ""
+    if raw:
+        if raw == "*":
+            return ["*"]
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
+    if app.config.get("DEBUG") or app.config.get("TESTING"):
+        return ["*"]
+    return []
 
 
 async def create_app(config_class: type = Config) -> Quart:
@@ -40,8 +61,8 @@ async def create_app(config_class: type = Config) -> Quart:
     # Validate secrets at startup to prevent production with dev defaults
     config_class.validate_secrets()
 
-    # Initialize CORS
-    app = cors(app, allow_origin=app.config.get("CORS_ORIGINS", "*"),
+    # Initialize CORS (fail-closed default; see _resolve_cors_origins).
+    app = cors(app, allow_origin=_resolve_cors_origins(app),
                allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
                allow_headers=["Content-Type", "Authorization"])
 
@@ -66,10 +87,15 @@ async def create_app(config_class: type = Config) -> Quart:
                 print(f"WARNING: Audit logger initialization failed: {e}", file=sys.stderr)
                 print("Continuing without audit logger", file=sys.stderr)
 
-        # Initialize rate limiter (graceful degradation if fails)
+        # Initialize rate limiter (graceful degradation if fails). Also installs
+        # the global /api/ rate-limit floor (regression: security audit
+        # 2026-09-22 -- only 6 of 106 input endpoints previously carried an
+        # explicit @rate_limit decorator); existing per-route decorators keep
+        # applying on top of this floor.
         if app.config.get("RATE_LIMIT_ENABLED", True):
             try:
                 init_rate_limiter(app)
+                install_global_rate_limiting(app)
             except Exception as e:
                 import sys
                 print(f"WARNING: Rate limiter initialization failed: {e}", file=sys.stderr)
@@ -197,21 +223,33 @@ async def create_app(config_class: type = Config) -> Quart:
     from .middleware import _record_request_metrics
     app.after_request(_record_request_metrics)
 
-    # OpenAPI spec endpoint (anonymous, serves pre-generated spec).
+    # OpenAPI spec endpoint. Requires a valid bearer token (regression: audit
+    # openapi-anon 2026-09-22) -- the full 176-route spec is a reconnaissance
+    # map for an attacker and must not be servable anonymously. Auth is
+    # enforced by the ASGI OIDCAuthMiddleware (this path was removed from
+    # ANONYMOUS_PATHS) + fail-closed scope enforcement (registered in
+    # SCOPE_POLICY with an empty required-scope set: any authenticated
+    # principal, no specific scope needed). See app/security/scope_policy.py.
     @app.route("/api/v1/openapi.json")
     async def openapi_json():
         """Serve the pre-generated OpenAPI 3.1 spec."""
-        spec_path = Path(__file__).resolve().parents[2] / "docs" / "api" / "openapi.json"
+        # parents[3] == <repo-root> from services/api-manager/app/__init__.py
+        # (matches app/openapi_export.py's _default_out_dir(); parents[2] was
+        # an off-by-one that resolved to services/docs/api/... and could
+        # never find the file -- found while regression-testing Fix 2).
+        spec_path = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
         if spec_path.exists():
             spec_text = spec_path.read_text(encoding="utf-8")
             return Response(spec_text, mimetype="application/json")
         return {"error": "OpenAPI spec not found"}, 404
 
-    # OpenAPI spec YAML endpoint (anonymous, serves YAML format).
+    # OpenAPI spec YAML endpoint. Same auth requirement as openapi.json above
+    # (regression: audit openapi-anon 2026-09-22).
     @app.route("/api/v1/openapi.yaml")
     async def openapi_yaml():
         """Serve the OpenAPI 3.1 spec in YAML format."""
-        spec_path = Path(__file__).resolve().parents[2] / "docs" / "api" / "openapi.json"
+        # See parents[3] note in openapi_json() above.
+        spec_path = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
         if spec_path.exists():
             with open(spec_path, encoding="utf-8") as f:
                 spec_dict = json.load(f)
@@ -425,8 +463,11 @@ async def create_app(config_class: type = Config) -> Quart:
     # StaticKeyVerifier built from the keystore's public key -- no external
     # JWKS/discovery endpoint. On success the middleware sets
     # request.scope["state"]["claims"]; on failure it returns 401 before Quart
-    # routing. Anonymous paths (login/refresh/health/version/openapi/iPXE)
-    # bypass the gate via the template-aware ANONYMOUS_PATH_SET. The provider +
+    # routing. Anonymous paths (login/refresh/health/version/iPXE) bypass the
+    # gate via the template-aware ANONYMOUS_PATH_SET -- openapi.json/.yaml are
+    # deliberately NOT in that set (regression: audit openapi-anon
+    # 2026-09-22); they require a valid token, enforced via SCOPE_POLICY. The
+    # provider +
     # settings are stashed on app.config for the login/refresh handlers.
     from .security.oidc import OIDCSettings, build_oidc
     from .security.scope_policy import ANONYMOUS_PATH_SET
@@ -440,6 +481,16 @@ async def create_app(config_class: type = Config) -> Quart:
         rp=oidc_verifier,
         public_paths=ANONYMOUS_PATH_SET,
     )
+
+    # Cookie->Bearer shim (regression: security audit 2026-09-22 -- HIGH: the
+    # web UI stored JWTs in localStorage, XSS-exfiltratable). Wrapped OUTSIDE
+    # OIDCAuthMiddleware so it runs FIRST: when a request has no Authorization
+    # header but does carry a gough_access cookie, it injects the header
+    # before the OIDC gate ever inspects the request -- cookie and header auth
+    # validate through the identical StaticKeyVerifier path. See
+    # app.middleware.CookieAuthShimMiddleware for the full contract (cookie
+    # names, CSRF double-submit bridge in install_security_middleware).
+    app.asgi_app = CookieAuthShimMiddleware(app.asgi_app)
 
     # Wrap with audit middleware for request logging. Emitter requires at least one
     # sink; default to StdoutSink so the app always boots (production can configure

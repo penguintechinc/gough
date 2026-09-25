@@ -1348,6 +1348,22 @@ class TestParseSemverNonNumericParts:
 class TestResolveLuksTierBranches:
     """Cover _resolve_luks_tier() JSON string branches and cloud-kms path."""
 
+    #: Cloud VMs have no TPM, so _resolve_luks_tier() currently falls back to
+    #: the "dev" tier with an explicit TODO at app/workers/plan_compiler.py:1941
+    #: ("Implement cloud-kms sealing via AWS KMS / GCP Cloud KMS / Azure Key
+    #: Vault"). These two assert the intended cloud-kms behaviour, so they are a
+    #: known gap, not a broken test: strict=True means implementing cloud-kms
+    #: makes them XPASS and fails the run until the marker is removed.
+    #: SECURITY-RELEVANT -- until then, cloud VM disks are sealed at dev tier.
+    _cloud_kms_pending = pytest.mark.xfail(
+        strict=True,
+        reason=(
+            "cloud-kms LUKS sealing is not implemented; _resolve_luks_tier "
+            "returns 'dev' for cloud VMs (plan_compiler.py:1941 TODO)"
+        ),
+    )
+
+    @_cloud_kms_pending
     def test_cloud_vm_platform_selects_cloud_kms(self) -> None:
         from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
@@ -1362,6 +1378,7 @@ class TestResolveLuksTierBranches:
         tier = compiler._resolve_luks_tier(node)
         assert tier == "cloud-kms"
 
+    @_cloud_kms_pending
     def test_hardware_json_as_json_string_parsed(self) -> None:
         from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple

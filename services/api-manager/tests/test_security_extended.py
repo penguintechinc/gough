@@ -341,7 +341,7 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="missing nonce"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock)
+            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
 
     def test_validate_bootstrap_token_missing_mac(self):
         """Raise error when mac claim absent."""
@@ -356,7 +356,7 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="missing mac"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock)
+            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
 
     def test_validate_bootstrap_token_mac_mismatch(self):
         """Raise error when provided MAC doesn't match token MAC."""
@@ -377,7 +377,11 @@ class TestValidateOneTimeBootstrapToken:
 
         with pytest.raises(InvalidCredentialError, match="MAC mismatch"):
             validate_one_time_bootstrap_token(
-                token, vault_mock, redis_mock, expected_mac="different"
+                token,
+                vault_mock,
+                redis_mock,
+                expected_mac="different",
+                signing_secret="secret",
             )
 
     def test_validate_bootstrap_token_ttl_exceeded(self):
@@ -398,7 +402,7 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="TTL exceeds"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock)
+            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
 
     def test_validate_bootstrap_token_expired(self):
         """Raise ExpiredCredentialError when token is in the past."""
@@ -421,7 +425,7 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(ExpiredCredentialError, match="expired"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock)
+            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
 
     def test_validate_bootstrap_token_replay_error(self):
         """Raise OneTimeTokenReplayError when nonce already used."""
@@ -442,7 +446,7 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock.set.return_value = False  # Nonce already exists
 
         with pytest.raises(OneTimeTokenReplayError, match="already used"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock)
+            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
 
 
 # ==============================================================================

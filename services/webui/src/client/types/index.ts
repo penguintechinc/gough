@@ -32,6 +32,8 @@ export interface LoginCredentials {
   password: string;
 }
 
+// The login response still carries these for non-browser API clients, but
+// the web UI never reads or stores them — auth is HttpOnly-cookie based.
 export interface AuthTokens {
   access_token: string;
   refresh_token: string;
@@ -40,8 +42,6 @@ export interface AuthTokens {
 
 export interface AuthState {
   user: User | null;
-  accessToken: string | null;
-  refreshToken: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
 }

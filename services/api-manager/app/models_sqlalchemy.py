@@ -7,6 +7,7 @@ and migrations. PyDAL is used for runtime operations as required by CLAUDE.md.
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -16,8 +17,15 @@ from sqlalchemy import (
     Text,
     create_engine,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+
+#: JSON column that becomes JSONB on PostgreSQL, matching models_m1's
+#: convention. Used for the cloud tables' dict/list-valued fields, which the
+#: cloud abstraction produces natively and which do not survive a Text column
+#: without every reader re-parsing them.
+JSONColumn = JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 Base = declarative_base()
 
@@ -208,7 +216,13 @@ class CloudProvider(Base):
     description = Column(Text)
     region = Column(String(100))
     credentials_path = Column(String(500))
-    config_data = Column(Text)
+    # Provider-specific credentials/settings the cloud abstraction hands to
+    # get_cloud_provider(). JSON rather than Text so a dict round-trips.
+    config_data = Column(JSONColumn)
+    # Connection state as of the last authenticate() -- "connected",
+    # "auth_error", "config_error". Distinct from is_active, which is the
+    # operator's on/off switch.
+    status = Column(String(50), default="disconnected")
     is_active = Column(Boolean, default=True)
     last_sync_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -227,8 +241,14 @@ class CloudMachine(Base):
     provider_id = Column(Integer, ForeignKey("cloud_providers.id"), nullable=False)
     external_id = Column(String(255), nullable=False)
     hostname = Column(String(255))
+    # Primary addresses, denormalised from the *_ips lists below for callers
+    # that want a single address without unpacking JSON.
     ip_address = Column(String(64))
     private_ip = Column(String(64))
+    # Full address lists as reported by the provider. A machine routinely has
+    # more than one of each, which the scalar columns above cannot hold.
+    public_ips = Column(JSONColumn)
+    private_ips = Column(JSONColumn)
     status = Column(String(50), default="new")
     machine_type = Column(String(100))
     architecture = Column(String(50), default="amd64")
@@ -237,8 +257,11 @@ class CloudMachine(Base):
     storage_gb = Column(Integer)
     os_image = Column(String(255))
     zone = Column(String(100))
-    tags = Column(Text)
-    metadata_json = Column('metadata', Text)
+    # Provider tags/labels. JSON rather than Text because licensing reads the
+    # gough-managed marker out of this dict on every allowance count.
+    tags = Column(JSONColumn)
+    # Provider-specific fields with no column of their own.
+    metadata_json = Column('metadata', JSONColumn)
     lxd_cluster_id = Column(Integer, ForeignKey("lxd_clusters.id"))
     fleet_host_id = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -662,6 +685,10 @@ class AccessAgent(Base):
     hostname = Column(String(255), nullable=False)
     ip_address = Column(String(64))
     enrollment_key_hash = Column(String(255))
+    # Set by app/api/agents.py at enrollment. enrollment_completed is the
+    # boolean state; this is when it happened. Missing until now, which made
+    # every agent enrollment fail with CompileError("Unconsumed column names").
+    enrolled_at = Column(DateTime)
     enrollment_completed = Column(Boolean, default=False)
     jwt_token_id = Column(Integer, ForeignKey("auth_refresh_tokens.id"))
     last_heartbeat = Column(DateTime)
@@ -790,12 +817,13 @@ def get_sqlalchemy_engine(db_uri: str):
 
 def create_all_tables(db_uri: str):
     """Create all tables using SQLAlchemy and seed default data."""
-    from sqlalchemy.orm import sessionmaker
     import uuid
+
     import bcrypt
+    from sqlalchemy.orm import sessionmaker
 
     # Register M1 ORM classes on Base.metadata
-    from . import models_m1  # noqa: E402,F401
+    from . import models_m1  # noqa: F401
 
     engine = get_sqlalchemy_engine(db_uri)
     Base.metadata.create_all(engine)
@@ -827,7 +855,7 @@ def create_all_tables(db_uri: str):
 
         if not existing_admin:
             # Hash default password 'admin'
-            password_hash = bcrypt.hashpw("admin".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            password_hash = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode('utf-8')
 
             admin_user = AuthUser(
                 email=admin_email,

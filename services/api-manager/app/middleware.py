@@ -28,10 +28,117 @@ a thin shim over the scope-enforcement primitives so existing routes keep
 working without rewrites.
 """
 
+import hmac
+from collections.abc import Awaitable
 from functools import wraps
+from http.cookies import CookieError, SimpleCookie
 from typing import Any, Callable, Optional, cast
 
 from quart import g, jsonify, request
+
+
+# ==============================================================================
+# Browser cookie auth (regression: security audit 2026-09-22 -- HIGH)
+# ==============================================================================
+#
+# The web UI previously stored JWTs in localStorage, which is readable by any
+# script that achieves XSS on the page (exfiltratable). These three cookie
+# names are the full browser-auth contract shared with the frontend:
+#
+#   gough_access  -- HttpOnly, Path=/                 -- promoted to a Bearer
+#                                                         header by
+#                                                         CookieAuthShimMiddleware
+#   gough_refresh -- HttpOnly, Path=/api/v1/auth       -- read by POST /refresh
+#   gough_csrf    -- NOT HttpOnly, Path=/              -- JS reads this and
+#                                                         echoes it back as
+#                                                         X-CSRF-Token (double
+#                                                         submit CSRF defense)
+#
+# All three are set by app.auth.login/refresh and cleared by app.auth.logout.
+
+COOKIE_ACCESS_NAME = "gough_access"
+COOKIE_REFRESH_NAME = "gough_refresh"
+COOKIE_CSRF_NAME = "gough_csrf"
+CSRF_HEADER_NAME = "X-CSRF-Token"
+
+_STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+
+ASGIApp = Callable[..., Awaitable[None]]
+
+
+def cookies_are_secure(app_config: Any) -> bool:
+    """Whether auth cookies should carry the ``Secure`` flag.
+
+    Gated on app config (``DEBUG``/``TESTING``) ONLY, never on request-derived
+    data (Host header, X-Forwarded-Proto) a client could spoof. Dev/test runs
+    over plain http and needs ``Secure`` off so the browser/test client will
+    actually store and resend the cookie; every other environment forces it on.
+    """
+    return not (app_config.get("DEBUG") or app_config.get("TESTING"))
+
+
+def _extract_cookie(cookie_header: bytes, name: str) -> str | None:
+    """Parse a raw ASGI ``cookie`` header for a single cookie value by name."""
+    if not cookie_header:
+        return None
+    jar: SimpleCookie = SimpleCookie()
+    try:
+        jar.load(cookie_header.decode("latin-1"))
+    except CookieError:
+        return None
+    morsel = jar.get(name)
+    return morsel.value if morsel else None
+
+
+class CookieAuthShimMiddleware:
+    """ASGI middleware: promote a ``gough_access`` cookie to a Bearer header.
+
+    Wired in ``app.create_app`` so it runs BEFORE penguin-aaa's
+    ``OIDCAuthMiddleware`` in the ASGI stack -- when a request carries no
+    ``Authorization`` header but does carry a ``gough_access`` cookie, this
+    injects ``Authorization: Bearer <cookie>`` into the ASGI scope headers
+    before the OIDC gate ever sees the request. This means cookie auth and
+    header auth validate through the EXACT SAME path (the real
+    ``StaticKeyVerifier``), with zero changes to penguin-aaa itself.
+
+    A request already carrying an ``Authorization`` header is left completely
+    untouched (CLI/service clients keep working unmodified). When the
+    promotion happens, ``scope["state"]["auth_via_cookie"] = True`` is set so
+    the CSRF bridge (see ``install_security_middleware`` below) knows to
+    demand a matching ``X-CSRF-Token`` on state-changing requests -- a request
+    that already had an ``Authorization`` header is exempt from that check
+    because browsers never attach that header automatically, so it carries no
+    CSRF risk.
+
+    The ``scope`` dict is mutated in place (never replaced) so the mutation is
+    visible to every other layer sharing the same ``scope`` object, including
+    ``AuditMiddleware``, which is wired OUTSIDE this shim and reads
+    ``scope["state"]`` after the request completes.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self._app = app
+
+    async def __call__(self, scope: dict, receive: Callable, send: Callable) -> None:
+        if scope.get("type") not in ("http", "websocket"):
+            await self._app(scope, receive, send)
+            return
+
+        headers = scope.get("headers") or []
+        has_auth_header = any(k.lower() == b"authorization" for k, _v in headers)
+        if not has_auth_header:
+            cookie_header = next(
+                (v for k, v in headers if k.lower() == b"cookie"), b""
+            )
+            access_token = _extract_cookie(cookie_header, COOKIE_ACCESS_NAME)
+            if access_token:
+                scope["headers"] = [
+                    *headers,
+                    (b"authorization", f"Bearer {access_token}".encode("latin-1")),
+                ]
+                scope.setdefault("state", {})["auth_via_cookie"] = True
+
+        await self._app(scope, receive, send)
 
 
 # ==============================================================================
@@ -210,6 +317,16 @@ async def install_security_middleware(app) -> None:
 
     The handlers run in registration order:
 
+    Step 0.  CSRF bridge     — double-submit CSRF check (regression: security
+             audit 2026-09-22) for state-changing requests that authenticated
+             via the ``gough_access`` cookie (``CookieAuthShimMiddleware`` set
+             ``scope["state"]["auth_via_cookie"]``). Requires ``X-CSRF-Token``
+             to equal the ``gough_csrf`` cookie; mismatch/absent -> 403. A
+             request authenticated via a real ``Authorization`` header is
+             exempt (no CSRF risk — browsers never attach that header
+             automatically). Runs first so a forged request never reaches the
+             tenant bridge or a DB call.
+
     Step 1.  Tenant bridge   — reads the ``tenant`` claim, stores
              ``g.tenant_context``, and pushes the Postgres ``app.current_tenant``
              GUC (RLS). Missing tenant claim on a protected route -> 403.
@@ -240,6 +357,32 @@ async def install_security_middleware(app) -> None:
         # runtime by OIDCAuthMiddleware, so read it via a plain-dict view.
         scope = cast("dict[str, Any]", request.scope)
         return (scope.get("state") or {}).get("claims")
+
+    # Step 0: CSRF double-submit check (cookie-authenticated requests only).
+    @app.before_request
+    async def _csrf_bridge():
+        if request.method not in _STATE_CHANGING_METHODS:
+            return None
+        if is_anonymous_request(request.method, request.path):
+            return None
+
+        scope = cast("dict[str, Any]", request.scope)
+        state = scope.get("state") or {}
+        if not state.get("auth_via_cookie"):
+            # Authenticated via a real Authorization header (or not
+            # authenticated at all, in which case the ASGI OIDC gate already
+            # rejected it before Quart routing ran) -- no CSRF exposure.
+            return None
+
+        csrf_cookie = request.cookies.get(COOKIE_CSRF_NAME)
+        csrf_header = request.headers.get(CSRF_HEADER_NAME)
+        if (
+            not csrf_cookie
+            or not csrf_header
+            or not hmac.compare_digest(csrf_cookie, csrf_header)
+        ):
+            return jsonify({"error": "csrf_failed"}), 403
+        return None
 
     # Step 1: tenant bridge (RLS GUC).
     @app.before_request

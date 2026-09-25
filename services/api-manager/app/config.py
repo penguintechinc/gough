@@ -111,8 +111,13 @@ class Config:
     # Encryption key for DB-based secrets (Fernet)
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+    # CORS. Fail-closed: no wildcard default. Unset means "no explicit
+    # operator choice"; app.create_app() resolves that to "*" only under
+    # DEBUG/TESTING and to "" (no cross-origin access) otherwise (regression:
+    # audit cors-wildcard 2026-09-22). An operator that explicitly sets
+    # CORS_ORIGINS=* in production is making their own informed choice, not
+    # hitting this default.
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
     # Redis (for caching and sessions)
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -121,6 +126,14 @@ class Config:
     RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
     RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", REDIS_URL)
     RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "100/minute;1000/hour")
+    # Global floor applied to every /api/ route (regression: security audit
+    # 2026-09-22 -- only 6 of 106 input endpoints previously carried an
+    # explicit @rate_limit decorator). Existing per-route decorators keep
+    # applying ON TOP of this floor; it is never a replacement for them.
+    RATE_LIMIT_GLOBAL_DEFAULT = os.getenv("RATE_LIMIT_GLOBAL_DEFAULT", "120/minute")
+    # Tighter limit for unauthenticated, auth-sensitive entry points (login,
+    # agent enrollment/refresh) -- the highest-value brute-force targets.
+    RATE_LIMIT_AUTH_SENSITIVE = os.getenv("RATE_LIMIT_AUTH_SENSITIVE", "10/minute")
 
     # Audit Logging
     AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() == "true"

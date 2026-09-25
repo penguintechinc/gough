@@ -10,11 +10,22 @@ import json
 from pathlib import Path
 
 import pytest
-from openapi_spec_validator import validate_spec
+
 try:
-    from openapi_spec_validator.exceptions import OpenAPIValidationError
-except ImportError:
-    from openapi_spec_validator.exceptions import OpenAPISpecValidatorError as OpenAPIValidationError
+    from openapi_spec_validator import validate_spec
+
+    try:
+        from openapi_spec_validator.exceptions import OpenAPIValidationError
+    except ImportError:
+        from openapi_spec_validator.exceptions import (
+            OpenAPISpecValidatorError as OpenAPIValidationError,
+        )
+    _OPENAPI_SPEC_VALIDATOR_IMPORT_ERROR: ImportError | None = None
+except ImportError as exc:  # pragma: no cover - exercised only when the
+    # dependency is genuinely absent from the environment.
+    validate_spec = None  # type: ignore[assignment]
+    OpenAPIValidationError = Exception  # type: ignore[assignment,misc]
+    _OPENAPI_SPEC_VALIDATOR_IMPORT_ERROR = exc
 
 from app.openapi_export import (
     build_spec,
@@ -45,6 +56,13 @@ class TestOpenAPIExport:
         assert "components" in spec
 
         # Validate against OpenAPI 3.1 schema.
+        if _OPENAPI_SPEC_VALIDATOR_IMPORT_ERROR is not None:
+            pytest.fail(
+                "openapi-spec-validator is not installed in this environment "
+                "(missing from requirements.in/.txt) -- cannot validate the "
+                f"generated spec against the OpenAPI 3.1 schema: "
+                f"{_OPENAPI_SPEC_VALIDATOR_IMPORT_ERROR}"
+            )
         try:
             validate_spec(spec)
         except OpenAPIValidationError as e:

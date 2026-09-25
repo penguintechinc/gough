@@ -35,6 +35,26 @@ pytest_plugins = ["tests.pg_fixtures"]
 # Ensure penguin-dal singleton points to a per-test sqlite file *before* any
 # app-level import binds get_db results.
 
+def _define_table_with_string_id(dal_db, name, *fields):
+    """Like ``dal_db.define_table`` but with a VARCHAR(36) string ``id``
+    primary key instead of penguin_dal's auto-added Integer autoincrement id.
+
+    For app-supplied-UUID tables (``upgrade_runs``; see
+    ``app.models_m1.UpgradeRun``). The plain ``define_table`` would auto-add an
+    Integer id, which lets an insert that omits the UUID pass here while failing
+    against the real NOT NULL VARCHAR(36) primary key. Mirrors the identical
+    helper in ``tests/api/conftest.py``.
+    """
+    from sqlalchemy import Column, String, Table
+
+    if name in getattr(dal_db, "tables", []):
+        return
+    columns = [Column("id", String(36), primary_key=True)]
+    columns.extend(field.to_sa_column() for field in fields)
+    table = Table(name, dal_db.metadata, *columns)
+    dal_db.metadata.create_all(dal_db.engine, tables=[table])
+
+
 @pytest.fixture()
 def db_url(tmp_path) -> str:
     return f"sqlite:///{tmp_path}/test-{os.getpid()}-{threading.get_ident()}.db"
@@ -412,7 +432,8 @@ def test_client(dal, monkeypatch):
         Field("phase", "integer", default=1),
         migrate=True,
     )
-    dal.define_table(
+    _define_table_with_string_id(
+        dal,
         "upgrade_runs",
         Field("biome_id", "integer"),
         Field("target_version", "string"),
@@ -428,7 +449,6 @@ def test_client(dal, monkeypatch):
         Field("actor_sub", "string"),
         Field("created_at", "datetime"),
         Field("updated_at", "datetime"),
-        migrate=True,
     )
     dal.define_table(
         "storage_config",

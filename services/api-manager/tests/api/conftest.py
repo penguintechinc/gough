@@ -314,25 +314,14 @@ def app(monkeypatch):
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
-    # Stub decode_token and get_user_by_id so the real auth_required decorator
-    # (already applied at import time to integrations_bp routes) passes through.
-    _fake_jwt = {
-        "type": "access",
-        "sub": "1",
-        "scope": (
-            "gough.cluster.read gough.cluster.admin gough.cluster.superadmin "
-            "gough.integrations.read gough.integrations.write gough.integrations.admin"
-        ),
-        "tenant": "default",
-    }
-    _fake_user = {
-        "id": 1,
-        "username": "test-operator",
-        "role": "admin",
-        "is_active": True,
-    }
-    monkeypatch.setattr(mw_mod, "decode_token", lambda token: _fake_jwt)
-    monkeypatch.setattr(mw_mod, "get_user_by_id", lambda user_id: _fake_user)
+    # decode_token/get_user_by_id used to be stubbed here so the REAL
+    # auth_required decorator (bound at import time on blueprint routes) would
+    # pass through. The penguin-aaa migration removed both from app.middleware,
+    # so those monkeypatches raised AttributeError and errored out every test
+    # using this fixture. The seam is gone for good: a blueprint-specific
+    # fixture that needs the stubs above to actually apply must reload its
+    # blueprint module after this fixture runs (see app_with_integrations in
+    # tests/api/test_integrations.py), because decorators bind at import time.
 
     from quart import Quart, g
 
@@ -445,6 +434,51 @@ def dal_with_eggs(dal):
         Field("created_at", "datetime"),
         Field("updated_at", "datetime"),
         migrate=True,
+    )
+
+    # ``deployments`` is read by _execute_upgrade_orchestration's background
+    # task (app.api.biomes) to derive target nodes for an upgrade rollout.
+    # Full field set (matches TestDeployments' fixture further down in
+    # tests/api/test_biomes.py) so both consumers share one definition.
+    if "deployments" not in getattr(dal, "tables", []):
+        dal.define_table(
+            "deployments",
+            Field("biome_id", "integer"),
+            Field("node_id", "integer"),
+            Field("phase", "integer", default=0),
+            Field("status", "string", default="pending"),
+            Field("logs_url", "string"),
+            Field("tenant_id", "string", default="__default__"),
+            Field("created_at", "datetime"),
+            Field("updated_at", "datetime"),
+            migrate=True,
+        )
+
+    # ``upgrade_runs`` backs POST /api/v1/biomes/{id}/upgrade
+    # (app.api.biomes.upgrade_biome / _execute_upgrade_orchestration) --
+    # mirrors the field set used in ``tests/conftest.py``'s ``test_client``
+    # fixture for the equivalent table.
+    # upgrade_runs.id is an app-supplied VARCHAR(36) UUID, not an
+    # autoincrement integer (app.models_m1.UpgradeRun). Using the plain
+    # define_table here would auto-add an Integer id and let a bad insert
+    # pass in tests while failing on a real database.
+    _define_table_with_string_id(
+        dal,
+        "upgrade_runs",
+        Field("biome_id", "integer"),
+        Field("target_version", "string"),
+        Field("cluster_id", "string"),
+        Field("status", "string", default="pending"),
+        Field("phase", "string", default="canary"),
+        Field("nodes_total", "integer", default=0),
+        Field("nodes_completed", "integer", default=0),
+        Field("nodes_failed", "integer", default=0),
+        Field("started_at", "datetime"),
+        Field("completed_at", "datetime"),
+        Field("rollback_reason", "string"),
+        Field("actor_sub", "string"),
+        Field("created_at", "datetime"),
+        Field("updated_at", "datetime"),
     )
 
     return dal

@@ -208,7 +208,7 @@ def app_nodes(dal, monkeypatch):
     nodes_mod = importlib.reload(nodes_mod)
     monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
 
-    from quart import Quart, g
+    from quart import Quart, g, request
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -227,8 +227,37 @@ def app_nodes(dal, monkeypatch):
             },
         }
         g.tenant_context = SimpleNamespace(tenant_id="default", cross_tenant=False)
+        # Test-only mTLS shim: POST /nodes/{id}/events authenticates via a
+        # Service SVID (request.peer_cert_pem), never a header bypass -- see
+        # tests/test_security_fixes.py::TestNodeEventAuthBypassRemoved.
+        test_peer_cert = request.headers.get("X-Test-Peer-Cert")
+        if test_peer_cert:
+            request.peer_cert_pem = test_peer_cert
 
     return app
+
+
+_SVID_TEST_HEADERS = {"X-Test-Peer-Cert": "test-peer-cert-pem"}
+
+
+def _valid_service_svid_principal():
+    """Build a Principal representing an authenticated node Service SVID.
+
+    Used with ``patch("app.security.credentials.validate_service_svid", ...)``
+    to exercise the events endpoint's mTLS auth path in tests, in place of
+    the removed ``X-Gough-Test-Bypass-Auth`` header (gh-SECURITY-FIX-2).
+    """
+    from app.security.credentials import CredentialType, Principal
+
+    spiffe_id = "spiffe://gough.test/node/1"
+    return Principal(
+        cred_type=CredentialType.SERVICE_SVID,
+        sub=spiffe_id,
+        tenant_id="__default__",
+        scopes=frozenset(),
+        spiffe_id=spiffe_id,
+        claims={},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -657,17 +686,21 @@ async def test_post_node_events_invalid_timestamp(app_nodes, dal):
     )
     dal.commit()
 
-    async with app_nodes.test_client() as client:
-        resp = await client.post(
-            f"/api/v1/nodes/{node_id}/events",
-            json={
-                "stage": "provisioning",
-                "message": "Starting deployment",
-                "progress_pct": 10,
-                "timestamp": "not-a-timestamp",
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app_nodes.test_client() as client:
+            resp = await client.post(
+                f"/api/v1/nodes/{node_id}/events",
+                json={
+                    "stage": "provisioning",
+                    "message": "Starting deployment",
+                    "progress_pct": 10,
+                    "timestamp": "not-a-timestamp",
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         # Should succeed with fallback to current time
         assert resp.status_code in (200, 201, 400)
 
@@ -684,16 +717,20 @@ async def test_post_node_events_no_timestamp(app_nodes, dal):
     )
     dal.commit()
 
-    async with app_nodes.test_client() as client:
-        resp = await client.post(
-            f"/api/v1/nodes/{node_id}/events",
-            json={
-                "stage": "provisioning",
-                "message": "Deployment started",
-                "progress_pct": 5,
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app_nodes.test_client() as client:
+            resp = await client.post(
+                f"/api/v1/nodes/{node_id}/events",
+                json={
+                    "stage": "provisioning",
+                    "message": "Deployment started",
+                    "progress_pct": 5,
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201, 400)
 
 
@@ -711,17 +748,21 @@ async def test_post_node_events_naive_timestamp(app_nodes, dal):
 
     naive_ts = "2025-01-15T10:30:00"  # No timezone
 
-    async with app_nodes.test_client() as client:
-        resp = await client.post(
-            f"/api/v1/nodes/{node_id}/events",
-            json={
-                "stage": "init",
-                "message": "Setup",
-                "progress_pct": 0,
-                "timestamp": naive_ts,
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app_nodes.test_client() as client:
+            resp = await client.post(
+                f"/api/v1/nodes/{node_id}/events",
+                json={
+                    "stage": "init",
+                    "message": "Setup",
+                    "progress_pct": 0,
+                    "timestamp": naive_ts,
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201, 400)
 
 

@@ -822,6 +822,157 @@ async def test_refresh_agent_token_suspended_dal(agents_client, dal):
     assert response.status_code == 401
 
 
+class TestRegressionEvalRCEAgentsPy395:
+    """regression: audit eval RCE agents.py:395.
+
+    ``eval(agent.capabilities)`` on refresh let an enrolling caller who sent
+    ``{"capabilities": "<python code>"}`` at enrollment achieve remote code
+    execution on the control plane the next time that agent refreshed its
+    token. Covers: (1) enrollment now rejects a non-list ``capabilities``
+    payload outright, (2) even a malicious string that somehow reaches
+    storage is never passed to ``eval()`` on refresh, and (3) a well-formed
+    capabilities list still enrolls and round-trips correctly.
+    """
+
+    @pytest.mark.asyncio
+    async def test_enroll_rejects_non_list_capabilities_payload(
+        self, agents_client, dal
+    ):
+        """A string (or any non-list) ``capabilities`` payload -> 400, not stored."""
+        enrollment_key = "ENROLL-RCE-0001"
+        key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
+        dal.enrollment_keys.insert(
+            key_hash=key_hash,
+            created_by="test-user",
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+            is_used=False,
+        )
+        dal.commit()
+
+        body = {
+            "hostname": "rce-enroll-host",
+            "capabilities": "__import__('os').system('id > /tmp/pwned-agents-py-395')",
+        }
+        response = await agents_client.post(
+            "/api/v1/agents/enroll",
+            data=json.dumps(body),
+            headers={
+                "X-Enrollment-Key": enrollment_key,
+                "Content-Type": "application/json",
+            },
+        )
+        assert response.status_code == 400
+        data = await response.get_json()
+        assert "capabilities" in data["error"]
+
+        # The enrollment key must NOT be burned by a rejected request.
+        row = dal(dal.enrollment_keys.key_hash == key_hash).select().first()
+        assert row.is_used is False
+
+    @pytest.mark.asyncio
+    async def test_refresh_never_calls_eval_on_stored_capabilities(
+        self, agents_client, dal, monkeypatch
+    ):
+        """A malicious stored ``capabilities`` string is NEVER passed to eval().
+
+        Simulates a row that predates this fix (or bypassed the enrollment
+        validator by some other path): even so, refresh must not execute it.
+        ``builtins.eval`` is patched to fail the test if invoked at all --
+        the strongest possible proof this taint path is closed, independent
+        of what any particular payload happens to do if executed.
+        """
+        import builtins
+
+        def _eval_must_not_be_called(*args, **kwargs):
+            pytest.fail(
+                "eval() was invoked on stored capabilities -- "
+                "regression: audit eval RCE agents.py:395"
+            )
+
+        monkeypatch.setattr(builtins, "eval", _eval_must_not_be_called)
+
+        agent_id = "rce-refresh-agent"
+        malicious_payload = "__import__('os').system('id > /tmp/pwned-agents-py-395')"
+        dal.access_agents.insert(
+            agent_id=agent_id,
+            hostname="rce-refresh-host",
+            status="active",
+            capabilities=malicious_payload,
+            enrolled_at=datetime.utcnow(),
+        )
+        dal.commit()
+
+        refresh_token = jwt.encode(
+            {
+                "sub": f"agent:{agent_id}",
+                "type": "agent_refresh",
+                "exp": datetime.utcnow() + timedelta(days=30),
+                "iat": datetime.utcnow(),
+                "jti": "rce-refresh-jti",
+            },
+            "test-secret-key",
+            algorithm="HS256",
+        )
+
+        response = await agents_client.post(
+            "/api/v1/agents/refresh",
+            headers={"Authorization": f"Bearer {refresh_token}"},
+        )
+
+        # No crash, no RCE: an unparsable payload falls back to the safe default.
+        assert response.status_code == 200
+        data = await response.get_json()
+        decoded = jwt.decode(
+            data["access_token"], "test-secret-key", algorithms=["HS256"]
+        )
+        assert decoded["capabilities"] == ["ssh"]
+
+    @pytest.mark.asyncio
+    async def test_enroll_and_refresh_round_trip_well_formed_capabilities(
+        self, agents_client, dal
+    ):
+        """A well-formed capabilities list enrolls, stores as JSON, and round-trips."""
+        enrollment_key = "ENROLL-RCE-0002"
+        key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
+        dal.enrollment_keys.insert(
+            key_hash=key_hash,
+            created_by="test-user",
+            expires_at=datetime.utcnow() + timedelta(hours=24),
+            is_used=False,
+        )
+        dal.ssh_ca_config.insert(is_active=True, public_key="ssh-rsa AAAAB3...")
+        dal.commit()
+
+        body = {"hostname": "rce-roundtrip-host", "capabilities": ["ssh", "rdp"]}
+        enroll_resp = await agents_client.post(
+            "/api/v1/agents/enroll",
+            data=json.dumps(body),
+            headers={
+                "X-Enrollment-Key": enrollment_key,
+                "Content-Type": "application/json",
+            },
+        )
+        assert enroll_resp.status_code == 201
+        enroll_data = await enroll_resp.get_json()
+        agent_id = enroll_data["agent_id"]
+
+        # Stored value is real JSON, not a Python repr string (a str(...) call
+        # would have produced "['ssh', 'rdp']" instead).
+        row = dal(dal.access_agents.agent_id == agent_id).select().first()
+        assert row.capabilities == json.dumps(["ssh", "rdp"])
+
+        refresh_resp = await agents_client.post(
+            "/api/v1/agents/refresh",
+            headers={"Authorization": f"Bearer {enroll_data['refresh_token']}"},
+        )
+        assert refresh_resp.status_code == 200
+        refresh_data = await refresh_resp.get_json()
+        decoded = jwt.decode(
+            refresh_data["access_token"], "test-secret-key", algorithms=["HS256"]
+        )
+        assert decoded["capabilities"] == ["ssh", "rdp"]
+
+
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="agents.py line 626: 'await request.headers' is incorrect syntax in Quart")
 async def test_agent_heartbeat_success_dal(agents_client, dal):

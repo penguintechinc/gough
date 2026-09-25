@@ -4,7 +4,7 @@ Provides JWT-based authentication for Quart backend with PyDAL datastore.
 Handles user login, logout, token refresh, and password reset flows.
 """
 
-from quart import Blueprint, request, jsonify, current_app
+from quart import Blueprint, request, jsonify, current_app, make_response
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 import bcrypt
@@ -14,12 +14,66 @@ from functools import wraps
 from penguin_aaa.authn.types import Claims
 
 from ..db.run_db import run_db
+from ..middleware import (
+    COOKIE_ACCESS_NAME,
+    COOKIE_CSRF_NAME,
+    COOKIE_REFRESH_NAME,
+    cookies_are_secure,
+)
 from ..models import get_db
 from ..security.scope_policy import _expand_roles_to_scopes
 from ..security_datastore import PyDALUser, PyDALRole
 
 
 auth_bp = Blueprint("auth", __name__)
+
+# Path scoping matches app.middleware's cookie contract: the access + CSRF
+# cookies are sent to every route; the refresh cookie is scoped to the auth
+# blueprint only (the sole consumer of gough_refresh).
+_REFRESH_COOKIE_PATH = "/api/v1/auth"
+
+
+def _set_auth_cookies(response: Any, access_token: str, refresh_token: str) -> None:
+    """Set the three browser auth cookies (regression: security audit 2026-09-22).
+
+    ``gough_access``/``gough_refresh`` are HttpOnly -- never JS-readable, which
+    is what closes the XSS/localStorage exfiltration gap. ``gough_csrf`` is
+    deliberately NOT HttpOnly: JS must read it and echo it back as
+    ``X-CSRF-Token`` on state-changing requests (double-submit defense, see
+    ``app.middleware`` CSRF bridge). ``Secure`` is gated on app config
+    (DEBUG/TESTING) only, never request data -- see ``cookies_are_secure``.
+    Tokens are ALSO kept in the JSON body (unchanged) for CLI/service clients
+    that never touch cookies.
+    """
+    secure = cookies_are_secure(current_app.config)
+    csrf_token = secrets.token_urlsafe(32)
+    response.set_cookie(
+        COOKIE_ACCESS_NAME, access_token, path="/",
+        secure=secure, httponly=True, samesite="Lax",
+    )
+    response.set_cookie(
+        COOKIE_REFRESH_NAME, refresh_token, path=_REFRESH_COOKIE_PATH,
+        secure=secure, httponly=True, samesite="Lax",
+    )
+    response.set_cookie(
+        COOKIE_CSRF_NAME, csrf_token, path="/",
+        secure=secure, httponly=False, samesite="Lax",
+    )
+
+
+def _clear_auth_cookies(response: Any) -> None:
+    """Clear all three browser auth cookies (logout)."""
+    secure = cookies_are_secure(current_app.config)
+    response.delete_cookie(
+        COOKIE_ACCESS_NAME, path="/", secure=secure, httponly=True, samesite="Lax",
+    )
+    response.delete_cookie(
+        COOKIE_REFRESH_NAME, path=_REFRESH_COOKIE_PATH,
+        secure=secure, httponly=True, samesite="Lax",
+    )
+    response.delete_cookie(
+        COOKIE_CSRF_NAME, path="/", secure=secure, httponly=False, samesite="Lax",
+    )
 
 
 def _mint_token_set(user_row: Any, roles: list[PyDALRole]) -> Any:
@@ -256,8 +310,10 @@ async def login():
 
     user = PyDALUser(user_row, roles=roles)
 
-    # Build response
-    return jsonify({
+    # Build response. Tokens stay in the JSON body (CLI/service clients);
+    # HttpOnly cookies are ALSO set for browser clients (regression: security
+    # audit 2026-09-22 -- closes the localStorage/XSS exfiltration gap).
+    response = await make_response(jsonify({
         "access_token": token_set.access_token,
         "id_token": token_set.id_token,
         "refresh_token": refresh_token,
@@ -269,7 +325,9 @@ async def login():
             "full_name": user.full_name,
             "roles": [r.name for r in user.roles],
         },
-    }), 200
+    }), 200)
+    _set_auth_cookies(response, token_set.access_token, refresh_token)
+    return response
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -277,18 +335,19 @@ async def refresh():
     """Refresh token endpoint - issue new access token.
 
     Request body:
-        - refresh_token: previously issued refresh token
+        - refresh_token: previously issued refresh token (optional if the
+          ``gough_refresh`` cookie is present -- regression: security audit
+          2026-09-22, browser clients never see the refresh token in JS).
 
     Returns:
         200: {access_token}
+        400: No refresh token in body or cookie
         401: Invalid refresh token
     """
-    data = await request.get_json()
+    data = await request.get_json(silent=True) or {}
 
-    if not data:
-        return jsonify({"error": "Request body required"}), 400
-
-    refresh_token = data.get("refresh_token", "").strip()
+    body_token = (data.get("refresh_token") or "").strip()
+    refresh_token = body_token or (request.cookies.get(COOKIE_REFRESH_NAME) or "").strip()
 
     if not refresh_token:
         return jsonify({"error": "Refresh token required"}), 400
@@ -337,32 +396,40 @@ async def refresh():
     # Mint a fresh ES256 access/id token set (no DB).
     token_set = _mint_token_set(user_row, roles)
 
-    return jsonify({
+    response = await make_response(jsonify({
         "access_token": token_set.access_token,
         "id_token": token_set.id_token,
         "refresh_token": new_refresh,
         "token_type": "Bearer",
         "expires_in": token_set.expires_in,
-    }), 200
+    }), 200)
+    _set_auth_cookies(response, token_set.access_token, new_refresh)
+    return response
 
 
 @auth_bp.route("/logout", methods=["POST"])
 @require_auth
 async def logout():
-    """Logout endpoint - revoke refresh token.
+    """Logout endpoint - revoke refresh token and clear browser auth cookies.
 
     Returns:
         200: Success message
     """
     data = await request.get_json() or {}
-    refresh_token = data.get("refresh_token", "")
+    refresh_token = data.get("refresh_token", "") or request.cookies.get(
+        COOKIE_REFRESH_NAME, ""
+    )
 
     if refresh_token:
         # Revoke the refresh token. Regression: gh-22. Off the event loop
         # via run_db() instead of blocking the request coroutine inline.
         await run_db(lambda: revoke_refresh_token(request.user.id, refresh_token))
 
-    return jsonify({"message": "Logged out successfully"}), 200
+    response = await make_response(
+        jsonify({"message": "Logged out successfully"}), 200
+    )
+    _clear_auth_cookies(response)
+    return response
 
 
 @auth_bp.route("/me", methods=["GET"])

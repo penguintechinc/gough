@@ -352,6 +352,17 @@ async def test_scope_required_maintainer_read_only(migration_app):
             "username": "maintainer",
             "role": "maintainer",
             "email": "maint@test.local",
+            # _scope_required authorises on scopes, never on this role string
+            # (security.md: roles are pre-expanded scope bundles, and no check
+            # may branch on a role name). A maintainer that should be able to
+            # read the policy carries the read scope in its token; without
+            # _jwt_payload this identity has no scopes at all and is correctly
+            # refused with 403.
+            "_jwt_payload": {
+                "sub": "maintainer",
+                "tenant": "default",
+                "scope": "gough.capacity.read",
+            },
         }
         g.tenant_context = SimpleNamespace(tenant_id="default")
         g.principal = None  # No principal

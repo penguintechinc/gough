@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import sys
 import pytest
 from unittest.mock import MagicMock
@@ -34,15 +35,38 @@ google_api_core_mock.exceptions = google_exceptions
 azure_core_exceptions = MagicMock()
 azure_core_exceptions.ResourceNotFoundError = type('ResourceNotFoundError', (Exception,), {})
 
+def _stub_namespace(name, mock):
+    """Stub a top-level namespace package only if it is genuinely absent.
+
+    These stubs run at module import, so whatever they replace stays replaced
+    for the entire pytest session. Replacing an installed top-level package is
+    therefore not local to this directory: ``sys.modules["google"] = MagicMock()``
+    made ``google`` a non-package, so every later
+    ``from google.protobuf import descriptor`` inside the generated gRPC stubs
+    raised "'google' is not a package" -- taking out tests/test_grpc_server.py at
+    collection and producing the protobuf errors logged by app.api.primary. The
+    same applies to ``azure``, whose real subpackages app/clouds/azure.py needs.
+
+    Submodules below are still stubbed unconditionally: these tests drive them
+    deliberately (simulating Vault/S3/KeyVault failures), and stubbing a leaf
+    does not stop its siblings resolving from the real package.
+    """
+    if name not in sys.modules:
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            sys.modules[name] = mock
+
+
 azure_mock = MagicMock()
-sys.modules["azure"] = azure_mock
+_stub_namespace("azure", azure_mock)
 sys.modules["azure.core"] = MagicMock()
 sys.modules["azure.core.exceptions"] = azure_core_exceptions
 sys.modules["azure.keyvault"] = MagicMock()
 sys.modules["azure.keyvault.secrets"] = MagicMock()
 sys.modules["azure.identity"] = MagicMock()
 
-sys.modules["google"] = MagicMock()
+_stub_namespace("google", MagicMock())
 sys.modules["google.api_core"] = google_api_core_mock
 sys.modules["google.api_core.exceptions"] = google_exceptions
 sys.modules["google.cloud"] = MagicMock()

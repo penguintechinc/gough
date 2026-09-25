@@ -300,19 +300,31 @@ class TestGetStorageConfig:
         assert resp.status_code == 200
         data = await resp.get_json()
         assert data["name"] == "test-config"
-        assert data["config_data"] == {"key": "val"}
+        # Regression: audit output-validation. This endpoint used to parse
+        # and echo ``config_data`` (provider JSON that can itself carry
+        # inline credentials) straight from the row -- it must never appear
+        # in the response, regardless of what is stored.
+        assert "config_data" not in data
+        assert "credentials_path" not in data
 
     @pytest.mark.asyncio
-    async def test_invalid_json_config_data_graceful(self, client):
+    async def test_invalid_json_config_data_never_leaks(self, client):
+        """Even a row whose ``config_data`` is garbage never reaches the response.
+
+        Regression: audit output-validation. ``get_storage_config`` used to
+        ``json.loads()`` this column and echo the result (or ``{}`` on a
+        decode failure) back to the caller -- the fixed handler never reads
+        this column for its response at all, so garbage content can't
+        surface either.
+        """
         row = _make_config_row(config_data="not-valid-json")
         db = _make_db(config_rows=[row])
         db.return_value.select.return_value.first.return_value = row
         with _db_patch(db):
             resp = await client.get("/api/v1/storage/configs/1")
-        # Should still return 200 with empty config_data
         assert resp.status_code == 200
         data = await resp.get_json()
-        assert data["config_data"] == {}
+        assert "config_data" not in data
 
     @pytest.mark.asyncio
     async def test_null_timestamps_handled(self, client):

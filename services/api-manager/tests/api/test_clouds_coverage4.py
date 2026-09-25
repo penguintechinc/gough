@@ -37,6 +37,27 @@ def clouds_app(monkeypatch):
 
     import app.api.clouds as clouds_mod
 
+    # gh-38 added a blueprint-wide gate on the gough.multi-cloud PostHog flag,
+    # which defaults OFF -- without this every route here 404s "feature_disabled"
+    # before reaching the behaviour under test. The gate itself is covered by
+    # tests/test_licensing.py::TestCloudBlueprintGate and
+    # tests/test_multi_cloud_enabled.py::TestFlagControlsSurface.
+    async def _flag_on(*_a, **_k):
+        return True
+
+    monkeypatch.setattr(clouds_mod, "feature_enabled", _flag_on)
+
+    # gh-38 also meters node activation on create_machine. These tests drive the
+    # route with a MagicMock database, so the real counter returns a MagicMock
+    # and `active >= allowance` raises TypeError before the behaviour under test
+    # is reached. Metering itself is covered in tests/test_licensing.py and
+    # tests/test_multi_cloud_enabled.py::TestLicenseMeteringStillApplies.
+    async def _unlimited_allowance(*_a, **_k):
+        return float("inf")
+
+    monkeypatch.setattr(clouds_mod, "node_allowance", _unlimited_allowance)
+    monkeypatch.setattr(clouds_mod, "count_active_nodes", lambda *_a, **_k: 0)
+
     app = Quart(__name__)
     app.config["TESTING"] = True
     app.url_map.strict_slashes = False

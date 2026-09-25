@@ -10,6 +10,16 @@ from typing import Any
 
 from quart import Blueprint, jsonify, request
 
+from ..clouds import (
+    CLOUD_REGISTRY,
+    CloudAuthError,
+    CloudError,
+    CloudNotFoundError,
+    CloudQuotaError,
+    MachineSpec,
+    get_cloud_provider,
+    list_available_providers,
+)
 from ..db.run_db import run_db
 from ..licensing import (
     FLAG_MULTI_CLOUD,
@@ -19,18 +29,8 @@ from ..licensing import (
     stamp_managed_tag,
 )
 from ..middleware import auth_required, roles_accepted, roles_required
-from ._helpers import err_feature_disabled, err_license_required
-from ..clouds import (
-    CLOUD_REGISTRY,
-    get_cloud_provider,
-    list_available_providers,
-    CloudError,
-    CloudAuthError,
-    CloudNotFoundError,
-    CloudQuotaError,
-    MachineSpec,
-)
 from ..models import get_db
+from ._helpers import err_feature_disabled, err_license_required
 
 log = logging.getLogger(__name__)
 
@@ -63,6 +63,34 @@ async def _gate_multi_cloud():
 # ============================================================================
 
 
+#: Provider fields safe to return over the API. An explicit allow-list rather
+#: than "the row minus a few keys": the previous redaction deleted a key named
+#: "config", which the reflected row does not have (the column is
+#: ``config_data``), so it removed nothing and every response carried the
+#: provider's credentials. A projection cannot fail that way -- a column added
+#: later is excluded until someone lists it here. Both ``config_data`` (the
+#: credentials themselves) and ``credentials_path`` (where they live on disk)
+#: are deliberately absent. See security.md "Output Validation (Response Shape)".
+_PROVIDER_PUBLIC_FIELDS: tuple[str, ...] = (
+    "id",
+    "name",
+    "provider_type",
+    "description",
+    "region",
+    "status",
+    "is_active",
+    "last_sync_at",
+    "created_at",
+    "updated_at",
+)
+
+
+def _provider_public(row: Any) -> dict[str, Any]:
+    """Project a ``cloud_providers`` row onto its API-safe fields."""
+    data = row if isinstance(row, dict) else row.as_dict()
+    return {k: data[k] for k in _PROVIDER_PUBLIC_FIELDS if k in data}
+
+
 @clouds_bp.route("/", methods=["GET"])
 @auth_required
 @roles_accepted("admin", "maintainer", "viewer")
@@ -75,14 +103,15 @@ async def list_providers():
     db = get_db()
 
     def _fetch_providers() -> Any:
-        return db(db.cloud_providers).select().as_list()
+        # ``db(table)`` is not a penguin-dal query -- it reaches for
+        # ``.clause`` on the table and raises. ``id > 0`` is the house
+        # select-all idiom (see app/api/ssh_ca.py, biomes.py).
+        return db(db.cloud_providers.id > 0).select().as_list()
 
     providers = await run_db(_fetch_providers)
 
-    # Don't expose sensitive config data to non-admins
-    for provider in providers:
-        if "config" in provider:
-            del provider["config"]
+    # Project onto API-safe fields -- never return the raw row.
+    providers = [_provider_public(p) for p in providers]
 
     return jsonify({
         "providers": providers,
@@ -163,9 +192,9 @@ async def add_provider():
         new_id = db.cloud_providers.insert(
             name=name,
             provider_type=provider_type,
-            config=config,
+            config_data=config,
             status="connected",
-            enabled=enabled,
+            is_active=enabled,
         )
         db.commit()
         return new_id
@@ -211,13 +240,7 @@ async def get_provider(provider_id: int):
     if not provider:
         return jsonify({"error": "Provider not found"}), 404
 
-    result = provider.as_dict()
-
-    # Don't expose config to non-admins
-    if "config" in result:
-        del result["config"]
-
-    return jsonify(result), 200
+    return jsonify(_provider_public(provider)), 200
 
 
 @clouds_bp.route("/<int:provider_id>", methods=["PUT"])
@@ -258,7 +281,7 @@ async def update_provider(provider_id: int):
         updates["name"] = data["name"].strip()
 
     if "enabled" in data:
-        updates["enabled"] = bool(data["enabled"])
+        updates["is_active"] = bool(data["enabled"])
 
     if "config" in data:
         # Validate new config
@@ -266,7 +289,7 @@ async def update_provider(provider_id: int):
         try:
             cloud = get_cloud_provider(provider.provider_type, new_config)
             cloud.authenticate()
-            updates["config"] = new_config
+            updates["config_data"] = new_config
             updates["status"] = "connected"
         except CloudError as e:
             return jsonify({"error": f"Invalid configuration: {e}"}), 400
@@ -363,7 +386,7 @@ async def test_provider(provider_id: int):
         db.commit()
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
 
         # Update status
@@ -421,7 +444,7 @@ async def list_machines(provider_id: int):
     if refresh:
         # Fetch from cloud API
         try:
-            cloud = get_cloud_provider(provider.provider_type, provider.config)
+            cloud = get_cloud_provider(provider.provider_type, provider.config_data)
             cloud.authenticate()
             machines = cloud.list_machines()
 
@@ -487,7 +510,7 @@ async def create_machine(provider_id: int):
     if not provider:
         return jsonify({"error": "Provider not found"}), 404
 
-    if not provider.enabled:
+    if not provider.is_active:
         return jsonify({"error": "Provider is disabled"}), 400
 
     data = await request.get_json()
@@ -539,7 +562,7 @@ async def create_machine(provider_id: int):
     spec.tags = stamp_managed_tag(spec.tags)
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         machine = cloud.create_machine(spec)
 
@@ -549,16 +572,18 @@ async def create_machine(provider_id: int):
         def _store_machine() -> Any:
             new_id = db.cloud_machines.insert(
                 provider_id=provider_id,
-                cloud_id=machine.id,
-                name=machine.name,
-                state=machine.state.value,
-                region=machine.region,
-                image=machine.image,
-                size=machine.size,
+                external_id=machine.id,
+                hostname=machine.name,
+                status=machine.state.value,
+                zone=machine.region,
+                os_image=machine.image,
+                machine_type=machine.size,
                 public_ips=machine.public_ips,
                 private_ips=machine.private_ips,
+                ip_address=_primary_ip(machine.public_ips),
+                private_ip=_primary_ip(machine.private_ips),
                 tags=machine.tags,
-                extra=machine.extra,
+                metadata=machine.extra,
             )
             db.commit()
             return new_id
@@ -607,7 +632,7 @@ async def get_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         machine = cloud.get_machine(machine_id)
 
@@ -647,7 +672,7 @@ async def destroy_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         cloud.destroy_machine(machine_id)
 
@@ -656,7 +681,7 @@ async def destroy_machine(provider_id: int, machine_id: str):
         def _delete_machine() -> None:
             db(
                 (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.cloud_id == machine_id)
+                    db.cloud_machines.external_id == machine_id)
             ).delete()
             db.commit()
 
@@ -700,7 +725,7 @@ async def start_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         cloud.start_machine(machine_id)
 
@@ -709,8 +734,8 @@ async def start_machine(provider_id: int, machine_id: str):
         def _mark_running() -> None:
             db(
                 (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.cloud_id == machine_id)
-            ).update(state="running")
+                    db.cloud_machines.external_id == machine_id)
+            ).update(status="running")
             db.commit()
 
         await run_db(_mark_running)
@@ -751,7 +776,7 @@ async def stop_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         cloud.stop_machine(machine_id)
 
@@ -760,8 +785,8 @@ async def stop_machine(provider_id: int, machine_id: str):
         def _mark_stopped() -> None:
             db(
                 (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.cloud_id == machine_id)
-            ).update(state="stopped")
+                    db.cloud_machines.external_id == machine_id)
+            ).update(status="stopped")
             db.commit()
 
         await run_db(_mark_stopped)
@@ -802,7 +827,7 @@ async def reboot_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         cloud.reboot_machine(machine_id)
 
@@ -838,7 +863,7 @@ async def list_images(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         images = cloud.list_images()
 
@@ -866,7 +891,7 @@ async def list_sizes(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         sizes = cloud.list_sizes()
 
@@ -894,7 +919,7 @@ async def list_regions(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config)
+        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
         regions = cloud.list_regions()
 
@@ -907,6 +932,18 @@ async def list_regions(provider_id: int):
 # ============================================================================
 # Helper Functions
 # ============================================================================
+
+
+def _primary_ip(addresses: list[str] | None) -> str | None:
+    """First address from a provider-reported list, or None.
+
+    ``cloud_machines`` keeps both the full list and a single denormalised
+    primary: the list is what the provider actually reports, the scalar is
+    what callers wanting one address read without unpacking JSON.
+    """
+    if not addresses:
+        return None
+    return addresses[0]
 
 
 def _sync_machines_to_db(db, provider_id: int, machines: list) -> None:
@@ -926,7 +963,7 @@ def _sync_machines_to_db(db, provider_id: int, machines: list) -> None:
     """
     # Get existing machines
     existing = {
-        m.cloud_id: m.id
+        m.external_id: m.id
         for m in db(db.cloud_machines.provider_id == provider_id).select()
     }
 
@@ -939,27 +976,31 @@ def _sync_machines_to_db(db, provider_id: int, machines: list) -> None:
         if machine.id in existing:
             # Update existing
             db(db.cloud_machines.id == existing[machine.id]).update(
-                name=machine.name,
-                state=machine.state.value,
-                region=machine.region,
+                hostname=machine.name,
+                status=machine.state.value,
+                zone=machine.region,
                 public_ips=machine.public_ips,
                 private_ips=machine.private_ips,
+                ip_address=_primary_ip(machine.public_ips),
+                private_ip=_primary_ip(machine.private_ips),
                 tags=machine.tags,
             )
         else:
-            new_rows.append(dict(
-                provider_id=provider_id,
-                cloud_id=machine.id,
-                name=machine.name,
-                state=machine.state.value,
-                region=machine.region,
-                image=machine.image,
-                size=machine.size,
-                public_ips=machine.public_ips,
-                private_ips=machine.private_ips,
-                tags=machine.tags,
-                extra=machine.extra,
-            ))
+            new_rows.append({
+                "provider_id": provider_id,
+                "external_id": machine.id,
+                "hostname": machine.name,
+                "status": machine.state.value,
+                "zone": machine.region,
+                "os_image": machine.image,
+                "machine_type": machine.size,
+                "public_ips": machine.public_ips,
+                "private_ips": machine.private_ips,
+                "ip_address": _primary_ip(machine.public_ips),
+                "private_ip": _primary_ip(machine.private_ips),
+                "tags": machine.tags,
+                "metadata": machine.extra,
+            })
 
     if new_rows:
         db.cloud_machines.bulk_insert(new_rows)
@@ -970,7 +1011,7 @@ def _sync_machines_to_db(db, provider_id: int, machines: list) -> None:
     if stale_cloud_ids:
         db(
             (db.cloud_machines.provider_id == provider_id)
-            & (db.cloud_machines.cloud_id.belongs(stale_cloud_ids))
+            & (db.cloud_machines.external_id.belongs(stale_cloud_ids))
         ).delete()
 
     db.commit()

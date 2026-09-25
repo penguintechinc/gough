@@ -151,7 +151,7 @@ def _require_cluster_tenant(fn: Callable) -> Callable:
             # Regression: gh-22. Off the event loop via run_db() instead
             # of blocking the request coroutine inline.
             def _check_ownership() -> bool:
-                if hasattr(db, "clusters"):
+                if "clusters" in getattr(db, "tables", []):
                     cluster = db(db.clusters.id == cluster_id).select().first()
                     if cluster is None or getattr(
                         cluster, "tenant_id", "__default__"
@@ -327,7 +327,7 @@ async def list_storage_backends(cluster_id: str):
     def _check_and_fetch() -> tuple[bool, list[Any]]:
         # Tenant isolation (FIX #17): verify cluster ownership before listing
         if not _is_cross_tenant():
-            if hasattr(db, "clusters"):
+            if "clusters" in getattr(db, "tables", []):
                 cluster = db(db.clusters.id == cluster_id).select().first()
                 if cluster is None:
                     return False, []
@@ -550,6 +550,10 @@ async def switch_primary_storage(cluster_id: str):
     })
     return jsonify({"status": "success", "data": {
         "plan": plan,
+        "note": (
+            "M1 returns a migration plan preview only; full execution "
+            "lands in M2"
+        ),
     }}), 202
 
 

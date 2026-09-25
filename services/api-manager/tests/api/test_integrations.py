@@ -22,8 +22,22 @@ from app.workers.integration_provisioner import (
 
 @pytest.fixture
 def app_with_integrations(app):
-    """Flask app with integrations blueprint registered."""
-    app.register_blueprint(integrations_bp, url_prefix="/api/v1/integrations")
+    """Quart app with the integrations blueprint registered.
+
+    The module-level ``integrations_bp`` imported at the top of this file bound
+    the real auth/scope decorators when it was first imported, before the
+    ``app`` fixture stubbed them -- so its routes would still run genuine scope
+    enforcement and 403. Reload here, after the stubs are installed, so the
+    registered blueprint is the one carrying the passthroughs.
+    """
+    import importlib
+
+    import app.api.integrations as integrations_mod
+
+    integrations_mod = importlib.reload(integrations_mod)
+    app.register_blueprint(
+        integrations_mod.integrations_bp, url_prefix="/api/v1/integrations"
+    )
     return app
 
 

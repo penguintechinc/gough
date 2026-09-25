@@ -16,7 +16,6 @@ import pytest
 from quart import Quart
 
 from app import licensing as L
-from app.api.clouds import clouds_bp
 
 
 @pytest.fixture(autouse=True)
@@ -378,18 +377,6 @@ class TestCountActiveNodes:
         assert L.FREE_TIER_NODE_LIMIT == 3
 
 
-class _GateQuart(Quart):
-    """Quart carrying the ``PROVIDE_AUTOMATIC_OPTIONS`` default app/config.py sets.
-
-    Works around a pre-existing Quart 0.19.4 / Flask 3.1.3 incompatibility:
-    Flask 3.1 reads that key during ``add_url_rule`` but Quart 0.19.4 never
-    puts it in its default config, so bare ``Quart(__name__)`` raises KeyError.
-    The real app factory is unaffected because ``Config`` supplies the key.
-    """
-
-    default_config = dict(Quart.default_config, PROVIDE_AUTOMATIC_OPTIONS=True)
-
-
 async def _flag_on(*_a, **_k):
     return True
 
@@ -400,9 +387,34 @@ async def _flag_off(*_a, **_k):
 
 @pytest.fixture()
 def clouds_client():
-    """A test client with only ``clouds_bp`` mounted."""
-    app = _GateQuart(__name__)
-    app.register_blueprint(clouds_bp, url_prefix="/api/v1/clouds")
+    """A test client with only ``clouds_bp`` mounted.
+
+    The blueprint is resolved from ``sys.modules`` at fixture time rather than
+    imported at module scope: several cloud test modules reload
+    ``app.api.clouds`` for their own decorator stubbing, which replaces the
+    module object. A module-level ``from ... import clouds_bp`` would then hold
+    a blueprint whose ``_gate_multi_cloud`` closes over the *old* module
+    globals, while ``patch("app.api.clouds.feature_enabled")`` resolves the
+    *new* one -- so the patch would silently miss and the gate tests would fail
+    depending on which files ran first.
+    """
+    import importlib
+
+    import app.api.clouds as clouds_mod
+
+    # Reload before use. Several cloud test modules (test_clouds_api,
+    # test_clouds_extended, test_clouds_coverage4) reload this module with
+    # auth_required/roles_* monkeypatched to passthroughs and never restore it:
+    # monkeypatch undoes the attributes on app.middleware, but the already-
+    # reloaded clouds module keeps the stubs baked into its decorators. A gate
+    # test that asserts "the flag opens, then auth rejects" would then see no
+    # auth at all and fail purely on file ordering. Reloading here rebuilds the
+    # blueprint against the real decorators, which is also the correct global
+    # state to leave behind.
+    clouds_mod = importlib.reload(clouds_mod)
+
+    app = Quart(__name__)
+    app.register_blueprint(clouds_mod.clouds_bp, url_prefix="/api/v1/clouds")
     return app.test_client()
 
 

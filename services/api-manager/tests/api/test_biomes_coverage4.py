@@ -431,6 +431,11 @@ class TestDeleteBiomeEdgeCases:
 
         biome = MagicMock()
         biome.id = 1
+        # Match the "default" tenant set by biomes_app's g.tenant_context --
+        # otherwise MagicMock auto-generates a non-matching tenant_id
+        # attribute and the tenant-isolation guard 404s before the scope
+        # check is ever reached.
+        biome.tenant_id = "default"
         mock_db.return_value.select.return_value.first.return_value = biome
         mock_db.return_value.count.return_value = 0  # int so `count() > 0` works in Python 3.14
 
@@ -446,7 +451,10 @@ class TestDeleteBiomeEdgeCases:
                 }
             }
 
-        with patch("app.middleware.get_current_user", mock_user):
+        # app.api.biomes did ``from ..middleware import get_current_user``,
+        # binding its own module-level name -- patching app.middleware's
+        # attribute doesn't reach it. Patch where it's used.
+        with patch("app.api.biomes.get_current_user", mock_user):
             response = await biomes_client.delete("/api/v1/biomes/1?hard=true")
             # Should fail because user lacks gough.cluster.admin scope
             assert response.status_code in (403, 401, 400, 409)

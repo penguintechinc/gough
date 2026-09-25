@@ -166,7 +166,7 @@ def app_nodes(dal, monkeypatch):
     mock_db.nodes.tenant_id = "default"
     monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
 
-    from quart import Quart, g
+    from quart import Quart, g, request
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -188,8 +188,37 @@ def app_nodes(dal, monkeypatch):
         }
         g.tenant_context = SimpleNamespace(tenant_id="default", cross_tenant=False)
         g.nats_client = None
+        # Test-only mTLS shim: POST /nodes/{id}/events authenticates via a
+        # Service SVID (request.peer_cert_pem), never a header bypass -- see
+        # tests/test_security_fixes.py::TestNodeEventAuthBypassRemoved.
+        test_peer_cert = request.headers.get("X-Test-Peer-Cert")
+        if test_peer_cert:
+            request.peer_cert_pem = test_peer_cert
 
     return app, dal, nodes_mod
+
+
+_SVID_TEST_HEADERS = {"X-Test-Peer-Cert": "test-peer-cert-pem"}
+
+
+def _valid_service_svid_principal():
+    """Build a Principal representing an authenticated node Service SVID.
+
+    Used with ``patch("app.security.credentials.validate_service_svid", ...)``
+    to exercise the events endpoint's mTLS auth path in tests, in place of
+    the removed ``X-Gough-Test-Bypass-Auth`` header (gh-SECURITY-FIX-2).
+    """
+    from app.security.credentials import CredentialType, Principal
+
+    spiffe_id = "spiffe://gough.test/node/1"
+    return Principal(
+        cred_type=CredentialType.SERVICE_SVID,
+        sub=spiffe_id,
+        tenant_id="__default__",
+        scopes=frozenset(),
+        spiffe_id=spiffe_id,
+        claims={},
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -561,7 +590,13 @@ async def test_evacuate_node_terminal_state(app_nodes):
 
 @pytest.mark.asyncio
 async def test_evacuate_node_safety_check_import_error(app_nodes, monkeypatch):
-    """Test evacuate when migration_engine import fails (line 1120)."""
+    """Test evacuate when migration_engine.evaluate_safety raises (line 1302-1305).
+
+    evacuate_node's except handler treats *any* exception raised while
+    evaluating the safety envelope -- including an ImportError -- as
+    safety_ok=False (fail closed), so with force=False the request is
+    rejected with 409, not deferred to success.
+    """
     app, dal, nodes_mod = app_nodes
 
     dal.nodes.insert(
@@ -574,18 +609,28 @@ async def test_evacuate_node_safety_check_import_error(app_nodes, monkeypatch):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/evacuate",
-            json={"reason": "maintenance", "force": False},
-        )
-        # Should succeed (safety check deferred)
-        assert resp.status_code in (200, 202)
+    with patch(
+        "app.workers.migration_engine.evaluate_safety",
+        new_callable=AsyncMock,
+        side_effect=ImportError("migration_engine unavailable"),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/evacuate",
+                json={"reason": "maintenance", "force": False},
+            )
+            # Exception during safety evaluation -> fail closed -> 409
+            assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
 async def test_evacuate_node_safety_check_failed_no_force(app_nodes, monkeypatch):
-    """Test evacuate when safety check fails and force=False (lines 1125-1131)."""
+    """Test evacuate when safety check fails and force=False (lines 1307-1313).
+
+    app.workers.migration_engine.evaluate_safety is a Phase-3 TODO stub
+    that always returns safe=False (fail closed) -- no mocking needed here,
+    this exercises the real current implementation.
+    """
     app, dal, nodes_mod = app_nodes
 
     dal.nodes.insert(
@@ -598,15 +643,13 @@ async def test_evacuate_node_safety_check_failed_no_force(app_nodes, monkeypatch
     )
     dal.commit()
 
-    # Without the migration_engine module, safety check is deferred
-    # This test verifies the fallback behavior when it's not available
     async with app.test_client() as client:
         resp = await client.post(
             "/api/v1/nodes/1/evacuate",
             json={"reason": "maintenance", "force": False},
         )
-        # Should succeed with deferred safety check
-        assert resp.status_code in (200, 202)
+        # Safety check fails (unimplemented stub) and force=False -> 409
+        assert resp.status_code == 409
 
 
 @pytest.mark.asyncio
@@ -639,8 +682,13 @@ async def test_evacuate_node_with_force(app_nodes):
 
 
 @pytest.mark.asyncio
-async def test_post_node_event_test_bypass(app_nodes):
-    """Test POST event with test bypass header (line 1168-1174)."""
+async def test_post_node_event_with_valid_service_svid(app_nodes):
+    """Test POST event with a valid Service SVID (line 1350-1387).
+
+    Regression: gh-SECURITY-FIX-2 removed the X-Gough-Test-Bypass-Auth
+    header bypass; the events endpoint is now exercised via
+    request.peer_cert_pem + validate_service_svid(), matching production.
+    """
     app, dal, nodes_mod = app_nodes
 
     dal.nodes.insert(
@@ -653,16 +701,20 @@ async def test_post_node_event_test_bypass(app_nodes):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201)
 
 
@@ -681,17 +733,21 @@ async def test_post_node_event_invalid_timestamp(app_nodes):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-                "timestamp": "not-a-valid-timestamp",
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                    "timestamp": "not-a-valid-timestamp",
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         # Should accept with fallback to now()
         assert resp.status_code in (200, 201)
 
@@ -711,17 +767,21 @@ async def test_post_node_event_naive_timestamp_to_utc(app_nodes):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-                "timestamp": "2025-01-15T10:30:00",  # Naive ISO format
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                    "timestamp": "2025-01-15T10:30:00",  # Naive ISO format
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201)
 
 
@@ -740,17 +800,21 @@ async def test_post_node_event_with_utc_timestamp(app_nodes):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-                "timestamp": "2025-01-15T10:30:00+00:00",  # ISO with UTC
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                    "timestamp": "2025-01-15T10:30:00+00:00",  # ISO with UTC
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201)
 
 
@@ -769,16 +833,20 @@ async def test_post_node_event_no_timestamp(app_nodes):
     )
     dal.commit()
 
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         assert resp.status_code in (200, 201)
 
 
@@ -799,16 +867,20 @@ async def test_post_node_event_no_events_table(app_nodes):
 
     # Use real DB which has node_events; this tests the success path
     # The hasattr(db, "node_events") check will pass and event will be persisted
-    async with app.test_client() as client:
-        resp = await client.post(
-            "/api/v1/nodes/1/events",
-            json={
-                "stage": "discovery",
-                "message": "Found 4 NICs",
-                "progress_pct": 25,
-            },
-            headers={"X-Gough-Test-Bypass-Auth": "true"},
-        )
+    with patch(
+        "app.security.credentials.validate_service_svid",
+        return_value=_valid_service_svid_principal(),
+    ):
+        async with app.test_client() as client:
+            resp = await client.post(
+                "/api/v1/nodes/1/events",
+                json={
+                    "stage": "discovery",
+                    "message": "Found 4 NICs",
+                    "progress_pct": 25,
+                },
+                headers=_SVID_TEST_HEADERS,
+            )
         # Should succeed with the event persisted
         assert resp.status_code in (200, 201)
 
