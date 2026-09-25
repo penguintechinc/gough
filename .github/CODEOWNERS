@@ -1,0 +1,6 @@
+# Code owners for gough — org ruleset sets require_code_owner_review on main,
+# so every path needs an owner. Two owners (not one) so the overseer's own PRs
+# still have a non-author code owner who can approve them.
+#   @PenguinzTech — Penguin (repo overseer)
+#   @Chromeninja  — Chrome
+* @PenguinzTech @Chromeninja
