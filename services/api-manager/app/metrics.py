@@ -74,6 +74,12 @@ audit_offsite_mirror_lag_seconds: Gauge = Gauge(
     ["cluster_id"],
 )
 
+grpc_auth_rejected_total: Counter = Counter(
+    "gough_grpc_auth_rejected_total",
+    "gRPC RPCs rejected by GrpcAuthInterceptor for missing/invalid SVID or machine JWT",
+    ["method", "reason"],
+)
+
 # --- Plan 5: API Services & Management Interfaces ---
 
 api_request_latency_seconds: Histogram = Histogram(
