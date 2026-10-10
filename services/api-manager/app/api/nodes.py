@@ -23,20 +23,23 @@ DELETE /api/v1/nodes/{id}/biomes/{biome_id}    gough.biomes.deploy
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import json
 import logging
 import os
 import re
 import string
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from quart import Blueprint, Response, g, request, current_app
 
+from .. import metrics as _metrics
 from ..db.run_db import run_db
-from ..licensing import ACTIVE_NODE_STATES, count_active_nodes, node_allowance
+from ..licensing import ACTIVE_NODE_STATES, count_active_nodes, feature_enabled, node_allowance
 from ..middleware import auth_required
 from ..models import get_db
 from ._biome_schema import NodeBiomeAssignRequest
@@ -94,6 +97,18 @@ _TERMINAL_STATES = frozenset({"decommissioned", "rejected"})
 # Default page size for cursor-based pagination
 _DEFAULT_PAGE_SIZE = 50
 _MAX_PAGE_SIZE = 500
+
+#: Gates real PlanCompiler.compile() invocation from deploy_node (Phase B).
+#: Defaulted OFF -- when unset/unreachable, deploy_node preserves its prior
+#: M1 behaviour (assignments created, compile queued for the worker, no
+#: inline compilation). See critical-rules.md Feature Flags & License Tiers.
+FLAG_PLAN_COMPILER_WIRING = "gough.node-plan-compiler-wiring"
+
+#: Gates real SPIRE join-token issuance (spire-server token generate) from
+#: discover_node. Defaulted OFF -- when unset/unreachable, discover_node
+#: preserves its prior M1 placeholder (random UUID, not a usable SPIRE
+#: credential).
+FLAG_SPIRE_JOIN_TOKEN_ISSUANCE = "gough.node-spire-join-token-issuance"
 
 
 # ---------------------------------------------------------------------------
@@ -591,13 +606,38 @@ async def discover_node():
             selectors={"unix:uid": "0"},
             ttl_seconds=3600,
         )
-        spire.register_workload(entry)
-        # The join token is the SPIRE entry ID used as a short-lived credential.
-        # In a full deployment the agent calls spire-server token generate; here
-        # we return the entry_id as the join token — M2 wires the full token flow.
-        spire_join_token = str(uuid.uuid4())  # placeholder join token for M1
-        log.info("Issued SPIRE join token for node_id=%s dmi_uuid=%s", node_id, body.dmi_uuid)
+
+        if await feature_enabled(FLAG_SPIRE_JOIN_TOKEN_ISSUANCE):
+            # Full flow: register the workload entry, then mint a real
+            # one-time join token the node's spire-agent can present via
+            # -joinToken on first boot. Both calls shell out to
+            # spire-server, so keep them off the event loop.
+            entry_id = await asyncio.to_thread(spire.register_workload, entry)
+            spire_join_token = await asyncio.to_thread(
+                spire.generate_join_token, spiffe_id, 3600
+            )
+            _metrics.spire_join_token_issued_total.labels(result="success").inc()
+            log.info(
+                "Issued real SPIRE join token for node_id=%s dmi_uuid=%s entry_id=%s",
+                node_id,
+                body.dmi_uuid,
+                entry_id,
+            )
+        else:
+            # Flag OFF: preserve prior M1 behaviour exactly (register the
+            # workload entry for observability, but return a placeholder --
+            # not a usable SPIRE credential -- since generate_join_token
+            # is gated off).
+            await asyncio.to_thread(spire.register_workload, entry)
+            spire_join_token = str(uuid.uuid4())  # placeholder join token for M1
+            log.info(
+                "Issued placeholder SPIRE join token for node_id=%s dmi_uuid=%s "
+                "(FLAG_SPIRE_JOIN_TOKEN_ISSUANCE disabled)",
+                node_id,
+                body.dmi_uuid,
+            )
     except Exception as exc:  # noqa: BLE001
+        _metrics.spire_join_token_issued_total.labels(result="error").inc()
         log.warning("SPIRE registration failed (non-fatal, M1): %s", exc)
 
     # ------------------------------------------------------------------
@@ -1195,31 +1235,95 @@ async def deploy_node(node_id: int):
         return err_internal(str(result["error"]))
     assignment_ids = result["assignment_ids"]
 
-    # Wire plan compiler (Phase B; FIX: use PlanCompiler.compile directly).
+    # Wire plan compiler (Phase B). Real invocation is gated behind
+    # FLAG_PLAN_COMPILER_WIRING (defaulted OFF) -- when off, deploy_node
+    # preserves its exact prior M1 behaviour (assignments created above,
+    # compile queued for an out-of-band worker, nothing invoked inline).
     # PlanCompiler is synchronous; wrap in asyncio.to_thread to avoid blocking.
     compiler_invoked = False
     compiler_note = "Plan compile queued; worker will process asynchronously."
-    try:
-        from ..workers.plan_compiler import PlanCompiler, PlanCompilationError  # type: ignore[import]
-        import asyncio
+    compiled_plan_id: str | None = None
+    if await feature_enabled(FLAG_PLAN_COMPILER_WIRING):
+        try:
+            from ..clients import lxd_extra
+            from ..workers.plan_compiler import (
+                BiomeAssignmentRef,
+                DiskPlanInput,
+                PlanCompilationError,
+                PlanCompiler,
+                PlanRequest,
+            )
 
-        # TODO(Phase B): Inject vault_client, lxd_client, spire_client from app config
-        # For now, instantiate with minimal dependencies and handle gracefully.
-        compiler = PlanCompiler(
-            db_session=db,
-            vault_client=None,
-            lxd_client=None,
-            spire_client=None,
+            # Prefer a client already attached to the app (tests inject one
+            # directly); fall back to constructing one from env/Vault config.
+            # VaultClient() raises ValueError when VAULT_TOKEN is unset --
+            # treated as "Vault unavailable", not a hard failure, matching
+            # the non-fatal degrade-gracefully style of this whole block.
+            vault_client = getattr(current_app, "vault_client", None)
+            if vault_client is None:
+                try:
+                    from ..clients.vault import VaultClient
+
+                    vault_client = VaultClient()
+                except ValueError as exc:
+                    log.warning(
+                        "Vault unavailable for plan compilation (non-fatal): %s", exc
+                    )
+
+            compiler = PlanCompiler(
+                db_session=db,
+                vault_client=vault_client,
+                lxd_client=lxd_extra,
+                spire_client=None,
+            )
+            plan_request = PlanRequest(
+                biome_assignments=[
+                    BiomeAssignmentRef(biome_id=spec.biome_id)
+                    for spec in body.biome_assignments
+                ],
+                disk_plan=DiskPlanInput(**(body.disk_plan or {})),
+                reason=body.reason or "",
+                cluster_id=os.getenv("GOUGH_CLUSTER_ID", "default"),
+                actor_sub=_actor_sub(),
+            )
+
+            t0 = time.monotonic()
+            try:
+                compiled = await asyncio.to_thread(compiler.compile, node_id, plan_request)
+            except PlanCompilationError as exc:
+                _metrics.plan_compile_total.labels(result="validation_error").inc()
+                log.warning(
+                    "Plan compilation failed for node_id=%s: %s",
+                    node_id,
+                    [e.model_dump() for e in exc.errors],
+                )
+                compiler_note = (
+                    f"Plan compilation failed validation ({len(exc.errors)} error(s)); "
+                    "biome assignments were created but no plan was compiled."
+                )
+            else:
+                _metrics.plan_compile_total.labels(result="success").inc()
+                _metrics.plan_compile_duration_seconds.observe(time.monotonic() - t0)
+                compiler_invoked = True
+                compiled_plan_id = compiled.plan_id
+                compiler_note = f"Plan compiled successfully (plan_id={compiled.plan_id})."
+                log.info(
+                    "Plan compiled for node_id=%s plan_id=%s biome_order=%s",
+                    node_id,
+                    compiled.plan_id,
+                    compiled.biome_order,
+                )
+        except ImportError:
+            log.debug("plan_compiler module not available (expected during Wave 1)")
+        except Exception as exc:  # noqa: BLE001
+            _metrics.plan_compile_total.labels(result="error").inc()
+            log.warning("plan_compiler invocation failed (non-fatal): %s", exc)
+    else:
+        log.debug(
+            "Plan compiler Phase B wiring disabled by flag; skipping invocation "
+            "for node_id=%s",
+            node_id,
         )
-        # TODO(Phase B): Build PlanRequest from body + context; call compiler.compile()
-        # For now, just note that the infrastructure is ready but incomplete.
-        log.info("Plan compiler wired but incomplete (Phase B work); skipping invocation for node_id=%s", node_id)
-        compiler_invoked = False
-        compiler_note = "Plan compile not yet wired (Phase B work pending)."
-    except ImportError:
-        log.debug("plan_compiler module not available (expected during Wave 1)")
-    except Exception as exc:  # noqa: BLE001
-        log.warning("plan_compiler initialization failed (non-fatal): %s", exc)
 
     # Regression: gh-22. _audit_log() executes a direct penguin-dal
     # insert+commit -- run it off the event loop too.
@@ -1242,6 +1346,7 @@ async def deploy_node(node_id: int):
             "assignment_ids": assignment_ids,
             "state": current_state,
             "compiler_invoked": compiler_invoked,
+            "plan_id": compiled_plan_id,
             "note": compiler_note,
         },
         status_code=202,

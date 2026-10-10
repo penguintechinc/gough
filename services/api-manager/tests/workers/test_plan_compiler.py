@@ -491,11 +491,43 @@ class TestLuksSealing:
         assert prov["tier"] == "tpm2"
         assert "clevis_config" in prov
 
-    def test_cloud_kms_tier_not_supported(self) -> None:
-        """Cloud-KMS tier raises LUKSValidationError (not implemented)."""
+    def test_cloud_kms_tier_without_config_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Cloud-KMS tier is a recognised dispatch entry but fails closed
+
+        without GOUGH_CLOUD_KMS_PROVIDER/GOUGH_CLOUD_KMS_KEY_ID configured
+        -- distinct from test_unknown_tier_raises_luks_validation_error,
+        which is dispatch-table ignorance of the tier name itself.
+        """
+        monkeypatch.delenv("GOUGH_CLOUD_KMS_PROVIDER", raising=False)
+        monkeypatch.delenv("GOUGH_CLOUD_KMS_KEY_ID", raising=False)
         vault = _make_vault_client()
-        with pytest.raises(LUKSValidationError, match="Unknown LUKS sealing tier"):
+        with pytest.raises(LUKSValidationError, match="cloud-kms LUKS sealing failed"):
             _seal_luks_key("cloud-kms", b"\x00" * 32, vault)
+
+    def test_cloud_kms_tier_aws_seals_successfully(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Cloud-KMS tier with AWS configured calls boto3 KMS and seals the key."""
+        monkeypatch.setenv("GOUGH_CLOUD_KMS_PROVIDER", "aws")
+        monkeypatch.setenv(
+            "GOUGH_CLOUD_KMS_KEY_ID", "arn:aws:kms:us-east-1:123456789012:key/abcd"
+        )
+        fake_boto3_client = MagicMock()
+        fake_boto3_client.encrypt.return_value = {
+            "CiphertextBlob": b"sealed-aws-bytes",
+            "KeyId": "arn:aws:kms:us-east-1:123456789012:key/abcd",
+        }
+        vault = _make_vault_client()
+        with patch("boto3.client", return_value=fake_boto3_client):
+            sealed, prov = _seal_luks_key("cloud-kms", b"\x00" * 32, vault)
+
+        assert sealed == b"sealed-aws-bytes"
+        assert prov["tier"] == "cloud-kms"
+        assert prov["cloud_kms_provider"] == "aws"
+        assert prov["cloud_kms_key_id"] == "arn:aws:kms:us-east-1:123456789012:key/abcd"
+        fake_boto3_client.encrypt.assert_called_once()
+        # Vault transit is NOT the sealing authority for this tier.
+        vault.transit_encrypt.assert_not_called()
 
     def test_transit_unseal_tier_not_supported(self) -> None:
         """Transit-unseal tier raises LUKSValidationError (not implemented)."""
@@ -1346,24 +1378,14 @@ class TestParseSemverNonNumericParts:
 
 
 class TestResolveLuksTierBranches:
-    """Cover _resolve_luks_tier() JSON string branches and cloud-kms path."""
+    """Cover _resolve_luks_tier() JSON string branches and cloud-kms path.
 
-    #: Cloud VMs have no TPM, so _resolve_luks_tier() currently falls back to
-    #: the "dev" tier with an explicit TODO at app/workers/plan_compiler.py:1941
-    #: ("Implement cloud-kms sealing via AWS KMS / GCP Cloud KMS / Azure Key
-    #: Vault"). These two assert the intended cloud-kms behaviour, so they are a
-    #: known gap, not a broken test: strict=True means implementing cloud-kms
-    #: makes them XPASS and fails the run until the marker is removed.
-    #: SECURITY-RELEVANT -- until then, cloud VM disks are sealed at dev tier.
-    _cloud_kms_pending = pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "cloud-kms LUKS sealing is not implemented; _resolve_luks_tier "
-            "returns 'dev' for cloud VMs (plan_compiler.py:1941 TODO)"
-        ),
-    )
+    Cloud VMs have no TPM, so _resolve_luks_tier() now resolves them to the
+    "cloud-kms" tier (AWS KMS / GCP Cloud KMS / Azure Key Vault), replacing
+    the old "dev" (Vault-transit-only) fallback -- formerly a strict-xfail
+    known gap at plan_compiler.py:1941/1941, now implemented.
+    """
 
-    @_cloud_kms_pending
     def test_cloud_vm_platform_selects_cloud_kms(self) -> None:
         from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
@@ -1378,7 +1400,6 @@ class TestResolveLuksTierBranches:
         tier = compiler._resolve_luks_tier(node)
         assert tier == "cloud-kms"
 
-    @_cloud_kms_pending
     def test_hardware_json_as_json_string_parsed(self) -> None:
         from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple

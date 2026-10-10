@@ -115,3 +115,33 @@ anycast_bgp_announce_failure: Counter = Counter(
     "anycast control-plane frontend switch",
     ["node_id", "action"],
 )
+
+# --- Phase B: plan-compiler wiring (node deploy path) ---
+
+plan_compile_total: Counter = Counter(
+    "gough_plan_compile_total",
+    "Plan-compiler invocations from the node deploy path, by outcome.",
+    ["result"],
+)
+
+plan_compile_duration_seconds: Histogram = Histogram(
+    "gough_plan_compile_duration_seconds",
+    "Wall-clock time for PlanCompiler.compile() invoked from the deploy path.",
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0),
+)
+
+# --- SPIRE join-token issuance (node discover path) ---
+
+spire_join_token_issued_total: Counter = Counter(
+    "gough_spire_join_token_issued_total",
+    "SPIRE join-token issuance attempts during node discovery, by outcome.",
+    ["result"],
+)
+
+# --- Cloud-KMS LUKS sealing (plan compiler, cloud-VM nodes) ---
+
+cloud_kms_luks_seal_total: Counter = Counter(
+    "gough_cloud_kms_luks_seal_total",
+    "Cloud-KMS LUKS key sealing attempts for cloud-VM nodes, by provider and outcome.",
+    ["provider", "result"],
+)
