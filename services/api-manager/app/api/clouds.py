@@ -530,7 +530,7 @@ async def create_machine(provider_id: int):
             tags=data.get("tags", {}),
             extra=data.get("extra", {}),
         )
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- untrusted request body, any construction error is a 400
         return jsonify({"error": f"Invalid machine spec: {e}"}), 400
 
     if not spec.name:
