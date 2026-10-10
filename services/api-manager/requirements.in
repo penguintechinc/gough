@@ -132,4 +132,18 @@ bandit==1.7.10
 # penguin-libs==0.2.0
 # penguin-licensing==0.1.0
 # penguin-sal==0.1.0
-# penguin-utils==0.2.0
+# penguin-utils is a hard runtime import (app/db/database.py, app/db/galera.py
+# both do ``from penguintechinc_utils import get_logger`` unconditionally at
+# module level) -- it was commented out here while still imported, which broke
+# every import of app.db (and therefore every API test) until this was found
+# re-enabling it for the M2 cluster-execution work. 0.2.0 does not exist on
+# PyPI; 0.3.0 is the oldest available and what resolves today.
+penguin-utils==0.3.0
+
+# OpenTelemetry SDK + OTLP gRPC exporters -- scoped to app/observability.py,
+# which backs the M2 cluster-execution OTel logs+metrics+traces
+# (app/api/clusters.py's switch_primary_storage/adopt_cluster). No other
+# module in api-manager instruments OTel yet.
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
