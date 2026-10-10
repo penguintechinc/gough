@@ -624,6 +624,13 @@ async def _execute_storage_cutover(
                     stage=stage["name"],
                     source_backend_id=current_primary["id"] if current_primary else None,
                     target_backend_id=next_primary["id"],
+                    # Sourced from Quart app config only (never request
+                    # data), mirroring app.grpc_runner._start_grpc's
+                    # insecure_allowed derivation.
+                    # regression: grpc plaintext storage_orchestrator (sec review)
+                    insecure_allowed=bool(
+                        current_app.config.get("DEBUG") or current_app.config.get("TESTING")
+                    ),
                 )
                 completed_stages.append(stage["name"])
                 if stage["name"] == "promote":

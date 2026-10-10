@@ -32,6 +32,18 @@ Private ranges (``10/8``, ``172.16/12``, ``192.168/16``) are deliberately
 allowed -- a brownfield cluster legitimately lives on the operator's own
 network; that's an accepted, admin-scoped risk, not the SSRF vector this
 guards against. # regression: SSRF cluster_discovery (sec review)
+
+DNS-rebinding TOCTOU note: the check above used to hand the *hostname* to
+``httpx``, which re-resolves at connect time -- a DNS answer that changes
+between the check and the connect (rebinding) could still reach a blocked
+address. :func:`_validate_discovery_endpoint` now returns a
+:class:`_VettedEndpoint` carrying the single IP address it just vetted, and
+:func:`discover_inventory` connects to that literal IP (never the hostname
+again), with the original hostname preserved only as the ``Host`` header
+and TLS SNI name for certificate verification. No second DNS lookup occurs
+between validation and connect, and redirect-following is explicitly
+disabled so a 302 response cannot reintroduce the bypass.
+# regression: SSRF TOCTOU cluster_discovery (sec review)
 """
 
 from __future__ import annotations
@@ -78,6 +90,24 @@ class DiscoveredMember:
     address: str | None = None
     role: str | None = None
     status: str | None = None
+
+
+@dataclass(slots=True, frozen=True)
+class _VettedEndpoint:
+    """A discovery endpoint whose host has already been resolved and
+    cleared against the SSRF blocklist.
+
+    ``pinned_ip`` is the exact, already-vetted address the outbound
+    connection MUST use -- it is never re-resolved. ``host`` is kept
+    separately, used only for the ``Host`` header and TLS SNI, so the
+    connection target and the certificate/virtual-host identity can differ
+    safely. # regression: SSRF TOCTOU cluster_discovery (sec review)
+    """
+
+    scheme: str
+    host: str
+    pinned_ip: str
+    port: int
 
 
 def _resolve_bearer_token(credentials_ref: str) -> str | None:
@@ -164,14 +194,17 @@ def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     return bool(ip.is_loopback or ip.is_link_local)
 
 
-async def _validate_discovery_endpoint(endpoint: str) -> str:
+async def _validate_discovery_endpoint(endpoint: str) -> _VettedEndpoint:
     """Fail-closed SSRF guard for an operator-supplied adopt ``endpoint``.
 
-    Resolves the host and rejects it (raising
+    Resolves the host exactly once and rejects it (raising
     :class:`ClusterDiscoveryUnavailable`) if any resolved address is
     loopback/link-local/cloud-metadata, or if the scheme isn't http(s) --
-    all BEFORE any network I/O happens. Returns the validated ``endpoint``
-    unchanged. # regression: SSRF cluster_discovery (sec review)
+    all BEFORE any network I/O happens. Returns a :class:`_VettedEndpoint`
+    pinning one already-vetted resolved address -- the caller connects to
+    that literal IP and never re-resolves the host, closing the
+    DNS-rebinding TOCTOU window between this check and the actual connect.
+    # regression: SSRF TOCTOU cluster_discovery (sec review)
     """
     parsed = urlparse(endpoint)
     if parsed.scheme not in _ALLOWED_SCHEMES:
@@ -181,15 +214,17 @@ async def _validate_discovery_endpoint(endpoint: str) -> str:
     host = parsed.hostname
     if not host:
         raise ClusterDiscoveryUnavailable(f"endpoint {endpoint!r} has no resolvable host")
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
     loop = asyncio.get_running_loop()
     try:
-        resolved = await loop.getaddrinfo(host, None)
+        resolved = await loop.getaddrinfo(host, port)
     except OSError as exc:
         raise ClusterDiscoveryUnavailable(
             f"endpoint host {host!r} could not be resolved: {exc}"
         ) from exc
 
+    pinned_ip: str | None = None
     for _family, _type, _proto, _canonname, sockaddr in resolved:
         try:
             ip = ipaddress.ip_address(sockaddr[0])
@@ -200,7 +235,15 @@ async def _validate_discovery_endpoint(endpoint: str) -> str:
                 f"endpoint host {host!r} resolves to a blocked address "
                 f"{ip} (loopback/link-local/metadata)"
             )
-    return endpoint
+        if pinned_ip is None:
+            pinned_ip = str(ip)
+
+    if pinned_ip is None:
+        raise ClusterDiscoveryUnavailable(
+            f"endpoint host {host!r} did not resolve to a usable IP address"
+        )
+
+    return _VettedEndpoint(scheme=parsed.scheme, host=host, pinned_ip=pinned_ip, port=port)
 
 
 async def discover_inventory(
@@ -219,33 +262,54 @@ async def discover_inventory(
         raise ClusterDiscoveryUnavailable(
             "endpoint is required to discover an adopted cluster's inventory"
         )
-    await _validate_discovery_endpoint(endpoint)
+    vetted = await _validate_discovery_endpoint(endpoint)
 
     path = _LXD_MEMBERS_PATH if kind == "lxd" else _K8S_NODES_PATH
-    url = endpoint.rstrip("/") + path
+    # Connect to the pinned IP literally -- never the hostname again (that
+    # would re-resolve at connect time and reopen the DNS-rebinding TOCTOU
+    # window the validation above just closed). The hostname is preserved
+    # below only as the Host header / TLS SNI name.
+    # regression: SSRF TOCTOU cluster_discovery (sec review)
+    connect_host = f"[{vetted.pinned_ip}]" if ":" in vetted.pinned_ip else vetted.pinned_ip
+    url = f"{vetted.scheme}://{connect_host}:{vetted.port}{path}"
+    display_url = f"{vetted.scheme}://{vetted.host}:{vetted.port}{path}"
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"Host": vetted.host}
     token = _resolve_bearer_token(credentials_ref)
     if token:
         headers["Authorization"] = f"Bearer {token}"
 
     try:
-        async with httpx.AsyncClient(timeout=DISCOVERY_TIMEOUT_SECONDS) as http:
-            response = await http.get(url, headers=headers)
+        async with httpx.AsyncClient(
+            timeout=DISCOVERY_TIMEOUT_SECONDS, follow_redirects=False
+        ) as http:
+            # Explicit, not just relying on the httpx default: a redirect
+            # response (e.g. 302 -> http://169.254.169.254) must never be
+            # followed, or it would reintroduce the exact SSRF bypass the
+            # pinned-IP connect above closes.
+            # regression: SSRF TOCTOU cluster_discovery (sec review)
+            assert http.follow_redirects is False, (
+                "httpx redirect-following must stay disabled for discovery requests"
+            )
+            response = await http.get(
+                url,
+                headers=headers,
+                extensions={"sni_hostname": vetted.host},
+            )
             response.raise_for_status()
             payload = response.json()
     except httpx.HTTPError as exc:
         raise ClusterDiscoveryUnavailable(
-            f"brownfield cluster unreachable at {url!r}: {exc}"
+            f"brownfield cluster unreachable at {display_url!r}: {exc}"
         ) from exc
     except ValueError as exc:  # JSON decode failure
         raise ClusterDiscoveryUnavailable(
-            f"brownfield cluster at {url!r} returned a non-JSON response: {exc}"
+            f"brownfield cluster at {display_url!r} returned a non-JSON response: {exc}"
         ) from exc
 
     if not isinstance(payload, dict):
         raise ClusterDiscoveryUnavailable(
-            f"brownfield cluster at {url!r} returned an unexpected response shape"
+            f"brownfield cluster at {display_url!r} returned an unexpected response shape"
         )
 
     return _parse_lxd_members(payload) if kind == "lxd" else _parse_k8s_nodes(payload)
