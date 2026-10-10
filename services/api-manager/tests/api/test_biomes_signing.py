@@ -344,3 +344,40 @@ class TestCosignHelpers:
     def test_parse_cosign_digest_rejects_malformed_output(self, stdout):
         with pytest.raises(biomes_mod.CosignError):
             biomes_mod._parse_cosign_digest(stdout, "ref")
+
+
+class TestArgvFlagInjectionRejected:
+    """regression: argv flag-smuggling (background commit security review).
+
+    A biome ``registry_url`` is operator-controlled and flows as a positional
+    into cosign/syft argv. argv lists stop shell injection but not argument
+    injection: a value beginning with ``-`` is parsed as a CLI flag. The
+    pipeline must reject such a reference fail-closed BEFORE any subprocess.
+    """
+
+    @pytest.mark.parametrize(
+        "bad_ref",
+        [
+            "--output=/tmp/evil",
+            "-o",
+            "--yes",
+            "registry.io/x y:1",  # internal whitespace
+            "",
+        ],
+    )
+    def test_validate_image_ref_rejects_flaglike(self, bad_ref):
+        with pytest.raises(biomes_mod.CosignError):
+            biomes_mod._validate_image_ref(bad_ref)
+
+    def test_validate_image_ref_accepts_normal(self):
+        ref = "registry.example.io/biomes/web@sha256:" + "a" * 64
+        assert biomes_mod._validate_image_ref(ref) == ref
+
+    @pytest.mark.asyncio
+    async def test_cosign_verify_flag_ref_never_spawns_subprocess(self, monkeypatch):
+        async def _boom(*a, **k):
+            raise AssertionError("subprocess spawned for a flag-like image ref")
+
+        monkeypatch.setattr(biomes_mod, "_run_subprocess", _boom)
+        with pytest.raises(biomes_mod.CosignError):
+            await biomes_mod._cosign_verify("--output=/tmp/evil", key_id="k1")

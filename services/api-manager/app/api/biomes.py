@@ -1012,6 +1012,27 @@ def _cosign_key_ref(key_id: str) -> str:
     return f"{_COSIGN_KEY_SCHEME}{key_id}"
 
 
+def _validate_image_ref(image_ref: str) -> str:
+    """Reject an image reference that could smuggle a CLI flag into cosign/syft.
+
+    argv lists stop shell injection but NOT argument injection: a reference
+    beginning with ``-`` is parsed as a flag by cosign/syft (both cobra CLIs),
+    e.g. a biome ``registry_url`` of ``--output=...``. A legitimate OCI
+    reference never starts with ``-`` and carries no whitespace/control chars.
+    Fail-closed -- an invalid ref raises :class:`CosignError` rather than
+    reaching a subprocess (belt-and-suspenders with the ``--`` flag terminator
+    the argv builders also use). regression: argv flag-smuggling (sec review).
+    """
+    ref = (image_ref or "").strip()
+    if not ref:
+        raise CosignError("empty image reference")
+    if ref.startswith("-"):
+        raise CosignError(f"refusing image reference that parses as a flag: {ref!r}")
+    if any(c.isspace() or ord(c) < 0x20 for c in ref):
+        raise CosignError(f"image reference has illegal whitespace/control chars: {ref!r}")
+    return ref
+
+
 def _deploy_tier() -> str:
     """Return the deployment tier label used on signing-related metrics."""
     return os.getenv("GOUGH_DEPLOY_TIER", "alpha").lower()
@@ -1067,8 +1088,9 @@ def _parse_cosign_digest(stdout: str, image_ref: str) -> str:
 
 async def _cosign_verify(image_ref: str, *, key_id: str) -> str:
     """Verify ``image_ref``'s cosign signature; return the verified digest."""
+    image_ref = _validate_image_ref(image_ref)
     key_ref = _cosign_key_ref(key_id)
-    argv = [_COSIGN_BIN, "verify", "--key", key_ref, image_ref]
+    argv = [_COSIGN_BIN, "verify", "--key", key_ref, "--", image_ref]
     stdout, _stderr = await _run_subprocess(argv, timeout=_COSIGN_TIMEOUT_SECONDS)
     return _parse_cosign_digest(stdout, image_ref)
 
@@ -1119,15 +1141,16 @@ async def _cosign_sign_and_attest(
     raise :class:`CosignError` -- the caller must never mark a biome
     signed on a partial pipeline run.
     """
+    image_ref = _validate_image_ref(image_ref)
     key_ref = _cosign_key_ref(key_id)
-    sign_argv = [_COSIGN_BIN, "sign", "--yes", "--key", key_ref, image_ref]
+    sign_argv = [_COSIGN_BIN, "sign", "--yes", "--key", key_ref, "--", image_ref]
     await _run_subprocess(sign_argv, timeout=_COSIGN_TIMEOUT_SECONDS)
 
     # Sign-then-verify, never trust-on-write: immediately re-verify what was
     # just signed and derive the digest from that verified result.
     digest = await _cosign_verify(image_ref, key_id=key_id)
 
-    sbom_argv = [_SYFT_BIN, image_ref, "-o", "spdx-json"]
+    sbom_argv = [_SYFT_BIN, "-o", "spdx-json", "--", image_ref]
     sbom_stdout, _sbom_stderr = await _run_subprocess(sbom_argv, timeout=_COSIGN_TIMEOUT_SECONDS)
     sbom_url = await _store_sbom(biome_name=biome_name, image_digest=digest, sbom_json=sbom_stdout)
 
