@@ -443,7 +443,12 @@ async def create_app(config_class: type = Config) -> Quart:
             app.config["GRPC_STATUS"] = "down: import failed"
             return
 
-        task = asyncio.ensure_future(grpc_runner.serve())
+        task = asyncio.ensure_future(
+            grpc_runner.serve(
+                insecure_allowed=bool(app.config.get("DEBUG") or app.config.get("TESTING")),
+                oidc_verifier=app.config.get("OIDC_VERIFIER"),
+            )
+        )
 
         def _on_grpc_task_done(t: "asyncio.Task[None]") -> None:
             """Surface a background gRPC server crash instead of losing it silently."""
@@ -476,6 +481,13 @@ async def create_app(config_class: type = Config) -> Quart:
     oidc_provider, oidc_verifier = build_oidc(oidc_settings)
     app.config["OIDC_SETTINGS"] = oidc_settings
     app.config["OIDC_PROVIDER"] = oidc_provider
+    # Stashed so _start_grpc (below) can hand the SAME verifier to
+    # GrpcAuthInterceptor -- a machine JWT must validate against the
+    # identical ES256 key material regardless of transport (gRPC or REST).
+    # Rebuilding a second verifier from OIDCSettings would mint a DIFFERENT
+    # in-memory key under DEBUG/TESTING (MemoryKeyStore generates fresh key
+    # material per call), silently breaking gRPC machine-JWT auth in tests.
+    app.config["OIDC_VERIFIER"] = oidc_verifier
     app.asgi_app = OIDCAuthMiddleware(
         app.asgi_app,
         rp=oidc_verifier,
