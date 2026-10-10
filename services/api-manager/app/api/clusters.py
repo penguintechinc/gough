@@ -20,27 +20,66 @@ Implements the spec's "API Surface → Clusters" section:
                                                               (MFA for compliance-lane flips)
 
 All credential fields are stored as Vault paths only (never inline secrets).
-M1 deferrals: ``switch-primary`` returns a migration plan preview; ``adopt``
-emits ``gough.cluster.adopt.requested`` NATS event.
+M1 deferrals, both now flag-gated (default OFF) M2 real executions:
+``switch-primary`` (``FLAG_STORAGE_SWITCH_PRIMARY``) and ``adopt``
+(``FLAG_CLUSTER_ADOPT``) -- see each function's docstring.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Optional
 
+from opentelemetry.trace import Status, StatusCode
 from quart import Blueprint, current_app, g, jsonify, request
 
-from ..clients import lxd_extra
+from ..clients import cluster_discovery, lxd_extra, storage_orchestrator
 from ..db.run_db import run_db
+from ..licensing import feature_enabled
 from ..middleware import auth_required
 from ..models import get_db
+from ..observability import attach_otel_logging, get_meter, get_tracer
 
 log = logging.getLogger(__name__)
+attach_otel_logging(log)
+
+_tracer = get_tracer(__name__)
+_meter = get_meter(__name__)
+
+#: Gates the M2 REAL EXECUTION of a primary-storage-backend cutover. Flag
+#: OFF (default) keeps the M1 migration-plan PREVIEW response unchanged --
+#: see ``switch_primary_storage``. Per ``critical-rules.md`` Feature Flags &
+#: License Tiers: new flags default OFF until validated.
+FLAG_STORAGE_SWITCH_PRIMARY = "gough.storage-switch-primary"
+
+#: Gates the M2 REAL EXECUTION of brownfield cluster adoption (inventory
+#: ingestion). Flag OFF (default) keeps the M1 "validate + emit NATS
+#: request" behavior unchanged -- see ``adopt_cluster``.
+FLAG_CLUSTER_ADOPT = "gough.cluster-adopt"
+
+_storage_switch_executions = _meter.create_counter(
+    "gough_storage_switch_primary_executions",
+    description="M2 primary-storage cutover executions, by outcome.",
+)
+_storage_switch_duration = _meter.create_histogram(
+    "gough_storage_switch_primary_duration_seconds",
+    description="Wall-clock duration of a primary-storage cutover execution.",
+    unit="s",
+)
+_cluster_adopt_executions = _meter.create_counter(
+    "gough_cluster_adopt_executions",
+    description="M2 brownfield cluster-adoption executions, by outcome.",
+)
+_cluster_adopt_duration = _meter.create_histogram(
+    "gough_cluster_adopt_duration_seconds",
+    description="Wall-clock duration of a brownfield cluster-adoption execution.",
+    unit="s",
+)
 
 clusters_bp = Blueprint("clusters", __name__)
 
@@ -476,12 +515,204 @@ async def patch_storage_backend(cluster_id: str):
     return jsonify({"status": "success", "data": _serialise_storage_backend(refreshed)}), 200
 
 
+#: The five cutover stages, in execution order. Shared verbatim between the
+#: M1 preview ``plan`` and the M2 real execution loop below, and mirrored in
+#: ``app.clients.storage_orchestrator.STAGE_ORDER``.
+_STAGES: tuple[dict[str, Any], ...] = (
+    {"order": 1, "name": "preflight",
+     "description": "Validate target backend health and capacity"},
+    {"order": 2, "name": "drain_writes",
+     "description": "Quiesce writes on current primary"},
+    {"order": 3, "name": "snapshot_sync",
+     "description": "Final delta sync to target backend"},
+    {"order": 4, "name": "promote",
+     "description": "Promote target to primary"},
+    {"order": 5, "name": "demote_old",
+     "description": "Demote previous primary; retain as warm-standby"},
+)
+
+
+def _set_primary(
+    cluster_id: str,
+    *,
+    demote: dict | None,
+    promote: dict | None,
+    reason: str,
+    actor: str,
+) -> None:
+    """Flip ``storage_backends.is_default``/``status`` and append a
+    ``cluster_config`` history entry -- one DB unit of work, used both to
+    commit a cutover and to roll one back (just swap which side is which).
+
+    ``demote``/``promote`` are the ``_serialise_storage_backend()`` dicts,
+    not raw rows -- either may be ``None`` (e.g. rolling back to "no
+    default existed before this attempt").
+    """
+    db = get_db()
+    now = datetime.now(UTC)
+    # String form, not uuid.UUID objects -- see _fetch_backends's comment
+    # on why (SQLAlchemy 2.0 Uuid-bind-type inference vs. this VARCHAR(36)
+    # column).
+    if demote is not None:
+        db(db.storage_backends.id == str(demote["id"])).update(
+            is_default=False, status="standby", updated_at=now,
+        )
+    if promote is not None:
+        db(db.storage_backends.id == str(promote["id"])).update(
+            is_default=True, status="ready", updated_at=now,
+        )
+    history = _load_cluster_doc(cluster_id, "storage_primary_switch_history", [])
+    if not isinstance(history, list):
+        history = []
+    history.append({
+        "from": demote["id"] if demote else None,
+        "to": promote["id"] if promote else None,
+        "reason": reason,
+        "actor": actor,
+        "at": now.isoformat(),
+    })
+    _save_cluster_doc(cluster_id, "storage_primary_switch_history", history)
+    db.commit()
+
+
+async def _execute_storage_cutover(
+    *,
+    cluster_id: str,
+    current_primary: dict | None,
+    next_primary: dict,
+    reason: str,
+    actor: str,
+) -> tuple[bool, dict]:
+    """Run the M2 primary-storage cutover end to end against the
+    storage-orchestrator boundary (``app.clients.storage_orchestrator``,
+    mocked in tests).
+
+    DB state (``storage_backends.is_default``/``status`` +
+    ``cluster_config`` history) only changes once, right after the
+    ``promote`` stage succeeds. A failure at or before ``promote`` leaves
+    the DB untouched (nothing to roll back); a failure at ``demote_old``
+    (after ``promote`` already committed) reverts that flip before
+    returning, so the caller never has to reason about partial DB state.
+    """
+    start = time.monotonic()
+    completed_stages: list[str] = []
+    db_flipped = False
+    failed_stage: str | None = None
+
+    with _tracer.start_as_current_span("gough.cluster.storage.switch_primary") as span:
+        span.set_attribute("gough.cluster_id", cluster_id)
+        span.set_attribute("gough.storage.target_backend_id", next_primary["id"])
+        span.set_attribute(
+            "gough.storage.source_backend_id",
+            current_primary["id"] if current_primary else "",
+        )
+        try:
+            for stage in _STAGES:
+                failed_stage = stage["name"]
+                _emit_nats(
+                    f"gough.cluster.{cluster_id}.storage.switch_primary.progress",
+                    {
+                        "cluster_id": cluster_id,
+                        "stage": stage["name"],
+                        "order": stage["order"],
+                        "target_backend_id": next_primary["id"],
+                        "actor_sub": actor,
+                    },
+                )
+                await storage_orchestrator.execute_stage(
+                    cluster_id=cluster_id,
+                    stage=stage["name"],
+                    source_backend_id=current_primary["id"] if current_primary else None,
+                    target_backend_id=next_primary["id"],
+                )
+                completed_stages.append(stage["name"])
+                if stage["name"] == "promote":
+                    await run_db(lambda: _set_primary(
+                        cluster_id, demote=current_primary, promote=next_primary,
+                        reason=reason, actor=actor,
+                    ))
+                    db_flipped = True
+
+            duration = time.monotonic() - start
+            _storage_switch_executions.add(1, {"outcome": "success"})
+            _storage_switch_duration.record(duration, {"outcome": "success"})
+            span.set_status(Status(StatusCode.OK))
+            _emit_nats(
+                f"gough.cluster.{cluster_id}.storage.switch_primary.completed",
+                {
+                    "cluster_id": cluster_id,
+                    "from": current_primary["id"] if current_primary else None,
+                    "to": next_primary["id"],
+                    "actor_sub": actor,
+                },
+            )
+            log.info(
+                "storage.switch_primary completed cluster_id=%s from=%s to=%s "
+                "actor=%s duration_s=%.3f",
+                cluster_id,
+                current_primary["id"] if current_primary else None,
+                next_primary["id"], actor, duration,
+            )
+            return True, {
+                "completed_stages": completed_stages,
+                "current_primary": next_primary,
+                "previous_primary": current_primary,
+                "duration_seconds": round(duration, 3),
+                "rollback_performed": False,
+            }
+        except Exception as exc:  # noqa: BLE001 - any boundary/stage failure triggers rollback
+            duration = time.monotonic() - start
+            rollback_performed = False
+            if db_flipped:
+                await run_db(lambda: _set_primary(
+                    cluster_id, demote=next_primary, promote=current_primary,
+                    reason=f"rollback:{reason}", actor=actor,
+                ))
+                rollback_performed = True
+            _storage_switch_executions.add(1, {"outcome": "failed"})
+            _storage_switch_duration.record(duration, {"outcome": "failed"})
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            _emit_nats(
+                f"gough.cluster.{cluster_id}.storage.switch_primary.failed",
+                {
+                    "cluster_id": cluster_id,
+                    "failed_stage": failed_stage,
+                    "error": str(exc),
+                    "rollback_performed": rollback_performed,
+                    "actor_sub": actor,
+                },
+            )
+            log.error(
+                "storage.switch_primary failed cluster_id=%s stage=%s error=%s "
+                "rollback_performed=%s actor=%s",
+                cluster_id, failed_stage, exc, rollback_performed, actor,
+            )
+            return False, {
+                "failed_stage": failed_stage,
+                "error": str(exc),
+                "completed_stages": completed_stages,
+                "rollback_performed": rollback_performed,
+                "duration_seconds": round(duration, 3),
+            }
+
+
 @clusters_bp.route("/<cluster_id>/storage/switch-primary", methods=["POST"])
 @auth_required
 @_scope_required("gough.cluster.admin")
 @_require_cluster_tenant
 async def switch_primary_storage(cluster_id: str):
-    """Preview a primary-storage switch (M1) — full execution lands in M2."""
+    """Switch the cluster's primary storage backend.
+
+    M1 (``FLAG_STORAGE_SWITCH_PRIMARY`` OFF, default): returns a migration
+    PLAN PREVIEW only -- unchanged from the original M1 behavior.
+
+    M2 (flag ON): executes the cutover end to end via
+    :func:`_execute_storage_cutover` against the storage-orchestrator
+    boundary (mocked in tests), updating ``storage_backends``/
+    ``cluster_config`` state, emitting NATS progress events per stage, and
+    rolling back on failure.
+    """
     body = await request.get_json(silent=True) or {}
     target = (body.get("target_backend_id") or body.get("new_primary_backend") or "").strip()
     reason = (body.get("reason") or body.get("strategy") or "unspecified").strip()
@@ -503,12 +734,20 @@ async def switch_primary_storage(cluster_id: str):
             & (db.storage_backends.is_default == True)  # noqa: E712
         ).select().first()
         try:
-            target_uuid = uuid.UUID(target)
+            # Validate shape only -- app.models_m1.UUID stores VARCHAR(36),
+            # and penguin-dal's reflected column (no custom TypeDecorator
+            # info survives reflection) is plain String. Comparing against
+            # the uuid.UUID *object* makes SQLAlchemy 2.0 infer a `Uuid`
+            # bind type and emit `::UUID` on Postgres, which then fails
+            # with "operator does not exist: character varying = uuid"
+            # against this VARCHAR column -- compare against the
+            # (already-validated) string form instead.
+            uuid.UUID(target)
         except ValueError:
             return "invalid_target", cur, None
         nxt = db(
             (db.storage_backends.cluster_id == cluster_id)
-            & (db.storage_backends.id == target_uuid)
+            & (db.storage_backends.id == target)
         ).select().first()
         return "ok", cur, nxt
 
@@ -526,35 +765,60 @@ async def switch_primary_storage(cluster_id: str):
         next_primary = _serialise_storage_backend(nxt)
 
     plan = {
-        "stages": [
-            {"order": 1, "name": "preflight",
-             "description": "Validate target backend health and capacity"},
-            {"order": 2, "name": "drain_writes",
-             "description": "Quiesce writes on current primary"},
-            {"order": 3, "name": "snapshot_sync",
-             "description": "Final delta sync to target backend"},
-            {"order": 4, "name": "promote",
-             "description": "Promote target to primary"},
-            {"order": 5, "name": "demote_old",
-             "description": "Demote previous primary; retain as warm-standby"},
-        ],
+        "stages": list(_STAGES),
         "current_primary": current_primary,
         "next_primary": next_primary,
         "estimated_duration_seconds": 1800,
     }
-    _emit_nats(f"gough.cluster.{cluster_id}.storage.switch_primary.requested", {
+
+    actor = _principal_sub()
+
+    if not await feature_enabled(FLAG_STORAGE_SWITCH_PRIMARY, cluster_id):
+        _emit_nats(f"gough.cluster.{cluster_id}.storage.switch_primary.requested", {
+            "cluster_id": cluster_id,
+            "target_backend_id": target,
+            "reason": reason,
+            "actor_sub": actor,
+        })
+        return jsonify({"status": "success", "data": {
+            "plan": plan,
+            "note": (
+                "M1 returns a migration plan preview only; full execution "
+                "lands in M2"
+            ),
+        }}), 202
+
+    # M2: real execution. Nothing to execute without a resolved target.
+    if not backends_present or next_primary is None:
+        return jsonify({
+            "status": "error",
+            "error": "execution_unavailable",
+            "message": (
+                "storage_backends schema not initialized; cannot execute a "
+                "real primary-storage cutover"
+            ),
+        }), 409
+
+    _emit_nats(f"gough.cluster.{cluster_id}.storage.switch_primary.started", {
         "cluster_id": cluster_id,
         "target_backend_id": target,
         "reason": reason,
-        "actor_sub": _principal_sub(),
+        "actor_sub": actor,
     })
-    return jsonify({"status": "success", "data": {
-        "plan": plan,
-        "note": (
-            "M1 returns a migration plan preview only; full execution "
-            "lands in M2"
-        ),
-    }}), 202
+    success, result = await _execute_storage_cutover(
+        cluster_id=cluster_id,
+        current_primary=current_primary,
+        next_primary=next_primary,
+        reason=reason,
+        actor=actor,
+    )
+    if not success:
+        return jsonify({
+            "status": "error",
+            "error": "storage_migration_failed",
+            "data": result,
+        }), 502
+    return jsonify({"status": "success", "data": {**result, "plan": plan}}), 200
 
 
 # =============================================================================
@@ -864,13 +1128,175 @@ async def patch_identity_plane(cluster_id: str):
     return jsonify({"status": "success", "data": {"cluster_id": cluster_id, "provider": merged.get("provider"), "identity_plane": merged}}), 200
 
 
+def _ensure_cluster_row(cluster_id: str, kind: str, tenant_id: str) -> bool:
+    """Create the ``clusters`` row for ``cluster_id`` if it doesn't exist.
+
+    Returns ``True`` iff THIS call created the row -- so a failed adoption
+    only rolls back a row it actually created, never a pre-existing cluster
+    (e.g. a failed re-adopt attempt on an already-known cluster).
+    """
+    db = get_db()
+    existing = db(db.clusters.id == cluster_id).select().first()
+    if existing is not None:
+        return False
+    db.clusters.insert(
+        id=cluster_id,
+        tenant_id=tenant_id,
+        name=cluster_id,
+        description=f"Brownfield-adopted {kind} cluster",
+        status="adopting",
+    )
+    db.commit()
+    return True
+
+
+def _delete_cluster_row(cluster_id: str) -> None:
+    """Rollback counterpart to :func:`_ensure_cluster_row`."""
+    db = get_db()
+    db(db.clusters.id == cluster_id).delete()
+    db.commit()
+
+
+def _finalize_adoption(cluster_id: str, doc: dict) -> None:
+    """Mark the cluster ready and persist the discovered inventory -- one
+    DB unit of work (status flip + ``cluster_config`` doc save)."""
+    db = get_db()
+    now = datetime.now(UTC)
+    db(db.clusters.id == cluster_id).update(status="ready", updated_at=now)
+    _save_cluster_doc(cluster_id, "adopted_inventory", doc)
+    db.commit()
+
+
+async def _execute_cluster_adoption(
+    *,
+    cluster_id: str,
+    kind: str,
+    endpoint: str,
+    credentials_ref: str,
+    tenant_id: str,
+    reason: str,
+    actor: str,
+    request_id: str,
+) -> tuple[bool, dict]:
+    """Run the M2 brownfield adoption end to end: ingest the target
+    cluster's node/member inventory into gough's model
+    (``clusters`` + ``cluster_config``) via the discovery boundary
+    (``app.clients.cluster_discovery``, mocked in tests), with rollback of
+    anything this call created on failure.
+    """
+    start = time.monotonic()
+    with _tracer.start_as_current_span("gough.cluster.adopt") as span:
+        span.set_attribute("gough.cluster_id", cluster_id)
+        span.set_attribute("gough.cluster.adopt.kind", kind)
+        span.set_attribute("gough.cluster.adopt.endpoint", endpoint)
+
+        created_cluster_row = await run_db(
+            lambda: _ensure_cluster_row(cluster_id, kind, tenant_id)
+        )
+        _emit_nats(f"gough.cluster.{cluster_id}.adopt.started", {
+            "request_id": request_id,
+            "cluster_id": cluster_id,
+            "kind": kind,
+            "endpoint": endpoint,
+            "actor_sub": actor,
+        })
+        log.info(
+            "cluster.adopt.started cluster_id=%s kind=%s actor=%s request_id=%s",
+            cluster_id, kind, actor, request_id,
+        )
+
+        try:
+            members = await cluster_discovery.discover_inventory(
+                kind=kind, endpoint=endpoint, credentials_ref=credentials_ref,
+            )
+        except cluster_discovery.ClusterDiscoveryError as exc:
+            duration = time.monotonic() - start
+            if created_cluster_row:
+                await run_db(lambda: _delete_cluster_row(cluster_id))
+            _cluster_adopt_executions.add(1, {"outcome": "failed"})
+            _cluster_adopt_duration.record(duration, {"outcome": "failed"})
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            _emit_nats(f"gough.cluster.{cluster_id}.adopt.failed", {
+                "request_id": request_id,
+                "cluster_id": cluster_id,
+                "error": str(exc),
+                "rollback_performed": created_cluster_row,
+                "actor_sub": actor,
+            })
+            log.error(
+                "cluster.adopt.failed cluster_id=%s kind=%s error=%s "
+                "rollback_performed=%s request_id=%s",
+                cluster_id, kind, exc, created_cluster_row, request_id,
+            )
+            return False, {
+                "error": str(exc),
+                "rollback_performed": created_cluster_row,
+                "duration_seconds": round(duration, 3),
+                "request_id": request_id,
+            }
+
+        now = datetime.now(UTC)
+        member_dicts = [
+            {"name": m.name, "address": m.address, "role": m.role, "status": m.status}
+            for m in members
+        ]
+        doc = {
+            "kind": kind,
+            "endpoint": endpoint,
+            "credentials_ref": credentials_ref,
+            "reason": reason,
+            "request_id": request_id,
+            "actor": actor,
+            "member_count": len(member_dicts),
+            "members": member_dicts,
+            "adopted_at": now.isoformat(),
+        }
+        await run_db(lambda: _finalize_adoption(cluster_id, doc))
+
+        duration = time.monotonic() - start
+        _cluster_adopt_executions.add(1, {"outcome": "success"})
+        _cluster_adopt_duration.record(duration, {"outcome": "success"})
+        span.set_attribute("gough.cluster.adopt.member_count", len(member_dicts))
+        span.set_status(Status(StatusCode.OK))
+        _emit_nats(f"gough.cluster.{cluster_id}.adopt.completed", {
+            "request_id": request_id,
+            "cluster_id": cluster_id,
+            "kind": kind,
+            "member_count": len(member_dicts),
+            "actor_sub": actor,
+        })
+        log.info(
+            "cluster.adopt.completed cluster_id=%s kind=%s member_count=%d "
+            "actor=%s request_id=%s duration_s=%.3f",
+            cluster_id, kind, len(member_dicts), actor, request_id, duration,
+        )
+        return True, {
+            "event": "gough.cluster.adopt.completed",
+            "request_id": request_id,
+            "kind": kind,
+            "cluster_id": cluster_id,
+            "member_count": len(member_dicts),
+            "members": member_dicts,
+            "duration_seconds": round(duration, 3),
+        }
+
+
 @clusters_bp.route("/<cluster_id>/adopt", methods=["POST"])
 @auth_required
 @_scope_required("gough.cluster.superadmin")
 async def adopt_cluster(cluster_id: str):
-    """Brownfield adoption (M1: validate body shape + emit NATS request).
+    """Brownfield-adopt an existing LXD or Kubernetes cluster into gough.
 
-    Full implementation lands in M2 per spec line 2129 (CQ-4).
+    M1 (``FLAG_CLUSTER_ADOPT`` OFF, default): validates body shape and
+    emits a ``gough.cluster.adopt.requested`` NATS event only -- unchanged
+    from the original M1 behavior.
+
+    M2 (flag ON): discovers the target cluster's member inventory via
+    :func:`_execute_cluster_adoption` (``app.clients.cluster_discovery``
+    boundary, mocked in tests) and ingests it into gough's model
+    (``clusters`` + ``cluster_config``), rolling back anything this request
+    created on failure.
     """
     body = await request.get_json(silent=True) or {}
     if not isinstance(body, dict):
@@ -886,24 +1312,76 @@ async def adopt_cluster(cluster_id: str):
     reason = (body.get("reason") or "adoption").strip()
 
     request_id = str(uuid.uuid4())
-    _emit_nats(f"gough.cluster.{cluster_id}.adopt.requested", {
-        "request_id": request_id,
-        "cluster_id": cluster_id,
-        "kind": kind,
-        "endpoint": endpoint,
-        "credentials_ref": credentials_ref,
-        "reason": reason,
-        "actor_sub": _principal_sub(),
-    })
-    log.info(
-        "cluster.adopt.requested cluster_id=%s kind=%s actor=%s request_id=%s",
-        cluster_id, kind, _principal_sub(), request_id,
+    actor = _principal_sub()
+
+    if not await feature_enabled(FLAG_CLUSTER_ADOPT, cluster_id):
+        _emit_nats(f"gough.cluster.{cluster_id}.adopt.requested", {
+            "request_id": request_id,
+            "cluster_id": cluster_id,
+            "kind": kind,
+            "endpoint": endpoint,
+            "credentials_ref": credentials_ref,
+            "reason": reason,
+            "actor_sub": actor,
+        })
+        log.info(
+            "cluster.adopt.requested cluster_id=%s kind=%s actor=%s request_id=%s",
+            cluster_id, kind, actor, request_id,
+        )
+        return jsonify({"status": "success", "data": {
+            "event": "gough.cluster.adopt.requested",
+            "request_id": request_id,
+            "kind": kind,
+        }}), 202
+
+    # M2: real ingestion.
+    if kind not in ("lxd", "k8s"):
+        return jsonify({
+            "error": "validation_failed",
+            "details": {"violations": [{
+                "code": "invalid_kind",
+                "field": "kind",
+                "message": "kind must resolve to 'lxd' or 'k8s'",
+            }]},
+        }), 422
+    if not endpoint:
+        return jsonify({
+            "error": "validation_failed",
+            "details": {"violations": [{
+                "code": "missing_endpoint",
+                "field": "endpoint",
+                "message": (
+                    "endpoint (or discovery_params.api_endpoint) is "
+                    "required to adopt a cluster"
+                ),
+            }]},
+        }), 422
+
+    db = get_db()
+    if "clusters" not in getattr(db, "tables", []):
+        return jsonify({
+            "status": "error",
+            "error": "execution_unavailable",
+            "message": "clusters schema not initialized; cannot execute a real adoption",
+        }), 409
+
+    success, result = await _execute_cluster_adoption(
+        cluster_id=cluster_id,
+        kind=kind,
+        endpoint=endpoint,
+        credentials_ref=credentials_ref,
+        tenant_id=_current_tenant_id(),
+        reason=reason,
+        actor=actor,
+        request_id=request_id,
     )
-    return jsonify({"status": "success", "data": {
-        "event": "gough.cluster.adopt.requested",
-        "request_id": request_id,
-        "kind": kind,
-    }}), 202
+    if not success:
+        return jsonify({
+            "status": "error",
+            "error": "cluster_adoption_failed",
+            "data": result,
+        }), 502
+    return jsonify({"status": "success", "data": result}), 200
 
 
 @clusters_bp.route("/<cluster_id>/config", methods=["GET"])

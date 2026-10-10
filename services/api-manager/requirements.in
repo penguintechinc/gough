@@ -50,7 +50,9 @@ nats-py==2.9.0  # NATS JetStream client; Sprint 4 event stream
 cryptography==46.0.6
 
 # Observability - OTel logs+metrics+traces for the migration lifecycle
-# (critical-rules.md Observability). Endpoint is env-configurable
+# (critical-rules.md Observability). Also backs app/observability.py's M2
+# cluster-execution instrumentation (app/api/clusters.py's
+# switch_primary_storage/adopt_cluster). Endpoint is env-configurable
 # (OTEL_EXPORTER_OTLP_ENDPOINT) -- never hardcoded, never vendor-specific.
 opentelemetry-api==1.45.1
 opentelemetry-sdk==1.45.1
