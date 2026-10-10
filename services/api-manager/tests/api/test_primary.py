@@ -370,16 +370,20 @@ async def test_post_primary_frontend_switch_to_vip(client, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_post_primary_frontend_switch_to_anycast(client):
-    """Test POST /api/v1/primary/frontend-switch to anycast mode.
+async def test_post_primary_frontend_switch_to_anycast_flag_off_is_blocked(client):
+    """Regression: anycast stays gated when FLAG_ANYCAST_FRONTEND is off.
 
-    Regression: this asserted a 202-deferred-to-M2 stub that was never
-    implemented. Anycast is intentionally unimplemented in M2 (BGP peering
-    "tracked in M3 roadmap" per the endpoint's own docstring), which returns
-    501 -- not a deferred-acceptance response.
+    M3 replaced the old unconditional 501 ``anycast_requires_bgp`` stub with
+    a real, flag-gated implementation (see ``_advertise_bgp_route``). No
+    POSTHOG_KEY is configured in this test environment, so the flag
+    evaluates OFF by construction (``app.licensing.feature_enabled`` returns
+    False whenever its PostHog client is unconfigured) -- this test exists
+    to catch a future change that accidentally removes the gate and makes
+    anycast unconditionally reachable.
     """
     body = {
         "target_mode": "anycast",
+        "new_endpoint": "10.0.0.50:6443",
     }
     response = await client.post(
         "/api/v1/primary/frontend-switch",
@@ -389,10 +393,184 @@ async def test_post_primary_frontend_switch_to_anycast(client):
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 501
+    assert response.status_code == 404
     data = await response.get_json()
     assert data["status"] == "error"
-    assert data["error"]["code"] == "anycast_requires_bgp"
+    assert data["error"]["code"] == "feature_disabled"
+    assert data["error"]["details"]["flag"] == "gough.anycast-frontend"
+
+
+@pytest.mark.asyncio
+async def test_post_primary_frontend_switch_to_anycast_flag_on_success(
+    client, monkeypatch
+):
+    """Flag-ON real path: anycast switch advertises the VIP via BGP.
+
+    Every primary node's announce succeeding reports overall success. Mocks
+    the BGP/gRPC boundary (``_advertise_bgp_route``, same way the kube-vip
+    test above mocks ``_emit_gracious_arp``) -- real wiring is in
+    ``switch_frontend``/``_advertise_bgp_route`` themselves; the gRPC stub
+    to the discovery-agent is owned by another workstream and out of scope
+    here, same rationale as the kube-vip test.
+    """
+    import app.api.primary as primary_mod
+
+    async def fake_flag_on(*_a: object, **_k: object) -> bool:
+        return True
+
+    calls: list[dict] = []
+
+    async def fake_update_endpoint(new_endpoint: str, node_ids: list) -> dict:
+        return {nid: {"success": True, "error": None} for nid in node_ids}
+
+    async def fake_advertise(
+        vip: str, node_ids: list, *, action: str = "advertise"
+    ) -> dict:
+        calls.append({"vip": vip, "node_ids": list(node_ids), "action": action})
+        # Real shape: dict[node_id] -> {"success": bool, ...}. Node IDs here
+        # are synthetic (the test DB seeds no state="primary" nodes) --
+        # switch_frontend only ever inspects the dict _advertise_bgp_route
+        # itself returns, never cross-checks it against the node_ids it was
+        # called with.
+        return {
+            101: {"success": True, "error": None},
+            102: {"success": True, "error": None},
+        }
+
+    monkeypatch.setattr(primary_mod, "feature_enabled", fake_flag_on)
+    monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+    monkeypatch.setattr(primary_mod, "_advertise_bgp_route", fake_advertise)
+
+    body = {
+        "target_mode": "anycast",
+        "new_endpoint": "10.0.0.50:6443",
+    }
+    response = await client.post(
+        "/api/v1/primary/frontend-switch",
+        data=json.dumps(body),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 200
+    data = await response.get_json()
+    assert data["status"] == "success"
+    assert data["data"]["target_mode"] == "anycast"
+    assert data["data"]["endpoint"] == "10.0.0.50:6443"
+    # _advertise_bgp_route was called with the VIP (host portion only) and
+    # the advertise action, mirroring the kube-vip branch's _emit_gracious_arp
+    # call shape.
+    assert calls == [{"vip": "10.0.0.50", "node_ids": [], "action": "advertise"}]
+
+
+@pytest.mark.asyncio
+async def test_post_primary_frontend_switch_to_anycast_partial_bgp_failure(
+    client, monkeypatch
+):
+    """Flag-ON real path: a node failing to advertise fails the whole switch.
+
+    Reports which node(s) failed. Mirrors ``_update_endpoint_on_nodes``'s
+    existing partial-failure handling (gh-22): the per-node result dict is
+    checked explicitly rather than used as a bool, so one failing node among
+    several succeeding ones is still caught.
+    """
+    import app.api.primary as primary_mod
+
+    async def fake_flag_on(*_a: object, **_k: object) -> bool:
+        return True
+
+    async def fake_update_endpoint(new_endpoint: str, node_ids: list) -> dict:
+        return {nid: {"success": True, "error": None} for nid in node_ids}
+
+    async def fake_advertise(
+        vip: str, node_ids: list, *, action: str = "advertise"
+    ) -> dict:
+        return {
+            101: {"success": True, "error": None},
+            102: {"success": False, "error": "BGP peer unreachable: timeout"},
+        }
+
+    monkeypatch.setattr(primary_mod, "feature_enabled", fake_flag_on)
+    monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+    monkeypatch.setattr(primary_mod, "_advertise_bgp_route", fake_advertise)
+
+    body = {
+        "target_mode": "anycast",
+        "new_endpoint": "10.0.0.50:6443",
+    }
+    response = await client.post(
+        "/api/v1/primary/frontend-switch",
+        data=json.dumps(body),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 500
+    data = await response.get_json()
+    assert data["status"] == "error"
+    assert data["error"]["code"] == "bgp_advertise_failed"
+    assert data["error"]["details"]["failed_node_ids"] == [102]
+
+
+@pytest.mark.asyncio
+async def test_post_primary_frontend_switch_to_anycast_flag_on_missing_endpoint(
+    client, monkeypatch
+):
+    """Flag-ON: anycast still requires new_endpoint (the VIP to advertise)."""
+    import app.api.primary as primary_mod
+
+    async def fake_flag_on(*_a: object, **_k: object) -> bool:
+        return True
+
+    monkeypatch.setattr(primary_mod, "feature_enabled", fake_flag_on)
+
+    body = {"target_mode": "anycast"}
+    response = await client.post(
+        "/api/v1/primary/frontend-switch",
+        data=json.dumps(body),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 422
+    data = await response.get_json()
+    assert data["error"]["code"] == "validation_failed"
+    assert "new_endpoint" in data["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_post_primary_frontend_switch_to_anycast_flag_on_invalid_vip(
+    client, monkeypatch
+):
+    """Flag-ON: a non-IP new_endpoint VIP is rejected before the gRPC call.
+
+    There is no live-reachability check possible for a VIP that isn't
+    routable until BGP advertises it, so this is anycast's only input
+    validation.
+    """
+    import app.api.primary as primary_mod
+
+    async def fake_flag_on(*_a: object, **_k: object) -> bool:
+        return True
+
+    monkeypatch.setattr(primary_mod, "feature_enabled", fake_flag_on)
+
+    body = {"target_mode": "anycast", "new_endpoint": "not-an-ip:6443"}
+    response = await client.post(
+        "/api/v1/primary/frontend-switch",
+        data=json.dumps(body),
+        headers={
+            "Authorization": "Bearer test-token",
+            "Content-Type": "application/json",
+        },
+    )
+    assert response.status_code == 422
+    data = await response.get_json()
+    assert data["error"]["code"] == "validation_failed"
+    assert "not-an-ip" in data["error"]["message"]
 
 
 @pytest.mark.asyncio

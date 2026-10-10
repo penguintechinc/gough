@@ -106,3 +106,12 @@ nats_audit_mirror_lag_messages: Gauge = Gauge(
     "Number of audit events not yet mirrored to the offsite NATS stream",
     ["cluster_id"],
 )
+
+# --- M3: Anycast/BGP control-plane frontend ---
+
+anycast_bgp_announce_failure: Counter = Counter(
+    "gough_anycast_bgp_announce_failure_total",
+    "BGP route advertise/withdraw failures on a primary node during an "
+    "anycast control-plane frontend switch",
+    ["node_id", "action"],
+)

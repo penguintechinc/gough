@@ -11,11 +11,18 @@ Implements the spec's "API Surface → Primary HA (M2)" section:
 M2 scope (implemented): status returns per-service quorum state; each mutating
 operation executes synchronously against etcd/kubectl/etcdctl/Vault/gRPC and
 returns its terminal status code directly (200 success, 409 quorum loss, 422
-validation, 500/503 backend failure, 501 for the not-yet-built anycast mode,
-504 timeout) -- there is no 202-deferred-to-M2 stub response; that description
-described the not-yet-built state and was never accurate for this file's
-actual endpoint implementations (which have returned real synchronous results
-since the first commit that added them).
+validation, 500/503 backend failure, 504 timeout) -- there is no
+202-deferred-to-M2 stub response; that description described the not-yet-built
+state and was never accurate for this file's actual endpoint implementations
+(which have returned real synchronous results since the first commit that
+added them).
+
+M3 addition: the ``anycast`` ``frontend-switch`` target mode (BGP-advertised
+control-plane VIP) is implemented behind the ``FLAG_ANYCAST_FRONTEND``
+PostHog flag, default OFF (see docs/specs/platform-spec.md "Limitations
+(M2+)"). While the flag is OFF, requesting ``target_mode: anycast`` returns
+404 ``feature_disabled`` rather than the former 501 ``anycast_requires_bgp``
+placeholder.
 """
 
 from __future__ import annotations
@@ -30,12 +37,21 @@ from typing import Any, Callable, Optional, cast
 
 from quart import Blueprint, current_app, g, jsonify, request
 
+from .. import metrics as _metrics
 from ..audit import AuditEventType, AuditLogger
 from ..db.run_db import run_db
+from ..licensing import feature_enabled
 from ..middleware import auth_required
 from ..models import get_db
 
 log = logging.getLogger(__name__)
+
+#: Gates the BGP-advertised anycast control-plane frontend mode (M3). Default
+#: OFF per critical-rules.md "Feature Flags & License Tiers" -- new flags
+#: default OFF until validated. Lives here (not app.licensing) because it
+#: gates a single endpoint's behavior rather than a whole blueprint surface
+#: (contrast FLAG_MULTI_CLOUD, which gates all of app.api.clouds).
+FLAG_ANYCAST_FRONTEND = "gough.anycast-frontend"
 
 
 @dataclass(slots=True)
@@ -772,15 +788,168 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
     return results
 
 
+async def _advertise_bgp_route(
+    vip: str,
+    node_ids: list[int],
+    *,
+    action: str = "advertise",
+) -> dict[int, dict[str, Any]]:
+    """Advertise or withdraw the anycast control-plane VIP via BGP.
+
+    The anycast counterpart to ``_emit_gracious_arp``: kube-vip announces VIP
+    reachability over L2 gratuitous ARP/NDP, while anycast mode announces it
+    over BGP -- each primary node runs a BGP speaker peering with the
+    network fabric's ToR/leaf routers, and this adds (``action="advertise"``)
+    or removes (``action="withdraw"``) the VIP from that speaker's RIB via
+    the per-node ``gough-bgp-announce`` helper script. Propagation to peers
+    (and the resulting anycast ECMP routing) is the fabric's job once the
+    route is in the RIB -- this function's job ends at the local speaker.
+
+    Uses the same Discovery gRPC ExecCommand RPC boundary as
+    ``_update_endpoint_on_nodes``/``_emit_gracious_arp``.
+    Returns dict[node_id] = {success, error, duration_ms} for each node.
+    """
+    import ipaddress
+
+    results: dict[int, dict[str, Any]] = {}
+
+    try:
+        addr = ipaddress.ip_address(vip)
+        prefix_len = 128 if isinstance(addr, ipaddress.IPv6Address) else 32
+    except ValueError:
+        prefix_len = 32
+
+    for node_id in node_ids:
+        # Deferred -- see the matching comment in _update_endpoint_on_nodes.
+        import grpc
+
+        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
+
+        start_time = asyncio.get_event_loop().time()
+        node_result = {
+            "success": False,
+            "error": None,
+            "duration_ms": 0,
+        }
+
+        try:
+            # Resolve the node's address the same way _update_endpoint_on_nodes
+            # does: ipv4/ipv6/preferred_addr_family are the real columns on
+            # app.models_m1.Node (see the NOTE on _update_endpoint_on_nodes --
+            # _emit_gracious_arp's raw-SQL management_ip/cluster_ip lookup
+            # predates that fix and is intentionally not repeated here).
+            db = get_db()
+
+            def _fetch_node_row(db: Any = db, node_id: int = node_id) -> Any:
+                return db(db.nodes.id == node_id).select().first()
+
+            node_row = await run_db(_fetch_node_row)
+            if node_row is None:
+                node_result["error"] = f"Node {node_id} not found in DB"
+                results[node_id] = node_result
+                continue
+
+            ipv4 = getattr(node_row, "ipv4", None)
+            ipv6 = getattr(node_row, "ipv6", None)
+            preferred = getattr(node_row, "preferred_addr_family", None) or ""
+            if preferred.lower() == "ipv6":
+                node_ip = ipv6 or ipv4
+            else:
+                node_ip = ipv4 or ipv6
+            if not node_ip:
+                node_result["error"] = f"Node {node_id} has no ipv4 or ipv6 address"
+                results[node_id] = node_result
+                continue
+
+            # Build gRPC channel to discovery-agent on node (port 50051, SPIFFE mTLS)
+            # In production, use mTLS credentials from SPIRE workload API
+            channel = await asyncio.to_thread(
+                grpc.secure_channel,
+                f"{node_ip}:50051",
+                grpc.ssl_channel_credentials(),  # SPIRE credentials in real impl
+            )
+
+            stub = discovery_pb2_grpc.DiscoveryStub(channel)
+
+            # ExecCommand: run gough-bgp-announce on the node to add/remove
+            # the VIP from its local BGP speaker's RIB.
+            req = discovery_pb2.ExecCommandRequest(
+                command="/usr/local/bin/gough-bgp-announce",
+                target=f"--vip {vip}/{prefix_len} --action {action}",
+            )
+
+            resp = await asyncio.to_thread(
+                stub.ExecCommand, req, timeout=30.0
+            )
+
+            if resp.exit_code == 0:
+                node_result["success"] = True
+                log.info(f"BGP {action} for {vip}/{prefix_len} on node {node_id}")
+            else:
+                node_result["error"] = (
+                    f"ExecCommand exit code {resp.exit_code}: {resp.output}"
+                )
+                log.warning(f"BGP {action} failed on node {node_id}: {resp.output}")
+
+            await asyncio.to_thread(channel.close)
+
+        except asyncio.TimeoutError:
+            node_result["error"] = "RPC timeout (30s)"
+            log.error(f"Timeout running BGP {action} on node {node_id}")
+        except Exception as e:
+            node_result["error"] = str(e)
+            log.error(f"Failed to run BGP {action} on node {node_id}: {e}")
+
+        node_result["duration_ms"] = int(
+            (asyncio.get_event_loop().time() - start_time) * 1000
+        )
+        results[node_id] = node_result
+
+        if not node_result["success"]:
+            _metrics.anycast_bgp_announce_failure.labels(
+                node_id=str(node_id), action=action
+            ).inc()
+
+        # Emit per-node audit event, mirroring _emit_arp_audit. Off the event
+        # loop via run_db() for the same reason as every other audit emit in
+        # this file (AuditLogger.log() is a synchronous db insert+commit).
+        audit = current_app.extensions.get("audit")
+        if audit and isinstance(audit, AuditLogger):
+            def _emit_bgp_audit(
+                audit: Any = audit,
+                node_id: int = node_id,
+                node_result: dict[str, Any] = node_result,
+            ) -> Any:
+                return audit.log(
+                    AuditEventType.RESOURCE_UPDATE,
+                    f"BGP {action} for anycast VIP {vip} on node {node_id}",
+                    resource_type="primary.bgp",
+                    resource_id=str(node_id),
+                    details={
+                        "vip": vip,
+                        "prefix_len": prefix_len,
+                        "action": action,
+                        "success": node_result["success"],
+                        "error": node_result.get("error"),
+                        "duration_ms": node_result["duration_ms"],
+                    },
+                )
+
+            await run_db(_emit_bgp_audit)
+
+    return results
+
+
 @primary_bp.route("/frontend-switch", methods=["POST"])
 @auth_required
 @_scope_required("gough.cluster.admin")
 @_mfa_required
 async def switch_frontend():
-    """Switch control plane frontend mode: kube-vip, external, or anycast (unsupported).
+    """Switch control plane frontend mode: kube-vip, external, or anycast (BGP).
 
     Renames modes from M1 vocabulary: vip->kube-vip, anycast->anycast, external (new).
-    Returns: 200 on success, 501 for unimplemented anycast, 422 on validation.
+    Returns: 200 on success, 404 if anycast requested but FLAG_ANYCAST_FRONTEND
+    is off, 422 on validation, 500 if any node update/BGP announce fails.
 
     Body: {target_mode: "kube-vip" | "external" | "anycast", new_endpoint?: "..."}
     """
@@ -802,21 +971,56 @@ async def switch_frontend():
                 "message": "target_mode must be 'kube-vip', 'external', or 'anycast'"},
         }), 422
 
-    # anycast (BGP) is intentionally unimplemented in M2
-    if target_mode == "anycast":
+    # anycast (BGP): M3 feature, default OFF until validated. A deployment
+    # that has never configured POSTHOG_KEY (or hasn't flipped the flag)
+    # sees this the same way app.api.clouds gates FLAG_MULTI_CLOUD -- 404
+    # feature_disabled rather than advertising the capability exists.
+    if target_mode == "anycast" and not await feature_enabled(FLAG_ANYCAST_FRONTEND):
         return jsonify({
             "status": "error",
             "error": {
-                "code": "anycast_requires_bgp",
-                "message": "Anycast frontend requires BGP peering; tracked in M3 roadmap"
+                "code": "feature_disabled",
+                "message": "Anycast frontend is not enabled for this deployment",
+                "details": {"flag": FLAG_ANYCAST_FRONTEND},
             },
             "meta": {
                 "version": 1,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "request_id": request_id,
-                "deprecation": True,
             },
-        }), 501
+        }), 404
+
+    # anycast mode requires the VIP to advertise, same as external requires
+    # its endpoint
+    if target_mode == "anycast" and not new_endpoint:
+        return jsonify({
+            "status": "error",
+            "error": {"code": "validation_failed",
+                "message": (
+                    "anycast mode requires new_endpoint parameter "
+                    "(the VIP to advertise via BGP)"
+                )},
+        }), 422
+
+    # Validate the VIP portion of new_endpoint parses as an IP before it
+    # reaches the gRPC/BGP boundary -- unlike external/kube-vip, there is no
+    # live reachability check possible here (the VIP isn't routable until
+    # BGP advertises it), so this is the only input validation anycast gets.
+    if target_mode == "anycast":
+        import ipaddress
+
+        vip_candidate = new_endpoint.split(":")[0]
+        try:
+            ipaddress.ip_address(vip_candidate)
+        except ValueError:
+            return jsonify({
+                "status": "error",
+                "error": {"code": "validation_failed",
+                    "message": (
+                        f"new_endpoint VIP '{vip_candidate}' is not a valid "
+                        "IPv4/IPv6 address"
+                    )},
+            }), 422
 
     # external mode requires endpoint
     if target_mode == "external" and not new_endpoint:
@@ -883,6 +1087,28 @@ async def switch_frontend():
     if target_mode == "kube-vip":
         vip = new_endpoint.split(":")[0] if new_endpoint else ""
         await _emit_gracious_arp(vip, node_ids)
+
+    # Advertise the VIP via BGP if anycast. Same primary-node set (`node_ids`,
+    # state="primary") the endpoint update just ran against above -- mirrors
+    # the kube-vip gracious-ARP branch immediately above, but announces
+    # reachability over BGP instead of L2 ARP/NDP. Checked for per-node
+    # failure the same way _update_endpoint_on_nodes is checked above: the
+    # dict is never a bool, an empty dict (no primary nodes) means nothing to
+    # do, and a dict whose every entry is success=False must read as failure.
+    if target_mode == "anycast":
+        vip = new_endpoint.split(":")[0] if new_endpoint else ""
+        bgp_results = await _advertise_bgp_route(vip, node_ids, action="advertise")
+        bgp_failed = [nid for nid, r in bgp_results.items() if not r.get("success")]
+        if bgp_failed:
+            return jsonify({
+                "status": "error",
+                "error": {"code": "bgp_advertise_failed",
+                    "message": (
+                        "Failed to advertise BGP route for anycast VIP "
+                        "on one or more nodes"
+                    ),
+                    "details": {"failed_node_ids": bgp_failed}},
+            }), 500
 
     # Emit audit event. Regression: gh-22. Off the event loop via run_db()
     # instead of blocking the request coroutine inline.

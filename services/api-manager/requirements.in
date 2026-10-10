@@ -141,7 +141,8 @@ bandit==1.7.10
 # penguin-sal==0.1.0
 # penguin-utils is also an active runtime dependency: app/db/database.py
 # hard-imports `from penguintechinc_utils import get_logger` at module level
-# (not deferred/optional), which blocked importing app.__init__ entirely --
-# and therefore every test under tests/api/ via tests/api/conftest.py --
-# until declared here.
+# (not deferred/optional, since 17eef9a), which blocked importing
+# app.__init__ entirely -- and therefore every test under tests/api/ via
+# tests/api/conftest.py -- until declared here. Pre-existing gap, unrelated
+# to the M3 anycast work that surfaced it.
 penguin-utils==0.3.0
