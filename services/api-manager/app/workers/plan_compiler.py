@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import secrets
 import time
@@ -325,6 +326,57 @@ def _seal_luks_key_tang(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[
     return sealed, provenance
 
 
+def _seal_luks_key_cloud_kms(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+    """Seal a LUKS key via the cloud VM's native KMS (AWS/GCP/Azure).
+
+    Cloud VMs have no TPM, so the TPM2/TPM2+PIN/Tang Clevis-binding tiers
+    above don't apply to them. This tier envelope-encrypts the raw LUKS
+    key directly with the cloud provider's own KMS -- selected via
+    ``GOUGH_CLOUD_KMS_PROVIDER``/``GOUGH_CLOUD_KMS_KEY_ID`` -- instead of
+    the weaker "dev" (Vault-transit-only) tier cloud VMs previously fell
+    back to. ``vault_client`` is accepted (unused) purely for dispatch-
+    signature symmetry with the other ``_seal_luks_key_*`` tiers -- the
+    cloud KMS is the sealing authority for this tier, not Vault transit.
+
+    Raises:
+        LUKSValidationError: If cloud-kms is misconfigured or the
+            provider API call fails.
+    """
+    from .. import metrics as _metrics
+    from ..clients.cloud_kms import CloudKMSClient, CloudKMSError
+
+    try:
+        client = CloudKMSClient.from_env()
+    except CloudKMSError as exc:
+        _metrics.cloud_kms_luks_seal_total.labels(
+            provider=os.getenv("GOUGH_CLOUD_KMS_PROVIDER", "unconfigured") or "unconfigured",
+            result="error",
+        ).inc()
+        raise LUKSValidationError(f"cloud-kms LUKS sealing failed: {exc}") from exc
+
+    try:
+        result = client.encrypt(raw_key)
+    except CloudKMSError as exc:
+        _metrics.cloud_kms_luks_seal_total.labels(
+            provider=client.provider, result="error"
+        ).inc()
+        raise LUKSValidationError(f"cloud-kms LUKS sealing failed: {exc}") from exc
+
+    _metrics.cloud_kms_luks_seal_total.labels(
+        provider=result.provider, result="success"
+    ).inc()
+
+    provenance: dict[str, Any] = {
+        "tier": "cloud-kms",
+        "method": f"{result.provider}-kms-envelope-encrypt",
+        "cloud_kms_provider": result.provider,
+        "cloud_kms_key_id": result.key_id,
+        "key_version": result.key_version,
+        "sealed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    return result.ciphertext, provenance
+
+
 def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
     """Dispatch to the correct tier sealing function.
 
@@ -333,6 +385,8 @@ def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes,
       - tpm2: Vault + TPM2 unsealing via Clevis (PCR7)
       - tpm2-pin: Vault + TPM2+PIN unsealing via Clevis
       - tang: Vault + network-bound Tang server unsealing
+      - cloud-kms: AWS KMS / GCP Cloud KMS / Azure Key Vault envelope
+        encryption (cloud VMs, which have no TPM)
 
     Args:
         tier: Sealing tier name
@@ -350,6 +404,7 @@ def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes,
         "tpm2": _seal_luks_key_tpm2,
         "tpm2-pin": _seal_luks_key_tpm2_pin,
         "tang": _seal_luks_key_tang,
+        "cloud-kms": _seal_luks_key_cloud_kms,
     }
     if tier not in dispatch:
         raise LUKSValidationError(f"Unknown LUKS sealing tier: {tier!r}")
@@ -1937,9 +1992,10 @@ class PlanCompiler:
         if "tpm:2.0" in hw_tags:
             return "tpm2"
         if hw.get("platform") in ("cloud-vm", "cloud"):
-            # Cloud VMs lack TPM; fall back to dev tier (universal, no hardware deps).
-            # TODO: Implement cloud-kms sealing via AWS KMS / GCP Cloud KMS / Azure Key Vault
-            return "dev"
+            # Cloud VMs lack TPM; seal via the cloud provider's native KMS
+            # (AWS KMS / GCP Cloud KMS / Azure Key Vault) instead of the
+            # weaker "dev" (Vault-transit-only) tier.
+            return "cloud-kms"
         return "dev"
 
 
