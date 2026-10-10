@@ -48,6 +48,13 @@ grpcio==1.70.0
 # Event stream / messaging
 nats-py==2.9.0  # NATS JetStream client; Sprint 4 event stream
 cryptography==46.0.6
+
+# Observability - OTel logs+metrics+traces for the migration lifecycle
+# (critical-rules.md Observability). Endpoint is env-configurable
+# (OTEL_EXPORTER_OTLP_ENDPOINT) -- never hardcoded, never vendor-specific.
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
 boto3==1.35.78
 # 2.20.0 pins protobuf<5.0.0.dev0, which conflicts with the protobuf>=5.28
 # the gRPC gencode requires; 2.20.2 widens that to protobuf<6.0.0dev with no
@@ -132,4 +139,9 @@ bandit==1.7.10
 # penguin-libs==0.2.0
 # penguin-licensing==0.1.0
 # penguin-sal==0.1.0
-# penguin-utils==0.2.0
+# penguin-utils is also an active runtime dependency: app/db/database.py
+# hard-imports `from penguintechinc_utils import get_logger` at module level
+# (not deferred/optional), which blocked importing app.__init__ entirely --
+# and therefore every test under tests/api/ via tests/api/conftest.py --
+# until declared here.
+penguin-utils==0.3.0
