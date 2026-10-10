@@ -26,11 +26,13 @@ from typing import Any, Callable, Optional
 from quart import Blueprint, current_app, g, jsonify, request
 
 from ..db.run_db import run_db
+from ..licensing import feature_enabled
 from ..middleware import auth_required
 from ..models import get_db
 from ..workers.migration_engine import (
     ClusterState,
     BiomeSnapshot,
+    FLAG_LIVE_MIGRATION,
     MigrationPlan,
     MigrationPolicy as PolicyDC,
     NodeSnapshot,
@@ -38,6 +40,7 @@ from ..workers.migration_engine import (
     SafetyResult,
     Violation,
     evaluate,
+    execute_migration,
     safety_result_to_dict,
     validate_combination,
     validate_policy_patch,
@@ -604,6 +607,23 @@ async def trigger_migration(instance_id: int):
         lambda: _record_safety_event(cluster_id, biome, plan, result, actor_sub)
     )
 
+    if synchronous and result.verdict == "rejected":
+        return jsonify({
+            "status": "error",
+            "error": {
+                "code": "safety_check_failed",
+                "message": result.reason,
+            },
+        }), 422
+
+    # M2 real execution is behind FLAG_LIVE_MIGRATION (default OFF, per
+    # critical-rules.md Feature Flags & License Tiers -- see that
+    # constant's docstring in app.workers.migration_engine). Flag OFF
+    # reproduces the exact M1 response shape unchanged (safety envelope
+    # only, execution deferred) so this is a strict superset, not a
+    # behaviour change, for anyone not opted in.
+    live_migration_enabled = await feature_enabled(FLAG_LIVE_MIGRATION, cluster_id)
+
     response_data = {
         "migration_event_id": event_id,
         "biome_instance_id": instance_id,
@@ -611,42 +631,35 @@ async def trigger_migration(instance_id: int):
         "dst_node_id": result.chosen_target_node_id,
         "verdict": result.verdict,
         "safety_check": safety_result_to_dict(result),
-        # Per this handler's docstring (step 5): M1 only runs the safety
-        # envelope and persists the event -- real execution is a Phase 3 /
-        # M2 concern (app.workers.migration_engine.execute_migration is a
-        # deliberate stub until then). ``synchronous`` only controls
-        # whether the (still-deferred) execution attempt is made inline;
-        # it does not make execution actually happen in M1.
         "note": "execution-deferred-to-M2",
     }
 
-    if synchronous:
-        if result.verdict == "rejected":
-            return jsonify({
-                "status": "error",
-                "error": {
-                    "code": "safety_check_failed",
-                    "message": result.reason,
-                },
-            }), 422
-
-        # Migration passed safety; execute via migration_engine
-        if result.chosen_target_node_id is not None:
-            from ..workers.migration_engine import execute_migration
-            exec_result = await execute_migration(
-                biome_instance_id=instance_id,
-                src_node_id=biome.src_node_id,
-                dst_node_id=result.chosen_target_node_id,
-                live=True,
-                reason=reason,
-            )
-            # execute_migration() stubs "not_implemented" until Phase 3 --
-            # that is expected/documented M1 behavior, not a caller error,
-            # so it still resolves 202 (like the asynchronous path) with
-            # the stub result attached rather than a hard failure.
-            response_data["execution_result"] = exec_result
-
+    if (not live_migration_enabled
+            or result.verdict == "rejected"
+            or result.chosen_target_node_id is None):
         return jsonify({"status": "success", "data": response_data}), 202
+
+    exec_kwargs: dict[str, Any] = {
+        "biome_instance_id": instance_id,
+        "src_node_id": biome.src_node_id,
+        "dst_node_id": result.chosen_target_node_id,
+        "live": True,
+        "reason": reason,
+        "migration_event_id": event_id,
+    }
+
+    if synchronous:
+        response_data["note"] = "execution_attempted"
+        response_data["execution_result"] = await execute_migration(**exec_kwargs)
+    else:
+        # Fire-and-forget: the caller polls GET /migration/events for the
+        # real lifecycle (safety_check -> executing -> executed|failed|
+        # rolled_back) via migration_event_id, same background-task
+        # convention as app.api.biomes._execute_upgrade_orchestration.
+        current_app.add_background_task(execute_migration, **exec_kwargs)
+        response_data["note"] = "execution_scheduled"
+
+    return jsonify({"status": "success", "data": response_data}), 202
 
     # Asynchronous: safety check done, execution deferred
     return jsonify({"status": "success", "data": response_data}), 202
@@ -663,7 +676,8 @@ async def list_events():
         until      ISO-8601 upper bound (exclusive)
         node_id    src OR dst match
         biome_id     match on biome_id
-        result     'pass' | 'rejected' | 'executed' | 'rolled_back'
+        result     'pass' | 'rejected' | 'executing' | 'executed' |
+                   'failed' | 'rolled_back'
                    (filters by ``result`` column or by ``rejection_reason``
                     presence for the synthetic 'rejected' bucket)
         limit      page size (default 50, max 200)
@@ -736,7 +750,10 @@ async def list_events():
     if result_raw:
         if result_raw == "rejected":
             query &= db.migration_events.rejection_reason != None  # noqa: E711
-        elif result_raw in {"pass", "executed", "rolled_back", "safety_check"}:
+        elif result_raw in {
+            "pass", "executing", "executed", "failed", "rolled_back",
+            "safety_check",
+        }:
             query &= db.migration_events.result == result_raw
         else:
             return jsonify({"error": "Invalid 'result' filter"}), 400

@@ -1,4 +1,12 @@
-"""Tests for migration_engine async execution functions (Phase 3)."""
+"""Tests for migration_engine async execution functions (M2 live migration).
+
+Full flag-ON lifecycle (drain -> move -> verify -> executed/rolled_back)
+with LXD/NATS mocked lives in
+``tests/workers/test_migration_engine_live_execution.py`` -- this file
+covers the two entry points' top-level contracts in isolation (no Quart
+app context, no DB wiring), which is exactly the environment these
+functions must degrade gracefully in rather than crash.
+"""
 
 from __future__ import annotations
 
@@ -20,11 +28,17 @@ class TestEvaluateSafety:
         assert "violations" in result
 
     @pytest.mark.asyncio
-    async def test_evaluate_safety_not_implemented(self) -> None:
-        """evaluate_safety returns safe=False until Phase 3 implementation."""
+    async def test_evaluate_safety_fails_closed_without_app_context(self) -> None:
+        """No Quart app context (no DB reachable) -> fails closed, not a stub.
+
+        Real implementation: it tries to load live cluster/node state and,
+        unable to (no app context here to resolve a DB connection through),
+        reports safe=False with the load failure as the reason -- never a
+        silent default-true, and never an unhandled crash either.
+        """
         result = await evaluate_safety(node_id=1)
         assert result["safe"] is False
-        assert "Phase 3" in result["note"] or "not implemented" in result["note"]
+        assert "Failed to load" in result["note"]
         assert isinstance(result["violations"], list)
 
 
@@ -47,8 +61,10 @@ class TestExecuteMigration:
         assert "verdict" in result
 
     @pytest.mark.asyncio
-    async def test_execute_migration_not_implemented(self) -> None:
-        """execute_migration() returns not_implemented status until Phase 3."""
+    async def test_execute_migration_disabled_by_default(self) -> None:
+        """FLAG_LIVE_MIGRATION defaults OFF -- execute_migration short-circuits
+        before touching DB/LXD/NATS, every environment, until a license/flag
+        server explicitly turns it on (critical-rules.md Feature Flags)."""
         result = await execute_migration(
             biome_instance_id=1,
             src_node_id=1,
@@ -56,10 +72,9 @@ class TestExecuteMigration:
             live=False,
             reason="test",
         )
-        # Should return not_implemented until Phase 3 implementation
-        assert result["status"] == "not_implemented"
-        assert isinstance(result["duration_ms"], int)
-        assert result["duration_ms"] >= 0
+        assert result["status"] == "disabled"
+        assert result["verdict"] == "feature_flag_disabled"
+        assert result["duration_ms"] == 0
 
     @pytest.mark.asyncio
     async def test_execute_migration_live_flag(self) -> None:
