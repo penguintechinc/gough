@@ -7,6 +7,9 @@ refresh, and run_once behaviour with both leader / non-leader outcomes.
 
 from __future__ import annotations
 
+import json
+import os
+import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -14,6 +17,19 @@ import pytest
 
 from app.workers import smart_sweeper as sw
 
+# Same sys.path shim _grpc_smartctl_runner performs itself (see that
+# function's docstring) -- needed here too so `gough.discovery_pb2_grpc`
+# resolves to the *same* sys.modules entry the production code will import
+# at call time, letting tests monkeypatch `discovery_pb2_grpc.DiscoveryStub`
+# in a way the real deferred import actually observes.
+_GRPC_PKG_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "app", "grpc"
+)
+if _GRPC_PKG_DIR not in sys.path:
+    sys.path.insert(0, _GRPC_PKG_DIR)
+
+import grpc
+from gough import discovery_pb2, discovery_pb2_grpc
 
 HEALTHY_SATA = {
     "smart_status": {"passed": True},
@@ -493,8 +509,8 @@ def test_run_once_cross_tenant_sentinel_lets_scoped_role_sweep_other_tenant(
     tenant's ready nodes -- instead of silently sweeping zero nodes forever
     now that ``get_db()`` resolves to the RLS-wired engine.
     """
-    from app.db.rls import install_rls_events, set_current_tenant
     import app.workers.smart_sweeper as sweeper_mod
+    from app.db.rls import install_rls_events, set_current_tenant
 
     install_rls_events(pg_db_scoped.engine)
     node_id, disk_id = _seed_pg_ready_node_and_disk(pg_db, tenant_id="tenant-a")
@@ -533,3 +549,515 @@ def test_scoped_role_without_sentinel_sees_zero_ready_nodes(pg_db, pg_db_scoped)
         "SELECT COUNT(*) FROM nodes WHERE state = %(state)s", {"state": "ready"}
     )
     assert rows[0][0] == 0, "unset tenant GUC must fail closed on RLS-protected nodes"
+
+
+# ---------------------------------------------------------------------------
+# gRPC tunnel wiring (Task: smart_sweeper smartctl -> Discovery.ExecCommand)
+# ---------------------------------------------------------------------------
+#
+# These tests exercise the real gRPC-tunnel default runner
+# (`_grpc_smartctl_runner`) and its flag gate (`_tunnel_enabled` /
+# `_default_smartctl_runner`) -- every test above injects its own
+# `smartctl_runner` and never reaches this code at all. Only the
+# gRPC/smartctl boundary (grpc.secure_channel, DiscoveryStub.ExecCommand) is
+# mocked; channel/stub construction, address resolution, command building,
+# exit-code/JSON parsing, and DB persistence all run for real.
+
+
+# ---- _resolve_node_address --------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "ipv4,ipv6,preferred,expected",
+    [
+        ("10.0.0.1", "fe80::1", "auto", "10.0.0.1"),
+        ("10.0.0.1", "fe80::1", "ipv4", "10.0.0.1"),
+        ("10.0.0.1", "fe80::1", "ipv6", "fe80::1"),
+        ("10.0.0.1", None, "ipv6", "10.0.0.1"),  # preferred family absent -> fall back
+        (None, "fe80::1", "auto", "fe80::1"),
+        (None, None, "auto", None),
+    ],
+)
+def test_resolve_node_address(ipv4, ipv6, preferred, expected):
+    node = SimpleNamespace(id=1, ipv4=ipv4, ipv6=ipv6, preferred_addr_family=preferred)
+    assert sw._resolve_node_address(node) == expected
+
+
+def test_resolve_node_address_defaults_missing_attrs_to_none():
+    """A bare object with none of the three attrs (e.g. a minimal test
+    double) must not raise -- mirrors app.api.primary's own getattr-safe
+    resolution.
+    """
+    assert sw._resolve_node_address(SimpleNamespace(id=1)) is None
+
+
+# ---- _tunnel_enabled ---------------------------------------------------------
+
+
+def test_tunnel_enabled_true_when_flag_on(monkeypatch):
+    from app import licensing
+
+    monkeypatch.setattr(
+        licensing, "_feature_enabled_sync",
+        lambda flag, ident: flag == sw.FLAG_SMART_SWEEPER_TUNNEL,
+    )
+    assert sw._tunnel_enabled() is True
+
+
+def test_tunnel_enabled_false_when_flag_off(monkeypatch):
+    from app import licensing
+
+    monkeypatch.setattr(licensing, "_feature_enabled_sync", lambda flag, ident: False)
+    assert sw._tunnel_enabled() is False
+
+
+def test_tunnel_enabled_passes_cluster_id_as_distinct_id(monkeypatch):
+    from app import licensing
+
+    monkeypatch.setenv("GOUGH_CLUSTER_ID", "cluster-42")
+    seen = {}
+
+    def _fake(flag, ident):
+        seen["flag"] = flag
+        seen["ident"] = ident
+        return True
+
+    monkeypatch.setattr(licensing, "_feature_enabled_sync", _fake)
+    assert sw._tunnel_enabled() is True
+    assert seen == {"flag": sw.FLAG_SMART_SWEEPER_TUNNEL, "ident": "cluster-42"}
+
+
+# ---- _default_smartctl_runner dispatch --------------------------------------
+
+
+def test_default_smartctl_runner_dispatches_to_grpc_runner_when_flag_on(monkeypatch):
+    monkeypatch.setattr(sw, "_tunnel_enabled", lambda: True)
+    calls = []
+
+    def _fake_grpc_runner(node):
+        calls.append(node)
+        return {"/dev/sda": HEALTHY_SATA}
+
+    monkeypatch.setattr(sw, "_grpc_smartctl_runner", _fake_grpc_runner)
+    node = SimpleNamespace(id=7)
+    result = sw._default_smartctl_runner(node)
+    assert result == {"/dev/sda": HEALTHY_SATA}
+    assert calls == [node]
+
+
+def test_default_smartctl_runner_raises_with_flag_name_when_explicitly_off(monkeypatch):
+    """Regression: the dispatcher must check the flag itself, not merely
+    happen to raise because gRPC deps are unavailable -- forcing the flag
+    OFF explicitly (rather than relying on POSTHOG_KEY being unset in the
+    test environment, as `test_default_smartctl_runner_raises` does) proves
+    the gate is the flag, and the error message names it for operators.
+    """
+    monkeypatch.setattr(sw, "_tunnel_enabled", lambda: False)
+    with pytest.raises(NotImplementedError, match=sw.FLAG_SMART_SWEEPER_TUNNEL):
+        sw._default_smartctl_runner(SimpleNamespace(id=1))
+
+
+# ---- _grpc_smartctl_runner: real wiring, gRPC/smartctl boundary mocked -----
+
+
+@pytest.fixture()
+def grpc_dal(tmp_path, monkeypatch):
+    """A dedicated DAL carrying the ``ipv4``/``ipv6``/``preferred_addr_family``
+    columns the shared ``dal`` fixture's ``nodes`` table doesn't define.
+
+    Only ``_grpc_smartctl_runner`` needs those columns (to resolve a
+    dialable address) -- the shared fixture's narrower ``nodes`` table is
+    correct for every other test in this file, which inject their own
+    ``smartctl_runner`` and never call ``_resolve_node_address``. A fresh
+    ``DB``/sqlite file rather than widening the shared fixture: penguin-dal's
+    SQLAlchemy-backed ``define_table`` has no pydal-style ``redefine=True``
+    schema-migration path for adding columns to an already-defined
+    ``Table`` (confirmed empirically -- it raises SQLAlchemy's
+    ``already defined for this MetaData instance``), so reusing ``dal``'s
+    own table here would require changing the fixture every other worker
+    test file also depends on, for a need specific to this module.
+    """
+    from penguin_dal import DB, Field
+
+    db_path = tmp_path / f"smart-sweeper-grpc-{os.getpid()}.db"
+    db = DB(f"sqlite:///{db_path}", pool_size=1, reflect=False, migrate=True)
+    db.define_table(
+        "nodes",
+        Field("tenant_id", "string", default="__default__"),
+        Field("name", "string"),
+        Field("state", "string", default="new"),
+        Field("dmi_uuid", "string"),
+        Field("primary_nic_mac", "string"),
+        Field("hardware_tags", "json"),
+        Field("ipv4", "string"),
+        Field("ipv6", "string"),
+        Field("preferred_addr_family", "string", default="auto"),
+        migrate=True,
+    )
+    db.define_table(
+        "disks",
+        Field("node_id", "integer", notnull=True),
+        Field("tenant_id", "string", default="__default__"),
+        Field("device_path", "string", notnull=True),
+        Field("serial", "string"),
+        Field("capacity_bytes", "bigint"),
+        Field("rotational", "boolean", default=False),
+        Field("smart_status", "string", default="unknown"),
+        Field("smart_attributes_json", "json"),
+        Field("reserved_for_storage", "boolean", default=False),
+        Field("storage_backend", "string"),
+        Field("tier", "string", default="bulk"),
+        Field("created_at", "datetime"),
+        Field("updated_at", "datetime"),
+        migrate=True,
+    )
+    db.define_table(
+        "leader_leases",
+        Field("lease_name", "string", unique=True),
+        Field("holder_id", "string"),
+        Field("acquired_at", "datetime"),
+        Field("expires_at", "datetime"),
+        Field("version", "integer", default=0),
+        migrate=True,
+    )
+    monkeypatch.setattr(sw, "get_db", lambda: db)
+
+    yield db
+    try:
+        db.close()
+    except Exception:  # noqa: BLE001, S110 -- best-effort teardown, mirrors
+        # tests/workers/conftest.py's `dal` fixture (same pattern, same reasoning).
+        pass
+
+
+def _insert_grpc_node(db, **overrides):
+    defaults = {
+        "tenant_id": "acme", "name": "grpc-node", "state": "ready",
+        "dmi_uuid": "grpc-1", "primary_nic_mac": "aa:bb:cc:dd:ee:ff",
+        "ipv4": "10.1.2.3", "preferred_addr_family": "ipv4",
+    }
+    defaults.update(overrides)
+    node_id = db.nodes.insert(**defaults)
+    db.commit()
+    return int(node_id)
+
+
+class _FakeStub:
+    """Stands in for ``discovery_pb2_grpc.DiscoveryStub`` -- the per-device
+    ``ExecCommand`` behaviour is supplied per-test via ``responder``.
+    """
+
+    def __init__(self, channel):
+        self.channel = channel
+
+    def ExecCommand(self, request, timeout=None):
+        return _FakeStub.responder(request)
+
+    responder = None  # set per-test via monkeypatch on the class
+
+
+class _FakeChannel:
+    def __init__(self):
+        self.closed = False
+
+    def close(self):
+        self.closed = True
+
+
+def test_grpc_smartctl_runner_raises_without_node_address():
+    node = SimpleNamespace(id=9, ipv4=None, ipv6=None, preferred_addr_family="auto")
+    with pytest.raises(RuntimeError, match="no ipv4 or ipv6 address"):
+        sw._grpc_smartctl_runner(node)
+
+
+def test_grpc_smartctl_runner_returns_empty_and_skips_dial_when_no_known_disks(
+    grpc_dal, monkeypatch
+):
+    node_id = _insert_grpc_node(grpc_dal)
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    def _boom(target, creds):
+        raise AssertionError("must not dial when the node has no known disks")
+
+    monkeypatch.setattr(grpc, "secure_channel", _boom)
+    assert sw._grpc_smartctl_runner(node) == {}
+
+
+def test_grpc_smartctl_runner_parses_both_devices(grpc_dal, monkeypatch):
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    responses = {
+        "/dev/sda": discovery_pb2.ExecCommandResponse(
+            output=json.dumps(FAILED_SATA), exit_code=0
+        ),
+        "/dev/sdb": discovery_pb2.ExecCommandResponse(
+            output=json.dumps(HEALTHY_SATA), exit_code=0
+        ),
+    }
+
+    def _responder(request):
+        for device_path, resp in responses.items():
+            if device_path in request.command:
+                return resp
+        raise AssertionError(f"unexpected command: {request.command}")
+
+    channels: list[_FakeChannel] = []
+
+    def _fake_secure_channel(target, creds):
+        assert target == "10.1.2.3:50051"
+        ch = _FakeChannel()
+        channels.append(ch)
+        return ch
+
+    monkeypatch.setattr(grpc, "secure_channel", _fake_secure_channel)
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    result = sw._grpc_smartctl_runner(node)
+    assert result == {"/dev/sda": FAILED_SATA, "/dev/sdb": HEALTHY_SATA}
+    assert channels and channels[0].closed is True
+
+
+def test_grpc_smartctl_runner_skips_device_on_rpc_error(grpc_dal, monkeypatch):
+    """One device's ExecCommand RPC failing must not blind the sweep to its
+    sibling -- real partial-success behaviour, not a silent no-op.
+    """
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    def _responder(request):
+        if "/dev/sda" in request.command:
+            raise grpc.RpcError("tunnel unreachable")
+        return discovery_pb2.ExecCommandResponse(
+            output=json.dumps(HEALTHY_SATA), exit_code=0
+        )
+
+    monkeypatch.setattr(grpc, "secure_channel", lambda target, creds: _FakeChannel())
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    before = sw.DISKS_PROBED.labels(status="error")._value.get()
+    result = sw._grpc_smartctl_runner(node)
+    after = sw.DISKS_PROBED.labels(status="error")._value.get()
+
+    assert result == {"/dev/sdb": HEALTHY_SATA}
+    assert after == before + 1
+
+
+def test_grpc_smartctl_runner_skips_device_on_invalid_json(grpc_dal, monkeypatch):
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    def _responder(request):
+        return discovery_pb2.ExecCommandResponse(output="not json{{", exit_code=0)
+
+    monkeypatch.setattr(grpc, "secure_channel", lambda target, creds: _FakeChannel())
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    before = sw.DISKS_PROBED.labels(status="error")._value.get()
+    result = sw._grpc_smartctl_runner(node)
+    after = sw.DISKS_PROBED.labels(status="error")._value.get()
+
+    assert result == {}
+    assert after == before + 1
+
+
+def test_grpc_smartctl_runner_skips_device_on_commandline_exit_bit(grpc_dal, monkeypatch):
+    """smartctl's exit code is a bitmask -- only bit 0 (command-line parse
+    failure) means the output is unusable. A device returning that bit must
+    be skipped (and counted as an error), not treated as valid data.
+    """
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    def _responder(request):
+        return discovery_pb2.ExecCommandResponse(output="", exit_code=1)
+
+    monkeypatch.setattr(grpc, "secure_channel", lambda target, creds: _FakeChannel())
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    before = sw.DISKS_PROBED.labels(status="error")._value.get()
+    result = sw._grpc_smartctl_runner(node)
+    after = sw.DISKS_PROBED.labels(status="error")._value.get()
+
+    assert result == {}
+    assert after == before + 1
+
+
+def test_grpc_smartctl_runner_allows_nonzero_exit_with_health_bits_set(grpc_dal, monkeypatch):
+    """A nonzero exit code that is NOT bit 0 (e.g. bit 2 -- SMART overall-
+    health self-assessment failed) still carries usable JSON -- this is
+    exactly the pre-fail/failed signal the sweeper exists to catch, so it
+    must NOT be treated as a probe error.
+    """
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+    node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
+
+    def _responder(request):
+        return discovery_pb2.ExecCommandResponse(
+            output=json.dumps(FAILED_SATA), exit_code=4,  # bit 2 set, bit 0 clear
+        )
+
+    monkeypatch.setattr(grpc, "secure_channel", lambda target, creds: _FakeChannel())
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    result = sw._grpc_smartctl_runner(node)
+    assert result == {"/dev/sda": FAILED_SATA}
+
+
+# ---- End-to-end flag-ON real path: SMARTSweeper.run_once(), no injected ---
+# ---- smartctl_runner -- the actual production dispatch chain ------------
+
+
+def test_flag_on_real_grpc_path_parses_and_flags_failing_disk(grpc_dal, monkeypatch):
+    """The comprehensive flag-ON real-path test: ``SMARTSweeper`` is
+    constructed with NO ``smartctl_runner`` override, so ``run_once()`` goes
+    through the real dispatch chain --
+    ``_default_smartctl_runner`` -> ``_tunnel_enabled`` (flag ON) ->
+    ``_grpc_smartctl_runner`` -- with only the gRPC/smartctl boundary
+    (``app.licensing``'s PostHog call, ``grpc.secure_channel``,
+    ``DiscoveryStub.ExecCommand``) mocked. Proves SMART attributes are
+    parsed off the wire and persisted, and that a failing disk is flagged
+    (status transition, WARN log, ``gough.smart.warning`` publish, metric).
+    """
+    from app import licensing
+
+    node_id = _insert_grpc_node(grpc_dal)
+    now = datetime.now(timezone.utc)
+    sda = grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
+        capacity_bytes=1_000_000_000_000, rotational=False, smart_status="passed",
+        reserved_for_storage=True, storage_backend="nest", tier="fast",
+        created_at=now, updated_at=now,
+    )
+    sdb = grpc_dal.disks.insert(
+        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
+        capacity_bytes=1_000_000_000_000, rotational=True, smart_status="passed",
+        reserved_for_storage=True, storage_backend="nest", tier="bulk",
+        created_at=now, updated_at=now,
+    )
+    grpc_dal.commit()
+
+    # Force the flag ON without a real PostHog server/network call.
+    monkeypatch.setattr(
+        licensing, "_feature_enabled_sync",
+        lambda flag, ident: flag == sw.FLAG_SMART_SWEEPER_TUNNEL,
+    )
+
+    responses = {
+        "/dev/sda": discovery_pb2.ExecCommandResponse(
+            output=json.dumps(FAILED_SATA), exit_code=0
+        ),
+        "/dev/sdb": discovery_pb2.ExecCommandResponse(
+            output=json.dumps(HEALTHY_SATA), exit_code=0
+        ),
+    }
+
+    def _responder(request):
+        for device_path, resp in responses.items():
+            if device_path in request.command:
+                return resp
+        raise AssertionError(f"unexpected command: {request.command}")
+
+    channels: list[_FakeChannel] = []
+
+    def _fake_secure_channel(target, creds):
+        ch = _FakeChannel()
+        channels.append(ch)
+        return ch
+
+    monkeypatch.setattr(grpc, "secure_channel", _fake_secure_channel)
+    monkeypatch.setattr(_FakeStub, "responder", staticmethod(_responder))
+    monkeypatch.setattr(discovery_pb2_grpc, "DiscoveryStub", _FakeStub)
+
+    publishes: list = []
+    lease = _FakeLease(will_grant=True)
+    sweeper = sw.SMARTSweeper(
+        # No smartctl_runner override -- exercises the real default chain.
+        publisher=lambda subj, payload: publishes.append((subj, payload)),
+        leader_lease_module=lease,
+        holder_id="grpc-real-path",
+    )
+    res = sweeper.run_once(ttl=60)
+
+    assert res.leader is True
+    assert res.nodes_visited == 1
+    assert res.disks_probed == 2
+    assert channels and channels[0].closed is True
+
+    sda_row = grpc_dal(grpc_dal.disks.id == sda).select().first()
+    sdb_row = grpc_dal(grpc_dal.disks.id == sdb).select().first()
+    assert sda_row.smart_status == "failed"
+    assert sda_row.smart_attributes_json == FAILED_SATA
+    assert sdb_row.smart_status == "passed"
+    assert sdb_row.smart_attributes_json == HEALTHY_SATA
+
+    assert publishes, "the failing disk must publish a gough.smart.warning event"
+    subj, payload = publishes[0]
+    assert subj == "gough.smart.warning"
+    assert payload["device_path"] == "/dev/sda"
+    assert payload["smart_status"] == "failed"
+    assert "smart_overall_health_failed" in payload["reasons"]
+
+
+# ---- WARN log on SMART failure/pre-fail transition (not just publish) ----
+
+
+def test_update_disk_logs_warning_on_transition_to_warning(dal, ready_node, caplog):
+    lease = _FakeLease(will_grant=True)
+    sweeper = sw.SMARTSweeper(
+        smartctl_runner=lambda node: {"/dev/sda": HOT_SATA, "/dev/sdb": HEALTHY_SATA},
+        publisher=lambda *_: None,
+        leader_lease_module=lease,
+        holder_id="t",
+    )
+    with caplog.at_level("WARNING"):
+        sweeper.run_once(ttl=60)
+
+    warning_records = [r for r in caplog.records if r.levelname == "WARNING"]
+    assert any(
+        "/dev/sda" in r.getMessage() and "warning" in r.getMessage()
+        for r in warning_records
+    ), "a SMART warning transition must emit a WARN log, not just a metric/publish"
