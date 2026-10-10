@@ -132,4 +132,11 @@ bandit==1.7.10
 # penguin-libs==0.2.0
 # penguin-licensing==0.1.0
 # penguin-sal==0.1.0
-# penguin-utils==0.2.0
+# penguin-utils is now an active runtime dependency -- app.db.database imports
+# penguintechinc_utils.get_logger unconditionally (since 17eef9a) but the
+# package itself was never uncommented here, so a hash-verified install from
+# this file alone has always been missing it (pre-existing, unrelated to the
+# M3 anycast work that surfaced it -- every test under tests/api/ fails to
+# collect without this, since app/__init__.py -> app.db.run_db ->
+# app.db.database imports it at module load).
+penguin-utils==0.3.0
