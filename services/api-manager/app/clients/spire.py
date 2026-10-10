@@ -63,6 +63,12 @@ class SpireRegistrationFailed(SpireError):
     pass
 
 
+class SpireJoinTokenFailed(SpireError):
+    """Join-token generation via SPIRE server failed."""
+
+    pass
+
+
 class SpireClient:
     """Client for SPIRE workload API and registration."""
 
@@ -221,6 +227,68 @@ class SpireClient:
         entry_id = match.group(1)
         logger.info(f"Registered workload entry: {entry_id}")
         return entry_id
+
+    def generate_join_token(self, spiffe_id: str, ttl_seconds: int = 3600) -> str:
+        """Generate a one-time SPIRE join token for node attestation.
+
+        Uses ``spire-server token generate`` (the join_token node attestor),
+        mirroring the subprocess pattern of :meth:`register_workload`. The
+        returned token is what the new node's ``spire-agent`` presents via
+        ``-joinToken`` on first boot to attest itself as *spiffe_id* --
+        this is the "full token flow" the M1 placeholder comment referred
+        to (a random UUID is not accepted by any SPIRE agent).
+
+        Args:
+            spiffe_id: SPIFFE ID the token will attest as.
+            ttl_seconds: Token time-to-live in seconds.
+
+        Returns:
+            The generated one-time join token string.
+
+        Raises:
+            SpireJoinTokenFailed: If generation, parsing, or the
+                subprocess call itself failed.
+        """
+        cmd = [
+            "spire-server",
+            "token",
+            "generate",
+            "-spiffeID",
+            spiffe_id,
+            "-ttl",
+            str(ttl_seconds),
+            "-serverAddress",
+            # __init__ already validates server_address is a non-None,
+            # ":"-containing string; str() narrows the attribute's
+            # declared `str | None` for mypy --strict without touching
+            # the other call sites' pre-existing identical pattern.
+            str(self.server_address),
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30, check=False
+            )
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"spire-server timeout: {e}")
+            raise SpireJoinTokenFailed(f"Join token generation timeout: {e}") from e
+
+        if result.returncode != 0:
+            logger.error(f"spire-server stderr: {result.stderr}")
+            raise SpireJoinTokenFailed(
+                f"spire-server token generate failed: {result.stderr}"
+            )
+
+        match = re.search(r"Token\s*:\s*(\S+)", result.stdout)
+        if not match:
+            logger.error(f"spire-server stdout: {result.stdout}")
+            raise SpireJoinTokenFailed(
+                "Could not parse join token from spire-server output"
+            )
+
+        token = match.group(1)
+        logger.info(f"Generated SPIRE join token for spiffeID: {spiffe_id}")
+        return token
 
     def list_registrations(self, parent_id: str | None = None) -> list[SpireRegistrationEntry]:
         """List registration entries, optionally filtered by parent.

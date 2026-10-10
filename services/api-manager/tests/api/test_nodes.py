@@ -389,6 +389,77 @@ class TestDiscover:
         assert node.state == "probed"
 
     @pytest.mark.asyncio
+    async def test_discover_spire_join_token_flag_on_issues_real_token(
+        self, nodes_app, dal, monkeypatch
+    ):
+        """FLAG_SPIRE_JOIN_TOKEN_ISSUANCE ON: real generate_join_token() token returned.
+
+        Flag OFF (default) behaviour -- a non-SPIRE placeholder UUID -- is
+        covered by test_discover_creates_new_node above; this is the real
+        path the M1 "spire-server token generate" comment described.
+        """
+        import app.api.nodes as nodes_mod
+
+        monkeypatch.setattr(
+            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        mock_principal = MagicMock()
+        mock_principal.sub = "bootstrap:de:ad:be:ef:00:01"
+
+        with patch(
+            "app.security.credentials.validate_one_time_bootstrap_token",
+            return_value=mock_principal,
+        ), patch(
+            "app.clients.spire.SpireClient.register_workload", return_value="entry-789"
+        ), patch(
+            "app.clients.spire.SpireClient.generate_join_token",
+            return_value="real-spire-join-token",
+        ) as mock_gen:
+            async with nodes_app.test_client() as client:
+                resp = await _post_discover(client, _discover_payload())
+
+        assert resp.status_code == 201
+        data = await _json(resp)
+        assert data["data"]["spire_join_token"] == "real-spire-join-token"
+        mock_gen.assert_called_once()
+        # Second positional arg (after self) is the spiffe_id.
+        assert mock_gen.call_args[0][0].startswith("spiffe://")
+
+    @pytest.mark.asyncio
+    async def test_discover_spire_join_token_flag_on_failure_is_non_fatal(
+        self, nodes_app, dal, monkeypatch
+    ):
+        """FLAG_SPIRE_JOIN_TOKEN_ISSUANCE ON + SPIRE failure: discover still 201."""
+        import app.api.nodes as nodes_mod
+        from app.clients.spire import SpireJoinTokenFailed
+
+        monkeypatch.setattr(
+            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        mock_principal = MagicMock()
+        mock_principal.sub = "bootstrap:de:ad:be:ef:00:02"
+
+        with patch(
+            "app.security.credentials.validate_one_time_bootstrap_token",
+            return_value=mock_principal,
+        ), patch(
+            "app.clients.spire.SpireClient.register_workload", return_value="entry-999"
+        ), patch(
+            "app.clients.spire.SpireClient.generate_join_token",
+            side_effect=SpireJoinTokenFailed("spire-server unreachable"),
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await _post_discover(
+                    client, _discover_payload(dmi_uuid=str(uuid.uuid4()))
+                )
+
+        assert resp.status_code == 201
+        data = await _json(resp)
+        # Non-fatal: node is still discovered, token is absent rather than
+        # the request failing outright.
+        assert data["data"]["spire_join_token"] is None
+
+    @pytest.mark.asyncio
     async def test_discover_missing_bearer_token(self, nodes_app):
         """401 when no Authorization header is sent."""
         async with nodes_app.test_client() as client:
@@ -869,6 +940,111 @@ class TestDeployNode:
                 headers={"X-Idempotency-Key": "idem-5"},
             )
         assert resp.status_code == 400
+
+
+class TestDeployNodePlanCompilerWiring:
+    """FLAG_PLAN_COMPILER_WIRING real-path tests (Phase B).
+
+    PlanCompiler.compile() itself is exhaustively covered by
+    tests/workers/test_plan_compiler.py; these tests assert the API-layer
+    wiring -- flag gating, PlanRequest construction, response shape, and
+    PlanCompilationError handling -- so PlanCompiler.compile is mocked at
+    its class boundary rather than re-exercised end-to-end here.
+    """
+
+    @pytest.mark.asyncio
+    async def test_deploy_flag_off_preserves_m1_behavior(
+        self, nodes_app, seed_node, seed_egg, monkeypatch
+    ):
+        """Default (flag OFF): compiler is never invoked; prior M1 note/flags."""
+        import app.api.nodes as nodes_mod
+
+        monkeypatch.setattr(
+            nodes_mod, "feature_enabled", AsyncMock(return_value=False)
+        )
+        async with nodes_app.test_client() as client:
+            resp = await client.post(
+                f"/api/v1/nodes/{seed_node}/deploy",
+                json={"egg_assignments": [{"egg_id": seed_egg}]},
+                headers={"X-Idempotency-Key": str(uuid.uuid4())},
+            )
+        assert resp.status_code == 202
+        data = (await _json(resp))["data"]
+        assert data["compiler_invoked"] is False
+        assert data["plan_id"] is None
+        assert data["note"] == "Plan compile queued; worker will process asynchronously."
+
+    @pytest.mark.asyncio
+    async def test_deploy_flag_on_compiles_plan_successfully(
+        self, nodes_app, seed_node, seed_egg, monkeypatch
+    ):
+        """Flag ON + successful compile: real plan_id surfaced, metric incremented."""
+        import app.api.nodes as nodes_mod
+        from app.workers.plan_compiler import CompiledPlan
+
+        monkeypatch.setattr(
+            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        fake_plan = CompiledPlan(
+            plan_id="0199-fake-plan-uuid",
+            biome_order=[seed_egg],
+            cloud_init_bundle="",
+            disk_script="",
+            luks_key_sealed=b"sealed",
+            luks_key_provenance={"tier": "dev"},
+            lxd_join_token="join-token",
+            phase2_ipxe_script="#!ipxe",
+            joiner_secret_refs=[],
+            compile_warnings=[],
+        )
+        with patch(
+            "app.workers.plan_compiler.PlanCompiler.compile", return_value=fake_plan
+        ) as mock_compile:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/deploy",
+                    json={"egg_assignments": [{"egg_id": seed_egg}]},
+                    headers={"X-Idempotency-Key": str(uuid.uuid4())},
+                )
+        assert resp.status_code == 202
+        data = (await _json(resp))["data"]
+        assert data["compiler_invoked"] is True
+        assert data["plan_id"] == "0199-fake-plan-uuid"
+        assert "compiled successfully" in data["note"]
+        mock_compile.assert_called_once()
+        # First positional arg after self is node_id.
+        assert mock_compile.call_args[0][0] == seed_node
+
+    @pytest.mark.asyncio
+    async def test_deploy_flag_on_compile_validation_error_is_non_fatal(
+        self, nodes_app, seed_node, seed_egg, monkeypatch
+    ):
+        """Flag ON + PlanCompilationError: assignments still created, 202 returned."""
+        import app.api.nodes as nodes_mod
+        from app.workers.plan_compiler import PlanCompilationError, PlanValidationError
+
+        monkeypatch.setattr(
+            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        error = PlanValidationError(code="node_not_found", message="boom")
+        with patch(
+            "app.workers.plan_compiler.PlanCompiler.compile",
+            side_effect=PlanCompilationError([error]),
+        ):
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{seed_node}/deploy",
+                    json={"egg_assignments": [{"egg_id": seed_egg}]},
+                    headers={"X-Idempotency-Key": str(uuid.uuid4())},
+                )
+        # Biome assignments were already committed before compilation runs,
+        # so this is still a 202 -- the compiler failure is surfaced via
+        # compiler_invoked=False + note, not a request-level error.
+        assert resp.status_code == 202
+        data = (await _json(resp))["data"]
+        assert data["compiler_invoked"] is False
+        assert data["plan_id"] is None
+        assert "failed validation" in data["note"]
 
 
 # ---------------------------------------------------------------------------

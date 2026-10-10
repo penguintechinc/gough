@@ -10,6 +10,7 @@ import pytest
 from app.clients.spire import (
     SpireClient,
     SpireError,
+    SpireJoinTokenFailed,
     SpireWorkloadApiUnavailable,
     SpireSvidUnavailable,
     SpireRegistrationFailed,
@@ -239,6 +240,67 @@ class TestSpireClientRegisterWorkload:
                     parent_id="spiffe://example.com/agent",
                 )
                 client.register_workload(entry)
+
+
+class TestSpireClientGenerateJoinToken:
+    """Test generate_join_token (the M2 'full token flow' -- spire-server token generate)."""
+
+    def test_generate_join_token_success(self):
+        """generate_join_token calls spire-server and returns the parsed token."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "Token: abc-123-join-token\n"
+        mock_result.stderr = ""
+
+        client = SpireClient(server_address="spire:8081")
+        with patch("subprocess.run", return_value=mock_result) as mock_run:
+            token = client.generate_join_token("spiffe://example.com/node/helper/1", 3600)
+
+        assert token == "abc-123-join-token"
+        call_args = mock_run.call_args[0][0]
+        assert "spire-server" in call_args
+        assert "token" in call_args
+        assert "generate" in call_args
+        assert "-spiffeID" in call_args
+        assert "spiffe://example.com/node/helper/1" in call_args
+
+    def test_generate_join_token_timeout_raises(self):
+        """generate_join_token raises SpireJoinTokenFailed on subprocess timeout."""
+        import subprocess
+
+        client = SpireClient(server_address="spire:8081")
+        with (
+            patch("subprocess.run", side_effect=subprocess.TimeoutExpired("cmd", 30)),
+            pytest.raises(SpireJoinTokenFailed, match="timeout"),
+        ):
+            client.generate_join_token("spiffe://example.com/node/helper/1")
+
+    def test_generate_join_token_non_zero_exit_raises(self):
+        """generate_join_token raises SpireJoinTokenFailed on non-zero exit."""
+        mock_result = MagicMock()
+        mock_result.returncode = 1
+        mock_result.stderr = "server unreachable"
+
+        client = SpireClient(server_address="spire:8081")
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            pytest.raises(SpireJoinTokenFailed, match="token generate failed"),
+        ):
+            client.generate_join_token("spiffe://example.com/node/helper/1")
+
+    def test_generate_join_token_parse_failure_raises(self):
+        """generate_join_token raises SpireJoinTokenFailed when no Token: in output."""
+        mock_result = MagicMock()
+        mock_result.returncode = 0
+        mock_result.stdout = "no token here"
+        mock_result.stderr = ""
+
+        client = SpireClient(server_address="spire:8081")
+        with (
+            patch("subprocess.run", return_value=mock_result),
+            pytest.raises(SpireJoinTokenFailed, match="Could not parse join token"),
+        ):
+            client.generate_join_token("spiffe://example.com/node/helper/1")
 
 
 class TestSpireClientListRegistrations:

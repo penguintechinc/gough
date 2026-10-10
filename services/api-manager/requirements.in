@@ -48,6 +48,15 @@ grpcio==1.70.0
 # Event stream / messaging
 nats-py==2.9.0  # NATS JetStream client; Sprint 4 event stream
 cryptography==46.0.6
+
+# Observability - OTel logs+metrics+traces for the migration lifecycle
+# (critical-rules.md Observability). Also backs app/observability.py's M2
+# cluster-execution instrumentation (app/api/clusters.py's
+# switch_primary_storage/adopt_cluster). Endpoint is env-configurable
+# (OTEL_EXPORTER_OTLP_ENDPOINT) -- never hardcoded, never vendor-specific.
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
 boto3==1.35.78
 # 2.20.0 pins protobuf<5.0.0.dev0, which conflicts with the protobuf>=5.28
 # the gRPC gencode requires; 2.20.2 widens that to protobuf<6.0.0dev with no
@@ -129,7 +138,11 @@ bandit==1.7.10
 
 # Penguin shared libraries (internal; handled by CI/deployment)
 # penguin-aaa is now an active runtime dependency -- see the Auth/authz block above.
+# penguin-utils is also active: app/db/database.py and app/db/galera.py import
+# penguintechinc_utils.get_logger unconditionally at module scope, so it was
+# missing from this lockfile entirely (not even unpinned) and broke every
+# test collection that touches app.db -- same promotion penguin-aaa got above.
+penguin-utils==0.3.0
 # penguin-libs==0.2.0
 # penguin-licensing==0.1.0
 # penguin-sal==0.1.0
-# penguin-utils==0.2.0

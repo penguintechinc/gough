@@ -625,19 +625,48 @@ async def test_evacuate_node_safety_check_import_error(app_nodes, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_evacuate_node_safety_check_failed_no_force(app_nodes, monkeypatch):
-    """Test evacuate when safety check fails and force=False (lines 1307-1313).
+    """Test evacuate when safety check genuinely fails and force=False.
 
-    app.workers.migration_engine.evaluate_safety is a Phase-3 TODO stub
-    that always returns safe=False (fail closed) -- no mocking needed here,
-    this exercises the real current implementation.
+    Real evaluate_safety() (app.workers.migration_engine) loads live
+    cluster state + the node's active biome assignments and runs them
+    through the same safety envelope the manual-trigger API path uses --
+    it is no longer a Phase-3 stub that always fails closed. This seeds a
+    single-node cluster with one active (non-locked) biome instance on
+    node 1: the default migration policy requires >= 3 ready nodes
+    (``min_healthy_nodes``), so ``evaluate()`` rejects with
+    "cluster_unhealthy" on genuine grounds, and evacuate_node's 409 reflects
+    a real safety-envelope rejection rather than an unimplemented stub.
     """
     app, dal, nodes_mod = app_nodes
+
+    # evaluate_safety reaches the DB via app.models.get_db() and
+    # app.api.migration.get_db() -- neither of which `app_nodes` patches
+    # (it only patches nodes_mod.get_db) -- so wire both to this test's
+    # dal, same convention as tests/api/conftest.py's `client` fixture.
+    import app.api.migration as migration_mod
+    import app.models as models_mod
+
+    monkeypatch.setattr(models_mod, "get_db", lambda: dal)
+    monkeypatch.setattr(migration_mod, "get_db", lambda: dal)
 
     dal.nodes.insert(
         id=1,
         tenant_id="default",
         name="node1",
         state="ready",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    biome_id = dal.biomes.insert(
+        name="pinned-biome",
+        biome_kind="custom",
+        lock_to_host=False,
+    )
+    dal.node_egg_assignments.insert(
+        node_id=1,
+        egg_id=int(biome_id),
+        tenant_id="default",
+        status="ready",
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -648,7 +677,8 @@ async def test_evacuate_node_safety_check_failed_no_force(app_nodes, monkeypatch
             "/api/v1/nodes/1/evacuate",
             json={"reason": "maintenance", "force": False},
         )
-        # Safety check fails (unimplemented stub) and force=False -> 409
+        # Single-node cluster + one active biome instance -> safety
+        # envelope genuinely rejects (cluster_unhealthy) -> force=False -> 409
         assert resp.status_code == 409
 
 
