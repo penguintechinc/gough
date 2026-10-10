@@ -24,6 +24,16 @@ Scheduled by ``supercronic`` at the cluster's configured interval (default 15
 minutes); ``run_forever`` is also available for environments running the
 sweeper as a long-lived sidecar.
 
+**gRPC tunnel wiring is flag-gated.** The default ``smartctl_runner``
+(:func:`_default_smartctl_runner`) dispatches to the real
+``Discovery.ExecCommand`` tunnel (:func:`_grpc_smartctl_runner`) only when
+the ``gough.smart-sweeper-tunnel`` PostHog flag
+(:data:`FLAG_SMART_SWEEPER_TUNNEL`) evaluates ON for this cluster. OFF --
+the default for an unconfigured or never-seen flag -- preserves the
+pre-tunnel behaviour of raising ``NotImplementedError`` rather than silently
+running a half-validated transport against production nodes; this is a
+loud, intentional failure, not a stub.
+
 **No Quart app context required.** Regression: gh-22 (DB pool
 consolidation). ``run_once()``/``run_forever()`` call
 ``app.db.database.get_db()`` -- the RLS-wired, app-context-free accessor
@@ -41,6 +51,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -192,20 +203,198 @@ def derive_status(reasons: list[str], smart: dict[str, Any]) -> str:
 
 
 # =============================================================================
+# Feature flag
+# =============================================================================
+
+
+#: PostHog flag gating the gRPC-tunnel-backed default smartctl runner.
+#: Defined here rather than alongside ``FLAG_MULTI_CLOUD`` in
+#: ``app.licensing`` -- that flag has an external consumer
+#: (``app.api.clouds``) licensing.py itself enforces, whereas this flag has
+#: exactly one consumer: this module's own :func:`_default_smartctl_runner`.
+#: OFF (PostHog's default for an unconfigured or never-seen flag) preserves
+#: the pre-tunnel behaviour -- see the module docstring.
+FLAG_SMART_SWEEPER_TUNNEL = "gough.smart-sweeper-tunnel"
+
+
+def _tunnel_enabled() -> bool:
+    """Evaluate :data:`FLAG_SMART_SWEEPER_TUNNEL` for this cluster.
+
+    Deferred import of ``app.licensing`` mirrors this codebase's existing
+    convention for heavy/app-layer imports in worker modules (see
+    ``app.api.primary``'s deferred ``discovery_pb2``/``grpc`` imports) --
+    constructing a :class:`SMARTSweeper` with an explicit ``smartctl_runner``
+    (every existing test does) never needs ``app.licensing`` at all. Calls
+    the private sync evaluator directly rather than the async
+    ``feature_enabled()`` wrapper: this worker runs fully synchronously,
+    outside any event loop, by design (see "No Quart app context required"
+    in the module docstring) -- the same reasoning that already applies to
+    this module's own app-context-free ``get_db()`` resolution.
+    """
+    from .. import licensing
+
+    distinct_id = os.getenv("GOUGH_CLUSTER_ID", "gough").strip() or "gough"
+    return bool(licensing._feature_enabled_sync(FLAG_SMART_SWEEPER_TUNNEL, distinct_id))
+
+
+# =============================================================================
 # Default smartctl runner — overridable for tests / different transports
 # =============================================================================
 
 
-def _default_smartctl_runner(node: Any) -> dict[str, Any]:
-    """Stub gRPC-tunnel runner.
+#: Discovery gRPC service port. Matches every other ``Discovery.ExecCommand``
+#: caller in this codebase (see ``app.api.primary``).
+_DISCOVERY_GRPC_PORT = 50051
 
-    The real implementation will dispatch to ``GoughAgent.SmartProbe`` over the
-    mTLS gRPC tunnel established at node-deploy time. For M1 sprint 3 we expose
-    it as an injectable callable so tests can drive it deterministically.
+#: Per-``ExecCommand`` RPC timeout, matching every other Discovery gRPC
+#: caller in this codebase (``app.api.primary._update_endpoint_on_nodes`` /
+#: ``_emit_gracious_arp``).
+_SMARTCTL_RPC_TIMEOUT_SECONDS = 30.0
+
+#: smartctl's exit code is a bitmask of health conditions, not a plain
+#: success/failure flag (see ``man smartctl`` EXIT STATUS). Only bit 0
+#: (command-line syntax error) means "no usable JSON was produced" -- every
+#: other bit (device open failed, SMART-failure predicted, error log
+#: present, ...) still ships a usable JSON body alongside it, which is
+#: exactly the pre-fail/failed signal this sweeper exists to catch.
+_SMARTCTL_EXIT_PARSE_ERROR_BIT = 0x01
+
+
+def _resolve_node_address(node: Any) -> str | None:
+    """Resolve the IP address to dial for ``node``'s Discovery gRPC tunnel.
+
+    Mirrors ``app.api.primary._update_endpoint_on_nodes``'s address
+    resolution exactly (``ipv4``/``ipv6`` honouring
+    ``preferred_addr_family``) -- duplicated locally rather than imported,
+    matching this codebase's existing per-module convention for this kind of
+    small, call-site-specific logic (see ``_cross_tenant_scope``'s
+    docstring above for the same convention applied elsewhere in this file).
     """
-    raise NotImplementedError(
-        "default smartctl runner is not yet wired to the gRPC control tunnel"
+    ipv4 = getattr(node, "ipv4", None)
+    ipv6 = getattr(node, "ipv6", None)
+    if (getattr(node, "preferred_addr_family", None) or "").lower() == "ipv6":
+        return ipv6 or ipv4
+    return ipv4 or ipv6
+
+
+def _grpc_smartctl_runner(node: Any) -> dict[str, dict[str, Any]]:
+    """Probe every known disk on ``node`` for SMART data over the real
+    Discovery gRPC ``ExecCommand`` tunnel.
+
+    Per spec ``SMART & Hardware Inventory``: the node-side helper image
+    bundles ``smartmontools``, invoked passively (``smartctl -H -A -x``,
+    never ``-t short``/``-t long`` -- no self-tests during a sweep). Reuses
+    the exact ``Discovery.ExecCommand`` RPC/channel-building pattern every
+    other node operation in this codebase uses
+    (``app.api.primary._update_endpoint_on_nodes`` /
+    ``_emit_gracious_arp``) rather than inventing a new transport or RPC --
+    ``gough.v1.Discovery`` (``proto/v1/gough/discovery.proto``) only defines
+    ``Probe``/``EventStream``/``ExecCommand``/``ExtractSecret``; there is no
+    dedicated ``SmartProbe`` RPC.
+
+    Returns ``{device_path: parsed_smartctl_json}`` for every device that
+    produced usable output; a device whose RPC or JSON parse failed is
+    simply omitted (logged + counted as a probe error) rather than failing
+    the whole node -- one bad disk shouldn't blind the sweep to its siblings.
+    """
+    # The buf/protoc-generated discovery_pb2_grpc.py uses a bare
+    # ``from gough import discovery_pb2 ...`` (buf's python plugin output
+    # dir is app/grpc, proto package path is gough/discovery.proto, so the
+    # generated cross-import assumes app/grpc itself -- not app/grpc/gough,
+    # not app.grpc.gough -- is on sys.path). app.grpc_runner/app.grpc_server
+    # already perform this exact insertion as a side effect of Quart app
+    # startup, but this worker must not depend on that having already
+    # happened: it runs OUTSIDE the Quart process entirely when
+    # supercronic-scheduled (see module docstring), so the insertion is
+    # repeated here, guarded against duplicate inserts exactly like those
+    # two call sites.
+    _grpc_pkg_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "grpc")
+    if _grpc_pkg_dir not in sys.path:
+        sys.path.insert(0, _grpc_pkg_dir)
+
+    import grpc
+    from gough import discovery_pb2, discovery_pb2_grpc
+
+    node_id = getattr(node, "id", "?")
+    node_ip = _resolve_node_address(node)
+    if not node_ip:
+        raise RuntimeError(f"node {node_id} has no ipv4 or ipv6 address")
+
+    db = get_db()
+    device_paths = [
+        row.device_path
+        for row in db(db.disks.node_id == node.id).select(db.disks.device_path)
+    ]
+    if not device_paths:
+        return {}
+
+    # Build gRPC channel to discovery-agent on node (SPIRE mTLS in
+    # production) -- same port, same credentials placeholder as every other
+    # Discovery.ExecCommand caller in this codebase.
+    channel = grpc.secure_channel(
+        f"{node_ip}:{_DISCOVERY_GRPC_PORT}",
+        grpc.ssl_channel_credentials(),  # SPIRE credentials in real impl
     )
+    stub = discovery_pb2_grpc.DiscoveryStub(channel)
+
+    results: dict[str, dict[str, Any]] = {}
+    try:
+        for device_path in device_paths:
+            req = discovery_pb2.ExecCommandRequest(
+                command=f"smartctl --json -H -A -x {device_path}",
+                target="",  # local execution on the node, matching arping's usage
+            )
+            try:
+                resp = stub.ExecCommand(req, timeout=_SMARTCTL_RPC_TIMEOUT_SECONDS)
+            except grpc.RpcError as exc:
+                logger.warning(
+                    "smart_sweeper: ExecCommand RPC failed for node=%s device=%s: %s",
+                    node_id, device_path, exc,
+                )
+                DISKS_PROBED.labels(status="error").inc()
+                continue
+
+            if resp.exit_code & _SMARTCTL_EXIT_PARSE_ERROR_BIT:
+                logger.warning(
+                    "smart_sweeper: smartctl command-line error for node=%s "
+                    "device=%s (exit_code=%s): %s",
+                    node_id, device_path, resp.exit_code, resp.output,
+                )
+                DISKS_PROBED.labels(status="error").inc()
+                continue
+
+            try:
+                results[device_path] = json.loads(resp.output) if resp.output else {}
+            except json.JSONDecodeError as exc:
+                logger.warning(
+                    "smart_sweeper: smartctl output for node=%s device=%s was not "
+                    "valid JSON (exit_code=%s): %s",
+                    node_id, device_path, resp.exit_code, exc,
+                )
+                DISKS_PROBED.labels(status="error").inc()
+    finally:
+        channel.close()
+
+    return results
+
+
+def _default_smartctl_runner(node: Any) -> dict[str, Any]:
+    """Default smartctl runner: the real gRPC-tunnel probe, flag-gated.
+
+    Dispatches to :func:`_grpc_smartctl_runner` when
+    :data:`FLAG_SMART_SWEEPER_TUNNEL` is ON; otherwise raises
+    ``NotImplementedError`` (see the module docstring's "gRPC tunnel wiring
+    is flag-gated" section for why this is a loud failure, not a silent
+    fallback). Tests that need deterministic probe output inject their own
+    ``smartctl_runner`` into :class:`SMARTSweeper` and never reach this
+    function at all.
+    """
+    if not _tunnel_enabled():
+        raise NotImplementedError(
+            "default smartctl runner is not wired to the gRPC control tunnel "
+            f"-- flag {FLAG_SMART_SWEEPER_TUNNEL!r} is OFF for this cluster"
+        )
+    return _grpc_smartctl_runner(node)
 
 
 # =============================================================================
@@ -365,6 +554,14 @@ class SMARTSweeper:
                 "reasons": reasons,
                 "emitted_at": datetime.now(timezone.utc).isoformat(),
             }
+            # WARN log alongside the metric/publish below -- the pre-fail/
+            # failed transition itself (not just the publish outcome) must
+            # be visible in logs without needing a NATS subscriber attached.
+            logger.warning(
+                "smart_sweeper: disk %s on node %s transitioned %s -> %s (%s)",
+                row.device_path, int(row.node_id), prior, new_status,
+                ", ".join(reasons) or "no specific reason",
+            )
             self._emit_warning(payload)
             result.warnings_emitted += 1
             for reason in reasons or ["unspecified"]:
@@ -434,11 +631,12 @@ def _resolve_publisher() -> Callable[[str, dict[str, Any]], None]:
 
 
 __all__ = [
+    "DISKS_PROBED",
+    "FLAG_SMART_SWEEPER_TUNNEL",
+    "SMART_WARNINGS_EMITTED",
+    "STORAGE_CAPACITY_USED",
     "SMARTSweeper",
     "SweepResult",
-    "STORAGE_CAPACITY_USED",
-    "SMART_WARNINGS_EMITTED",
-    "DISKS_PROBED",
-    "detect_warnings",
     "derive_status",
+    "detect_warnings",
 ]
