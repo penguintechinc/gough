@@ -13,27 +13,32 @@ plus ``POST /biomes`` (full ``biome.yaml`` body), ``POST /biomes/{id}/sign``,
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import hashlib
+import json
 import logging
 import os
+import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import yaml
-from quart import Blueprint, jsonify, request, g, current_app
+from quart import Blueprint, current_app, g, jsonify, request
 from werkzeug.utils import secure_filename
 
-from ..db.run_db import run_db
-from ..middleware import admin_required, auth_required, get_current_user, maintainer_or_admin_required
-from ..models import get_db
 from .. import metrics as _metrics
-from ._biome_schema import BiomeCreate, BiomeSignRequest, BiomeUpgradeRequest
-from ._schemas.biomes import (
-    BiomeGroupCreateRequest,
-    BiomeGroupResponse,
-    BiomeGroupUpdateRequest,
-    BiomeGroupListResponse,
+from ..db.run_db import run_db
+from ..licensing import feature_enabled
+from ..middleware import (
+    admin_required,
+    auth_required,
+    get_current_user,
+    maintainer_or_admin_required,
 )
+from ..models import get_db
+from ._biome_schema import BiomeCreate, BiomeSignRequest, BiomeUpgradeRequest
 from ._helpers import (
     EligibilityResult,
     check_tag_eligibility,
@@ -48,6 +53,12 @@ from ._helpers import (
     err_validation,
     node_effective_tags,
     validate_body,
+)
+from ._schemas.biomes import (
+    BiomeGroupCreateRequest,
+    BiomeGroupListResponse,
+    BiomeGroupResponse,
+    BiomeGroupUpdateRequest,
 )
 
 log = logging.getLogger(__name__)
@@ -259,6 +270,8 @@ def serialize_biome(biome: object) -> dict:
         "signing_key_id": _g(biome, "signing_key_id"),
         "sbom_url": _g(biome, "sbom_url"),
         "registry_url": _g(biome, "registry_url"),
+        "image_digest": _g(biome, "image_digest"),
+        "signature_verified": _g(biome, "signature_verified", False),
         "signing_status": _g(biome, "signing_status", "unsigned" if not _g(biome, "signing_key_id") else "signed"),
         "created_at": created_at.isoformat() if created_at else None,
         "updated_at": updated_at.isoformat() if updated_at else None,
@@ -956,17 +969,249 @@ async def upload_lxd_image(biome_id: int):
 # ============================================================================
 
 
+# ============================================================================
+# Sprint 4 — Biome supply-chain signing (cosign + syft), flag-gated
+# ============================================================================
+
+#: PostHog flag gating the real cosign sign/verify pipeline below. Defaults
+#: OFF: with no ``POSTHOG_KEY`` configured ``feature_enabled`` resolves to
+#: False with no network call, so every existing Sprint-2 caller keeps
+#: getting the ``signing_pending`` placeholder until this is explicitly
+#: enabled. Lives here (not ``app/licensing.py``) because it gates one
+#: module's internal pipeline, not a whole blueprint surface like
+#: ``FLAG_MULTI_CLOUD``.
+FLAG_BIOME_SIGNING = "gough.biome-signing"
+
+_COSIGN_BIN = os.getenv("GOUGH_COSIGN_BIN", "cosign")
+_SYFT_BIN = os.getenv("GOUGH_SYFT_BIN", "syft")
+#: Scheme prepended to a bare ``key_id`` to build a cosign ``--key`` URI.
+#: Defaults to Vault Transit (``hashivault://``), matching the Vault PKI
+#: already used for joiner secrets/bootstrap tokens (spec Plan 4). A
+#: ``key_id`` that already names a URI scheme (``awskms://``, ``gcpkms://``,
+#: ``file://``...) is used verbatim. Keyless (Fulcio/Rekor) signing is
+#: intentionally not supported here -- the spec never defines an issuer/
+#: identity policy for it, and a permissive placeholder regex would be a
+#: silent authorization hole rather than a real implementation.
+_COSIGN_KEY_SCHEME = os.getenv("GOUGH_COSIGN_KEY_SCHEME", "hashivault://")
+_COSIGN_TIMEOUT_SECONDS = float(os.getenv("GOUGH_COSIGN_TIMEOUT_SECONDS", "60"))
+
+
+class CosignError(Exception):
+    """Raised when a cosign/syft subprocess step fails or is untrustworthy.
+
+    The fail-closed contract for the whole signing pipeline rests on this
+    always propagating to a rejected sign or a blocked deploy -- no catch
+    site may swallow it and proceed as if verification succeeded.
+    """
+
+
+def _cosign_key_ref(key_id: str) -> str:
+    """Resolve ``key_id`` into a cosign ``--key`` URI (keyed signing only)."""
+    if "://" in key_id:
+        return key_id
+    return f"{_COSIGN_KEY_SCHEME}{key_id}"
+
+
+def _validate_image_ref(image_ref: str) -> str:
+    """Reject an image reference that could smuggle a CLI flag into cosign/syft.
+
+    argv lists stop shell injection but NOT argument injection: a reference
+    beginning with ``-`` is parsed as a flag by cosign/syft (both cobra CLIs),
+    e.g. a biome ``registry_url`` of ``--output=...``. A legitimate OCI
+    reference never starts with ``-`` and carries no whitespace/control chars.
+    Fail-closed -- an invalid ref raises :class:`CosignError` rather than
+    reaching a subprocess (belt-and-suspenders with the ``--`` flag terminator
+    the argv builders also use). regression: argv flag-smuggling (sec review).
+    """
+    ref = (image_ref or "").strip()
+    if not ref:
+        raise CosignError("empty image reference")
+    if ref.startswith("-"):
+        raise CosignError(f"refusing image reference that parses as a flag: {ref!r}")
+    if any(c.isspace() or ord(c) < 0x20 for c in ref):
+        raise CosignError(f"image reference has illegal whitespace/control chars: {ref!r}")
+    return ref
+
+
+def _deploy_tier() -> str:
+    """Return the deployment tier label used on signing-related metrics."""
+    return os.getenv("GOUGH_DEPLOY_TIER", "alpha").lower()
+
+
+async def _run_subprocess(argv: list[str], *, timeout: float) -> tuple[str, str]:
+    """Run ``argv`` directly (never through a shell) and return (stdout, stderr).
+
+    This is the sole subprocess boundary for cosign/syft -- tests
+    monkeypatch this one function to simulate the sign/verify/SBOM round
+    trip without a real binary or registry. Raises :class:`CosignError` on
+    a missing binary, a timeout, or a non-zero exit; never returns a
+    "probably fine" result for the caller to second-guess.
+    """
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *argv,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+    except FileNotFoundError as exc:
+        raise CosignError(f"{argv[0]} binary not found: {exc}") from exc
+
+    try:
+        stdout_b, stderr_b = await asyncio.wait_for(proc.communicate(), timeout=timeout)
+    except TimeoutError as exc:
+        proc.kill()
+        await proc.wait()
+        raise CosignError(f"{argv[0]} timed out after {timeout}s") from exc
+
+    stdout = stdout_b.decode("utf-8", errors="replace")
+    stderr = stderr_b.decode("utf-8", errors="replace")
+    if proc.returncode != 0:
+        raise CosignError(f"{argv[0]} exited {proc.returncode}: {(stderr or stdout).strip()}")
+    return stdout, stderr
+
+
+def _parse_cosign_digest(stdout: str, image_ref: str) -> str:
+    """Extract the verified manifest digest from ``cosign verify`` JSON output.
+
+    Fail-closed: any parse failure raises :class:`CosignError` instead of
+    falling back to an unverified digest.
+    """
+    try:
+        entries = json.loads(stdout)
+        digest = entries[0]["critical"]["image"]["docker-manifest-digest"]
+        if not isinstance(digest, str) or not digest.startswith("sha256:"):
+            raise ValueError("digest missing or malformed")
+        return digest
+    except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
+        raise CosignError(f"could not parse cosign verify output for {image_ref}: {exc}") from exc
+
+
+async def _cosign_verify(image_ref: str, *, key_id: str) -> str:
+    """Verify ``image_ref``'s cosign signature; return the verified digest."""
+    image_ref = _validate_image_ref(image_ref)
+    key_ref = _cosign_key_ref(key_id)
+    argv = [_COSIGN_BIN, "verify", "--key", key_ref, "--", image_ref]
+    stdout, _stderr = await _run_subprocess(argv, timeout=_COSIGN_TIMEOUT_SECONDS)
+    return _parse_cosign_digest(stdout, image_ref)
+
+
+async def _store_sbom(*, biome_name: str, image_digest: str, sbom_json: str) -> str:
+    """Upload a generated SBOM document to the configured object store.
+
+    Real S3-compatible upload via :mod:`app.services.storage` (boto3-backed,
+    not a placeholder URL). Any storage failure raises :class:`CosignError`
+    so a storage outage fails the whole sign operation closed instead of
+    recording a dangling ``sbom_url``.
+    """
+    from ..services.storage import StorageError, get_storage_service
+
+    safe_digest = image_digest.replace(":", "-").replace("/", "-")
+    object_key = f"sboms/{biome_name}/{safe_digest}.spdx.json"
+
+    try:
+        service = await get_storage_service()
+    except StorageError as exc:
+        raise CosignError(f"SBOM storage unavailable: {exc}") from exc
+
+    tmp_path: str | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as fh:
+            fh.write(sbom_json)
+            tmp_path = fh.name
+        result = await service.upload_file(tmp_path, object_key)
+    except StorageError as exc:
+        raise CosignError(f"SBOM upload failed: {exc}") from exc
+    finally:
+        if tmp_path:
+            with contextlib.suppress(OSError):
+                os.unlink(tmp_path)
+
+    endpoint = service.config.endpoint_url or ""
+    bucket = result.get("bucket") or service.config.bucket_name
+    return f"{endpoint}/{bucket}/{object_key}"
+
+
+async def _cosign_sign_and_attest(
+    *, image_ref: str, key_id: str, biome_name: str
+) -> tuple[str, str]:
+    """Sign ``image_ref`` with cosign, then generate+store an SBOM with syft.
+
+    Returns ``(image_digest, sbom_url)``. Fail-closed at every step: a
+    sign, post-sign verify, SBOM-generation, or SBOM-upload failure all
+    raise :class:`CosignError` -- the caller must never mark a biome
+    signed on a partial pipeline run.
+    """
+    image_ref = _validate_image_ref(image_ref)
+    key_ref = _cosign_key_ref(key_id)
+    sign_argv = [_COSIGN_BIN, "sign", "--yes", "--key", key_ref, "--", image_ref]
+    await _run_subprocess(sign_argv, timeout=_COSIGN_TIMEOUT_SECONDS)
+
+    # Sign-then-verify, never trust-on-write: immediately re-verify what was
+    # just signed and derive the digest from that verified result.
+    digest = await _cosign_verify(image_ref, key_id=key_id)
+
+    sbom_argv = [_SYFT_BIN, "-o", "spdx-json", "--", image_ref]
+    sbom_stdout, _sbom_stderr = await _run_subprocess(sbom_argv, timeout=_COSIGN_TIMEOUT_SECONDS)
+    sbom_url = await _store_sbom(biome_name=biome_name, image_digest=digest, sbom_json=sbom_stdout)
+
+    return digest, sbom_url
+
+
+def _mark_signing_failed(db: Any, biome_id: int, reason: str) -> None:
+    """Best-effort stamp of ``verification_failed`` after a pipeline failure."""
+    try:
+        if hasattr(db.biomes, "signing_status"):
+            db(db.biomes.id == biome_id).update(
+                signing_status="verification_failed",
+                signature_verified=False,
+            )
+        db.commit()
+    except Exception:
+        db.rollback()
+        log.exception(
+            "biome.sign.failed_status_write_error",
+            extra={"biome_id": biome_id, "reason": reason},
+        )
+
+
+async def _verify_biome_before_deploy(biome: Any) -> tuple[bool, str | None]:
+    """Re-verify a biome's cosign signature immediately before deployment.
+
+    Fail-closed: anything short of ``signing_status == "signed"`` plus
+    ``signature_verified`` plus a clean live ``cosign verify`` call rejects
+    the deploy. Only called when ``FLAG_BIOME_SIGNING`` is on.
+    """
+    signing_status = _g(biome, "signing_status", "unsigned")
+    if signing_status != "signed" or not _g(biome, "signature_verified", False):
+        return False, f"biome is not in a signed+verified state (signing_status={signing_status!r})"
+
+    registry_url = _g(biome, "registry_url")
+    if not registry_url:
+        return False, "biome has no registry_url; nothing to verify"
+
+    signing_key_id = _g(biome, "signing_key_id")
+    if not signing_key_id:
+        return False, "biome has no signing_key_id recorded"
+
+    try:
+        await _cosign_verify(registry_url, key_id=signing_key_id)
+    except CosignError as exc:
+        return False, str(exc)
+    return True, None
+
+
 @biomes_bp.route("/<int:biome_id>/sign", methods=["POST"])
 @auth_required
 async def sign_biome(biome_id: int):
-    """Asynchronously sign a biome (cosign + syft).
+    """Sign a biome with cosign and generate an SBOM with syft.
 
     Spec ``POST /api/v1/biomes/{id}/sign`` — scope ``gough.biomes.sign``,
-    MFA-required in compliance lanes.  Sprint 2 records a
-    ``signing_pending`` audit row and emits a NATS event stub via
-    ``logger.info``; the actual signing pipeline lands in Sprint 4.
-
-    Returns 202 immediately.
+    MFA-required in compliance lanes. Behind ``FLAG_BIOME_SIGNING``
+    (PostHog, default OFF): when off, records the Sprint-2
+    ``signing_pending`` audit marker only and returns 202 (no real
+    signing — unchanged legacy behaviour); when on, runs the real
+    Sprint-4 cosign+syft pipeline synchronously, fail-closed on any step,
+    and returns the final ``signed``/``verification_failed`` state.
     """
     raw = await request.get_json(silent=True)
     if raw is None:
@@ -1008,31 +1253,107 @@ async def sign_biome(biome_id: int):
     )
 
     # Mark the row pending so listings expose the state.
-    # Upon successful cosign verification (Sprint 4), set signature_verified and image_digest.
     def _mark_pending() -> None:
         try:
             if hasattr(db.biomes, "signing_status"):
                 db(db.biomes.id == biome_id).update(signing_status="signing_pending")
-            # TODO: Once cosign verification completes (Sprint 4):
-            # db(db.biomes.id == biome_id).update(
-            #     signature_verified=True,
-            #     image_digest=<verified_digest>,
-            #     published_at=datetime.now(timezone.utc)
-            # )
             db.commit()
         except Exception:  # noqa: BLE001 — column not migrated yet on minimal DBs
             db.rollback()
 
     await run_db(_mark_pending)
 
+    if not await feature_enabled(FLAG_BIOME_SIGNING):
+        # Sprint-4 pipeline is OFF: preserve the exact Sprint-2 placeholder
+        # contract every existing caller depends on.
+        return envelope_success(
+            {
+                "biome_id": biome_id,
+                "key_id": body.key_id,
+                "status": "signing_pending",
+                "note": "Signing executes asynchronously; result via NATS gough.biome.<id>.signed (Sprint 4).",
+            },
+            status_code=202,
+        )
+
+    # --- Sprint 4: real cosign + syft pipeline (FLAG_BIOME_SIGNING on) ----
+    registry_url = _g(biome, "registry_url")
+    if not registry_url:
+        await run_db(lambda: _mark_signing_failed(db, biome_id, "no_registry_url"))
+        return err_conflict(
+            "Biome has no registry_url; publish it to a registry before signing.",
+            details={"biome_id": biome_id},
+        )
+
+    start = time.monotonic()
+    try:
+        digest, sbom_url = await _cosign_sign_and_attest(
+            image_ref=registry_url,
+            key_id=body.key_id,
+            biome_name=_g(biome, "name", str(biome_id)),
+        )
+    except CosignError as exc:
+        # Capture the message now -- `exc` is deleted by Python when this
+        # except suite exits, and the closure below runs via run_db(),
+        # whose exact execution timing relative to that cleanup should
+        # never be relied on.
+        error_message = str(exc)
+        _metrics.biome_signature_verification_failed.labels(environment=_deploy_tier()).inc()
+        log.error(
+            "biome.sign.failed",
+            extra={
+                "biome_id": biome_id,
+                "key_id": body.key_id,
+                "error": error_message,
+                "duration_ms": round((time.monotonic() - start) * 1000, 1),
+                "nats_event": f"gough.biome.{biome_id}.sign_failed",
+            },
+        )
+        await run_db(lambda: _mark_signing_failed(db, biome_id, error_message))
+        return err_conflict(f"Biome signing failed: {error_message}", details={"biome_id": biome_id})
+
+    def _apply_signed() -> tuple[bool, Any]:
+        try:
+            db(db.biomes.id == biome_id).update(
+                signing_status="signed",
+                signing_key_id=body.key_id,
+                image_digest=digest,
+                signature_verified=True,
+                sbom_url=sbom_url,
+                published_at=datetime.now(timezone.utc),
+            )
+            db.commit()
+            return True, None
+        except Exception as e:
+            db.rollback()
+            log.exception("Error persisting biome signing result")
+            return False, e
+
+    ok, persist_err = await run_db(_apply_signed)
+    if not ok:
+        return err_internal(f"Biome signed but failed to persist signing metadata: {persist_err}")
+
+    log.info(
+        "biome.sign.completed",
+        extra={
+            "biome_id": biome_id,
+            "key_id": body.key_id,
+            "image_digest": digest,
+            "sbom_url": sbom_url,
+            "duration_ms": round((time.monotonic() - start) * 1000, 1),
+            "nats_event": f"gough.biome.{biome_id}.signed",
+        },
+    )
+
     return envelope_success(
         {
             "biome_id": biome_id,
             "key_id": body.key_id,
-            "status": "signing_pending",
-            "note": "Signing executes asynchronously; result via NATS gough.biome.<id>.signed (Sprint 4).",
+            "status": "signed",
+            "image_digest": digest,
+            "sbom_url": sbom_url,
         },
-        status_code=202,
+        status_code=200,
     )
 
 
@@ -1069,6 +1390,31 @@ async def upgrade_biome(biome_id: int):
     biome = await run_db(_fetch)
     if not biome:
         return err_not_found(f"Biome {biome_id} not found")
+
+    # Sprint 4: fail-closed signature re-verification before any deploy.
+    # Checked before the upgrade_run is even created so a rejected biome
+    # never gets a "pending" row that orchestration would later act on.
+    if await feature_enabled(FLAG_BIOME_SIGNING):
+        verify_ok, verify_reason = await _verify_biome_before_deploy(biome)
+        if not verify_ok:
+            _metrics.biome_signature_verification_failed.labels(
+                environment=_deploy_tier()
+            ).inc()
+            log.error(
+                "biome.deploy.signature_verification_failed",
+                extra={
+                    "biome_id": biome_id,
+                    "reason": verify_reason,
+                    "nats_event": f"gough.biome.{biome_id}.verify_failed",
+                },
+            )
+            await run_db(
+                lambda: _mark_signing_failed(db, biome_id, verify_reason or "verification_failed")
+            )
+            return err_conflict(
+                f"Biome {biome_id} failed signature verification; deployment blocked.",
+                details={"biome_id": biome_id, "reason": verify_reason},
+            )
 
     biome_kind = _g(biome, "biome_kind", "custom")
     if biome_kind in ("k8s", "storage"):
@@ -1177,8 +1523,9 @@ async def _execute_upgrade_orchestration(
     between phases stay plain ``await asyncio.sleep()``, not blocking work.
     """
     import asyncio
-    import aiohttp
     from datetime import datetime, timezone
+
+    import aiohttp
 
     db = get_db()
     # rollout_plan is either a named strategy string ("auto"/"canary") or an
