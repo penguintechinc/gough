@@ -120,8 +120,11 @@ write_registry_mirrors() {
     dir="/etc/containerd/certs.d/${reg}"
     install -d -m 0755 "$dir"
     {
+      # server names the default host containerd dials; pinning it to the mirror keeps pulls off the public registry.
       if [[ "$GOUGH_ALLOW_REGISTRY_FALLBACK" == "true" ]]; then
         printf 'server = "https://%s"\n\n' "$upstream"
+      else
+        printf 'server = "%s"\n\n' "$GOUGH_REGISTRY_MIRROR"
       fi
       printf '[host."%s"]\n  capabilities = ["pull", "resolve"]\n' "$GOUGH_REGISTRY_MIRROR"
     } > "${dir}/hosts.toml"
@@ -283,20 +286,70 @@ controller_init() {
   install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
 }
 
+# Print the helm --set arguments for Cilium, one argument per line. Every image comes from the operator mirror
+# pinned by digest; features that would pull other images are explicitly disabled. Reads GOUGH_* only.
+cilium_helm_sets() {
+  local kpr="$GOUGH_KUBE_PROXY_REPLACEMENT"
+  local hubble="$GOUGH_CILIUM_HUBBLE"
+  local gateway="$GOUGH_CILIUM_GATEWAY_API"
+  local mirror_host="${GOUGH_REGISTRY_MIRROR#*://}"
+  mirror_host="${mirror_host%/}"
+  # Digests from the Cilium 1.20.1 release: cilium, operator-generic (chart appends -generic), hubble-relay,
+  # cilium-envoy (chart values envoy.image) and certgen (chart values certgen.image).
+  local cilium_digest="sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
+  local operator_digest="sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf"
+  local relay_digest="sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4"
+  local envoy_digest="sha256:75b8094c7127736a2ffd2dce3945e0931cb6df21b0372ff661940eca26730b91"
+  local certgen_digest="sha256:6213a4c54a1f36e14a9280765f058aaa2017550c28bc122f5b09ad146fd0da2b"
+  printf '%s\n' \
+    --set "kubeProxyReplacement=${kpr}" \
+    --set "k8sServiceHost=${GOUGH_CONTROL_PLANE_ENDPOINT%%:*}" \
+    --set k8sServicePort=6443 \
+    --set ipam.mode=kubernetes \
+    --set ipv4.enabled=true \
+    --set ipv6.enabled=false \
+    --set "l2announcements.enabled=${kpr}" \
+    --set "externalIPs.enabled=${kpr}" \
+    --set "socketLB.enabled=${kpr}" \
+    --set "nodePort.enabled=${kpr}" \
+    --set "hostServices.enabled=${kpr}" \
+    --set "bpf.masquerade=${kpr}" \
+    --set loadBalancer.algorithm=maglev \
+    --set loadBalancer.mode=snat \
+    --set envoyConfig.enabled=true \
+    --set operator.replicas=1 \
+    --set "hubble.enabled=${hubble}" \
+    --set "hubble.relay.enabled=${hubble}" \
+    --set "gatewayAPI.enabled=${gateway}" \
+    --set "image.repository=${mirror_host}/cilium/cilium" \
+    --set "image.digest=${cilium_digest}" \
+    --set image.useDigest=true \
+    --set "operator.image.repository=${mirror_host}/cilium/operator" \
+    --set "operator.image.digest=${operator_digest}" \
+    --set operator.image.useDigest=true \
+    --set "hubble.relay.image.repository=${mirror_host}/cilium/hubble-relay" \
+    --set "hubble.relay.image.digest=${relay_digest}" \
+    --set hubble.relay.image.useDigest=true \
+    --set "envoy.image.repository=${mirror_host}/cilium/cilium-envoy" \
+    --set "envoy.image.digest=${envoy_digest}" \
+    --set envoy.image.useDigest=true \
+    --set "certgen.image.repository=${mirror_host}/cilium/certgen" \
+    --set "certgen.image.digest=${certgen_digest}" \
+    --set certgen.image.useDigest=true \
+    --set encryption.enabled=false \
+    --set hubble.ui.enabled=false \
+    --set nodeinit.enabled=false \
+    --set preflight.enabled=false \
+    --set clustermesh.useAPIServer=false \
+    --set authentication.mutual.spire.enabled=false \
+    --set authentication.mutual.spire.install.enabled=false
+}
+
 # Install the pinned Cilium CLI and chart from the mirror, pre-apply CRDs, then install Cilium with the selected features.
 controller_cilium() {
   export KUBECONFIG=/etc/kubernetes/admin.conf
   local work=/var/lib/gough/biome/cilium
-  local api_host="${GOUGH_CONTROL_PLANE_ENDPOINT%%:*}"
-  local kpr="$GOUGH_KUBE_PROXY_REPLACEMENT"
-  local hubble="$GOUGH_CILIUM_HUBBLE"
   local gateway="$GOUGH_CILIUM_GATEWAY_API"
-  # Images come only from the operator mirror; digests pin the Cilium 1.20.1 release.
-  local mirror_host="${GOUGH_REGISTRY_MIRROR#*://}"
-  mirror_host="${mirror_host%/}"
-  local CILIUM_IMAGE_DIGEST="sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
-  local CILIUM_OPERATOR_DIGEST="sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf"
-  local CILIUM_HUBBLE_RELAY_DIGEST="sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4"
   rm -rf "$work"
   install -d -m 0700 "$work"
   fetch_verified "$GOUGH_CHART_MIRROR_URL/cilium-${GOUGH_CILIUM_VERSION}.tgz" "$GOUGH_CILIUM_CHART_SHA256" "$work/chart.tgz"
@@ -315,37 +368,13 @@ controller_cilium() {
     kubectl apply --server-side --force-conflicts -f "$work/gateway-api-crds.yaml"
     kubectl wait --for=condition=Established --timeout=180s -f "$work/gateway-api-crds.yaml"
   fi
-  local -a sets=(
-    --set "kubeProxyReplacement=${kpr}"
-    --set "k8sServiceHost=${api_host}"
-    --set k8sServicePort=6443
-    --set ipam.mode=kubernetes
-    --set ipv4.enabled=true
-    --set ipv6.enabled=false
-    --set "l2announcements.enabled=${kpr}"
-    --set "externalIPs.enabled=${kpr}"
-    --set "socketLB.enabled=${kpr}"
-    --set "nodePort.enabled=${kpr}"
-    --set "hostServices.enabled=${kpr}"
-    --set "bpf.masquerade=${kpr}"
-    --set loadBalancer.algorithm=maglev
-    --set loadBalancer.mode=snat
-    --set enableCiliumEndpointSlice=true
-    --set envoyConfig.enabled=true
-    --set operator.replicas=1
-    --set "hubble.enabled=${hubble}"
-    --set "hubble.relay.enabled=${hubble}"
-    --set "gatewayAPI.enabled=${gateway}"
-    --set "image.repository=${mirror_host}/cilium/cilium"
-    --set "image.digest=${CILIUM_IMAGE_DIGEST}"
-    --set image.useDigest=true
-    --set "operator.image.repository=${mirror_host}/cilium/operator-generic"
-    --set "operator.image.digest=${CILIUM_OPERATOR_DIGEST}"
-    --set operator.image.useDigest=true
-    --set "hubble.relay.image.repository=${mirror_host}/cilium/hubble-relay"
-    --set "hubble.relay.image.digest=${CILIUM_HUBBLE_RELAY_DIGEST}"
-    --set hubble.relay.image.useDigest=true
-  )
+  local sets_out
+  sets_out="$(cilium_helm_sets)" || die "could not build Cilium helm arguments"
+  local -a sets=()
+  local arg
+  while IFS= read -r arg; do
+    sets+=("$arg")
+  done <<< "$sets_out"
   cilium install --chart-directory "$work/cilium" "${sets[@]}"
   cilium status --wait --wait-duration 15m
   kubectl wait --for=condition=Ready "node/$(hostname)" --timeout=300s

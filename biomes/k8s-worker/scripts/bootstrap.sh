@@ -120,8 +120,11 @@ write_registry_mirrors() {
     dir="/etc/containerd/certs.d/${reg}"
     install -d -m 0755 "$dir"
     {
+      # server names the default host containerd dials; pinning it to the mirror keeps pulls off the public registry.
       if [[ "$GOUGH_ALLOW_REGISTRY_FALLBACK" == "true" ]]; then
         printf 'server = "https://%s"\n\n' "$upstream"
+      else
+        printf 'server = "%s"\n\n' "$GOUGH_REGISTRY_MIRROR"
       fi
       printf '[host."%s"]\n  capabilities = ["pull", "resolve"]\n' "$GOUGH_REGISTRY_MIRROR"
     } > "${dir}/hosts.toml"

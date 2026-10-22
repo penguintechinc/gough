@@ -147,7 +147,26 @@ Parameters land in `/opt/gough/biome/params.env` (mode 0600) as `GOUGH_<NAME>=<s
 
 ## Airgap: artifacts and sources
 
-- Registries: containerd hosts.toml is mirror-only by default. No upstream server line is written, so nodes never dial public registries. `allow_registry_fallback=true` adds the public upstream as a last resort; leave it false in airgap.
+- Airgap image matrix (Cilium 1.20.1, chart `cilium-1.20.1.tgz`, rendered with `helm template --kube-version 1.35.9`; zero public references in base and full modes):
+
+| Image | Chart key | State | Digest |
+|---|---|---|---|
+| cilium/cilium | `image.*` | mirror, enabled | `sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b` |
+| cilium/operator-generic | `operator.image.*` (chart appends `-generic`) | mirror, enabled | `sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf` |
+| cilium/cilium-envoy | `envoy.image.*` (default on: `envoy.enabled: ~`) | mirror, enabled | `sha256:75b8094c7127736a2ffd2dce3945e0931cb6df21b0372ff661940eca26730b91` (tag `v1.37.5-1786810558-766ccfb37260a43e9d228837aa84ce3faf9f64e7`) |
+| cilium/hubble-relay | `hubble.relay.image.*` (when `cilium_hubble`) | mirror, enabled | `sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4` |
+| cilium/certgen | `certgen.image.*` | mirror | `sha256:6213a4c54a1f36e14a9280765f058aaa2017550c28bc122f5b09ad146fd0da2b` |
+| cilium/ztunnel | `encryption.ztunnel.*` | disabled (`encryption.enabled=false`) | n/a |
+| cilium/hubble-ui, hubble-ui-backend | `hubble.ui.*` | disabled | n/a |
+| cilium/startup-script | `nodeinit.*` | disabled | n/a |
+| cilium/cilium (preflight), cilium-envoy (preflight) | `preflight.*` | disabled | n/a |
+| cilium/clustermesh-apiserver | `clustermesh.apiserver.*` | disabled (`clustermesh.useAPIServer=false`) | n/a |
+| SPIRE agent/server, busybox init | `authentication.mutual.spire.*` | disabled (chart default for `install.enabled` is true, so both flags are set false) | n/a |
+
+The gough hub catalog (`app/catalog.py`, `default_cni.image_digests`) must carry the same envoy and certgen digests, and drop `enableCiliumEndpointSlice`, which chart 1.20.1 refuses.
+
+- Egress: mirror-only hosts.toml and digest-pinned mirror images are the first control, not the only one. Firewall node egress to the mirror and cluster-internal traffic only (default deny), so a missed registry or stray DNS lookup fails closed instead of hanging.
+- Registries: containerd hosts.toml is mirror-only by default: `server` is the mirror itself and no upstream hostname is written. `allow_registry_fallback=true` sets `server` to the public upstream instead; leave it false in airgap.
 - Cilium images: pinned to `<registry_mirror host>/cilium/{cilium,operator-generic,hubble-relay}` by digest (Cilium 1.20.1). The mirror must serve those upstream paths. No quay.io name appears in the bootstrap scripts.
 - `dns_servers`: whitespace around entries is stripped; each entry must be a valid IPv4 address.
 - Join rerun: an already-joined node (`kubelet.conf` present) with an active kubelet is skipped. A present but inactive kubelet fails loudly. A failed `kubeadm join` (for example an expired `join_token_ttl`) fails loudly and asks for a fresh join token from the hub.

@@ -581,10 +581,6 @@ class HardeningTests(unittest.TestCase):
             with open(os.path.join(biome, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
                 script = fh.read()
             self.assertNotIn("quay.io", script, biome)
-        with open(os.path.join(CTL_DIR, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
-            controller = fh.read()
-        self.assertIn('--set "image.repository=${mirror_host}/cilium/cilium"', controller)
-        self.assertIn('--set "operator.image.repository=${mirror_host}/cilium/operator-generic"', controller)
 
     def test_output_mode_enforced_on_reused_directory(self):
         """Rendering into a directory with pre-existing 0644 files leaves every output 0600."""

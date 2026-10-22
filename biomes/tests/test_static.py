@@ -233,18 +233,86 @@ class RegistryMirrorBehaviourTests(unittest.TestCase):
             return out
 
     def test_mirror_only_by_default(self):
-        """Default hosts.toml has the mirror host and no upstream server line or public registry."""
+        """Default hosts.toml names the mirror as server and mentions no upstream registry anywhere."""
         hosts = self.write_hosts(fallback=False)
         for reg, text in hosts.items():
+            self.assertIn('server = "https://mirror.example.internal:5000"', text, reg)
             self.assertIn('[host."https://mirror.example.internal:5000"]', text, reg)
-            self.assertNotIn("server =", text, reg)
-            self.assertNotIn("registry-1.docker.io", text, reg)
+            for upstream in ("registry-1.docker.io", "docker.io", "quay.io", "registry.k8s.io", "ghcr.io"):
+                self.assertNotIn(upstream, text, f"{reg} hosts.toml names {upstream}")
 
     def test_fallback_adds_upstream_only_when_opted_in(self):
-        """With allow_registry_fallback the public upstream appears as the last-resort server."""
+        """With allow_registry_fallback the public upstream is the server and the mirror stays a host."""
         hosts = self.write_hosts(fallback=True)
         self.assertIn('server = "https://registry-1.docker.io"', hosts["docker.io"])
         self.assertIn('server = "https://quay.io"', hosts["quay.io"])
+        self.assertIn('[host."https://mirror.example.internal:5000"]', hosts["quay.io"])
+
+
+class CiliumHelmArgsTests(unittest.TestCase):
+    """Executes cilium_helm_sets under bash and checks the helm arguments it prints; no public registry may appear."""
+
+    PUBLIC = ("quay.io", "registry.k8s.io", "docker.io", "ghcr.io", "registry-1")
+    REPOS = ("image.repository", "operator.image.repository", "hubble.relay.image.repository",
+             "envoy.image.repository", "certgen.image.repository")
+    DISABLED = ("encryption.enabled=false", "hubble.ui.enabled=false", "nodeinit.enabled=false",
+                "preflight.enabled=false", "clustermesh.useAPIServer=false",
+                "authentication.mutual.spire.enabled=false", "authentication.mutual.spire.install.enabled=false")
+
+    def helm_args(self, kpr="false", hubble="false", gateway="false", mirror="https://registry.example.internal/"):
+        """Return the helm argument lines produced by cilium_helm_sets for the given feature switches."""
+        bash = tool_or_fail("bash")
+        body = function_body(read(script_path("k8s-controller")), "cilium_helm_sets")
+        script = "set -euo pipefail\ncilium_helm_sets() {\n" + body + "}\ncilium_helm_sets\n"
+        env = {
+            "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+            "GOUGH_KUBE_PROXY_REPLACEMENT": kpr,
+            "GOUGH_CILIUM_HUBBLE": hubble,
+            "GOUGH_CILIUM_GATEWAY_API": gateway,
+            "GOUGH_REGISTRY_MIRROR": mirror,
+            "GOUGH_CONTROL_PLANE_ENDPOINT": "192.168.8.41:6443",
+        }
+        result = subprocess.run([bash, "-c", script], env=env, capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [line for line in result.stdout.splitlines() if line != "--set"]
+
+    def test_no_public_registry_in_any_feature_mode(self):
+        """With every feature switch on or off, no helm argument names a public registry."""
+        for kpr, hubble, gateway in (("false", "false", "false"), ("true", "true", "true")):
+            args = self.helm_args(kpr, hubble, gateway)
+            self.assertGreater(len(args), 20)
+            for arg in args:
+                for public in self.PUBLIC:
+                    self.assertNotIn(public, arg, f"kpr={kpr} hubble={hubble}: {arg}")
+
+    def test_every_enabled_image_comes_from_mirror_by_digest(self):
+        """Each image repository is under the mirror host and carries a sha256 digest with useDigest."""
+        args = self.helm_args()
+        for key in self.REPOS:
+            matches = [a for a in args if a.startswith(f"{key}=")]
+            self.assertEqual(len(matches), 1, key)
+            self.assertTrue(matches[0].split("=", 1)[1].startswith("registry.example.internal/cilium/"), key)
+            digest_key = key.replace(".repository", ".digest")
+            digest = [a for a in args if a.startswith(f"{digest_key}=")]
+            self.assertEqual(len(digest), 1, digest_key)
+            self.assertRegex(digest[0], r"=sha256:[0-9a-f]{64}$")
+            self.assertIn(f"{key.replace('.repository', '.useDigest')}=true", args)
+
+    def test_unused_upstream_images_are_disabled_explicitly(self):
+        """Features whose chart defaults would pull images (SPIRE defaults to install=true) are set false."""
+        args = self.helm_args()
+        for flag in self.DISABLED:
+            self.assertIn(flag, args)
+
+    def test_removed_chart_values_are_not_passed(self):
+        """enableCiliumEndpointSlice was removed in chart 1.18; the 1.20.1 chart refuses it, so it must not be set."""
+        args = self.helm_args()
+        self.assertFalse([a for a in args if a.startswith("enableCiliumEndpointSlice=")])
+
+    def test_mirror_trailing_slash_is_normalised(self):
+        """A mirror URL with a trailing slash yields the same repository path."""
+        args = self.helm_args(mirror="https://registry.example.internal/")
+        self.assertIn("image.repository=registry.example.internal/cilium/cilium", args)
 
 
 if __name__ == "__main__":
