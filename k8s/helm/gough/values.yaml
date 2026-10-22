@@ -6,6 +6,21 @@ global:
   # Image tag for every gough service (ghcr.io/penguintechinc/gough/<svc>:<tag>).
   # REQUIRED: set per env in the env file or via --set global.imageTag=<tag>.
   imageTag: ""
+  # LXD cluster primary used by api-manager's cluster-join endpoint. Empty apiUrl = endpoint returns 503.
+  # Must be https://. Client cert Secret must hold tls.crt and tls.key (mounted read-only at /etc/gough/lxd).
+  lxd:
+    apiUrl: ""
+    verifySsl: true
+    clientCertSecretRef:
+      name: ""
+    # Optional CA bundle Secret with key ca.crt (mounted at /etc/gough/lxd-ca).
+    caSecretRef:
+      name: ""
+  # One-time bootstrap enrollment key seeded into api-manager. Generated (>=48 chars) when
+  # existingSecret is empty; the Secret must contain key `token`. ttlHours must be 1-24.
+  bootstrapToken:
+    existingSecret: ""
+    ttlHours: 24
   # External S3-compatible storage (AWS S3, MinIO, ...). Consumed by worker-ipxe
   # (boot images + biome artifacts). api-manager storage is configured per tenant
   # through its API/DB, not via env, so it has no entry here.
