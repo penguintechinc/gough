@@ -1,0 +1,87 @@
+# Umbrella baseline (prod-safe). Environment overrides live in alpha.yml,
+# beta.yml, gamma.yml, production.yml. Subchart keys below pass through to
+# api-manager / webui / worker-ipxe.
+
+global:
+  # Image tag for every gough service (ghcr.io/penguintechinc/gough/<svc>:<tag>).
+  # REQUIRED: set per env in the env file or via --set global.imageTag=<tag>.
+  # Production must use an immutable tag (vX.Y.Z) or be pinned by digest in CI.
+  imageTag: ""
+
+# Subcharts keep the literal Secret/ConfigMap/Service names their values reference
+# (api-manager-secret, api-manager-config, ...), so fullnameOverride pins them.
+api-manager:
+  fullnameOverride: api-manager
+  image:
+    pullPolicy: IfNotPresent
+
+webui:
+  fullnameOverride: webui
+  image:
+    pullPolicy: IfNotPresent
+
+worker-ipxe:
+  fullnameOverride: worker-ipxe
+  image:
+    pullPolicy: IfNotPresent
+
+# In-chart PostgreSQL (StatefulSet). Non-prod only - production uses a managed
+# database: set postgresql.enabled=false, fill externalDatabase, and set
+# api-manager.configMapData.db-host to the external host.
+# STATEFUL EXCEPTION (pending approval)
+postgresql:
+  enabled: true
+  image:
+    repository: docker.io/library/postgres
+    tag: 17-bookworm
+    # Multi-arch index digest: docker buildx imagetools inspect postgres:17-bookworm
+    digest: sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+    pullPolicy: IfNotPresent
+  database: gough_api
+  username: gough_api
+  storageSize: 10Gi
+  storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# In-chart Redis (StatefulSet, password-protected). Non-prod only.
+# STATEFUL EXCEPTION (pending approval)
+redis:
+  enabled: true
+  image:
+    repository: docker.io/library/redis
+    tag: 7.4-bookworm
+    # Multi-arch index digest: docker buildx imagetools inspect redis:7.4-bookworm
+    digest: sha256:44960b3100c48159a66d28c18b0588c193492e25f7551d60e51dd464fc3eca5b
+    pullPolicy: IfNotPresent
+  storageSize: 1Gi
+  storageClassName: ""
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Used only when the matching in-chart component is disabled.
+# Credentials are supplied at install time (--set-file / CI secret), never committed.
+externalDatabase:
+  user: ""
+  password: ""
+externalRedisUrl: ""   # full URL incl. password, e.g. rediss://:<pw>@host:6380/0
+
+# Application secrets supplied at install time; never committed.
+secrets:
+  licenseKey: ""
+  storageAccessKey: ""
+  storageSecretKey: ""
+
+# Namespace of the ingress controller allowed to reach api-manager and webui.
+ingressController:
+  namespace: ingress

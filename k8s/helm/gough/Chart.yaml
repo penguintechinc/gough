@@ -1,0 +1,26 @@
+apiVersion: v2
+name: gough
+description: Gough hub umbrella chart - api-manager, webui, worker-ipxe, plus in-chart Postgres and Redis for non-prod
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - gough
+  - umbrella
+  - ipxe
+  - hub
+maintainers:
+  - name: Penguin Tech Inc
+    email: support@penguintech.io
+# access-agent and discovery-agent run on hypervisors (outside the hub cluster),
+# so they are deliberately NOT dependencies of the hub umbrella.
+dependencies:
+  - name: api-manager
+    version: 1.0.0
+    repository: file://../api-manager
+  - name: webui
+    version: 1.0.0
+    repository: file://../webui
+  - name: worker-ipxe
+    version: 1.0.0
+    repository: file://../worker-ipxe

@@ -70,13 +70,13 @@ updating the Secret.
 
 ### Values files
 
-`values-gamma.yaml` and `values-production.yaml` do not exist yet for this
+`gamma.yml` and `production.yml` do not exist yet for this
 chart (no chart in this repo has them yet — gamma/production Helm
 environments haven't been stood up). `OIDC_ISSUER`/`OIDC_AUDIENCE` are wired
-in `values.yaml` (generic placeholder), `values-alpha.yaml`, and
-`values-beta.yaml`. When gamma/production values files are created, set
+in `values.yaml` (generic placeholder), `alpha.yml`, and
+`beta.yml`. When gamma/production values files are created, set
 `OIDC_ISSUER` to `https://gough-gamma.penguintech.cloud` and
 `https://gough.app` respectively (see `env` list pattern in
-`values-alpha.yaml`/`values-beta.yaml` — these files fully replace, not
+`alpha.yml`/`beta.yml` — these files fully replace, not
 merge, the base `env` list, so `OIDC_ISSUER`/`OIDC_AUDIENCE`/
 `GOUGH_KEY_STORE_PATH` must be repeated literally in each new file).

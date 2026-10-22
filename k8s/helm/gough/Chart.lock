@@ -1,0 +1,12 @@
+dependencies:
+- name: api-manager
+  repository: file://../api-manager
+  version: 1.0.0
+- name: webui
+  repository: file://../webui
+  version: 1.0.0
+- name: worker-ipxe
+  repository: file://../worker-ipxe
+  version: 1.0.0
+digest: sha256:a96c1768d43f95176775012a87d3d39f69fc8a9981355202acf816c68d616410
+generated: "2026-10-22T08:39:38.266251164-05:00"

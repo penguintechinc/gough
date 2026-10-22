@@ -27,13 +27,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "api-manager.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
       - name: api-manager
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (dig "global" "imageTag" "" .Values.AsMap) | default .Chart.AppVersion }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - name: http
@@ -42,6 +43,10 @@ spec:
         - name: grpc
           containerPort: {{ .Values.service.grpcTargetPort }}
           protocol: TCP
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sh", "-c", "sleep 5"]
         {{- with .Values.livenessProbe }}
         livenessProbe:
           {{- toYaml . | nindent 12 }}
@@ -55,6 +60,10 @@ spec:
           {{- toYaml . | nindent 12 }}
         {{- end }}
         env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
         {{- toYaml .Values.env | nindent 12 }}
         {{- with .Values.volumeMounts }}
         volumeMounts:

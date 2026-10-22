@@ -500,16 +500,14 @@ test-discovery-agent: ## Testing - Run Go discovery-agent tests
 	@cd services/discovery-agent && go test -v -race -cover ./...
 	@echo "$(GREEN)Discovery-agent tests completed$(RESET)"
 
-deploy-alpha: ## Deploy - Deploy to local-alpha context (Kustomize)
-	@echo "$(BLUE)Deploying to alpha (local-alpha context)...$(RESET)"
-	@kubectl kustomize k8s/kustomize/overlays/alpha | kubectl apply --context local-alpha -f -
+deploy-alpha: ## Deploy - Helm install to local-alpha (images must be built; script imports them)
+	@echo "$(BLUE)Deploying gough to local-alpha via Helm...$(RESET)"
+	@./scripts/deploy-alpha.sh
 	@echo "$(GREEN)Alpha deployment complete$(RESET)"
 
-deploy-alpha-clean: ## Deploy - Clean deploy to alpha (delete namespace first)
-	@echo "$(RED)Cleaning alpha namespace...$(RESET)"
-	@kubectl delete namespace gough --context local-alpha --ignore-not-found=true
-	@sleep 2
-	@$(MAKE) deploy-alpha
+deploy-alpha-clean: ## Deploy - Helm clean deploy to local-alpha (deletes namespace first)
+	@echo "$(RED)Cleaning alpha namespace and redeploying...$(RESET)"
+	@./scripts/deploy-alpha.sh --clean
 
 deploy-dev: ## Deploy - Deploy to dev environment (alias to deploy-staging)
 	@$(MAKE) deploy-staging

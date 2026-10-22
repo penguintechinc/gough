@@ -15,7 +15,8 @@ replicaCount: 1
 image:
   repository: ghcr.io/penguintechinc/gough/discovery-agent
   pullPolicy: IfNotPresent
-  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+  # empty = use global.imageTag (umbrella chart) or Chart.AppVersion
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -28,10 +29,20 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Seconds kubelet waits after SIGTERM; preStop sleeps 5s first so the LB drains.
+terminationGracePeriodSeconds: 30
+
+# OTLP destination comes from standard OTEL_* env vars; empty = exporter disabled.
+otel:
+  endpoint: ""
+  serviceName: "discovery-agent"
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   runAsNonRoot: true

@@ -1,0 +1,56 @@
+# Production: DigitalOcean (context TBD, cluster not built yet). Released tags only (v1.x+).
+# global.imageTag MUST be an immutable vX.Y.Z tag passed by CI.
+# Ingress host is TBD (penguintech-reference: Product Domains) - ingress stays disabled until set.
+# Managed Postgres and Redis are external: supply via --set-file / CI secrets, never committed.
+namespace: gough
+
+api-manager:
+  # Floor of 3 per prod tier. OPEN: websocket shell sessions are process-local; confirm sticky sessions or move to shared state before go-live.
+  replicaCount: 3
+  image:
+    pullPolicy: IfNotPresent
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+webui:
+  replicaCount: 3
+  image:
+    pullPolicy: IfNotPresent
+  autoscaling:
+    enabled: true
+    minReplicas: 3
+    maxReplicas: 10
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+worker-ipxe:
+  # Single responder by design (DHCP/TFTP); not scaled horizontally.
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+postgresql:
+  enabled: false
+redis:
+  enabled: false

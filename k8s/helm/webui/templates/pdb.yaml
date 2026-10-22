@@ -1,0 +1,15 @@
+{{- /* PodDisruptionBudget: rendered only when more than one replica is requested. */ -}}
+{{- if gt (int (ternary .Values.autoscaling.minReplicas .Values.replicaCount .Values.autoscaling.enabled)) 1 }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "webui.fullname" . }}
+  labels:
+    {{- include "webui.labels" . | nindent 4 }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "webui.selectorLabels" . | nindent 6 }}
+{{- end }}

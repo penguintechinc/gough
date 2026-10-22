@@ -1,0 +1,69 @@
+# Alpha: local MicroK8s (context local-alpha). Images are local builds imported into MicroK8s.
+namespace: gough
+
+global:
+  imageTag: alpha-local
+
+api-manager:
+  # Single replica: websocket shell sessions are process-local.
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  configMapData:
+    release-mode: "false"
+    oidc-issuer: "https://gough.localhost.local"
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: gough.localhost.local
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+webui:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: gough.localhost.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+worker-ipxe:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# In-chart data stores (alpha defaults in values.yaml; resources at alpha tier).
+postgresql:
+  enabled: true
+redis:
+  enabled: true
