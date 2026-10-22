@@ -12,7 +12,7 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
 
 # TODO: pin digest via Renovate
-FROM golang:1.24-bookworm@sha256:<PLACEHOLDER_UPDATE_VIA_RENOVATE> AS builder
+FROM golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac AS builder
 
 ARG VERSION=dev
 ARG XDP_BUILD_TAGS=noxdp,netgo
@@ -33,13 +33,15 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
     ./cmd/agent/
 
 # Verify the binary is truly static (no shared library references).
-RUN file /out/discovery-agent | grep -q "statically linked" || \
-    (echo "ERROR: binary is not statically linked" && exit 1)
+# Static ELF has no PT_INTERP program header. `file` is not in golang:bookworm, so use readelf;
+# if readelf fails, the command substitution fails and the build fails (no false pass).
+RUN out="$(readelf -l /out/discovery-agent)" && \
+    { if printf '%s' "$out" | grep -q 'INTERP'; then echo "ERROR: binary is not statically linked" && exit 1; fi; }
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 
 # TODO: pin digest via Renovate
-FROM debian:bookworm-slim@sha256:<PLACEHOLDER_UPDATE_VIA_RENOVATE> AS runtime
+FROM debian:bookworm-slim@sha256:7ff6ba31527b9e336162fa061746c366c4b2032f4d2cff2078bea43f78efe3f8 AS runtime
 
 LABEL org.opencontainers.image.title="gough-discovery-agent"
 LABEL org.opencontainers.image.description="Gough Phase 1 node discovery agent — runs inside Ubuntu 24.04 initrd helper image"
