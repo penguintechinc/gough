@@ -331,9 +331,38 @@ prune_bootstrap_tokens() {
   done < <(kubeadm token list | awk 'NR>1 {print $1}' | sed 's/\..*$//')
 }
 
-# Mint a short-TTL report token, store join material locally (mode 600), report it over https, then prune other bootstrap tokens.
+# Deliver the join-material JSON to the hub over https with a bearer token (hub mode).
+report_to_hub() {
+  local json="$1" body hdr
+  [[ -n "$GOUGH_REPORT_URL" ]] || die "report_mode hub requires report_url"
+  body="$(mktemp)"
+  hdr="$(mktemp)"
+  trap 'rm -f "$body" "$hdr"; trap - RETURN' RETURN
+  printf '%s' "$json" > "$body"
+  printf 'header = "Authorization: Bearer %s"\ndata-binary = "@%s"\n' "$GOUGH_REPORT_BOOTSTRAP_TOKEN" "$body" > "$hdr"
+  curl --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 30 \
+    --config "$hdr" -H 'Content-Type: application/json' -X POST "$GOUGH_REPORT_URL" >/dev/null
+  log "join material reported to hub"
+}
+
+# Write the join-material JSON atomically to a root-only file, then the done marker last (local mode).
+report_locally() {
+  local json="$1" report=/var/lib/gough/biome-report.json done=/var/lib/gough/biome-report.done tmp
+  tmp="$(mktemp -p /var/lib/gough)"
+  printf '%s\n' "$json" > "$tmp"
+  chmod 0600 "$tmp"
+  chown root:root "$tmp"
+  mv -f "$tmp" "$report"
+  tmp="$(mktemp -p /var/lib/gough)"
+  printf 'written %s\n' "$(date -u +%FT%TZ)" > "$tmp"
+  chmod 0600 "$tmp"
+  mv -f "$tmp" "$done"
+  log "join report written to $report (consumer must read, then delete it and $done)"
+}
+
+# Mint a short-TTL report token, store join material locally (mode 600), deliver it per report_mode, then prune other bootstrap tokens.
 controller_publish_join() {
-  local out token hash json body hdr
+  local out token hash json
   out="$(kubeadm token create --ttl "$GOUGH_JOIN_TOKEN_TTL" --print-join-command)"
   [[ "$out" =~ --token\ ([a-z0-9]{6}\.[a-z0-9]{16}) ]] || die "could not parse join token"
   token="${BASH_REMATCH[1]}"
@@ -344,14 +373,11 @@ controller_publish_join() {
     "$GOUGH_CONTROL_PLANE_ENDPOINT" "$token" "$hash" > "$JOIN_FILE"
   json=$(printf '{"biome":"%s","hostname":"%s","join_endpoint":"%s","join_token":"%s","ca_cert_hash":"%s","cilium_version":"%s"}' \
     "$ROLE" "$(hostname)" "$GOUGH_CONTROL_PLANE_ENDPOINT" "$token" "$hash" "$GOUGH_CILIUM_VERSION")
-  body="$(mktemp)"
-  hdr="$(mktemp)"
-  trap 'rm -f "$body" "$hdr"; trap - RETURN' RETURN
-  printf '%s' "$json" > "$body"
-  printf 'header = "Authorization: Bearer %s"\ndata-binary = "@%s"\n' "$GOUGH_REPORT_BOOTSTRAP_TOKEN" "$body" > "$hdr"
-  curl --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 30 \
-    --config "$hdr" -H 'Content-Type: application/json' -X POST "$GOUGH_REPORT_URL" >/dev/null
-  log "join material reported to hub"
+  case "$GOUGH_REPORT_MODE" in
+    hub) report_to_hub "$json" ;;
+    local) report_locally "$json" ;;
+    *) die "unknown report_mode: $GOUGH_REPORT_MODE" ;;
+  esac
   prune_bootstrap_tokens "$token"
   log "default bootstrap tokens pruned; only the report token remains"
 }
@@ -363,7 +389,7 @@ main() {
     GOUGH_CONTAINERD_PACKAGE_VERSION GOUGH_REGISTRY_MIRROR GOUGH_MIRRORED_REGISTRIES \
     GOUGH_APISERVER_ADVERTISE_ADDRESS GOUGH_CONTROL_PLANE_ENDPOINT GOUGH_POD_CIDR GOUGH_SERVICE_CIDR \
     GOUGH_CHART_MIRROR_URL GOUGH_CILIUM_VERSION GOUGH_CILIUM_CHART_SHA256 GOUGH_CILIUM_CRDS_URL GOUGH_CILIUM_CRDS_SHA256 GOUGH_CILIUM_CLI_URL \
-    GOUGH_CILIUM_CLI_SHA256 GOUGH_JOIN_TOKEN_TTL GOUGH_REPORT_URL GOUGH_REPORT_BOOTSTRAP_TOKEN \
+    GOUGH_CILIUM_CLI_SHA256 GOUGH_JOIN_TOKEN_TTL GOUGH_REPORT_MODE \
     GOUGH_KUBE_PROXY_REPLACEMENT GOUGH_CILIUM_GATEWAY_API GOUGH_CILIUM_HUBBLE
   run_step node-prep prepare_node
   run_step control-plane-init controller_init

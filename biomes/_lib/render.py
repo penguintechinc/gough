@@ -156,10 +156,32 @@ def build_profile(manifest, resolved, values):
     }
 
 
+def report_checks(resolved):
+    """Resolve the effective report mode and enforce its parameter rules (hub needs https+token; local forbids both)."""
+    if "report_mode" not in resolved:
+        return
+    url = resolved.get("report_url", "")
+    token = resolved.get("report_bootstrap_token", "")
+    mode = resolved["report_mode"] or ("hub" if url else "local")
+    if mode == "hub":
+        if not url.startswith("https://"):
+            raise RenderError("report_mode hub requires an https report_url")
+        if not token:
+            raise RenderError("report_mode hub requires report_bootstrap_token")
+    elif url or token:
+        raise RenderError("report_mode local forbids report_url and report_bootstrap_token")
+    resolved["report_mode"] = mode
+
+
+CROSS_CHECKS = (report_checks,)
+
+
 def render_biome(biome_dir, supplied):
     """Render user-data, network-config and profile.json for one biome instance."""
     manifest = load_manifest(biome_dir)
     resolved = resolve_params(manifest, supplied)
+    for check in CROSS_CHECKS:
+        check(resolved)
     values = {name: stringify(value) for name, value in resolved.items()}
     values.update(derived_values(biome_dir, resolved))
     outputs = {}

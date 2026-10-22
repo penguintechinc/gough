@@ -247,19 +247,30 @@
       "description": "TTL for the bootstrap join token minted for workers."
     },
     {
+      "name": "report_mode",
+      "type": "enum",
+      "choices": [
+        "",
+        "hub",
+        "local"
+      ],
+      "default": "",
+      "description": "hub: POST join material to report_url with a bearer. local: write /var/lib/gough/biome-report.json (+ .done marker) for the hypervisor installer to pull. Empty infers hub when report_url is set, otherwise local."
+    },
+    {
       "name": "report_url",
       "type": "string",
-      "required": true,
-      "pattern": "^https://\\S+$",
-      "description": "Hub endpoint receiving join material; https only (carries a bearer token)."
+      "pattern": "^(?:https://\\S+)?$",
+      "description": "hub mode only: https endpoint receiving join material. Must be empty in local mode.",
+      "default": ""
     },
     {
       "name": "report_bootstrap_token",
       "type": "string",
-      "required": true,
       "secret": true,
-      "pattern": "^[A-Za-z0-9._~+/=-]{16,}$",
-      "description": "One-time bearer token authorising the join-material report. Secret; never logged."
+      "pattern": "^(?:[A-Za-z0-9._~+/=-]{16,})?$",
+      "description": "hub mode only: one-time bearer for the join-material report. Secret. Must be empty in local mode.",
+      "default": ""
     },
     {
       "name": "kube_proxy_replacement",

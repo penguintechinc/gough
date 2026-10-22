@@ -47,7 +47,7 @@ The bootstrap host runs `k8s-controller` and `k8s-worker` on the same hypervisor
 - No fixed names: hostname, LXD instance name and static IP are required parameters. Templates contain no node names or addresses (a test enforces this).
 - Per-biome LXD profiles: `gough-k8s-controller` and `gough-k8s-worker` are different profiles, so the two configs never collide. Each instance gets its profile at launch.
 - No shared host paths: all writes happen inside the instance (`/etc`, `/var/lib/gough/biome`, `/opt/gough/biome`). Host-level effects are limited to what the profiles request (kernel module loads, idempotent) and the host bridge the NIC attaches to.
-- Worker join material is a parameter set (`join_endpoint`, `join_token`, `join_ca_cert_hash`) supplied by the hub. Nothing is read from the controller's disk.
+- Worker join material is a parameter set (`join_endpoint`, `join_token`, `join_ca_cert_hash`). The worker biome itself reads no controller state; the installer or hub supplies these values, taken from the controller's join report (either mode below).
 - Removing the worker: delete the worker instance and its profile. The controller and Cilium are unaffected.
 - Not supported: two controllers on one host. The controller profile name is fixed per biome.
 
@@ -139,6 +139,29 @@ tools/build-cilium-crd-bundle.sh 1.20.1 dist      # needs gh, authenticated
 
 Upload the file to the operator mirror and set `cilium_crds_url` and `cilium_crds_sha256` to the mirror URL and the printed hash. The airgapped host never runs this tool. Verified: v1.20.1 built with 22 files; sha256 `abb345439856d5aae0e5201e9fed3b72d7997095182941cb7e911a106e523d9d`.
 
+## Join report (`report_mode`)
+
+The controller always writes join material locally first and then delivers it in one of two modes. `report_mode` empty infers `hub` when `report_url` is set, otherwise `local`. The render fails on any mismatch (see the rules in each mode).
+
+| Mode | Rule at render time | Delivery |
+|---|---|---|
+| `hub` | `report_url` must be `https://`; `report_bootstrap_token` required | HTTPS POST to `report_url` with bearer (below) |
+| `local` | `report_url` and `report_bootstrap_token` must be empty | File on the instance, pulled by the hypervisor installer (below) |
+
+### Local mode
+
+The controller writes `/var/lib/gough/biome-report.json` (mode 0600, root:root) atomically, using a temp file and `mv`. It writes `/var/lib/gough/biome-report.done` last, as the completion marker. Both are written by the bootstrap only.
+
+Consumer (hypervisor installer) steps:
+
+1. Wait until the marker exists: `lxc exec <instance> -- test -f /var/lib/gough/biome-report.done`.
+2. Read the report: `lxc file pull <instance>/var/lib/gough/biome-report.json -`. The host root already controls the instance, so this is not a privilege boundary.
+3. Consume the join material, then delete both files: `lxc exec <instance> -- rm -f /var/lib/gough/biome-report.json /var/lib/gough/biome-report.done`. Consumers must delete the report after reading; it carries a live join token until its TTL expires.
+
+The same join material also persists in `/var/lib/gough/biome/join.env` (mode 0600) on the instance. The bootstrap writes it in both modes.
+
+### Hub mode
+
 ## Hub contract (must be implemented by gough)
 
 The controller's bootstrap POSTs once the control plane and Cilium are healthy. The body is passed to curl from a 0600 temp file, so it never appears in process arguments.
@@ -159,7 +182,7 @@ Content-Type: application/json
   - Store the join material against the controller instance. It is the only source for a worker's `join_*` parameters.
   - Accept an identical repeat (the controller retries on network failure): `204`. A differing body for a consumed token: `409`.
   - Consume the bearer after the first accepted report. It is not reusable for other instances.
-  - Never log `join_token` or the bearer. Return the join token only to the installer rendering the worker biome.
+  - Never log `join_token` or the bearer. Hand the join token only to the party rendering the worker biome.
   - The controller retries 5 times with a 5 s delay, so `report_url` must be reachable from the controller over https.
 
 ## Security properties (both biomes)

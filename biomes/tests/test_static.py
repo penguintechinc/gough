@@ -136,9 +136,17 @@ class ScriptStaticTests(unittest.TestCase):
 
     def test_report_body_goes_through_file(self):
         """The join-material body is written to a temp file and passed with data-binary, not inline."""
-        body = function_body(read(script_path("k8s-controller")), "controller_publish_join")
+        body = function_body(read(script_path("k8s-controller")), "report_to_hub")
         self.assertIn('data-binary = "@%s"', body)
         self.assertNotIn("--data ", body)
+
+    def test_local_report_is_atomic_with_marker_last(self):
+        """Local mode writes the report via temp file + mv, 0600 root-owned, and the done marker after the report."""
+        body = function_body(read(script_path("k8s-controller")), "report_locally")
+        self.assertIn("chown root:root", body)
+        self.assertLess(body.index('mv -f "$tmp" "$report"'), body.index('mv -f "$tmp" "$done"'))
+        self.assertIn("/var/lib/gough/biome-report.json", body)
+        self.assertIn("/var/lib/gough/biome-report.done", body)
 
     def test_kubeadm_init_output_is_root_only_and_skips_token_print(self):
         """kubeadm init writes to a 0600 file and uses --skip-token-print so the token is not logged."""

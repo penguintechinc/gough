@@ -146,6 +146,43 @@ class HttpsPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(render.RenderError, "report_url does not match"):
             render.render_biome(CTL_DIR, params)
 
+    def test_local_mode_is_default_without_report_url(self):
+        """With no report_url the effective mode is local and the bootstrap env says so."""
+        params = controller_params()
+        del params["report_url"]
+        del params["report_bootstrap_token"]
+        self.assertIn("GOUGH_REPORT_MODE=local", params_env_of(render.render_biome(CTL_DIR, params)))
+
+    def test_local_mode_forbids_report_url(self):
+        """report_mode local with a report_url is refused."""
+        with self.assertRaisesRegex(render.RenderError, "forbids report_url"):
+            render.render_biome(CTL_DIR, controller_params(report_mode="local"))
+
+    def test_local_mode_forbids_token(self):
+        """report_mode local with a bearer token is refused."""
+        params = controller_params(report_mode="local")
+        del params["report_url"]
+        with self.assertRaisesRegex(render.RenderError, "forbids report_url and report_bootstrap_token"):
+            render.render_biome(CTL_DIR, params)
+
+    def test_hub_mode_requires_https_url(self):
+        """report_mode hub without an https report_url is refused."""
+        params = controller_params(report_mode="hub")
+        del params["report_url"]
+        with self.assertRaisesRegex(render.RenderError, "requires an https report_url"):
+            render.render_biome(CTL_DIR, params)
+
+    def test_hub_mode_requires_token(self):
+        """report_mode hub without a bearer token is refused."""
+        params = controller_params(report_mode="hub")
+        del params["report_bootstrap_token"]
+        with self.assertRaisesRegex(render.RenderError, "requires report_bootstrap_token"):
+            render.render_biome(CTL_DIR, params)
+
+    def test_hub_mode_accepts_https_with_token(self):
+        """report_mode hub with https URL and token renders with mode hub."""
+        self.assertIn("GOUGH_REPORT_MODE=hub", params_env_of(render.render_biome(CTL_DIR, controller_params(report_mode="hub"))))
+
     def test_report_url_https_accepted(self):
         """An https report_url renders."""
         self.assertTrue(render.render_biome(CTL_DIR, controller_params()))
