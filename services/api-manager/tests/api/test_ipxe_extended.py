@@ -559,7 +559,7 @@ class TestMachineEndpoints:
             # Test that power control endpoint exists and responds
             resp = await client.post("/api/v1/ipxe/machines/1/power/on")
             # Should succeed or auth-related error
-            assert resp.status_code in (200, 201, 400, 401, 403, 404)
+            assert resp.status_code in (400, 401, 403, 404, 501)
 
     @pytest.mark.asyncio
     async def test_update_biomes_happy_path(self, client) -> None:

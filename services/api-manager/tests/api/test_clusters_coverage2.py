@@ -452,6 +452,7 @@ async def test_patch_baseline_topology_no_topology_in_body(client):
         headers={"Content-Type": "application/json"},
     )
     # Should accept networks at top level
-    assert response.status_code in (200, 422)
+    # no cluster_config table in this fixture -> fails loudly (503), never a fake "accepted"
+    assert response.status_code in (200, 422, 503)
 
 

@@ -574,10 +574,29 @@ class TestGetElderClient:
         config.timeout = "15.0"
         config.max_retries = "5"
         db.return_value.select.return_value.first.return_value = config
-        client = await get_elder_client(db)
+        with patch(
+            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+        ):
+            client = await get_elder_client(db)
         assert client is not None
         assert isinstance(client, ElderClient)
         assert client.elder_url == "http://elder.local"
         assert client.api_key == "my-api-key"
         assert client.timeout == 15.0
         assert client.max_retries == 5
+
+
+class TestGetElderClientSsrf:
+    """regression: the stored Elder URL is re-vetted at use time (SSRF guard)."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("url", ["http://127.0.0.1:8000", "http://169.254.169.254/latest", "ftp://elder"])
+    async def test_blocked_endpoint_raises(self, url):
+        db = MagicMock()
+        db.tables = ["elder_config"]
+        config = MagicMock()
+        config.elder_url = url
+        config.api_key = "k"
+        db.return_value.select.return_value.first.return_value = config
+        with pytest.raises(ElderError):
+            await get_elder_client(db)

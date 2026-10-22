@@ -238,6 +238,7 @@ class TestRevokeEnrollmentKey:
 
         fake_key = MagicMock()
         fake_key.id = 1
+        fake_key.__getitem__ = lambda _s, _k: "{\"tenant_id\": \"default\"}"
         mock_db.enrollment_keys.return_value = fake_key
 
         def _db_call(*args, **kwargs):
@@ -301,6 +302,7 @@ class TestGetAgent:
         now = datetime.utcnow()
         fake_agent = MagicMock()
         fake_agent.id = 1
+        fake_agent.tenant_id = "default"
         fake_agent.agent_id = "agent-001"
         fake_agent.hostname = "access-agent-01"
         fake_agent.ip_address = "192.168.1.100"
@@ -354,6 +356,7 @@ class TestSuspendAgent:
 
         fake_agent = MagicMock()
         fake_agent.id = 1
+        fake_agent.tenant_id = "default"
 
         def _db_call(*args, **kwargs):
             q = MagicMock()
@@ -399,6 +402,7 @@ class TestResumeAgent:
 
         fake_agent = MagicMock()
         fake_agent.id = 1
+        fake_agent.tenant_id = "default"
 
         def _db_call(*args, **kwargs):
             q = MagicMock()
@@ -683,6 +687,7 @@ async def test_refresh_agent_token_success_dal(agents_client, dal):
     """Test POST /api/v1/agents/refresh with valid refresh token."""
     agent_id = "test-agent-uuid"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="test-agent",
         status="active",
@@ -801,6 +806,7 @@ async def test_refresh_agent_token_suspended_dal(agents_client, dal):
     """Test POST /api/v1/agents/refresh for suspended agent returns 401."""
     agent_id = "suspended-agent"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="suspended",
         status="suspended",
@@ -897,6 +903,7 @@ class TestRegressionEvalRCEAgentsPy395:
         agent_id = "rce-refresh-agent"
         malicious_payload = "__import__('os').system('id > /tmp/pwned-agents-py-395')"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=agent_id,
             hostname="rce-refresh-host",
             status="active",
@@ -982,6 +989,7 @@ async def test_agent_heartbeat_success_dal(agents_client, dal):
     """Test POST /api/v1/agents/heartbeat succeeds."""
     agent_id = "heartbeat-agent"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="test-agent",
         status="active",
@@ -1034,12 +1042,14 @@ async def test_agent_heartbeat_no_auth_dal(agents_client):
 async def test_list_agents_dal(agents_client, dal):
     """Test GET /api/v1/agents/ lists agents."""
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id="agent-1",
         hostname="agent-1-host",
         status="active",
         enrolled_at=datetime.utcnow(),
     )
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id="agent-2",
         hostname="agent-2-host",
         status="suspended",
@@ -1059,12 +1069,14 @@ async def test_list_agents_dal(agents_client, dal):
 async def test_list_agents_filter_status_dal(agents_client, dal):
     """Test GET /api/v1/agents/?status=active filters agents."""
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id="active-agent",
         hostname="active-host",
         status="active",
         enrolled_at=datetime.utcnow(),
     )
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id="suspended-agent",
         hostname="suspended-host",
         status="suspended",
@@ -1083,6 +1095,7 @@ async def test_get_agent_dal(agents_client, dal):
     """Test GET /api/v1/agents/<agent_id> returns agent details."""
     agent_id = "detail-agent"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="detail-host",
         ip_address="192.168.1.10",
@@ -1112,6 +1125,7 @@ async def test_suspend_agent_dal(agents_client, dal):
     """Test POST /api/v1/agents/<agent_id>/suspend suspends agent."""
     agent_id = "suspend-agent"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="suspend-host",
         status="active",
@@ -1141,6 +1155,7 @@ async def test_resume_agent_dal(agents_client, dal):
     """Test POST /api/v1/agents/<agent_id>/resume resumes agent."""
     agent_id = "resume-agent"
     dal.access_agents.insert(
+        tenant_id="default",
         agent_id=agent_id,
         hostname="resume-host",
         status="suspended",
@@ -1181,6 +1196,7 @@ class TestRegressionGH31EnrollmentCompleted:
         # Seed agents with mixed enrollment_completed values
         enrolled_agent_id = "enrolled-agent-1"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=enrolled_agent_id,
             hostname="enrolled-host",
             ip_address="192.168.1.1",
@@ -1192,6 +1208,7 @@ class TestRegressionGH31EnrollmentCompleted:
 
         pending_agent_id = "pending-agent-1"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=pending_agent_id,
             hostname="pending-host",
             ip_address="192.168.1.2",
@@ -1239,6 +1256,7 @@ class TestRegressionGH31EnrollmentCompleted:
         """Regression: gh-31. enrollment_completed must be present in detail agent responses."""
         agent_id = "detail-agent-1"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=agent_id,
             hostname="detail-host",
             ip_address="192.168.1.10",
@@ -1269,6 +1287,7 @@ class TestRegressionGH31EnrollmentCompleted:
         """Regression: gh-31. enrollment_completed values must match in list and detail responses."""
         agent_id = "consistency-agent-1"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=agent_id,
             hostname="consistency-host",
             ip_address="192.168.1.20",

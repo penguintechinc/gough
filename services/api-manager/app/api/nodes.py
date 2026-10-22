@@ -2273,7 +2273,7 @@ async def get_node_cloud_init(node_id: int) -> Any:
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("cloud-init template substitution failed for node %s: %s", node_id, exc)
-        return err_internal(f"Template render error: {exc}")
+        return err_internal("Template render error")
 
     return Response(rendered, status=200, content_type="text/plain; charset=utf-8")
 
@@ -2283,32 +2283,67 @@ async def get_node_cloud_init(node_id: int) -> Any:
 # ---------------------------------------------------------------------------
 
 
+_LXD_NODE_PORT = 8443
+
+
+def _lxd_leader_address() -> str:
+    """Return the cluster leader ``host:port`` from operator config (``LXD_API_URL``), never input."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(os.environ.get("LXD_API_URL", "https://localhost:8443"))
+    return f"{parsed.hostname or 'localhost'}:{parsed.port or _LXD_NODE_PORT}"
+
+
+def _node_lxd_address(node: Any) -> Optional[str]:
+    """Derive the node's LXD ``host:port`` from its REGISTERED address (static, then discovered).
+
+    Never taken from the request: a caller-supplied URL would let a tenant steer the
+    join-token POST to an arbitrary host (SSRF / token exfiltration).
+    """
+    import ipaddress
+
+    raw = _g(node, "ipv4_static") or _g(node, "ipv4")
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        addr = ipaddress.ip_address(raw.strip())
+    except ValueError:
+        return None
+    return f"{addr}:{_LXD_NODE_PORT}"
+
+
 @nodes_bp.route("/<int:node_id>/lxd/join", methods=["POST"])
 @auth_required
 async def node_lxd_join(node_id: int) -> Any:
     """Join a node to an LXD cluster and record membership.
 
-    Request body:
-        cluster_id: LXD cluster ID (required)
-        api_url:    node's LXD API URL (required)
-        member_name: cluster member name (required)
+    Scope ``gough.cluster.admin`` (parity with ``/clusters/<id>/lxd/join``).
 
-    Reuses lxd_extra join orchestration and inserts an lxd_cluster_members row.
+    Request body:
+        cluster_id: LXD cluster ID the caller's tenant owns (required)
+        member_name: cluster member name, RFC 1123 hostname (required)
+
+    The node's LXD address is derived from its registered ``ipv4_static``/``ipv4``;
+    an ``api_url`` in the body is rejected, never honoured.
     """
+    from .lxd_cluster import is_valid_hostname
+
     raw = await request.get_json(silent=True)
-    if raw is None:
+    if not isinstance(raw, dict):
         return err_bad_request("JSON body required")
 
-    cluster_id_raw = (raw.get("cluster_id") or "")
-    api_url = (raw.get("api_url") or "").strip()
-    member_name = (raw.get("member_name") or "").strip()
+    if "api_url" in raw:
+        return err_bad_request("api_url is not accepted; the node's registered address is used")
 
-    if not cluster_id_raw:
+    cluster_id_raw = raw.get("cluster_id") or ""
+    member_name = (raw.get("member_name") or "").strip() if isinstance(raw.get("member_name"), str) else ""
+
+    if not cluster_id_raw or not isinstance(cluster_id_raw, str):
         return err_bad_request("cluster_id is required")
-    if not api_url:
-        return err_bad_request("api_url is required")
     if not member_name:
         return err_bad_request("member_name is required")
+    if not is_valid_hostname(member_name):
+        return err_validation("member_name must be a valid RFC 1123 hostname")
 
     db = get_db()
     # Regression: gh-22. Off the event loop via run_db() instead of
@@ -2324,6 +2359,25 @@ async def node_lxd_join(node_id: int) -> Any:
         if _g(node, "tenant_id", "__default__") != _current_tenant_id():
             return err_not_found(f"Node {node_id} not found")
 
+    # Cluster ownership: fail closed -- no clusters table, unknown id or foreign tenant all refuse.
+    def _check_cluster() -> Optional[bool]:
+        if "clusters" not in getattr(db, "tables", []):
+            return None
+        row = db(db.clusters.id == cluster_id_raw).select().first()
+        if row is None:
+            return False
+        return _is_cross_tenant() or _g(row, "tenant_id", "__default__") == _current_tenant_id()
+
+    cluster_ok = await run_db(_check_cluster)
+    if cluster_ok is None:
+        return envelope_error("cluster_registry_unavailable", "cluster registry unavailable", 503)
+    if not cluster_ok:
+        return err_not_found(f"Cluster {cluster_id_raw} not found")
+
+    api_url = _node_lxd_address(node)
+    if api_url is None:
+        return err_conflict(f"Node {node_id} has no registered IP address to join from")
+
     from ..clients import lxd_extra
 
     try:
@@ -2333,7 +2387,7 @@ async def node_lxd_join(node_id: int) -> Any:
         lxd_extra.cluster_join(
             node_address=api_url,
             join_token=token.token,
-            server_address=api_url,
+            server_address=_lxd_leader_address(),
             cluster_id=str(cluster_id_raw),
         )
     except lxd_extra.LXDError as exc:

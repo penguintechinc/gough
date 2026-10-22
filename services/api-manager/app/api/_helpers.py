@@ -434,3 +434,29 @@ def request_is_cross_tenant() -> bool:
     user = g.get("current_user") or {}
     payload = user.get("_jwt_payload") if isinstance(user, dict) else None
     return bool((payload or {}).get("cross_tenant", False))
+
+
+def tenant_owns(row_tenant: Any) -> bool:
+    """True iff the caller may see a row stamped with ``row_tenant``.
+
+    A cross-tenant super-admin sees everything. Everyone else sees only rows whose
+    tenant equals their own; an unstamped (NULL/empty) legacy row is visible to
+    cross-tenant callers only -- it never defaults to the caller's tenant. Callers
+    answer 404 (not 403) on a mismatch so existence is never confirmed across tenants.
+    """
+    if request_is_cross_tenant():
+        return True
+    return isinstance(row_tenant, str) and bool(row_tenant) and row_tenant == request_tenant_id()
+
+
+def resolve_node_id_by_name(db: Any, name: str, tenant_id: str | None) -> int | None:
+    """Return the unique node id named ``name`` within ``tenant_id`` (penguin-dal, blocking).
+
+    ``tenant_id=None`` (cross-tenant super-admin only) matches across tenants. Zero or
+    several matches return None -- ambiguity fails closed. Call from inside ``run_db``.
+    """
+    cond = db.nodes.name == name
+    if tenant_id is not None:
+        cond = cond & (db.nodes.tenant_id == tenant_id)
+    rows = db(cond).select(db.nodes.id)
+    return int(rows[0].id) if len(rows) == 1 else None

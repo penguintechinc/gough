@@ -10,6 +10,7 @@ Provides REST API for SSH certificate authority operations including:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -25,6 +26,12 @@ from ..ssh_ca import SSHCertificateAuthority, SSHCAException
 log = logging.getLogger(__name__)
 
 ssh_ca_bp = Blueprint("ssh_ca", __name__, url_prefix="/api/v1/ssh-ca")
+
+#: A certificate principal: a conservative unix username (no comma, space or shell metacharacter).
+_PRINCIPAL_RE = re.compile(r"[a-z_][a-z0-9_-]{0,31}")
+
+#: Mirrors SSHCertificateAuthority.MAX_VALIDITY_SECONDS (8h); enforced here so the cap holds even when the CA is swapped.
+_MAX_CERT_VALIDITY_SECONDS = 28800
 
 
 # ============================================================================
@@ -224,6 +231,24 @@ async def sign_certificate():
             jsonify(
                 {"error": "validity_seconds must be a positive integer"}
             ),
+            400,
+        )
+
+    # Bound what the (shared) CA will vouch for: ssh-keygen -n takes a comma-joined list, so a
+    # principal containing "," would smuggle extra principals; and a certificate must be short-lived.
+    if validity_seconds > _MAX_CERT_VALIDITY_SECONDS:
+        return (
+            jsonify({"error": (
+                "validity_seconds exceeds the maximum of "
+                f"{_MAX_CERT_VALIDITY_SECONDS}"
+            )}),
+            400,
+        )
+    if len(principals) > 16 or not all(
+        isinstance(p, str) and _PRINCIPAL_RE.fullmatch(p) for p in principals
+    ):
+        return (
+            jsonify({"error": "principals must be at most 16 unix-style usernames"}),
             400,
         )
 

@@ -703,8 +703,16 @@ class TestListStorageQuotas:
         db.return_value.select.return_value = quota_sel
 
         with _db_patch(db), patch("app.api.storage._user_has_scope", return_value=True):
-            resp = await client.get("/api/v1/storage/quotas?tenant_id=tenant-xyz")
+            resp = await client.get("/api/v1/storage/quotas?tenant_id=__default__")
         assert resp.status_code == 200
+
+    @pytest.mark.asyncio
+    async def test_foreign_tenant_filter_404(self, client):
+        """regression: tenant_id query param must not read another tenant's quotas."""
+        db = _make_db()
+        with _db_patch(db), patch("app.api.storage._user_has_scope", return_value=True):
+            resp = await client.get("/api/v1/storage/quotas?tenant_id=tenant-xyz")
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_null_limit_value_handled(self, client):
@@ -729,12 +737,21 @@ class TestListStorageQuotas:
 class TestRequestStorageQuota:
     def _valid_payload(self):
         return {
-            "tenant_id": "tenant-abc",
+            "tenant_id": "__default__",
             "resource_type": "storage",
             "requested_value": 500,
             "unit": "GB",
             "justification": "Need more space for backups",
         }
+
+    @pytest.mark.asyncio
+    async def test_foreign_tenant_body_404(self, client):
+        """regression: quota requests cannot be filed against another tenant."""
+        payload = self._valid_payload()
+        payload["tenant_id"] = "tenant-other"
+        with patch("app.api.storage._user_has_scope", return_value=True):
+            resp = await client.post("/api/v1/storage/quota-request", json=payload)
+        assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_missing_scope_returns_403(self, client):

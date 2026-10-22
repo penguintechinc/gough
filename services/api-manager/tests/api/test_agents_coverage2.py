@@ -41,6 +41,7 @@ def agents_client(dal, monkeypatch):
     if "access_agents" not in getattr(dal, "tables", []):
         dal.define_table(
             "access_agents",
+            Field("tenant_id", "string"),
             Field("agent_id", "string", notnull=True),
             Field("hostname", "string"),
             Field("ip_address", "string"),
@@ -136,6 +137,7 @@ class TestSuspendResumeAgent:
         """Test suspending an active agent."""
         agent_id = "test-agent"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=agent_id,
             hostname="test-host",
             status="active",
@@ -150,6 +152,7 @@ class TestSuspendResumeAgent:
         """Test resuming a suspended agent."""
         agent_id = "test-agent"
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id=agent_id,
             hostname="test-host",
             status="suspended",

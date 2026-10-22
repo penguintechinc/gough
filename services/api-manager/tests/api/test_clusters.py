@@ -201,7 +201,8 @@ async def test_patch_cluster_network_baseline_topology(client):
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    # fixture has no cluster_config table: must fail loudly, not report an unpersisted success
+    assert response.status_code == 503
 
 
 @pytest.mark.asyncio

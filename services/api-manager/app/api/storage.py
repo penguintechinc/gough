@@ -27,7 +27,13 @@ from ..services.storage import (
     get_storage_service,
 )
 from ._dto import serialize_storage_config
-from ._helpers import envelope_success, err_bad_request, err_not_found
+from ._helpers import (
+    envelope_success,
+    err_bad_request,
+    err_not_found,
+    request_is_cross_tenant,
+    request_tenant_id,
+)
 
 log = logging.getLogger(__name__)
 
@@ -616,7 +622,13 @@ async def list_storage_quotas():
     db = get_db()
 
     # Parse query parameters
+    # Tenant isolation: callers see their own tenant's quotas only; the ``tenant_id``
+    # query filter is honoured for cross-tenant super-admins alone.
     tenant_id_filter = request.args.get("tenant_id", None)
+    if not request_is_cross_tenant():
+        if tenant_id_filter and tenant_id_filter != request_tenant_id():
+            return err_not_found("Tenant not found")
+        tenant_id_filter = request_tenant_id()
 
     # Build query
     query = db(db.storage_quotas)
@@ -652,7 +664,7 @@ async def request_storage_quota():
     """Request a storage quota increase.
 
     Spec: ``POST /api/v1/storage/quota-request``
-    Scope: ``gough.storage.write``
+    Scope: ``gough.storage.configure``
 
     Request Body:
         tenant_id: Tenant ID (required)
@@ -665,8 +677,8 @@ async def request_storage_quota():
         201: Quota request created
         400: Invalid request
     """
-    if not _user_has_scope("gough.storage.write"):
-        return jsonify({"error": "Insufficient scope: gough.storage.write required"}), 403
+    if not _user_has_scope("gough.storage.configure"):
+        return jsonify({"error": "Insufficient scope: gough.storage.configure required"}), 403
 
     data = await request.get_json(silent=True)
     if not data:
@@ -679,6 +691,9 @@ async def request_storage_quota():
             return err_bad_request(f"Required field missing: {field}")
 
     tenant_id = data.get("tenant_id", "").strip()
+    # Filed against the caller's own tenant; only a cross-tenant super-admin may file for another.
+    if not request_is_cross_tenant() and tenant_id != request_tenant_id():
+        return err_not_found("Tenant not found")
     resource_type = data.get("resource_type", "").strip()
     requested_value = data.get("requested_value")
     unit = data.get("unit", "").strip()
@@ -719,7 +734,7 @@ async def request_storage_quota():
     ok, exc = await run_db(_insert)
     if not ok:
         log.exception("Error creating storage quota request: %s", exc)
-        return jsonify({"error": f"Internal server error: {str(exc)}"}), 500
+        return jsonify({"error": "Internal server error"}), 500
 
     return envelope_success(
         {

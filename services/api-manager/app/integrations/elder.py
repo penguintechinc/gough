@@ -548,6 +548,16 @@ async def get_elder_client(db) -> Optional[ElderClient]:
         log.error("Elder configuration incomplete (missing url or api_key)")
         raise ElderError("Elder configuration incomplete")
 
+    # SSRF guard (use-time): the stored URL is admin-supplied free text. Refuse
+    # loopback/link-local/metadata targets before any request leaves the process.
+    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+
+    try:
+        await _validate_discovery_endpoint(config.elder_url)
+    except ClusterDiscoveryUnavailable as exc:
+        log.error("Elder endpoint refused by SSRF guard: %s", exc)
+        raise ElderError("Elder endpoint refused: loopback/link-local/metadata or unresolvable") from exc
+
     log.debug(f"Initializing Elder client: {config.elder_url}")
 
     return ElderClient(

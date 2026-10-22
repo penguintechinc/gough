@@ -621,7 +621,16 @@ def sample_deployment_id(dal_with_groups, sample_biome_id):
     now = datetime.now(timezone.utc)
     # Get any existing node or insert one
     node = dal_with_groups(dal_with_groups.nodes.id > 0).select().first()
-    node_id = int(node.id) if node else 1
+    if node is None:
+        # Deployments are tenant-scoped through their node, so a real node must exist.
+        node = dal_with_groups.nodes.insert(
+            tenant_id="__default__", name="dep-node", state="ready",
+            dmi_uuid="dep-uuid", primary_nic_mac="aa:bb:cc:00:00:01",
+        )
+        dal_with_groups.commit()
+        node_id = int(node)
+    else:
+        node_id = int(node.id)
 
     did = dal_with_groups.deployments.insert(
         biome_id=sample_biome_id,
@@ -1222,6 +1231,38 @@ class TestDeployments:
         body = await response.get_json()
         assert body["data"]["id"] == str(sample_deployment_id)
 
+    @pytest.fixture()
+    def foreign_deployment_id(self, dal_with_groups, sample_biome_id):
+        """regression: a deployment whose target node belongs to ANOTHER tenant."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        node = dal_with_groups.nodes.insert(
+            tenant_id="globex", name="foreign-node", state="ready",
+            dmi_uuid="foreign-uuid", primary_nic_mac="aa:bb:cc:00:00:99",
+        )
+        did = dal_with_groups.deployments.insert(
+            biome_id=sample_biome_id, node_id=int(node), phase=1, status="pending",
+            created_at=now, updated_at=now,
+        )
+        dal_with_groups.commit()
+        return int(did)
+
+    async def test_foreign_tenant_deployment_is_invisible(self, extended_client, foreign_deployment_id):
+        base = "/api/v1/biomes/deployments"
+        listing = await (await extended_client.get(base)).get_json()
+        assert listing["data"]["total"] == 0
+        assert (await extended_client.get(f"{base}/{foreign_deployment_id}")).status_code == 404
+        assert (await extended_client.get(f"{base}/{foreign_deployment_id}/logs")).status_code == 404
+
+    async def test_foreign_tenant_deployment_cannot_be_cancelled(
+        self, extended_client, dal_with_groups, foreign_deployment_id
+    ):
+        resp = await extended_client.post(f"/api/v1/biomes/deployments/{foreign_deployment_id}/cancel")
+        assert resp.status_code == 404
+        row = dal_with_groups(dal_with_groups.deployments.id == foreign_deployment_id).select().first()
+        assert row.status == "pending"
+
     async def test_get_deployment_not_found(self, extended_client):
         response = await extended_client.get("/api/v1/biomes/deployments/99999")
         assert response.status_code == 404
@@ -1262,7 +1303,16 @@ class TestDeployments:
         from datetime import datetime, timezone
 
         node = dal_with_groups(dal_with_groups.nodes.id > 0).select().first()
-        node_id = int(node.id) if node else 1
+        if node is None:
+            # Deployments are tenant-scoped through their node, so a real node must exist.
+            node = dal_with_groups.nodes.insert(
+                tenant_id="__default__", name="dep-node", state="ready",
+                dmi_uuid="dep-uuid", primary_nic_mac="aa:bb:cc:00:00:01",
+            )
+            dal_with_groups.commit()
+            node_id = int(node)
+        else:
+            node_id = int(node.id)
         now = datetime.now(timezone.utc)
         did = dal_with_groups.deployments.insert(
             biome_id=sample_biome_id, node_id=node_id, phase=1,

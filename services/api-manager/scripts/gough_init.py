@@ -364,6 +364,11 @@ def insert_genesis_audit_row(db_session: Any, cluster_id: str) -> None:
         sys.exit(6)
 
 
+#: Where the cluster descriptor is persisted. Overridable (``GOUGH_CLUSTER_JSON``) so tests and
+#: non-root dev runs never write under /etc.
+CLUSTER_JSON_PATH = Path(os.environ.get("GOUGH_CLUSTER_JSON", "/etc/gough/cluster.json"))
+
+
 def persist_cluster_json(
     cluster_id: str, lxd_channel: str, host_tier: str
 ) -> None:
@@ -377,7 +382,7 @@ def persist_cluster_json(
     Raises:
         SystemExit: On write failure (exit 1).
     """
-    cluster_json_path = Path("/etc/gough/cluster.json")
+    cluster_json_path = CLUSTER_JSON_PATH
     cluster_json_path.parent.mkdir(parents=True, exist_ok=True)
 
     config = {

@@ -722,6 +722,14 @@ async def power_control(machine_id: str, action: str):
             "machine_id": machine["system_id"]
         }), 400
 
+    # No BMC/power driver is wired in: reporting "initiated" for an action that never ran is a
+    # lie, so fail loudly instead of faking success.
+    return jsonify({
+        "error": "power_control_not_implemented",
+        "message": "No power-management driver is configured for this machine type",
+        "machine_id": machine["system_id"],
+    }), 501
+
     # Log the power action
     await run_db(lambda: _log_boot_event(
         machine_id=machine["id"],
@@ -1514,11 +1522,9 @@ async def sync_machine_to_elder(machine_id: str):
         }), 200
 
     except Exception as e:
+        # Upstream error text is never echoed: with a caller-influenced URL it is a read-back channel.
         log.error(f"Machine sync to Elder failed: {str(e)}")
-        return jsonify({
-            "error": "Elder sync failed",
-            "details": str(e)
-        }), 400
+        return jsonify({"error": "Elder sync failed"}), 400
 
 
 @ipxe_bp.route("/elder/status", methods=["GET"])
@@ -2267,6 +2273,16 @@ async def update_elder_config():
     )
     if validation_error:
         return validation_error
+
+    # SSRF guard (write-time): reject a non-http(s) / loopback / link-local / metadata URL up front.
+    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+
+    if not isinstance(data["elder_url"], str):
+        return jsonify({"error": "elder_url must be a string"}), 400
+    try:
+        await _validate_discovery_endpoint(data["elder_url"])
+    except ClusterDiscoveryUnavailable as exc:
+        return jsonify({"error": f"elder_url refused: {exc}"}), 400
 
     db = get_db()
 

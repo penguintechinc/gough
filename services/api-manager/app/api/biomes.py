@@ -92,6 +92,19 @@ def _is_cross_tenant() -> bool:
     return bool(payload.get("cross_tenant", False))
 
 
+def _deployment_owned(db: Any, deployment: Any) -> bool:
+    """True iff the deployment's target node belongs to the caller's tenant.
+
+    ``deployments`` carries no tenant column of its own, so ownership derives from the
+    node it targets; a deployment whose node is missing is owned by nobody (cross-tenant
+    callers excepted). Blocking DB read -- call from inside ``run_db``.
+    """
+    if _is_cross_tenant():
+        return True
+    node = db(db.nodes.id == deployment.node_id).select().first()
+    return node is not None and getattr(node, "tenant_id", None) == _current_tenant_id()
+
+
 # Compliance lanes that require MFA for sign/upgrade flows. Cluster
 # config is not yet wired in M1, so we use the deployment env tier as a
 # proxy: anything other than ``alpha`` is treated as a compliance lane.
@@ -1815,6 +1828,13 @@ async def get_upgrade_run(biome_id: int, run_id: str):
     db = get_db()
 
     def _fetch() -> Any:
+        # Tenant isolation: the run is reachable only through a biome the caller owns.
+        biome = db(db.biomes.id == biome_id).select().first()
+        if biome is None or (
+            not _is_cross_tenant()
+            and getattr(biome, "tenant_id", "__default__") != _current_tenant_id()
+        ):
+            return None
         return db(
             (db.upgrade_runs.id == run_id) & (db.upgrade_runs.biome_id == biome_id)
         ).select().first()
@@ -2358,12 +2378,20 @@ async def list_deployments():
         q = q & (db.deployments.biome_id == biome_id)
     if node_id:
         q = q & (db.deployments.node_id == node_id)
-    query = db(q)
-
     # Regression: gh-22. Count + paginated select is a sequence of reads
     # feeding the response -- one run_db() closure instead of blocking the
     # request coroutine inline.
     def _fetch() -> tuple[int, Any]:
+        cond = q
+        if not _is_cross_tenant():
+            # Tenant isolation: deployments carry no tenant column; scope via target node.
+            own_nodes = [
+                r.id for r in db(db.nodes.tenant_id == _current_tenant_id()).select(db.nodes.id)
+            ]
+            if not own_nodes:
+                return 0, []
+            cond = cond & db.deployments.node_id.belongs(own_nodes)
+        query = db(cond)
         total_count = query.count()
         rows = query.select(
             orderby=~db.deployments.created_at,
@@ -2414,7 +2442,8 @@ async def get_deployment(deployment_id: str):
     db = get_db()
 
     def _fetch() -> Any:
-        return db(db.deployments.id == deployment_id).select().first()
+        dep = db(db.deployments.id == deployment_id).select().first()
+        return dep if dep is not None and _deployment_owned(db, dep) else None
 
     deployment = await run_db(_fetch)
     if not deployment:
@@ -2479,7 +2508,8 @@ async def get_deployment_logs(deployment_id: str):
 
     # Check deployment exists
     def _fetch_deployment() -> Any:
-        return db(db.deployments.id == deployment_id).select().first()
+        dep = db(db.deployments.id == deployment_id).select().first()
+        return dep if dep is not None and _deployment_owned(db, dep) else None
 
     deployment = await run_db(_fetch_deployment)
     if not deployment:
@@ -2543,7 +2573,8 @@ async def cancel_deployment(deployment_id: str):
     db = get_db()
 
     def _fetch() -> Any:
-        return db(db.deployments.id == deployment_id).select().first()
+        dep = db(db.deployments.id == deployment_id).select().first()
+        return dep if dep is not None and _deployment_owned(db, dep) else None
 
     deployment = await run_db(_fetch)
     if not deployment:
@@ -2575,7 +2606,7 @@ async def cancel_deployment(deployment_id: str):
         return err_internal(str(err))
 
     # Publish NATS event
-    tenant_id = getattr(deployment, "tenant_id", "__default__")
+    tenant_id = _current_tenant_id()
     await _deploy_nats_safe(
         subject=f"gough.deployments.{deployment_id}.status-changed",
         payload={

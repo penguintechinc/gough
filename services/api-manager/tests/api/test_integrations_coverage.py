@@ -143,10 +143,10 @@ async def test_safe_credentials_view_masks_secret(integrations_app):
     view = integrations_mod._safe_credentials_view(creds)
 
     assert "client_secret_masked" in view
-    # Check format: starts with first 4 chars, ends with last 4 chars, has ... in middle
-    assert view["client_secret_masked"].startswith("very")
+    # Only the last 4 characters are ever shown (no secret prefix leaks)
+    assert view["client_secret_masked"].startswith("****")
     assert view["client_secret_masked"].endswith("sked")
-    assert "..." in view["client_secret_masked"]
+    assert not view["client_secret_masked"].startswith("very")
     # Full secret should not be in view
     assert "secret-key-that-should" not in str(view)
 

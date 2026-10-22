@@ -33,7 +33,13 @@ from ..licensing import (
 )
 from ..middleware import auth_required, roles_accepted, roles_required
 from ..models import get_db
-from ._helpers import err_feature_disabled, err_license_required
+from ._helpers import (
+    err_feature_disabled,
+    err_license_required,
+    request_is_cross_tenant,
+    request_tenant_id,
+    resolve_node_id_by_name,
+)
 
 log = logging.getLogger(__name__)
 
@@ -92,6 +98,33 @@ def _provider_public(row: Any) -> dict[str, Any]:
     """Project a ``cloud_providers`` row onto its API-safe fields."""
     data = row if isinstance(row, dict) else row.as_dict()
     return {k: data[k] for k in _PROVIDER_PUBLIC_FIELDS if k in data}
+
+
+_ENDPOINT_CONFIG_KEYS = ("MAAS_API_URL", "LXD_API_URL")
+
+
+async def _refuse_unsafe_endpoint(config: Any) -> str | None:
+    """Return a refusal reason when a provider config points at a blocked SSRF target.
+
+    ``MAAS_API_URL`` / ``LXD_API_URL`` are request-supplied URLs that the provider then
+    fetches. Loopback, link-local and cloud-metadata hosts are refused before any call;
+    private ranges stay allowed (providers legitimately live on the operator's network).
+    """
+    if not isinstance(config, dict):
+        return None
+    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+
+    for key in _ENDPOINT_CONFIG_KEYS:
+        value = config.get(key)
+        if not value:
+            continue
+        if not isinstance(value, str):
+            return f"{key} must be a string"
+        try:
+            await _validate_discovery_endpoint(value)
+        except ClusterDiscoveryUnavailable as exc:
+            return f"{key} refused: {exc}"
+    return None
 
 
 @clouds_bp.route("/", methods=["GET"])
@@ -161,10 +194,14 @@ async def add_provider():
             "available": list(CLOUD_REGISTRY.keys()),
         }), 400
 
+    refusal = await _refuse_unsafe_endpoint(config)
+    if refusal:
+        return jsonify({"error": refusal, "status": "config_error"}), 400
+
     # Validate by attempting to authenticate
     try:
         provider = get_cloud_provider(provider_type, config)
-        provider.authenticate()
+        await asyncio.to_thread(provider.authenticate)
     except CloudAuthError as e:
         return jsonify({
             "error": f"Authentication failed: {e}",
@@ -289,9 +326,12 @@ async def update_provider(provider_id: int):
     if "config" in data:
         # Validate new config
         new_config = data["config"]
+        refusal = await _refuse_unsafe_endpoint(new_config)
+        if refusal:
+            return jsonify({"error": refusal, "status": "config_error"}), 400
         try:
             cloud = get_cloud_provider(provider.provider_type, new_config)
-            cloud.authenticate()
+            await asyncio.to_thread(cloud.authenticate)
             updates["config_data"] = new_config
             updates["status"] = "connected"
         except CloudError as e:
@@ -388,9 +428,13 @@ async def test_provider(provider_id: int):
         db(db.cloud_providers.id == provider_id).update(status=new_status)
         db.commit()
 
+    refusal = await _refuse_unsafe_endpoint(provider.config_data)
+    if refusal:
+        return jsonify({"status": "config_error", "error": refusal}), 400
+
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
+        await asyncio.to_thread(cloud.authenticate)
 
         # Update status
         await run_db(lambda: _set_status("connected"))
@@ -448,8 +492,8 @@ async def list_machines(provider_id: int):
         # Fetch from cloud API
         try:
             cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-            cloud.authenticate()
-            machines = cloud.list_machines()
+            await asyncio.to_thread(cloud.authenticate)
+            machines = await asyncio.to_thread(cloud.list_machines)
 
             # Sync to database -- one run_db() closure for the whole sync
             # (existing-machines scan + per-machine insert/update/delete),
@@ -579,7 +623,7 @@ async def create_machine(provider_id: int):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
+        await asyncio.to_thread(cloud.authenticate)
 
         # LXD instances land on a hypervisor, so every LXD create passes the capacity
         # guard: the hub picks the member (``target``), reserves its capacity, and
@@ -667,13 +711,16 @@ async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tu
 
     members, clustered = await asyncio.to_thread(cloud.list_cluster_members)
 
+    # Member names map to nodes of the CALLER's tenant only (never another tenant's node of
+    # the same name); a cross-tenant super-admin matches across tenants.
+    tenant_scope = None if request_is_cross_tenant() else request_tenant_id()
+
     def _choose() -> capacity_guard.Placement | capacity_guard.PlacementRefusal:
-        with db.engine.begin() as conn:
-            candidates: dict[str, int] = {}
-            for name in members:
-                node_id = capacity_guard.resolve_node_by_name(conn, name)
-                if node_id is not None:
-                    candidates[name] = node_id
+        candidates: dict[str, int] = {}
+        for name in members:
+            node_id = resolve_node_id_by_name(db, name, tenant_scope)
+            if node_id is not None:
+                candidates[name] = node_id
         return capacity_guard.place(db.engine, candidates, request_fit)
 
     result = await run_db(_choose)
@@ -720,8 +767,8 @@ async def get_machine(provider_id: int, machine_id: str):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        machine = cloud.get_machine(machine_id)
+        await asyncio.to_thread(cloud.authenticate)
+        machine = await asyncio.to_thread(cloud.get_machine, machine_id)
 
         return jsonify(machine.to_dict()), 200
 
@@ -760,8 +807,8 @@ async def destroy_machine(provider_id: int, machine_id: str):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        cloud.destroy_machine(machine_id)
+        await asyncio.to_thread(cloud.authenticate)
+        await asyncio.to_thread(cloud.destroy_machine, machine_id)
 
         # Remove from database. Regression: gh-22. delete + commit is one
         # unit of work -- stays in one run_db() closure.
@@ -813,8 +860,8 @@ async def start_machine(provider_id: int, machine_id: str):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        cloud.start_machine(machine_id)
+        await asyncio.to_thread(cloud.authenticate)
+        await asyncio.to_thread(cloud.start_machine, machine_id)
 
         # Update database. Regression: gh-22. update + commit is one unit
         # of work -- stays in one run_db() closure.
@@ -864,8 +911,8 @@ async def stop_machine(provider_id: int, machine_id: str):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        cloud.stop_machine(machine_id)
+        await asyncio.to_thread(cloud.authenticate)
+        await asyncio.to_thread(cloud.stop_machine, machine_id)
 
         # Update database. Regression: gh-22. update + commit is one unit
         # of work -- stays in one run_db() closure.
@@ -915,8 +962,8 @@ async def reboot_machine(provider_id: int, machine_id: str):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        cloud.reboot_machine(machine_id)
+        await asyncio.to_thread(cloud.authenticate)
+        await asyncio.to_thread(cloud.reboot_machine, machine_id)
 
         return jsonify({"message": "Machine rebooted"}), 200
 
@@ -951,8 +998,8 @@ async def list_images(provider_id: int):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        images = cloud.list_images()
+        await asyncio.to_thread(cloud.authenticate)
+        images = await asyncio.to_thread(cloud.list_images)
 
         return jsonify({"images": images}), 200
 
@@ -979,8 +1026,8 @@ async def list_sizes(provider_id: int):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        sizes = cloud.list_sizes()
+        await asyncio.to_thread(cloud.authenticate)
+        sizes = await asyncio.to_thread(cloud.list_sizes)
 
         return jsonify({"sizes": sizes}), 200
 
@@ -1007,8 +1054,8 @@ async def list_regions(provider_id: int):
 
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
-        cloud.authenticate()
-        regions = cloud.list_regions()
+        await asyncio.to_thread(cloud.authenticate)
+        regions = await asyncio.to_thread(cloud.list_regions)
 
         return jsonify({"regions": regions}), 200
 

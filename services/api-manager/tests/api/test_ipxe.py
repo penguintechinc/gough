@@ -1072,7 +1072,8 @@ class TestPowerControl:
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
-    async def test_valid_power_on_returns_200(self, auth_client) -> None:
+    async def test_valid_power_on_fails_loudly_501(self, auth_client) -> None:
+        """No power driver exists: the endpoint must say so, never report a fake success."""
         machine = _make_machine_dict(power_type="ipmi")
         db = MagicMock()
         db.boot_events = MagicMock()
@@ -1081,10 +1082,11 @@ class TestPowerControl:
         with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
              patch("app.api.ipxe.get_db", return_value=db):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/power/on")
-        assert resp.status_code in (200, 401, 500)
-        if resp.status_code == 200:
+        assert resp.status_code in (501, 401)
+        if resp.status_code == 501:
             body = await resp.get_json()
-            assert body["action"] == "on"
+            assert body["error"] == "power_control_not_implemented"
+            db.boot_events.insert.assert_not_called()
 
     @pytest.mark.asyncio
     async def test_power_cycle_action(self, auth_client) -> None:
@@ -1096,7 +1098,7 @@ class TestPowerControl:
         with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
              patch("app.api.ipxe.get_db", return_value=db):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/power/cycle")
-        assert resp.status_code in (200, 401, 500)
+        assert resp.status_code in (501, 401)
 
 
 # -----------------------------------------------------------------------------

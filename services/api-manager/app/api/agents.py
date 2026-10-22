@@ -23,7 +23,13 @@ from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
 from ..models import get_db
-from ._helpers import request_is_cross_tenant, request_tenant_id
+from ._helpers import (
+    request_is_cross_tenant,
+    request_tenant_id,
+    resolve_node_id_by_name,
+    tenant_owns,
+)
+from .lxd_cluster import parse_metadata
 
 log = logging.getLogger(__name__)
 
@@ -163,6 +169,9 @@ async def list_enrollment_keys():
 
     keys_data = []
     for key in keys:
+        # Tenant isolation: a key is owned by the tenant stamped into its metadata at creation.
+        if not tenant_owns(parse_metadata(key.get("metadata")).get("tenant_id")):
+            continue
         keys_data.append({
             "id": key["id"],
             "created_by": key["created_by"],
@@ -200,7 +209,7 @@ async def revoke_enrollment_key(key_id: int):
     # app/db/run_db.py), single rollback point inside the closure.
     def _revoke() -> tuple[str, Any]:
         key = db.enrollment_keys(key_id)
-        if not key:
+        if not key or not tenant_owns(parse_metadata(key["metadata"]).get("tenant_id")):
             return "not_found", None
         try:
             # Soft-delete: keep the row so a revoked key can never be re-seeded or re-used.
@@ -296,7 +305,6 @@ async def enroll_agent():
     # Server-side agent<->node link. The enrollment key (not the request body)
     # carries the intended hostname; when present the agent must match it, and the
     # node is resolved from it. The capacity guard trusts only this link.
-    from .lxd_cluster import parse_metadata
 
     key_meta = parse_metadata(key_record["metadata"])
     intended_raw = key_meta.get("intended_hostname")
@@ -429,8 +437,7 @@ def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -
     tenant = key_meta.get("tenant_id")
     if not isinstance(tenant, str) or not tenant:
         return None
-    with db.engine.begin() as conn:
-        node_id = capacity_guard.resolve_node_by_name(conn, intended, tenant)
+    node_id = resolve_node_id_by_name(db, intended, tenant)
     explicit = key_meta.get("node_id")
     if isinstance(explicit, int) and not isinstance(explicit, bool):
         return node_id if node_id == explicit else None
@@ -704,6 +711,9 @@ async def list_agents():
 
     agents_data = []
     for agent in agents:
+        # Tenant isolation: unstamped legacy agents are visible to cross-tenant callers only.
+        if not tenant_owns(agent.get("tenant_id")):
+            continue
         agents_data.append({
             "id": agent["id"],
             "agent_id": agent["agent_id"],
@@ -744,7 +754,7 @@ async def get_agent(agent_id: str):
     agent = await run_db(
         lambda: db(db.access_agents.agent_id == agent_id).select().first()
     )
-    if not agent:
+    if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
         return jsonify({"error": "Agent not found"}), 404
 
     return jsonify({
@@ -786,7 +796,7 @@ async def suspend_agent(agent_id: str):
     # app/db/run_db.py), single rollback point inside the closure.
     def _suspend() -> tuple[str, Any]:
         agent = db(db.access_agents.agent_id == agent_id).select().first()
-        if not agent:
+        if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
             return "not_found", None
         try:
             db(db.access_agents.agent_id == agent_id).update(
@@ -831,7 +841,7 @@ async def resume_agent(agent_id: str):
     # app/db/run_db.py), single rollback point inside the closure.
     def _resume() -> tuple[str, Any]:
         agent = db(db.access_agents.agent_id == agent_id).select().first()
-        if not agent:
+        if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
             return "not_found", None
         try:
             db(db.access_agents.agent_id == agent_id).update(

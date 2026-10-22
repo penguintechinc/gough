@@ -417,7 +417,7 @@ async def test_list_secrets_with_path_filter(secrets_app):
         response = await client.get("/?path=cloud")
 
     assert response.status_code == 200
-    mock_manager.list_secrets.assert_called_once_with("cloud")
+    mock_manager.list_secrets.assert_called_once_with("tenants/default/cloud")
     data = await response.get_json()
     assert data["path"] == "cloud"
 
