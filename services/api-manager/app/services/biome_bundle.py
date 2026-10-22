@@ -8,17 +8,30 @@ cached; everything else (tests, docs, tools) is ignored. Extraction uses
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import io
+import ipaddress
+import logging
+import os
 import re
+import socket
 import tarfile
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import httpx
 
 from ..api import biomes as _biomes
+from ..clients.cluster_discovery import _is_blocked_ip  # shared SSRF blocklist (commit 517cf1e)
+
+log = logging.getLogger(__name__)
+
+BUNDLE_MIRROR_HOSTS_ENV = "GOUGH_BUNDLE_MIRROR_HOSTS"
+_MIRROR_URL_ENVS: tuple[str, ...] = ("GOUGH_CHART_MIRROR_URL", "GOUGH_FILE_MIRROR_URL")
 
 MAX_BUNDLE_BYTES = 64 * 1024 * 1024
 MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
@@ -51,6 +64,20 @@ class BundleSignatureError(BundleError):
 
 class BundleCacheKeyError(BundleError):
     """Raised for an invalid version, biome, or file path in a cache request."""
+
+
+class BundleSourceRejected(BundleError):
+    """Raised when a bundle URL fails the egress policy (allowlist, https, blocked address, redirect)."""
+
+
+@dataclass(slots=True, frozen=True)
+class PinnedSource:
+    """A vetted bundle source: the hostname for Host/SNI and the one resolved IP to connect to."""
+
+    host: str
+    ip: str
+    port: int
+    path: str
 
 
 @dataclass(slots=True, frozen=True)
@@ -107,23 +134,125 @@ def verify_sha256(data: bytes, expected: str) -> str:
     return actual
 
 
-async def fetch_https(
+#: Generic client-facing message for every egress-policy refusal; details go to the server log.
+_SOURCE_REJECTED_MESSAGE = "bundle source rejected by egress policy"
+
+Resolver = Callable[[str, int], Awaitable[list[str]]]
+
+
+async def resolve_host(host: str, port: int) -> list[str]:
+    """Resolve ``host`` to its IP addresses (one lookup per import; never repeated)."""
+    loop = asyncio.get_running_loop()
+    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
+
+
+def allowed_bundle_hosts(env: Mapping[str, str] | None = None) -> frozenset[str]:
+    """Return the operator allowlist of hosts bundles may be fetched from.
+
+    ``GOUGH_BUNDLE_MIRROR_HOSTS`` (comma-separated) wins when set, even if blank
+    (blank means reject every URL import). Otherwise the hosts of
+    ``GOUGH_CHART_MIRROR_URL`` and ``GOUGH_FILE_MIRROR_URL`` are used when set.
+    """
+    source: Mapping[str, str] = os.environ if env is None else env
+    raw = source.get(BUNDLE_MIRROR_HOSTS_ENV)
+    if raw is not None:
+        names = raw.split(",")
+    else:
+        names = [
+            urlsplit(source[key]).hostname or ""
+            for key in _MIRROR_URL_ENVS
+            if source.get(key)
+        ]
+    return frozenset(name.strip().lower() for name in names if name.strip())
+
+
+async def vet_source(
     url: str,
+    *,
+    allowed: frozenset[str],
+    resolver: Resolver | None = None,
+) -> PinnedSource:
+    """Apply the bundle egress policy to ``url`` and pin one resolved address.
+
+    Order: https only, host must be an exact allowlist entry (no wildcards),
+    then a single DNS resolution. Any resolved address that is loopback,
+    link-local or a cloud-metadata address is refused even when the host is
+    allowlisted; private RFC1918 addresses are accepted only because the host
+    matched the allowlist exactly. The first resolved address is pinned.
+    Refusals log the detail server-side and raise a generic BundleError.
+    """
+    parts = urlsplit(url)
+    host = (parts.hostname or "").lower()
+    if parts.scheme != "https" or not host:
+        log.error("bundle source refused: non-https or missing host", extra={"url_scheme": parts.scheme})
+        raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
+    if host not in allowed:
+        log.error("bundle source refused: host not allowlisted", extra={"host": host})
+        raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
+
+    port = parts.port or 443
+    lookup = resolver if resolver is not None else resolve_host
+    try:
+        addresses = await lookup(host, port)
+    except OSError as exc:
+        log.error("bundle source refused: resolution failed", extra={"host": host, "error": str(exc)})
+        raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE) from exc
+    if not addresses:
+        log.error("bundle source refused: no addresses", extra={"host": host})
+        raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
+
+    parsed: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for raw in addresses:
+        try:
+            ip = ipaddress.ip_address(raw)
+        except ValueError as exc:
+            log.error("bundle source refused: unparseable address", extra={"host": host})
+            raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE) from exc
+        if _is_blocked_ip(ip):
+            log.error(
+                "bundle source refused: resolves to blocked address",
+                extra={"host": host, "address": str(ip)},
+            )
+            raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
+        parsed.append(ip)
+
+    path = parts.path or "/"
+    if parts.query:
+        path = f"{path}?{parts.query}"
+    return PinnedSource(host=host, ip=str(parsed[0]), port=port, path=path)
+
+
+async def fetch_pinned(
+    source: PinnedSource,
     *,
     max_bytes: int,
     transport: httpx.AsyncBaseTransport | None = None,
 ) -> bytes:
-    """Download an https URL with a size cap; redirects and http are refused.
+    """Fetch from the pinned IP literal with the hostname kept for Host/SNI; never re-resolves.
 
-    ``transport`` exists so tests can inject an httpx MockTransport.
+    Redirects are not followed: any 3xx response is refused, so a redirect to a
+    disallowed or private host can never be reached. The body is size-capped.
     """
-    if not url.startswith("https://"):
-        raise BundleError("bundle URLs must use https")
-    timeout = httpx.Timeout(FETCH_TIMEOUT_SECONDS)
+    literal = f"[{source.ip}]" if ":" in source.ip else source.ip
+    url = f"https://{literal}:{source.port}{source.path}"
     async with httpx.AsyncClient(
-        timeout=timeout, follow_redirects=False, transport=transport
+        timeout=httpx.Timeout(FETCH_TIMEOUT_SECONDS),
+        follow_redirects=False,
+        transport=transport,
     ) as client:
-        async with client.stream("GET", url) as response:
+        async with client.stream(
+            "GET",
+            url,
+            headers={"Host": source.host},
+            extensions={"sni_hostname": source.host},
+        ) as response:
+            if 300 <= response.status_code < 400:
+                log.error(
+                    "bundle source refused: redirect not followed",
+                    extra={"host": source.host, "status": response.status_code},
+                )
+                raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
             if response.status_code != 200:
                 raise BundleError(f"fetch returned HTTP {response.status_code}")
             buf = bytearray()
@@ -132,6 +261,19 @@ async def fetch_https(
                 if len(buf) > max_bytes:
                     raise BundleError("download exceeds the size limit")
     return bytes(buf)
+
+
+async def fetch_vetted(
+    url: str,
+    *,
+    allowed: frozenset[str],
+    max_bytes: int,
+    transport: httpx.AsyncBaseTransport | None = None,
+    resolver: Resolver | None = None,
+) -> bytes:
+    """Vet ``url`` against the egress policy, then fetch it from the pinned address."""
+    source = await vet_source(url, allowed=allowed, resolver=resolver)
+    return await fetch_pinned(source, max_bytes=max_bytes, transport=transport)
 
 
 async def verify_cosign_blob(blob_path: Path, signature: bytes, key_id: str, workdir: Path) -> None:

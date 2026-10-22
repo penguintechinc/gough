@@ -26,7 +26,9 @@ from ..services.biome_bundle import (
     BundleError,
     VerifiedBundle,
     extract_bundle,
-    fetch_https,
+    Resolver,
+    allowed_bundle_hosts,
+    fetch_vetted,
     validate_version,
     verify_cosign_blob,
     verify_sha256,
@@ -142,6 +144,7 @@ async def import_biome_bundle(
     signature_url: Optional[str],
     imported_by: str,
     transport: httpx.AsyncBaseTransport | None = None,
+    resolver: Resolver | None = None,
 ) -> ImportResult:
     """Fetch, verify and store one biomes release; raises BundleError subclasses on failure.
 
@@ -150,7 +153,10 @@ async def import_biome_bundle(
     BundleVersionConflictError when the version is already imported.
     """
     validate_version(version)
-    data = await fetch_https(bundle_url, max_bytes=MAX_BUNDLE_BYTES, transport=transport)
+    allowed = allowed_bundle_hosts()
+    data = await fetch_vetted(
+        bundle_url, allowed=allowed, max_bytes=MAX_BUNDLE_BYTES, transport=transport, resolver=resolver
+    )
     digest = verify_sha256(data, bundle_sha256)
 
     key_id = _cosign_key()
@@ -168,7 +174,9 @@ async def import_biome_bundle(
         if key_id is not None and signature_url:
             blob_path = workdir / "bundle.tar.gz"
             blob_path.write_bytes(data)
-            signature = await fetch_https(signature_url, max_bytes=64 * 1024, transport=transport)
+            signature = await fetch_vetted(
+                signature_url, allowed=allowed, max_bytes=64 * 1024, transport=transport, resolver=resolver
+            )
             await verify_cosign_blob(blob_path, signature, key_id, workdir)
             signature_verified = True
         extract_dir = workdir / "extract"

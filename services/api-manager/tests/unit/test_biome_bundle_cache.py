@@ -22,13 +22,15 @@ import pytest
 from app.api import biome_cache, install
 from app.api import biomes as biomes_api
 from app.api.lxd_cluster import AgentRecord
+from app.services import biome_bundle
 from app.services.biome_bundle import (
     BundleCacheKeyError,
     BundleError,
     BundleHashMismatch,
     BundleSignatureError,
     extract_bundle,
-    fetch_https,
+    fetch_vetted,
+    BundleSourceRejected,
     validate_cache_key,
     validate_version,
     verify_sha256,
@@ -69,15 +71,35 @@ def make_bundle(*, with_installer: bool = True) -> bytes:
 
 
 def _transport(routes: dict[str, bytes], status: int = 200) -> httpx.MockTransport:
-    """Return an httpx MockTransport that serves ``routes`` keyed by full URL."""
+    """Return an httpx MockTransport serving ``routes`` keyed by the original https URL.
+
+    Requests reach the transport at the pinned IP literal, so the key is rebuilt from
+    the Host header (the hostname the operator configured) plus the path.
+    """
 
     def handler(request: httpx.Request) -> httpx.Response:
-        body = routes.get(str(request.url))
+        host = request.headers.get("host", "")
+        body = routes.get(f"https://{host}{request.url.path}")
         if body is None:
             return httpx.Response(404)
         return httpx.Response(status, content=body)
 
     return httpx.MockTransport(handler)
+
+
+#: Public test address returned by the fake resolver for the airgap test mirror.
+PUBLIC_TEST_IP = "93.184.216.34"
+
+
+@pytest.fixture(autouse=True)
+def _egress_policy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Allowlist the test mirror and make DNS resolve it to a public address."""
+    monkeypatch.setenv("GOUGH_BUNDLE_MIRROR_HOSTS", "mirror.airgap.test")
+
+    async def fake_resolve(host: str, port: int) -> list[str]:
+        return [PUBLIC_TEST_IP]
+
+    monkeypatch.setattr(biome_bundle, "resolve_host", fake_resolve)
 
 
 @pytest.fixture()
@@ -298,16 +320,21 @@ async def test_cosign_verify_blob_failure_stores_nothing(
 @pytest.mark.asyncio
 async def test_fetch_refuses_http() -> None:
     """Only https sources are accepted for bundles."""
-    with pytest.raises(BundleError, match="https"):
-        await fetch_https("http://mirror.airgap.test/b.tar.gz", max_bytes=1024)
+    with pytest.raises(BundleSourceRejected):
+        await fetch_vetted(
+            "http://mirror.airgap.test/b.tar.gz",
+            allowed=frozenset({"mirror.airgap.test"}),
+            max_bytes=1024,
+        )
 
 
 @pytest.mark.asyncio
 async def test_fetch_enforces_size_cap() -> None:
     """A body over the cap is refused mid-stream."""
     with pytest.raises(BundleError, match="size limit"):
-        await fetch_https(
+        await fetch_vetted(
             BUNDLE_URL,
+            allowed=frozenset({"mirror.airgap.test"}),
             max_bytes=10,
             transport=_transport({BUNDLE_URL: b"x" * 100}),
         )
@@ -317,7 +344,12 @@ async def test_fetch_enforces_size_cap() -> None:
 async def test_fetch_non_200_fails() -> None:
     """A non-200 mirror response is a bundle error, never an empty success."""
     with pytest.raises(BundleError, match="HTTP 404"):
-        await fetch_https(BUNDLE_URL, max_bytes=1024, transport=_transport({}))
+        await fetch_vetted(
+            BUNDLE_URL,
+            allowed=frozenset({"mirror.airgap.test"}),
+            max_bytes=1024,
+            transport=_transport({}),
+        )
 
 
 def test_verify_sha256_is_case_insensitive_and_exact() -> None:
