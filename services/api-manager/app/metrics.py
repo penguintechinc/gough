@@ -151,3 +151,27 @@ cloud_kms_luks_seal_total: Counter = Counter(
     "Cloud-KMS LUKS key sealing attempts for cloud-VM nodes, by provider and outcome.",
     ["provider", "result"],
 )
+
+# --- Resilience & telemetry integrity (degraded-mode visibility) ---
+
+rate_limit_degraded: Gauge = Gauge(
+    "gough_rate_limit_degraded",
+    "1 when the rate limiter runs on in-memory storage because Redis was unreachable "
+    "and RATE_LIMIT_ALLOW_MEMORY_FALLBACK was set; 0 otherwise.",
+)
+
+capacity_predictor_degraded: Gauge = Gauge(
+    "gough_capacity_predictor_degraded",
+    "1 when the capacity predictor or an optional dependency (WaddleAI, Prometheus, "
+    "Redis cache) is unavailable; 0 when fully initialized.",
+)
+
+audit_nats_publish_failures_total: Counter = Counter(
+    "gough_audit_nats_publish_failures_total",
+    "Audit entry-written events that failed to publish to NATS.",
+)
+
+metrics_record_errors_total: Counter = Counter(
+    "gough_metrics_record_errors_total",
+    "Errors raised while recording per-request API metrics.",
+)

@@ -30,6 +30,8 @@ from .ssh_ca import SSHCertificateAuthority
 from .websocket import init_websocket
 from .middleware import CookieAuthShimMiddleware, wire_middleware
 from .catalog import seed_builtin_biomes
+from .lifecycle import close_runtime_resources, redis_client_kwargs
+from .metrics import capacity_predictor_degraded
 
 
 def _resolve_cors_origins(app: Quart) -> list[str]:
@@ -92,14 +94,12 @@ async def create_app(config_class: type = Config) -> Quart:
         # 2026-09-22 -- only 6 of 106 input endpoints previously carried an
         # explicit @rate_limit decorator); existing per-route decorators keep
         # applying on top of this floor.
+        # NOT wrapped in try/except: an unreachable configured Redis raises
+        # RateLimiterBackendUnavailable and aborts startup unless
+        # RATE_LIMIT_ALLOW_MEMORY_FALLBACK=true (fail-loud, never silent).
         if app.config.get("RATE_LIMIT_ENABLED", True):
-            try:
-                init_rate_limiter(app)
-                install_global_rate_limiting(app)
-            except Exception as e:
-                import sys
-                print(f"WARNING: Rate limiter initialization failed: {e}", file=sys.stderr)
-                print("Continuing without rate limiter", file=sys.stderr)
+            init_rate_limiter(app)
+            install_global_rate_limiting(app)
 
         # Initialize SSH Certificate Authority
         ssh_ca = SSHCertificateAuthority(app)
@@ -122,14 +122,19 @@ async def create_app(config_class: type = Config) -> Quart:
     # Initialize capacity predictor (used by /capacity/* endpoints)
     @app.before_serving
     async def _init_capacity_predictor():
-        """Initialize WaddleAI client and capacity predictor (gracefully degrade if unavailable)."""
-        try:
-            from .clients.vault import VaultClient
-            from .clients.waddleai import WaddleAIClient
-            from .clients.prometheus import PrometheusClient
-            from .workers.capacity_predictor import CapacityPredictor
-            import redis.asyncio as redis
+        """Initialize WaddleAI client and capacity predictor.
 
+        ImportErrors propagate (a broken install must fail startup). Unreachable
+        optional dependencies degrade the feature: logged at ERROR and surfaced
+        via gough_capacity_predictor_degraded=1.
+        """
+        from .clients.vault import VaultClient
+        from .clients.waddleai import WaddleAIClient
+        from .clients.prometheus import PrometheusClient
+        from .workers.capacity_predictor import CapacityPredictor
+        import redis.asyncio as redis
+
+        try:
             vault = VaultClient()
             waddleai_endpoint = app.config.get(
                 "WADDLEAI_ENDPOINT", "https://waddleai.cluster.svc:8443"
@@ -146,14 +151,20 @@ async def create_app(config_class: type = Config) -> Quart:
             )
             prometheus = PrometheusClient(endpoint=prometheus_endpoint)
 
-            # Optional Redis cache (None disables caching)
+            # Optional Redis cache (None disables caching). from_url is sync and
+            # does not connect, so ping() is what proves reachability.
             redis_client = None
             redis_url = app.config.get("REDIS_URL")
             if redis_url:
                 try:
-                    redis_client = await redis.from_url(redis_url)
+                    candidate = redis.from_url(redis_url, **redis_client_kwargs(app.config))
+                    await candidate.ping()
+                    redis_client = candidate
                 except Exception as e:
-                    app.logger.warning("Redis connection failed; caching disabled: %s", e)
+                    app.logger.error(
+                        "Redis unreachable; capacity predictor cache DISABLED: %s", e
+                    )
+                    capacity_predictor_degraded.set(1)
 
             predictor = CapacityPredictor(
                 db_session=app.config.get("db"),
@@ -162,9 +173,17 @@ async def create_app(config_class: type = Config) -> Quart:
                 redis_client=redis_client,
             )
             app.capacity_predictor = predictor
+            app.config["CAPACITY_REDIS_CLIENT"] = redis_client
+            if redis_client is not None:
+                capacity_predictor_degraded.set(0)
         except Exception as e:
-            app.logger.warning("Capacity predictor initialization failed: %s", e)
-            app.logger.warning("Continuing without capacity predictor (degraded mode)")
+            app.logger.error(
+                "Capacity predictor initialization failed; running in DEGRADED mode "
+                "(no predictor): %s",
+                e,
+                exc_info=True,
+            )
+            capacity_predictor_degraded.set(1)
 
     # Register blueprints
     from .auth import auth_bp
@@ -216,12 +235,24 @@ async def create_app(config_class: type = Config) -> Quart:
     app.register_blueprint(primary_bp, url_prefix="/api/v1/primary")
     app.register_blueprint(vault_bp, url_prefix="/api/v1/vault")
 
+    # Latency timer must be the first before_request hook so auth/limiter
+    # short-circuits (which return early) still have a start timestamp.
+    from .middleware import _mark_request_start, _record_request_metrics
+
+    app.before_request(_mark_request_start)
+
     # Wire authentication + authorization middleware (defensive if Wave 1 not ready).
     await wire_middleware(app)
 
     # Register metrics instrumentation middleware
-    from .middleware import _record_request_metrics
     app.after_request(_record_request_metrics)
+
+    # Graceful shutdown: release gRPC, audit publishes, NATS, Redis and the DB
+    # pool after hypercorn stops accepting requests (see app/lifecycle.py).
+    @app.after_serving
+    async def _shutdown_runtime_resources() -> None:
+        """Close runtime resources once the server has stopped serving."""
+        await close_runtime_resources(app)
 
     # OpenAPI spec endpoint. Requires a valid bearer token (regression: audit
     # openapi-anon 2026-09-22) -- the full 176-route spec is a reconnaissance
@@ -460,6 +491,8 @@ async def create_app(config_class: type = Config) -> Quart:
                 app.config["GRPC_STATUS"] = f"down: {exc}"[:200]
 
         task.add_done_callback(_on_grpc_task_done)
+        # Kept on app.config so after_serving can cancel and await it on shutdown.
+        app.config["GRPC_TASK"] = task
         app.config["GRPC_STATUS"] = "up"
 
     # Wire the penguin-aaa ASGI OIDC auth gate. Gough is its OWN first-party

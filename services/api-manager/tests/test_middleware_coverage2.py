@@ -110,11 +110,11 @@ class TestRecordRequestMetrics:
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.headers.get.return_value = "0.050"
 
         with patch("app.metrics.api_request_latency_seconds") as mock_latency:
             with patch("app.metrics.api_error_total") as mock_error:
                 async with app.test_request_context("/api/v1/users/123", method="GET"):
+                    g.request_started_at = time.perf_counter()
                     result = await _record_request_metrics(mock_response)
                     assert result == mock_response
                     mock_latency.labels.assert_called()
@@ -128,11 +128,11 @@ class TestRecordRequestMetrics:
 
         mock_response = MagicMock()
         mock_response.status_code = 500
-        mock_response.headers.get.return_value = "1.023"
 
         with patch("app.metrics.api_request_latency_seconds") as mock_latency:
             with patch("app.metrics.api_error_total") as mock_error:
                 async with app.test_request_context("/api/v1/users/123", method="POST"):
+                    g.request_started_at = time.perf_counter()
                     result = await _record_request_metrics(mock_response)
                     assert result == mock_response
                     mock_latency.labels.assert_called()

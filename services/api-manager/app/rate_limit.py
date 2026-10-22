@@ -21,6 +21,13 @@ from typing import Any, Callable, Optional, Tuple
 import asyncio
 from quart import Quart, current_app, g, request, jsonify
 
+from .lifecycle import redis_client_kwargs
+from .metrics import rate_limit_degraded
+
+
+class RateLimiterBackendUnavailable(RuntimeError):
+    """Raised at startup when Redis is configured but unreachable and memory fallback is not allowed."""
+
 
 class RateLimitStrategy(Enum):
     """Rate limiting strategies."""
@@ -152,11 +159,18 @@ class RateLimiter:
     def __init__(self, app: Quart = None):
         self.app = app
         self._storage = None
+        self._redis_client = None  # sync redis client owned by this limiter, closed on shutdown
         self._default_limits: list[Tuple[int, int]] = []  # (requests, seconds)
         self._enabled = True
 
         if app is not None:
             self.init_app(app)
+
+    def close(self) -> None:
+        """Close the Redis client this limiter owns, if any (idempotent)."""
+        if self._redis_client is not None:
+            self._redis_client.close()
+            self._redis_client = None
 
     def init_app(self, app: Quart) -> None:
         """Initialize rate limiter with Quart app."""
@@ -166,22 +180,36 @@ class RateLimiter:
         self._enabled = app.config.get("RATE_LIMIT_ENABLED", True)
         redis_url = app.config.get("RATE_LIMIT_REDIS_URL")
 
-        # Initialize storage
+        # Initialize storage. ImportError is deliberately not caught: a broken
+        # redis install must abort startup, never silently run in memory.
         if redis_url:
-            try:
-                import redis
+            import redis
 
-                redis_client = redis.from_url(redis_url)
+            try:
+                redis_client = redis.from_url(redis_url, **redis_client_kwargs(app.config))
                 redis_client.ping()
-                self._storage = RedisStorage(redis_client)
-                app.logger.info("Rate limiter using Redis storage")
             except Exception as e:
-                app.logger.warning(
-                    f"Redis unavailable for rate limiting, using memory: {e}"
+                if not app.config.get("RATE_LIMIT_ALLOW_MEMORY_FALLBACK", False):
+                    raise RateLimiterBackendUnavailable(
+                        f"Redis unreachable for rate limiting at {redis_url!r}; "
+                        "set RATE_LIMIT_ALLOW_MEMORY_FALLBACK=true to accept "
+                        f"per-process in-memory limits: {e}"
+                    ) from e
+                app.logger.error(
+                    "Redis unreachable for rate limiting; FALLING BACK to in-memory "
+                    "storage (RATE_LIMIT_ALLOW_MEMORY_FALLBACK=true): %s",
+                    e,
                 )
+                rate_limit_degraded.set(1)
                 self._storage = InMemoryStorage()
+            else:
+                self._redis_client = redis_client
+                self._storage = RedisStorage(redis_client)
+                rate_limit_degraded.set(0)
+                app.logger.info("Rate limiter using Redis storage")
         else:
             self._storage = InMemoryStorage()
+            rate_limit_degraded.set(0)
             app.logger.info("Rate limiter using in-memory storage")
 
         # Parse default limits from config
