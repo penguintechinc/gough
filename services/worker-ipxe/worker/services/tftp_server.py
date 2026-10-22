@@ -5,14 +5,69 @@ Serves undionly.kpxe (BIOS) and ipxe.efi (UEFI) from local filesystem.
 """
 
 import asyncio
+import os
 import structlog
 from pathlib import Path
-from py3tftp.protocols import TFTPServerProtocol
+from py3tftp.exceptions import ProtocolException
 from py3tftp.file_io import FileReader
+from py3tftp.protocols import TFTPServerProtocol
 
 from worker.config import WorkerConfig
 
 logger = structlog.get_logger()
+
+
+class RootedFileReader(FileReader):
+    """
+    Read-only file handler confined to a configured TFTP root.
+
+    py3tftp 1.x resolves requested names against the process cwd and exposes no
+    root option, so this bypasses FileReader.__init__ and resolves under `root`
+    itself, rejecting any path that escapes it.
+    """
+
+    def __init__(self, root: Path, fname, chunk_size=0, mode=None):
+        """Open `fname` under `root`; raise FileNotFoundError on traversal or missing file."""
+        self._f = None
+        name = os.fsdecode(fname)
+        if "\x00" in name:
+            raise FileNotFoundError("filename contains NUL byte")
+        root_resolved = root.resolve()
+        candidate = (root_resolved / name.lstrip("/")).resolve()
+        if not candidate.is_relative_to(root_resolved) or not candidate.is_file():
+            raise FileNotFoundError(name)
+        self.fname = candidate
+        self.chunk_size = chunk_size
+        self._f = self._open_file()
+        self.finished = False
+        if mode == b"netascii":
+            from py3tftp.netascii import Netascii
+
+            self._f = Netascii(self._f)
+
+
+class RootedTFTPServerProtocol(TFTPServerProtocol):
+    """
+    Read-only py3tftp server protocol serving files from `root`.
+
+    Write requests are rejected because the worker only serves boot binaries.
+    """
+
+    def __init__(self, root: Path, host_interface: str, loop: asyncio.AbstractEventLoop):
+        """Bind the protocol to a TFTP root, listen address and event loop."""
+        super().__init__(host_interface, loop, {})
+        self.root = root
+
+    def select_protocol(self, packet):
+        """Allow only read requests; reject writes."""
+        if packet.is_wrq():
+            raise ProtocolException("TFTP writes are disabled")
+        return super().select_protocol(packet)
+
+    def select_file_handler(self, packet):
+        """Return a handler factory bound to this protocol's root."""
+        root = self.root
+        return lambda filename, opts: RootedFileReader(root, filename, opts, packet.mode)
 
 
 class TFTPServer:
@@ -44,10 +99,7 @@ class TFTPServer:
                 logger.info("tftp_file_found", file=filename, size=file_path.stat().st_size)
 
         # Create TFTP protocol
-        self.protocol = TFTPServerProtocol(
-            file_handler_cls=FileReader,
-            root_path=str(tftp_root),
-        )
+        self.protocol = RootedTFTPServerProtocol(tftp_root.resolve(), "0.0.0.0", loop)
 
         # Start UDP server
         try:

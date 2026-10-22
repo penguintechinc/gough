@@ -1,8 +1,13 @@
+# syntax=docker/dockerfile:1
 # WebUI Dockerfile
 # Node.js backend + React frontend shell
+#
+# @penguintechinc/* packages come from npm.pkg.github.com (auth required).
+# Pass the registry credentials as a BuildKit secret, never as a build arg or layer:
+#   docker build --secret id=npmrc,src=$HOME/.npmrc ...
 
 # Build stage
-FROM node:22-bookworm-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d AS builder
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS builder
 
 WORKDIR /app
 
@@ -14,7 +19,8 @@ COPY package*.json ./
 
 # Rewrite @penguintechinc/react-libs to local file reference and install
 # Remove this block once the package is published to GitHub Packages
-RUN sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
     rm -f package-lock.json && \
     npm install
 
@@ -25,7 +31,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:22-bookworm-slim@sha256:80fdb3f57c815e1b638d221f30a826823467c4a56c8f6a8d7aa091cd9b1675ea@sha256:4f77a690f2f8946ab16fe1e791a3ac0667ae1c3575c3e4d0d4589e9ed5bfaf3d AS production
+FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS production
 
 WORKDIR /app
 
@@ -40,7 +46,8 @@ COPY package*.json ./
 
 # Rewrite @penguintechinc/react-libs to local file reference and install
 # Remove this block once the package is published to GitHub Packages
-RUN sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
+RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
+    sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
     rm -f package-lock.json && \
     npm install --omit=dev && npm cache clean --force && \
     rm -rf /tmp/react-libs
