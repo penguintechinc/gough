@@ -8,7 +8,7 @@ import logging
 import subprocess
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional
 
@@ -28,6 +28,9 @@ class CertificateInfo:
     valid_after: int  # Unix timestamp
     valid_before: int  # Unix timestamp
     cert_type: str  # "user" or "host"
+    # Critical options from the signed certificate body (name -> value). Populated from
+    # the CA-verified blob, never from ssh-keygen text output.
+    critical_options: dict = field(default_factory=dict)
 
     @property
     def is_valid(self) -> bool:
@@ -108,7 +111,7 @@ class CertificateValidator:
                 )
 
         # Verify signature with CA public key
-        self._verify_signature(certificate)
+        cert_info.critical_options = self._verify_signature(certificate) or {}
 
         log.info(
             f"Validated certificate {cert_info.key_id} for "
@@ -253,7 +256,26 @@ class CertificateValidator:
             return paramiko.ECDSAKey(msg=Message(blob))
         raise CertificateValidationError(f"Unsupported CA key type: {key_type}")
 
-    def _verify_signature(self, certificate: str) -> None:
+    @staticmethod
+    def _parse_critical_options(blob: bytes) -> dict:
+        """Decode the certificate critical-options field into a name -> value dict.
+
+        Args:
+            blob: Raw critical-options string from the certificate body.
+
+        Returns:
+            Mapping of option name to its (decoded) value; flag options map to "".
+        """
+        opts: dict = {}
+        m = Message(blob)
+        while m.get_remainder():
+            name = m.get_text()
+            data = m.get_string()
+            # Valued options (force-command, source-address) wrap the value in a string.
+            opts[name] = Message(data).get_text() if data else ""
+        return opts
+
+    def _verify_signature(self, certificate: str) -> dict:
         """Cryptographically verify the certificate's CA signature.
 
         Sound verification requires BOTH: (a) the certificate's embedded CA
@@ -266,6 +288,9 @@ class CertificateValidator:
 
         Args:
             certificate: SSH certificate in OpenSSH format ("<type> <b64> [comment]").
+
+        Returns:
+            The certificate's critical options (parsed from the verified body).
 
         Raises:
             CertificateValidationError: If the signature is invalid or was not
@@ -296,7 +321,7 @@ class CertificateValidator:
             m.get_string()  # valid principals
             m.get_int64()   # valid after
             m.get_int64()   # valid before
-            m.get_string()  # critical options
+            critical_blob = m.get_string()  # critical options
             m.get_string()  # extensions
             m.get_string()  # reserved
             signing_key_blob = m.get_string()  # CA public key
@@ -320,6 +345,7 @@ class CertificateValidator:
                 )
 
             log.info("Certificate signature cryptographically verified against trusted CA")
+            return self._parse_critical_options(critical_blob)
 
         except CertificateValidationError:
             raise

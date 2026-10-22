@@ -76,6 +76,7 @@ def sign_user_certificate(
     principals: list[str],
     validity: str = "-1h:+1h",
     key_id: str = "test-user",
+    extra_args: list[str] | None = None,
 ) -> str:
     """Sign a user public key with a CA and return the certificate line.
 
@@ -85,6 +86,7 @@ def sign_user_certificate(
         principals: Principals to embed in the certificate.
         validity: ``ssh-keygen -V`` validity window (e.g. ``-1h:+1h``).
         key_id: Certificate key identifier.
+        extra_args: Extra ``ssh-keygen`` args (e.g. ``-O force-command=...``, ``-h``).
 
     Returns:
         The OpenSSH certificate line (``<type>-cert-v01@openssh.com <b64>``).
@@ -101,6 +103,7 @@ def sign_user_certificate(
             ",".join(principals),
             "-V",
             validity,
+            *(extra_args or []),
             str(user.public_path),
         ],
         check=True,

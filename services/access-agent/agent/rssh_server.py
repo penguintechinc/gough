@@ -5,10 +5,14 @@ signed by the Gough SSH CA. Spawns PTY sessions for shell access.
 """
 
 import base64
+import ipaddress
 import os
 from penguintechinc_utils import get_logger
 import pty
+import pwd
+import re
 import select
+import signal
 import socket
 import struct
 import subprocess
@@ -16,7 +20,7 @@ import termios
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import paramiko
 from paramiko import RSAKey, ServerInterface, Transport
@@ -39,6 +43,53 @@ def _become_session_leader() -> None:
     fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
+# Principal convention: a certificate is only honoured on a host when it carries
+# ``host:<agent_id>`` for that host's hub-assigned agent id, in addition to the unix
+# username principal. Root logins additionally require the ``allow-root`` principal.
+HOST_PRINCIPAL_PREFIX = "host:"
+ALLOW_ROOT_PRINCIPAL = "allow-root"
+SUPPORTED_CRITICAL_OPTIONS = frozenset({"force-command", "source-address"})
+_SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+_TERM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
+
+
+def host_principals(agent_id: Optional[str]) -> List[str]:
+    """Return the principals that scope a certificate to this host.
+
+    Args:
+        agent_id: Hub-assigned agent id for this host.
+
+    Returns:
+        ``["host:<agent_id>"]``, or an empty list (fail closed) when unenrolled.
+    """
+    return [f"{HOST_PRINCIPAL_PREFIX}{agent_id}"] if agent_id else []
+
+
+def source_address_allowed(spec: str, peer_ip: Optional[str]) -> bool:
+    """Check a peer IP against an OpenSSH ``source-address`` critical option.
+
+    Args:
+        spec: Comma-separated list of addresses/CIDRs from the certificate.
+        peer_ip: Connecting peer address; None fails closed.
+
+    Returns:
+        True only if the peer matches one entry; malformed entries never match.
+    """
+    if not peer_ip:
+        return False
+    try:
+        peer = ipaddress.ip_address(peer_ip.split("%")[0])
+    except ValueError:
+        return False
+    for entry in spec.split(","):
+        try:
+            if peer in ipaddress.ip_network(entry.strip(), strict=False):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
 @dataclass
 class ShellSession:
     """Active shell session."""
@@ -52,6 +103,7 @@ class ShellSession:
     process: Optional[subprocess.Popen] = None
     reader_thread: Optional[threading.Thread] = None
     running: bool = False
+    force_command: Optional[str] = None
 
 
 class SSHServerInterface(ServerInterface):
@@ -62,6 +114,7 @@ class SSHServerInterface(ServerInterface):
         cert_validator: CertificateValidator,
         allowed_principals: Optional[List[str]] = None,
         on_window_change: Optional[Callable[[Any, int, int], None]] = None,
+        client_addr: Optional[Tuple[Any, ...]] = None,
     ):
         """Initialize SSH server interface.
 
@@ -69,7 +122,10 @@ class SSHServerInterface(ServerInterface):
             cert_validator: Certificate validator
             allowed_principals: Optional list of allowed principals
             on_window_change: Called with (channel, rows, cols) on terminal resize
+            client_addr: Peer address tuple, used for ``source-address`` enforcement
         """
+        self.client_addr = client_addr
+        self.force_command: Optional[str] = None
         self.cert_validator = cert_validator
         self.allowed_principals = allowed_principals
         self.on_window_change = on_window_change
@@ -102,6 +158,9 @@ class SSHServerInterface(ServerInterface):
                 expected_principals=self.allowed_principals,
             )
 
+            if not self._authorize(username):
+                return paramiko.AUTH_FAILED
+
             # Check username matches a principal
             if username not in self.cert_info.principals:
                 log.warning(
@@ -121,6 +180,50 @@ class SSHServerInterface(ServerInterface):
         except Exception as e:
             log.warning(f"Certificate validation failed: {e}")
             return paramiko.AUTH_FAILED
+
+    def _authorize(self, username: str) -> bool:
+        """Apply host scoping, cert-type, critical-option and account policy.
+
+        Args:
+            username: Requested unix account.
+
+        Returns:
+            True only if every check passes; any doubt fails closed.
+        """
+        info = self.cert_info
+        if info is None:
+            return False
+        if not self.allowed_principals:
+            log.warning("No host-scoped principal configured, rejecting")
+            return False
+        if info.cert_type != "user":
+            log.warning(f"Rejecting non-user certificate (type={info.cert_type})")
+            return False
+        if username.startswith(HOST_PRINCIPAL_PREFIX) or username == ALLOW_ROOT_PRINCIPAL:
+            return False
+
+        options = info.critical_options or {}
+        unknown = set(options) - SUPPORTED_CRITICAL_OPTIONS
+        if unknown:
+            log.warning(f"Rejecting certificate with unsupported critical options {sorted(unknown)}")
+            return False
+        if "source-address" in options:
+            peer_ip = self.client_addr[0] if self.client_addr else None
+            if not source_address_allowed(options["source-address"], peer_ip):
+                log.warning("Peer address not permitted by certificate source-address")
+                return False
+
+        try:
+            pw = pwd.getpwnam(username)
+        except KeyError:
+            log.warning(f"Unknown account {username!r}")
+            return False
+        if pw.pw_uid == 0 and ALLOW_ROOT_PRINCIPAL not in info.principals:
+            log.warning("Root login requires the allow-root principal")
+            return False
+
+        self.force_command = options.get("force-command") or None
+        return True
 
     def check_channel_request(self, kind: str, chanid: int) -> int:
         """Check channel request."""
@@ -324,7 +427,9 @@ class RSSHServer:
             # Create server interface
             server = SSHServerInterface(
                 cert_validator=self.cert_validator,
+                allowed_principals=host_principals(self.config.agent_id),
                 on_window_change=self._apply_window_change,
+                client_addr=client_addr,
             )
 
             # Start server
@@ -334,6 +439,11 @@ class RSSHServer:
             channel = transport.accept(timeout=30)
             if channel is None:
                 log.warning("No channel opened within timeout")
+                return
+
+            if not server.authenticated_user:
+                log.warning("Channel opened without an authenticated user, refusing")
+                channel.close()
                 return
 
             # Wait for shell request
@@ -352,6 +462,7 @@ class RSSHServer:
                 channel=channel,
                 transport=transport,
                 principals=server.cert_info.principals if server.cert_info else [],
+                force_command=server.force_command,
             )
 
             with self._lock:
@@ -367,7 +478,7 @@ class RSSHServer:
             )
 
             # Start shell
-            self._start_shell(session, server.authenticated_user or "root")
+            self._start_shell(session, server.authenticated_user)
 
         except Exception as e:
             log.error(f"Error handling client: {e}")
@@ -410,27 +521,53 @@ class RSSHServer:
         session.master_fd = master_fd
         session.slave_fd = slave_fd
 
+        pw = pwd.getpwnam(username)  # KeyError -> session aborted, never a root fallback
+
+        if os.geteuid() == 0:
+            # Hand the slave to the target user so the shell owns its terminal.
+            os.fchown(slave_fd, pw.pw_uid, -1)
+
         # Set terminal size
         term = getattr(session.channel, "term", "xterm")
+        if isinstance(term, bytes):
+            term = term.decode("ascii", "replace")
+        if not isinstance(term, str) or not _TERM_RE.match(term):
+            term = "xterm"
         width = getattr(session.channel, "width", 80)
         height = getattr(session.channel, "height", 24)
         self._set_window_size(master_fd, height, width)
 
-        # Start shell process
-        env = os.environ.copy()
-        env["TERM"] = term
-        env["USER"] = username
-        env["LOGNAME"] = username
-        env["HOME"] = f"/home/{username}"
+        # Minimal environment: nothing from the agent's own env (tokens, keys) is inherited.
+        shell = pw.pw_shell if pw.pw_shell and os.access(pw.pw_shell, os.X_OK) else "/bin/sh"
+        env = {
+            "TERM": term,
+            "USER": username,
+            "LOGNAME": username,
+            "HOME": pw.pw_dir,
+            "SHELL": shell,
+            "PATH": _SAFE_PATH,
+            "LANG": os.environ.get("LANG", "C.UTF-8"),
+        }
+        argv = [shell, "-c", session.force_command] if session.force_command else [shell, "-l"]
+
+        # Drop privileges (setgroups -> setgid -> setuid) to the target account.
+        priv: Dict[str, Any] = {}
+        if pw.pw_uid != os.geteuid():
+            priv = {
+                "user": pw.pw_uid,
+                "group": pw.pw_gid,
+                "extra_groups": os.getgrouplist(username, pw.pw_gid),
+            }
 
         session.process = subprocess.Popen(
-            ["/bin/bash", "-l"],
+            argv,
+            **priv,
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
             preexec_fn=_become_session_leader,
             env=env,
-            cwd=env["HOME"],
+            cwd=pw.pw_dir,
         )
 
         # The child holds its own copy of the slave; drop ours so the master
@@ -464,12 +601,12 @@ class RSSHServer:
                 # Block on the channel's readiness fd instead of a 10ms busy-poll.
                 # The timeout bounds how long a stop request can go unnoticed.
                 readable, _, _ = select.select([channel], [], [], 0.1)
-                if readable and channel.recv_ready():
+                if readable:
+                    # EOF also makes the channel readable; recv() then returns b"" (no spin).
                     data = channel.recv(1024)
-                    if data:
-                        os.write(session.master_fd, data)
-                    else:
+                    if not data:
                         break
+                    os.write(session.master_fd, data)
 
             except Exception as e:
                 log.error(f"Error reading from channel: {e}")
@@ -520,6 +657,34 @@ class RSSHServer:
         except Exception as e:
             log.error(f"Error setting window size: {e}")
 
+    @staticmethod
+    def _signal_group(process: subprocess.Popen, sig: int) -> None:
+        """Signal the shell's whole process group (it is a session leader)."""
+        try:
+            os.killpg(process.pid, sig)
+        except (ProcessLookupError, PermissionError):
+            try:
+                process.send_signal(sig)
+            except Exception:  # noqa: BLE001 - already gone
+                pass
+
+    def _reap_process(self, process: subprocess.Popen) -> None:
+        """Terminate a session shell and always wait() on it so no zombie remains.
+
+        Args:
+            process: The shell process (session leader of its own group).
+        """
+        try:
+            self._signal_group(process, signal.SIGHUP)
+            self._signal_group(process, signal.SIGTERM)
+            try:
+                process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self._signal_group(process, signal.SIGKILL)
+                process.wait(timeout=5)
+        except Exception as e:
+            log.error(f"Error terminating process: {e}")
+
     def _cleanup_session(self, session: ShellSession) -> None:
         """Clean up session resources.
 
@@ -530,13 +695,12 @@ class RSSHServer:
 
         # Terminate process
         if session.process:
-            try:
-                session.process.terminate()
-                session.process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                session.process.kill()
-            except Exception as e:
-                log.error(f"Error terminating process: {e}")
+            self._reap_process(session.process)
+
+        # Let the reader thread exit before its fd is closed (avoids fd-reuse races).
+        reader = session.reader_thread
+        if reader is not None and reader is not threading.current_thread():
+            reader.join(timeout=1)
 
         # Close file descriptors
         if session.master_fd:

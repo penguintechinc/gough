@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import pwd
 import select
+import signal
 import socket
 import subprocess
 import threading
@@ -30,6 +31,8 @@ from agent.config import AgentConfig
 from tests.ssh_certs import SSHKeyPair, generate_keypair, sign_user_certificate
 
 CURRENT_USER = pwd.getpwuid(os.getuid()).pw_name
+AGENT_ID = "agent-1"
+HOST_PRINCIPAL = f"host:{AGENT_ID}"
 
 
 @dataclass(slots=True)
@@ -59,7 +62,8 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         """Record the production argv and spawn an interactive sh in a temp cwd."""
         recorded.append(list(cmd))
         kwargs["cwd"] = str(tmp_path)
-        return real_popen(["/bin/sh", "-i"], **kwargs)
+        argv = ["/bin/sh", "-c", cmd[2]] if len(cmd) > 2 and cmd[1] == "-c" else ["/bin/sh", "-i"]
+        return real_popen(argv, **kwargs)
 
     monkeypatch.setattr(
         rssh,
@@ -71,7 +75,9 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         rssh_listen_host="127.0.0.1",
         rssh_listen_port=0,
         host_key_file=str(tmp_path / "host_key"),
+        agent_id=AGENT_ID,
     )
+    monkeypatch.setenv("GOUGH_AGENT_SECRET", "s3cret-agent-token")
     env = SSHEnv(server=None, port=0, ca=ca, user=user, tmp=tmp_path)  # type: ignore[arg-type]
     server = rssh.RSSHServer(
         config=config,
@@ -92,7 +98,14 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         time.sleep(0.05)
 
 
-def cert_key(env: SSHEnv, principals: list[str], validity: str = "-1h:+1h", key: SSHKeyPair | None = None) -> paramiko.PKey:
+def cert_key(
+    env: SSHEnv,
+    principals: list[str],
+    validity: str = "-1h:+1h",
+    key: SSHKeyPair | None = None,
+    host_scope: bool = True,
+    extra_args: list[str] | None = None,
+) -> paramiko.PKey:
     """Load the operator key and attach a CA-signed certificate to it for client auth.
 
     Args:
@@ -100,12 +113,15 @@ def cert_key(env: SSHEnv, principals: list[str], validity: str = "-1h:+1h", key:
         principals: Principals to certify.
         validity: ssh-keygen validity window.
         key: Optional key pair to certify instead of the default operator key.
+        host_scope: Add this host's ``host:<agent_id>`` principal (default True).
+        extra_args: Extra ``ssh-keygen`` arguments (critical options, ``-h``).
 
     Returns:
         Paramiko private key carrying the certificate.
     """
     pair = key or env.user
-    sign_user_certificate(env.ca, pair, principals, validity=validity)
+    all_principals = [*principals, HOST_PRINCIPAL] if host_scope else principals
+    sign_user_certificate(env.ca, pair, all_principals, validity=validity, extra_args=extra_args)
     loaded = paramiko.Ed25519Key.from_private_key_file(str(pair.private_path))
     loaded.load_certificate(str(pair.private_path.with_name(f"{pair.name}-cert.pub")))
     return loaded
@@ -198,7 +214,8 @@ def test_shell_environment_and_pty_geometry_are_applied(ssh_env: SSHEnv) -> None
     assert "TERM=xterm-256color" in out
     assert f"USER_IS={CURRENT_USER}" in out
     assert "40 100" in out
-    assert ssh_env.popen_calls == [["/bin/bash", "-l"]]
+    shell = pwd.getpwuid(os.getuid()).pw_shell
+    assert ssh_env.popen_calls == [[shell if os.access(shell, os.X_OK) else "/bin/sh", "-l"]]
 
 
 def test_window_change_request_resizes_pty(ssh_env: SSHEnv) -> None:
@@ -227,7 +244,7 @@ def test_shell_exit_ends_session_and_closes_channel(ssh_env: SSHEnv) -> None:
 def test_certificate_from_untrusted_ca_is_rejected(ssh_env: SSHEnv, tmp_path: Path) -> None:
     """A certificate minted by a different CA cannot authenticate."""
     rogue = generate_keypair(tmp_path, "rogue_ca")
-    sign_user_certificate(rogue, ssh_env.user, [CURRENT_USER])
+    sign_user_certificate(rogue, ssh_env.user, [CURRENT_USER, HOST_PRINCIPAL])
     pkey = paramiko.Ed25519Key.from_private_key_file(str(ssh_env.user.private_path))
     pkey.load_certificate(str(ssh_env.user.private_path.with_name("operator-cert.pub")))
     with pytest.raises(paramiko.AuthenticationException):
@@ -445,29 +462,60 @@ def test_window_size_failure_is_logged_not_raised() -> None:
 
 
 def test_cleanup_kills_process_that_ignores_terminate() -> None:
-    """A shell that does not exit within 5s after terminate is killed."""
+    """A shell that does not exit within 5s after SIGTERM is SIGKILLed and still reaped."""
     process = MagicMock()
-    process.wait.side_effect = subprocess.TimeoutExpired(cmd="bash", timeout=5)
+    process.pid = 2**22 + 12345  # no such pgid -> falls back to send_signal
+    process.wait.side_effect = [subprocess.TimeoutExpired(cmd="bash", timeout=5), 0]
     session = _session(MagicMock(), master_fd=None)
     session.process = process
     rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._cleanup_session(session)
-    process.terminate.assert_called_once()
-    process.kill.assert_called_once()
+    sent = [c.args[0] for c in process.send_signal.call_args_list]
+    assert signal.SIGKILL in sent and process.wait.call_count == 2
     assert session.running is False
 
 
-def test_cleanup_tolerates_already_closed_descriptors_and_failed_terminate() -> None:
-    """Closed fds and a terminate() error are logged and cleanup still completes."""
+def test_cleanup_tolerates_already_closed_descriptors_and_failed_signal() -> None:
+    """Closed fds and signal errors are logged and cleanup still completes."""
     process = MagicMock()
-    process.terminate.side_effect = RuntimeError("no such process")
+    process.pid = 2**22 + 12345
+    process.send_signal.side_effect = RuntimeError("no such process")
     channel = MagicMock()
     channel.close.side_effect = RuntimeError("already closed")
     session = _session(channel, master_fd=999_999)
     session.slave_fd = 999_998
     session.process = process
     rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._cleanup_session(session)
-    process.kill.assert_not_called()
     channel.close.assert_called_once()
+
+
+def test_reap_process_leaves_no_zombie_and_kills_whole_group() -> None:
+    """A real session-leader shell and its child are both gone and wait()ed afterwards."""
+    proc = subprocess.Popen(
+        ["/bin/sh", "-c", "trap '' TERM HUP; sleep 300 & wait"], start_new_session=True
+    )
+    time.sleep(0.3)
+    srv = rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))
+    start = time.monotonic()
+    srv._reap_process(proc)
+    assert proc.returncode is not None  # wait() collected it: no zombie
+    assert time.monotonic() - start < 15
+
+    def group_gone() -> bool:
+        try:
+            os.killpg(proc.pid, 0)
+        except ProcessLookupError:
+            return True
+        return False
+
+    assert wait_for(group_gone, timeout_s=5), "group member survived"
+
+
+def test_reap_process_logs_unexpected_wait_failure() -> None:
+    """A wait() failure is contained."""
+    process = MagicMock()
+    process.pid = 2**22 + 12345
+    process.wait.side_effect = RuntimeError("boom")
+    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._reap_process(process)
 
 
 def test_active_session_count_reflects_registry() -> None:
