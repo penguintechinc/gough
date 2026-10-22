@@ -719,6 +719,33 @@ class SystemLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# =============================================================================
+# LXD cluster join issuance and bootstrap tombstones
+# =============================================================================
+
+class LxdJoinTokenIssuance(Base):
+    """One row per LXD cluster join token grant; never deleted, expiry enforced by time."""
+
+    __tablename__ = "lxd_join_token_issuances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    member_name = Column(String(255), nullable=False, index=True)
+    status = Column(Integer, nullable=False, default=0)  # 0=issued, 1=failed
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+
+
+class BootstrapTokenSeed(Base):
+    """Tombstone recording that a bootstrap token was seeded; never deleted, keyed by SHA-256 hash."""
+
+    __tablename__ = "bootstrap_token_seeds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    seeded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
 def get_sqlalchemy_engine(db_uri: str):
     """Create SQLAlchemy engine from database URI."""
     # Convert PyDAL URI to SQLAlchemy URI format
