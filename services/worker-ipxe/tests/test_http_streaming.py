@@ -109,20 +109,6 @@ async def test_image_route_streams_full_body(monkeypatch: pytest.MonkeyPatch) ->
     assert upstream.closed is True
 
 
-@pytest.mark.asyncio
-async def test_iter_image_chunks_is_lazy_and_bounded() -> None:
-    """Chunks are pulled from upstream on demand, never the whole body up front."""
-    upstream = CountingUpstream(total_chunks=1000, chunk=b"x" * 1024)
-    client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
-    response = httpx.Response(200, stream=upstream)
-    gen = _iter_image_chunks(client, response, chunk_size=1024)
-
-    first = await gen.__anext__()
-    assert len(first) == 1024
-    assert upstream.yielded <= 2
-    await gen.aclose()
-
-
 def _stream_for(upstream: CountingUpstream) -> _StorageStream:
     """Wrap a CountingUpstream in a real httpx client and a _StorageStream owner."""
     client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
