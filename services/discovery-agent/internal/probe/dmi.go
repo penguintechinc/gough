@@ -18,7 +18,8 @@ type DMIInfo struct {
 	BIOSVersion string `json:"bios_version"`
 }
 
-const dmiBase = "/sys/class/dmi/id"
+// dmiBase is the sysfs DMI directory; a variable so tests can substitute a fixture.
+var dmiBase = "/sys/class/dmi/id"
 
 // ReadDMI reads DMI fields from sysfs. Fields that cannot be read are left
 // as empty strings; only a wholesale directory absence returns an error.

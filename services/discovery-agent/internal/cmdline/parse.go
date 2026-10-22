@@ -11,6 +11,10 @@ import (
 	"strings"
 )
 
+// cmdlinePath is the kernel command line source. It is a variable so tests can
+// substitute a fixture file; production always reads /proc/cmdline.
+var cmdlinePath = "/proc/cmdline"
+
 // Params holds values extracted from the kernel command line.
 type Params struct {
 	// Token is the one-time bootstrap JWT from gough_token=.
@@ -24,9 +28,9 @@ type Params struct {
 // Parse reads /proc/cmdline and extracts Gough-specific kernel parameters.
 // It returns an error if any required parameter is missing.
 func Parse() (Params, error) {
-	raw, err := os.ReadFile("/proc/cmdline")
+	raw, err := os.ReadFile(cmdlinePath)
 	if err != nil {
-		return Params{}, fmt.Errorf("read /proc/cmdline: %w", err)
+		return Params{}, fmt.Errorf("read %s: %w", cmdlinePath, err)
 	}
 	return ParseString(strings.TrimSpace(string(raw)))
 }

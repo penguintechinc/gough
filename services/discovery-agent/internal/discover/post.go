@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,8 +20,8 @@ import (
 )
 
 const (
-	discoverPath  = "/api/v1/nodes/discover"
-	httpTimeout   = 30 * time.Second
+	discoverPath = "/api/v1/nodes/discover"
+	httpTimeout  = 30 * time.Second
 )
 
 // Request is the JSON body sent to POST /api/v1/nodes/discover.
@@ -62,6 +63,29 @@ type Response struct {
 	ControlTunnelSpiffeID string `json:"control_tunnel_spiffe_id"`
 }
 
+// StatusError reports a non-2xx response from the discover endpoint.
+type StatusError struct {
+	// Code is the HTTP status code returned by the api-manager.
+	Code int
+	// URL is the full endpoint that was called.
+	URL string
+}
+
+// Error implements error.
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("discover: unexpected status %d from %s", e.Code, e.URL)
+}
+
+// IsPermanent reports whether retrying the POST cannot succeed. 401 and 403
+// mean the bootstrap token was rejected; retrying only hammers the api-manager.
+func IsPermanent(err error) bool {
+	var se *StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden
+}
+
 // SmartPreflight checks all SMART results and returns an error if any disk
 // reports a failed status. It also increments the failure counter per failed disk.
 func SmartPreflight(smartResults []probe.SmartOutput) error {
@@ -93,6 +117,9 @@ func Post(ctx context.Context, primaryURL, jwt, caPEMPath string, req Request) (
 		Timeout:   httpTimeout,
 		Transport: &http.Transport{TLSClientConfig: tlsCfg},
 	}
+	// Each call owns its transport; release idle connections on return so
+	// retries do not accumulate sockets.
+	defer client.CloseIdleConnections()
 
 	url := primaryURL + discoverPath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -106,10 +133,10 @@ func Post(ctx context.Context, primaryURL, jwt, caPEMPath string, req Request) (
 	if err != nil {
 		return Response{}, fmt.Errorf("discover: post %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return Response{}, fmt.Errorf("discover: unexpected status %d from %s", resp.StatusCode, url)
+		return Response{}, &StatusError{Code: resp.StatusCode, URL: url}
 	}
 
 	var result Response

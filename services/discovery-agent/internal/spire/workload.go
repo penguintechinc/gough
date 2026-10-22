@@ -50,7 +50,7 @@ func (c *Client) FetchSVID(ctx context.Context, serverTrustDomain string) (SVIDB
 	if err != nil {
 		return SVIDBundle{}, fmt.Errorf("spire: new workload client: %w", err)
 	}
-	defer wc.Close()
+	defer func() { _ = wc.Close() }()
 
 	x509Ctx, err := wc.FetchX509Context(ctx)
 	if err != nil {

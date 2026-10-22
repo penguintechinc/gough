@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"runtime"
@@ -41,10 +42,10 @@ import (
 var Version = "dev"
 
 const (
-	caPEMPath     = "/etc/gough/ca.pem"
-	spireSocket   = "unix:///run/spire-agent/public/api.sock"
-	trustDomain   = "penguintech.io"
-	probeTimeout  = 5 * time.Minute
+	caPEMPath    = "/etc/gough/ca.pem"
+	spireSocket  = "unix:///run/spire-agent/public/api.sock"
+	trustDomain  = "penguintech.io"
+	probeTimeout = 5 * time.Minute
 )
 
 // readRawCmdline reads /proc/cmdline and returns the raw string for memory zeroing.
@@ -121,34 +122,31 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("build request: %w", err)
 	}
 
-	// 9. POST /api/v1/nodes/discover with retry on transient errors.
+	// 9. POST /api/v1/nodes/discover with exponential backoff on transient
+	// errors; 401/403 are permanent and abort immediately.
 	serial.WriteEvent("info", "posting discovery to api-manager", map[string]any{"primary": params.Primary})
-	var discoverResp discover.Response
 	var httpsFailedAt time.Time
 
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		discoverResp, err = discover.Post(ctx, params.Primary, params.Token, caPEMPath, req)
-		if err == nil {
-			break
-		}
-		slog.Warn("discover POST failed", "err", err)
-		if httpsFailedAt.IsZero() {
-			httpsFailedAt = time.Now()
-		}
-		if serial.ShouldUseFallback(httpsFailedAt) {
-			serial.WriteEvent("warn", "HTTPS unavailable >5m — continuing via serial console", map[string]any{
-				"primary": params.Primary,
-				"err":     err.Error(),
-			})
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(10 * time.Second):
-		}
+	discoverResp, err := postWithRetry(ctx,
+		func(c context.Context) (discover.Response, error) {
+			return discover.Post(c, params.Primary, params.Token, caPEMPath, req)
+		},
+		discoverRetry, rand.Float64, sleepCtx,
+		func(_ int, err error) {
+			slog.Warn("discover POST failed", "err", err)
+			if httpsFailedAt.IsZero() {
+				httpsFailedAt = time.Now()
+			}
+			if serial.ShouldUseFallback(httpsFailedAt) {
+				serial.WriteEvent("warn", "HTTPS unavailable >5m — continuing via serial console", map[string]any{
+					"primary": params.Primary,
+					"err":     err.Error(),
+				})
+			}
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("discover POST: %w", err)
 	}
 
 	slog.Info("discover POST succeeded",
@@ -158,8 +156,15 @@ func run(ctx context.Context) error {
 	)
 	serial.WriteEvent("info", "discover POST succeeded", map[string]any{"node_id": discoverResp.NodeID})
 
-	// 8. Fetch SVID via SPIRE Workload API.
-	spireClient, err := spire.NewClient(spireSocket)
+	// 8-9. Fetch SVID and open the persistent gRPC-mTLS control tunnel.
+	return openTunnel(ctx, discoverResp, spireSocket)
+}
+
+// openTunnel fetches an SVID from the SPIRE Workload API at socketPath and then
+// runs the control tunnel to the endpoint from the discover response. It blocks
+// until ctx is cancelled (tunnel.Run never returns otherwise).
+func openTunnel(ctx context.Context, discoverResp discover.Response, socketPath string) error {
+	spireClient, err := spire.NewClient(socketPath)
 	if err != nil {
 		return fmt.Errorf("spire client: %w", err)
 	}
@@ -170,7 +175,6 @@ func run(ctx context.Context) error {
 	}
 	slog.Info("SVID fetched", "spiffe_id", svidBundle.SPIFFEID)
 
-	// 9. Open persistent gRPC-mTLS control tunnel.
 	t := tunnel.New(tunnel.TunnelConfig{
 		Endpoint:  discoverResp.ControlTunnelEndpoint,
 		TLSConfig: svidBundle.TLSConfig,
@@ -183,7 +187,6 @@ func run(ctx context.Context) error {
 		"endpoint": discoverResp.ControlTunnelEndpoint,
 	})
 
-	// Run blocks until ctx is cancelled.
 	return t.Run(ctx)
 }
 
@@ -246,12 +249,16 @@ func zeroString(s string) {
 	}
 }
 
-// collectProbes runs all hardware probes with a timeout.
+// collectProbes runs all hardware probes against the real host tools.
 func collectProbes(ctx context.Context) (tags.HardwareInput, error) {
+	return collectProbesWith(ctx, exec.OSRunner{})
+}
+
+// collectProbesWith runs all hardware probes with a timeout using runner for
+// external tool invocations. Sysfs-backed probes read the live host.
+func collectProbesWith(ctx context.Context, runner exec.Runner) (tags.HardwareInput, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-
-	runner := exec.OSRunner{}
 
 	lshw, err := probe.RunLshw(ctx, runner)
 	if err != nil {

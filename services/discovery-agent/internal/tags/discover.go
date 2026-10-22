@@ -482,7 +482,7 @@ func gpuTags(hw HardwareInput) []string {
 	for _, dev := range hw.Accelerators.PCIDevices {
 		cl := strings.ToLower(dev.Class)
 		switch {
-		case strings.Contains(cl, "fpga") || dev.VendorID == "1172" /* Altera/Intel FPGA */:
+		case strings.Contains(cl, "fpga") || dev.VendorID == "1172" /* Altera/Intel FPGA */ :
 			tags = append(tags, "accelerator:fpga")
 		case strings.Contains(cl, "dpu") || strings.Contains(cl, "smartnic"):
 			tags = append(tags, "accelerator:dpu")
@@ -553,10 +553,12 @@ func securityTags(hw HardwareInput) []string {
 	return tags
 }
 
+// efiVarsPath is the efivarfs mount; a variable so tests can substitute a fixture.
+var efiVarsPath = "/sys/firmware/efi/efivars"
+
+// readEFISecureBoot reads /sys/firmware/efi/efivars/SecureBoot-<GUID>.
+// EFI variable format: 4 bytes attributes + 1 byte value (1=enabled).
 func readEFISecureBoot() (bool, error) {
-	// /sys/firmware/efi/efivars/SecureBoot-<GUID>
-	// EFI variable format: 4 bytes attributes + 1 byte value (1=enabled).
-	const efiVarsPath = "/sys/firmware/efi/efivars"
 	data, err := readEFIVarFromFS(efiVarsPath, "SecureBoot")
 	if err != nil {
 		return false, err

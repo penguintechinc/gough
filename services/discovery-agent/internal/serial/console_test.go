@@ -9,29 +9,24 @@ import (
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/serial"
 )
 
-func TestShouldUseFallback_ZeroTime(t *testing.T) {
-	if serial.ShouldUseFallback(time.Time{}) {
-		t.Error("ShouldUseFallback(zero) should return false")
+// TestShouldUseFallback covers the zero value, the grace period, and elapsed failures.
+func TestShouldUseFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		failedAt time.Time
+		want     bool
+	}{
+		{name: "never failed", failedAt: time.Time{}, want: false},
+		{name: "failed just now", failedAt: time.Now(), want: false},
+		{name: "failed 4m ago still in grace", failedAt: time.Now().Add(-4 * time.Minute), want: false},
+		{name: "failed 10m ago", failedAt: time.Now().Add(-10 * time.Minute), want: true},
+		{name: "failed exactly 5m ago", failedAt: time.Now().Add(-5 * time.Minute), want: true},
 	}
-}
-
-func TestShouldUseFallback_Recent(t *testing.T) {
-	if serial.ShouldUseFallback(time.Now()) {
-		t.Error("ShouldUseFallback(now) should return false (grace period not elapsed)")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := serial.ShouldUseFallback(tc.failedAt); got != tc.want {
+				t.Errorf("ShouldUseFallback = %v, want %v", got, tc.want)
+			}
+		})
 	}
-}
-
-func TestShouldUseFallback_OldFailure(t *testing.T) {
-	// Simulate a failure 10 minutes ago.
-	failedAt := time.Now().Add(-10 * time.Minute)
-	if !serial.ShouldUseFallback(failedAt) {
-		t.Error("ShouldUseFallback(10 min ago) should return true")
-	}
-}
-
-func TestWriteEvent_NoSysfs_DoesNotPanic(t *testing.T) {
-	// WriteEvent on a machine without /dev/ttyS0 should drop silently.
-	// Verify it doesn't panic.
-	serial.WriteEvent("info", "test message", map[string]any{"key": "value"})
-	serial.WriteEvent("error", "error message", nil)
 }

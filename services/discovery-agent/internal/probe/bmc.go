@@ -48,7 +48,7 @@ func ValidateBMCCert(ctx context.Context, bmcIP, expectedThumbprint string) (mat
 	if err != nil {
 		return false, "", fmt.Errorf("bmc: connect %s: %w", bmcIP, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.TLS == nil || len(resp.TLS.PeerCertificates) == 0 {
 		return false, "", fmt.Errorf("bmc: no TLS certificates from %s", bmcIP)
