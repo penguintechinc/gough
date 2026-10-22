@@ -287,6 +287,23 @@ async def enroll_agent():
         return jsonify({"error": "capabilities must be a list of strings"}), 400
     caps = raw_capabilities
 
+    # Server-side agent<->node link. The enrollment key (not the request body)
+    # carries the intended hostname; when present the agent must match it, and the
+    # node is resolved from it. The capacity guard trusts only this link.
+    from .lxd_cluster import parse_metadata
+
+    key_meta = parse_metadata(key_record["metadata"])
+    intended_raw = key_meta.get("intended_hostname")
+    intended = intended_raw if isinstance(intended_raw, str) and intended_raw else None
+    if intended is not None and hostname != intended:
+        log.warning("enrollment refused: hostname does not match key intended_hostname")
+        return jsonify({"error": "Hostname does not match enrollment key"}), 403
+    link_node_id = (
+        await run_db(lambda: _resolve_enrollment_link(db, key_meta, intended))
+        if intended is not None
+        else None
+    )
+
     # Generate agent ID + JWT tokens (non-DB, pure/local)
     agent_id = str(uuid.uuid4())
     access_token = _create_agent_access_token(agent_id, caps)
@@ -315,6 +332,7 @@ async def enroll_agent():
             agent_db_id = db.access_agents.insert(
                 agent_id=agent_id,
                 hostname=hostname,
+                node_id=link_node_id,
                 ip_address=data.get("ip_address"),
                 enrollment_key_hash=key_hash,
                 enrollment_completed=True,
@@ -381,6 +399,56 @@ async def enroll_agent():
             "heartbeat_interval": 30,
         },
     }), 201
+
+
+def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -> int | None:
+    """Resolve the node an enrolling agent is bound to, from server-side key metadata.
+
+    An explicit ``node_id`` in the key metadata must equal the unique node named
+    ``intended_hostname`` (tenant-scoped when the key names a ``tenant_id``);
+    otherwise the unique node with that name is used. Ambiguous or missing nodes
+    yield None: the agent enrolls unlinked and snapshot ingest refuses it.
+    """
+    tenant = key_meta.get("tenant_id")
+    tenant_id = tenant if isinstance(tenant, str) and tenant else None
+    with db.engine.connect() as conn:
+        node_id = capacity_guard.resolve_node_by_name(conn, intended, tenant_id)
+    explicit = key_meta.get("node_id")
+    if isinstance(explicit, int) and not isinstance(explicit, bool):
+        return node_id if node_id == explicit else None
+    return node_id
+
+
+@agents_bp.route("/<string:agent_id>/node", methods=["PUT"])
+@auth_required
+@roles_required("admin")
+async def link_agent_node(agent_id: str):
+    """Link an enrolled agent to the node it reports capacity for (admin only).
+
+    Body: ``{"node_id": <int>}``. The binding is server-side and is the only way the
+    capacity guard maps heartbeat snapshots to a node.
+
+    Returns:
+        200: linked; 400: bad body; 404: agent or node unknown;
+        409: node already linked to another active agent.
+    """
+    body = await request.get_json(silent=True)
+    node_id = body.get("node_id") if isinstance(body, dict) else None
+    if not isinstance(node_id, int) or isinstance(node_id, bool) or node_id < 1:
+        return jsonify({"error": "node_id must be a positive integer"}), 400
+    db = get_db()
+
+    def _link() -> str | None:
+        with db.engine.begin() as conn:
+            return capacity_guard.link_agent_to_node(conn, agent_id, node_id)
+
+    refusal = await run_db(_link)
+    if refusal in ("agent_not_found", "node_not_found"):
+        return jsonify({"error": refusal}), 404
+    if refusal is not None:
+        return jsonify({"error": refusal}), 409
+    log.info("agent %s linked to node %s", agent_id, node_id)
+    return jsonify({"agent_id": agent_id, "node_id": node_id}), 200
 
 
 # ============================================================================
@@ -492,6 +560,15 @@ async def agent_heartbeat():
     # single rollback point inside the closure.
     def _update_heartbeat() -> tuple[bool, Any]:
         try:
+            stored = db(db.access_agents.agent_id == agent_id).select().first()
+            if stored is not None and stored.status != "active":
+                # A revoked/inactive agent can never re-activate itself by claiming
+                # "active" in its own heartbeat body.
+                db(db.access_agents.agent_id == agent_id).update(
+                    last_heartbeat=datetime.utcnow(),
+                )
+                db.commit()
+                return True, None
             db(db.access_agents.agent_id == agent_id).update(
                 last_heartbeat=datetime.utcnow(),
                 status=data.get("status", "active"),
@@ -531,8 +608,11 @@ async def agent_heartbeat():
 def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None:
     """Validate and persist a heartbeat's ``resource_snapshot`` for the agent's node.
 
-    The agent maps to a node by hostname (``access_agents.hostname`` equals
-    ``nodes.name``). An unmapped agent is logged and skipped, not an error.
+    The node comes ONLY from the server-side ``access_agents.node_id`` link; the
+    agent's self-reported hostname is never consulted. Refused when the agent is not
+    active, is unlinked, or shares its node with another active agent. The hub's own
+    clock is the ordering and freshness anchor; future-dated, replayed or already
+    stale snapshots are rejected.
 
     Args:
         db: penguin-dal handle; its SQLAlchemy engine is used for the write.
@@ -540,7 +620,7 @@ def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None
         raw: Untrusted ``resource_snapshot`` value from the request body.
 
     Returns:
-        None on success or when unmapped; a short error string when invalid (-> 400).
+        None on success; a short error string when refused (-> 400).
     """
     try:
         snap = capacity_guard.parse_snapshot(raw)
@@ -551,18 +631,17 @@ def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None
         log.warning("rejected resource_snapshot from agent %s: %s", agent_id, details)
         return f"invalid resource_snapshot: {details}"
 
-    agent = db(db.access_agents.agent_id == agent_id).select().first()
-    hostname = getattr(agent, "hostname", None) if agent is not None else None
-    if not hostname:
-        log.info("resource_snapshot from agent %s has no hostname; not recorded", agent_id)
-        return None
-
     with db.engine.begin() as conn:
-        node_id = capacity_guard.resolve_node_id(conn, hostname)
-        if node_id is None:
-            log.info("resource_snapshot from agent %s: no node named %s", agent_id, hostname)
-            return None
-        capacity_guard.record_snapshot(conn, node_id, snap, datetime.now(timezone.utc))
+        link = capacity_guard.resolve_agent_node(conn, agent_id)
+        if link.node_id is None:
+            log.warning("resource_snapshot refused for agent %s: %s", agent_id, link.reason)
+            return f"resource_snapshot refused: {link.reason}"
+        outcome = capacity_guard.record_snapshot(
+            conn, link.node_id, snap, datetime.now(timezone.utc)
+        )
+    if outcome is not capacity_guard.SnapshotOutcome.STORED:
+        log.warning("resource_snapshot from agent %s not stored: %s", agent_id, outcome.name)
+        return f"resource_snapshot rejected: {outcome.name.lower()}"
     return None
 
 

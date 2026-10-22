@@ -86,6 +86,7 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     eng = create_engine(f"sqlite:///{tmp_path}/guard.db")
     tables = [
         Base.metadata.tables["nodes"],
+        Base.metadata.tables["access_agents"],
         cg.NodeResourceSnapshot.__table__,
         cg.CapacityReservation.__table__,
     ]
@@ -337,24 +338,18 @@ def test_null_pressure_accepted() -> None:
 
 
 def test_record_snapshot_ignores_older_and_upserts_newer(engine: Any) -> None:
-    """Latest collected_at wins; an out-of-order older snapshot is skipped."""
+    """Latest collected_at wins; an out-of-order older snapshot is refused."""
     newer = cg.parse_snapshot(_snapshot_dict(NOW))
-    older = cg.parse_snapshot(_snapshot_dict(NOW - timedelta(minutes=5), cpu={"logical_cores": 4, "usage_pct": 1.0, "load1": 0.0, "load5": 0.0, "load15": 0.0}))
+    older = cg.parse_snapshot(_snapshot_dict(NOW - timedelta(seconds=30), cpu={"logical_cores": 4, "usage_pct": 1.0, "load1": 0.0, "load5": 0.0, "load15": 0.0}))
     with engine.begin() as conn:
-        assert cg.record_snapshot(conn, 1, newer, NOW) is True
+        assert cg.record_snapshot(conn, 1, newer, NOW) is cg.SnapshotOutcome.STORED
     with engine.begin() as conn:
-        assert cg.record_snapshot(conn, 1, older, NOW) is False
+        outcome = cg.record_snapshot(conn, 1, older, NOW + timedelta(seconds=5))
+        assert outcome is cg.SnapshotOutcome.OUT_OF_ORDER
     with engine.connect() as conn:
         rows = conn.execute(select(cg.NodeResourceSnapshot.__table__)).mappings().all()
     assert len(rows) == 1
     assert rows[0]["logical_cores"] == 16
-
-
-def test_resolve_node_id_by_hostname(engine: Any) -> None:
-    """Agent hostname maps to nodes.name; unknown hostname maps to None."""
-    with engine.connect() as conn:
-        assert cg.resolve_node_id(conn, "host-a") == 1
-        assert cg.resolve_node_id(conn, "nope") is None
 
 
 # ---------------------------------------------------------------------------
@@ -443,12 +438,20 @@ def test_reservation_expires_after_ttl(engine: Any) -> None:
     assert status == RESERVATION_EXPIRED
 
 
-def test_snapshot_absorbs_reservation_created_before_collection(engine: Any) -> None:
-    """A snapshot collected after a reservation was made releases it."""
-    _seed_snapshot(engine, collected=NOW - timedelta(minutes=1))
-    held = cg.reserve(engine, 1, _req(cpu=40.0), now=NOW, policy=_policy())
-    assert held.fit.ok
-    _seed_snapshot(engine, collected=NOW + timedelta(seconds=10))
+def test_snapshot_absorbs_confirmed_reservation_when_committed_grew(engine: Any) -> None:
+    """A confirmed reservation is released by a later snapshot whose committed grew by its size."""
+    _seed_snapshot(engine, collected=NOW - timedelta(seconds=30))
+    held = cg.reserve(engine, 1, _req(cpu=4.0, mem_gib=8.0), now=NOW, policy=_policy())
+    assert held.reservation_id is not None
+    assert cg.confirm(engine, held.reservation_id, now=NOW, policy=_policy())
+    grown = _snapshot_dict(
+        NOW + timedelta(seconds=10),
+        committed={"cpu_cores": 4.0, "memory_bytes": 8 * GIB, "disk_bytes": {"default": 0},
+                   "instances": 1, "instances_without_limits": 0},
+    )
+    with engine.begin() as conn:
+        out = cg.record_snapshot(conn, 1, cg.parse_snapshot(grown), NOW + timedelta(seconds=10))
+    assert out is cg.SnapshotOutcome.STORED
     with engine.connect() as conn:
         table = cg.CapacityReservation.__table__
         status = conn.execute(select(table.c.status).where(table.c.public_id == held.reservation_id)).scalar_one()

@@ -429,6 +429,10 @@ class LXDCloud(BaseCloud):
                 raise ResourceLimitsRequiredError(
                     "resource limits required: size must be 'cpu/memory' and storage_gb > 0"
                 )
+            if not spec.extra.get("capacity_guarded"):
+                # Defence in depth: only the clouds API's guarded placement may create
+                # LXD instances, so no code path can place one around the capacity guard.
+                raise CloudError("LXD instance creation requires capacity-guarded placement")
             config["limits.cpu"] = cpu_limit
             config["limits.memory"] = mem_limit
             config["limits.memory.enforce"] = "hard"
@@ -471,6 +475,9 @@ ssh_authorized_keys:
             profiles = spec.extra.get("profiles", ["default"])
 
             # Create instance
+            # Cluster placement: the hub chooses the member (capacity guard) and passes it
+            # as ``target``; LXD must never pick one itself for a guarded placement.
+            target = spec.extra.get("target") or None
             instance = self._client.instances.create(
                 {
                     "name": spec.name,
@@ -482,6 +489,7 @@ ssh_authorized_keys:
                     "ephemeral": spec.extra.get("ephemeral", False),
                 },
                 wait=True,
+                target=target,
             )
 
             log.info(f"Created LXD instance: {spec.name} (type: {instance_type})")
@@ -498,6 +506,24 @@ ssh_authorized_keys:
             if "quota" in error_msg.lower() or "limit" in error_msg.lower():
                 raise CloudQuotaError(f"LXD quota exceeded: {e}")
             raise CloudError(f"Failed to create instance: {e}")
+
+    def list_cluster_members(self) -> tuple[list[str], bool]:
+        """Return ``(member_names, clustered)`` for placement.
+
+        Clustered LXD yields the Online member names (valid ``target=`` values); a
+        standalone server yields its own ``server_name`` and ``clustered=False``
+        (``target`` must then be omitted). Raises CloudError when LXD cannot say.
+        """
+        self._ensure_authenticated()
+        try:
+            env = self._client.host_info.get("environment", {})
+            if not env.get("server_clustered", False):
+                name = env.get("server_name", "")
+                return ([name] if name else []), False
+            members = self._client.cluster.members.all()
+            return [m.server_name for m in members if getattr(m, "status", "") == "Online"], True
+        except Exception as e:  # noqa: BLE001 -- any LXD/transport failure must refuse placement
+            raise CloudError(f"Failed to list LXD cluster members: {e}") from e
 
     def _parse_image_source(self, image: str) -> dict[str, Any]:
         """Parse image specification into LXD source config.

@@ -1098,8 +1098,28 @@ class TestVRAMScheduling:
             "device_count_min": 1, "device_count_max": 1,
             "shared_memory_acceptable": True,
         }
-        errors = _check_vram_requirements(node, 1, "test-biome", needs_gpu)
+        errors = _check_vram_requirements(
+            node, 1, "test-biome", needs_gpu, free_ram_bytes=32 * 1024**3
+        )
         assert errors == []
+
+    @pytest.mark.parametrize("free_ram_bytes", [None, 9 * 1024**3])
+    def test_integrated_gpu_fails_closed_without_fresh_or_enough_snapshot_memory(
+        self, free_ram_bytes: int | None
+    ) -> None:
+        """No snapshot (None) or too little MemAvailable refuses; hardware_json is ignored."""
+        from app.workers.plan_compiler import _check_vram_requirements
+        node = self._make_gpu_node(0, bus_type="integrated", free_ram_mb=65536)
+        needs_gpu = {
+            "kind": "gpu", "bus_type": "any",
+            "vram_per_device_min_gb": 8, "total_vram_min_gb": 0,
+            "device_count_min": 1, "device_count_max": 1,
+            "shared_memory_acceptable": True,
+        }
+        errors = _check_vram_requirements(
+            node, 1, "test-biome", needs_gpu, free_ram_bytes=free_ram_bytes
+        )
+        assert any(e.code == "no_eligible_node" for e in errors)
 
     def test_aggregate_vram_floor_fails(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import secrets
@@ -1299,9 +1300,19 @@ def _find_cycle(start: int, nodes: dict[int, _BiomeNode], max_len: int = 20) -> 
 
 
 def _check_vram_requirements(
-    node: Any, biome_id: int, biome_name: str, needs_gpu: dict[str, Any]
+    node: Any,
+    biome_id: int,
+    biome_name: str,
+    needs_gpu: dict[str, Any],
+    free_ram_bytes: int | None = None,
 ) -> list[PlanValidationError]:
-    """Validate VRAM and GPU constraints from storage_requirements_json.needs_gpu."""
+    """Validate VRAM and GPU constraints from storage_requirements_json.needs_gpu.
+
+    ``free_ram_bytes`` is the node's live ``MemAvailable`` from a fresh capacity
+    snapshot. None (no fresh/trustworthy snapshot) fails closed: an integrated GPU
+    sharing system RAM is never admitted on a guess. The static
+    ``hardware_json.free_ram_mb`` inventory value is not trusted for this decision.
+    """
     errors: list[PlanValidationError] = []
     hw: dict[str, Any] = getattr(node, "hardware_json", None) or {}
     accelerators: list[dict[str, Any]] = hw.get("accelerators", [])
@@ -1314,7 +1325,7 @@ def _check_vram_requirements(
     device_count_min = needs_gpu.get("device_count_min", 1)
     device_count_max = needs_gpu.get("device_count_max", 9999)
     shared_memory_acceptable = needs_gpu.get("shared_memory_acceptable", False)
-    free_ram_gb: float = hw.get("free_ram_mb", 0) / 1024.0
+    free_ram_gb: float | None = None if free_ram_bytes is None else free_ram_bytes / 1024.0**3
     shared_memory_buffer_gb: float = hw.get("shared_memory_buffer_gb", 2.0)
     interconnect = needs_gpu.get("interconnect")
     min_compute = needs_gpu.get("min_compute_capability")
@@ -1334,6 +1345,11 @@ def _check_vram_requirements(
                 return False, "integrated GPU not acceptable (shared_memory_acceptable=false)"
             # Check free RAM headroom
             needed = vram_per_device_min_gb + shared_memory_buffer_gb
+            if free_ram_gb is None:
+                return (
+                    False,
+                    "integrated GPU: no fresh host memory snapshot (fail closed)",
+                )
             if free_ram_gb < needed:
                 return (
                     False,
@@ -1978,13 +1994,37 @@ class PlanCompiler:
     ) -> list[PlanValidationError]:
         """Check VRAM requirements from storage_requirements_json.needs_gpu."""
         errors: list[PlanValidationError] = []
+        free_ram_bytes: int | None = None
+        looked_up = False
         for eid, egg_node in biome_nodes.items():
             needs_gpu = egg_node.storage_requirements.get("needs_gpu")
             if needs_gpu:
+                if not looked_up:
+                    free_ram_bytes = self._fresh_free_ram_bytes(node)
+                    looked_up = True
                 errors.extend(
-                    _check_vram_requirements(node, eid, egg_node.biome_name, needs_gpu)
+                    _check_vram_requirements(
+                        node, eid, egg_node.biome_name, needs_gpu, free_ram_bytes
+                    )
                 )
         return errors
+
+    def _fresh_free_ram_bytes(self, node: Any) -> int | None:
+        """Live ``MemAvailable`` for ``node`` from its capacity snapshot, None if untrusted.
+
+        Fails closed on any lookup error (no engine, missing table, bad row) so the GPU
+        eligibility check can never pass on unverified memory.
+        """
+        from .. import capacity_guard
+
+        try:
+            node_id = int(getattr(node, "id"))
+            return capacity_guard.fresh_available_memory_bytes(self.db_session.engine, node_id)
+        except Exception:  # noqa: BLE001 -- fail closed: unverifiable memory means ineligible
+            logging.getLogger(__name__).warning(
+                "capacity snapshot lookup failed for GPU check", exc_info=True
+            )
+            return None
 
     def _check_version_ranges(
         self, biome_nodes: dict[int, _BiomeNode]

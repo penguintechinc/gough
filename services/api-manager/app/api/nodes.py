@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from quart import Blueprint, Response, g, request, current_app
 
+from .. import capacity_guard
 from .. import metrics as _metrics
 from ..db.run_db import run_db
 from ..licensing import ACTIVE_NODE_STATES, count_active_nodes, feature_enabled, node_allowance
@@ -1104,6 +1105,46 @@ def _get_assignments_table(db: Any) -> tuple[Optional[Any], Optional[str]]:
 # ---------------------------------------------------------------------------
 
 
+def _reserve_deploy_capacity(
+    db: Any, node_id: int, biome_ids: list[int]
+) -> tuple[str | None, tuple[str, ...] | None]:
+    """Reserve the summed biome minimums (RAM/disk) on ``node_id`` through the guard.
+
+    Unknown biomes are skipped (the assignment step reports them). Returns
+    ``(reservation_id, None)`` on success (id is None under the kill switch), or
+    ``(None, reasons)`` when the guard refuses (stale/missing snapshot, no fit, pressure).
+    """
+    from .. import capacity_guard
+
+    ram_mb = 0
+    disk_gb = 0
+    for biome_id in dict.fromkeys(biome_ids):
+        biome = db(db.biomes.id == biome_id).select().first() if hasattr(db, "biomes") else None
+        if biome is None:
+            continue
+        ram_mb += _safe_min(_g(biome, "min_ram_mb", 0))
+        disk_gb += _safe_min(_g(biome, "min_disk_gb", 0))
+    pol = capacity_guard.policy_from_env()
+    outcome = capacity_guard.reserve(
+        db.engine,
+        node_id,
+        capacity_guard.FitRequest(0.0, ram_mb * 1024 * 1024, disk_gb * 1024**3, pol.default_pool),
+    )
+    if not outcome.fit.ok:
+        return None, outcome.fit.reasons
+    return outcome.reservation_id, None
+
+
+def _safe_min(value: object) -> int:
+    """Coerce a biome minimum to a non-negative int; 0 when absent or malformed."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return 0
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return 0
+
+
 @nodes_bp.route("/<int:node_id>/deploy", methods=["POST"])
 @auth_required
 async def deploy_node(node_id: int):
@@ -1190,6 +1231,18 @@ async def deploy_node(node_id: int):
             409,
         )
 
+    # Capacity guard (fail-closed): the target node is explicit here, so reserve the
+    # biomes' declared minimums on it before any assignment exists. Refusal -> 409;
+    # the reservation is released again if assignment creation fails below.
+    reservation_id, fit_refusal = await run_db(
+        lambda: _reserve_deploy_capacity(db, node_id, [s.biome_id for s in body.biome_assignments])
+    )
+    if fit_refusal is not None:
+        return err_conflict(
+            f"Node {node_id} cannot take this deployment: {', '.join(fit_refusal)}",
+            details={"node_id": node_id, "reasons": list(fit_refusal)},
+        )
+
     # Validate biome IDs exist
     now = datetime.now(timezone.utc)
     tenant_id = _g(node, "tenant_id", "__default__")
@@ -1251,6 +1304,12 @@ async def deploy_node(node_id: int):
             return {"ok": False, "kind": "internal_error", "error": exc}
 
     result = await run_db(_create_assignments)
+    if reservation_id:
+        held = reservation_id
+        if result["ok"]:
+            await run_db(lambda: capacity_guard.confirm(db.engine, held))
+        else:
+            await run_db(lambda: capacity_guard.release(db.engine, held))
     if not result["ok"]:
         if result["kind"] == "biome_not_found":
             return err_not_found(f"Biome {result['biome_id']} not found")

@@ -1299,6 +1299,8 @@ class BootEvent(Base):
 RESERVATION_ACTIVE = 1
 RESERVATION_RELEASED = 2
 RESERVATION_EXPIRED = 3
+#: Placement succeeded; the reservation stays pending until a snapshot accounts for it.
+RESERVATION_CONFIRMED = 4
 
 
 class NodeResourceSnapshot(Base):
@@ -1337,9 +1339,10 @@ class CapacityReservation(Base):
     """Placement reservation held against a node's allocatable capacity.
 
     Created inside the node-locked check+insert transaction in
-    ``capacity_guard.reserve``. Released when a snapshot collected after
-    ``created_at`` reports the instance in committed, on explicit failure
-    release, or when ``expires_at`` passes.
+    ``capacity_guard.reserve``. ACTIVE until the placement succeeds (then
+    CONFIRMED with ``confirmed_at``); a CONFIRMED reservation is released when a
+    snapshot taken after confirmation shows committed usage grew by at least its
+    size. Failed placements release explicitly; everything expires at ``expires_at``.
     """
 
     __tablename__ = "capacity_reservations"
@@ -1355,6 +1358,7 @@ class CapacityReservation(Base):
     created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
     expires_at = Column(DateTime(timezone=True), nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
 
     __table_args__ = (
         Index("ix_capacity_reservations_node_status", "node_id", "status"),

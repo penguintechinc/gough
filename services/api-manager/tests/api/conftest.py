@@ -377,6 +377,32 @@ def _capacity_guard_passthrough_for_biome_eligibility(request, monkeypatch):
     )
 
 
+#: Node test modules that exercise deploy_node's assignment/compile flow, not placement.
+_DEPLOY_RESERVE_STUBBED_MODULES = ("test_nodes",)
+
+
+@pytest.fixture(autouse=True)
+def _deploy_reservation_passthrough_for_node_tests(request, monkeypatch):
+    """Stub ``capacity_guard.reserve`` to grant in the node deploy-flow test modules.
+
+    Those modules assert assignment creation and plan compilation. Placement itself
+    (fit -> 202, no fit -> 409, stale -> 409) runs against the real guard with seeded
+    snapshots in tests/api/test_capacity_placement_api.py.
+    """
+    module_name = request.module.__name__.rsplit(".", 1)[-1]
+    if not module_name.startswith(_DEPLOY_RESERVE_STUBBED_MODULES):
+        return
+    from app import capacity_guard
+
+    monkeypatch.setattr(
+        capacity_guard,
+        "reserve",
+        lambda *_a, **_k: capacity_guard.ReserveResult(
+            capacity_guard.FitResult(True, (), (), {}, {}, {}), None
+        ),
+    )
+
+
 @pytest.fixture()
 def dal_with_eggs(dal):
     """Alias for dal_with_biomes for backward-compat.

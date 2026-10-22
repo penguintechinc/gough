@@ -17,6 +17,7 @@ import os
 import threading
 import uuid
 from dataclasses import dataclass, field
+from enum import IntEnum
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
@@ -28,6 +29,7 @@ from sqlalchemy.engine import Connection, Engine
 from .licensing import _feature_enabled_sync
 from .models_m1 import (
     RESERVATION_ACTIVE,
+    RESERVATION_CONFIRMED,
     RESERVATION_EXPIRED,
     RESERVATION_RELEASED,
     CapacityReservation,
@@ -178,6 +180,7 @@ class HostCapacity:
     psi_io_full_avg60: float | None
     psi_cpu_some_avg60: float | None
     section_errors: tuple[str, ...] = ()
+    pools_used: dict[str, int] = field(default_factory=dict)
 
 
 def section_failure_reasons(errors: tuple[str, ...] | list[str]) -> tuple[str, ...]:
@@ -332,6 +335,12 @@ def evaluate_fit(
         pend[f"disk_bytes:{request.pool}"] = float(pending_disk)
         if committed_disk + pending_disk + request.disk_bytes > pool_alloc:
             reasons.append(f"insufficient_disk:{request.pool}")
+        # Limits-based accounting ignores bytes already consumed (images, snapshots,
+        # thin-provisioned growth), so also require real free space beyond the reserve.
+        used = cap.pools_used.get(request.pool, 0)
+        free_after_reserve = total - used - policy.reserve_storage_pct * total
+        if pending_disk + request.disk_bytes > free_after_reserve:
+            reasons.append(f"insufficient_disk_free:{request.pool}")
 
     signals = pressure_signals(cap, policy)
     if signals:
@@ -412,6 +421,7 @@ def _load_capacity(conn: Connection, node_id: int, now: datetime) -> HostCapacit
     psi_io = pressure.get("io") or {}
     psi_cpu = pressure.get("cpu") or {}
     pools = {p["name"]: int(p["total_bytes"]) for p in payload.get("storage_pools", [])}
+    pools_used = {p["name"]: int(p["used_bytes"]) for p in payload.get("storage_pools", [])}
     committed_raw = payload.get("committed", {})
     disk_committed = {k: int(v) for k, v in (committed_raw.get("disk_bytes") or {}).items()}
     age = (now - _aware(row["received_at"])).total_seconds()
@@ -421,6 +431,7 @@ def _load_capacity(conn: Connection, node_id: int, now: datetime) -> HostCapacit
         memory_total_bytes=int(row["memory_total_bytes"]),
         memory_available_bytes=int(row["memory_available_bytes"]),
         pools_total=pools,
+        pools_used=pools_used,
         committed=Load(
             cpu_cores=float(row["committed_cpu_cores"]),
             memory_bytes=int(row["committed_memory_bytes"]),
@@ -440,11 +451,12 @@ def _opt_float(value: Any) -> float | None:
 
 
 def _expire_and_load_pending(conn: Connection, node_id: int, now: datetime) -> Load:
-    """Expire overdue reservations for the node, then total the still-active ones."""
+    """Expire overdue reservations for the node, then total the active and confirmed ones."""
     table = CapacityReservation.__table__
     rows = conn.execute(
         select(table).where(
-            table.c.node_id == node_id, table.c.status == RESERVATION_ACTIVE
+            table.c.node_id == node_id,
+            table.c.status.in_((RESERVATION_ACTIVE, RESERVATION_CONFIRMED)),
         )
     ).mappings().all()
     cpu = 0.0
@@ -694,30 +706,147 @@ def parse_snapshot(raw: object) -> HostResourceSnapshot:
     return HostResourceSnapshot.model_validate(raw)
 
 
+_MEM_UNITS: dict[str, int] = {
+    "": 1, "b": 1,
+    "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4, "pb": 1000**5, "eb": 1000**6,
+    "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5, "eib": 1024**6,
+}
+
+
+def parse_memory_limit(text: str) -> int | None:
+    """Parse an LXD ``limits.memory`` string to bytes; None when unparseable.
+
+    Accepts a plain byte count or ``<number><unit>`` (decimal kB/MB/GB.. and binary
+    KiB/MiB/GiB..). Percentages and zero/negative values are rejected (None) because
+    they cannot be fitted against a node.
+    """
+    import re
+
+    m = re.fullmatch(r"\s*(\d+(?:\.\d+)?)\s*([A-Za-z]*)\s*", text or "")
+    if m is None:
+        return None
+    mult = _MEM_UNITS.get(m.group(2).lower())
+    if mult is None:
+        return None
+    value = int(float(m.group(1)) * mult)
+    return value if value > 0 else None
+
+
+def parse_cpu_limit(text: str) -> float | None:
+    """Parse an LXD ``limits.cpu`` string to a core count; None when unparseable.
+
+    Accepts an integer count (``"4"``) or a pinning list/ranges (``"0-3,8"``, which
+    counts the pinned cores). Zero or malformed values return None.
+    """
+    import re
+
+    raw = (text or "").strip()
+    if re.fullmatch(r"\d+", raw):
+        n = int(raw)
+        return float(n) if n > 0 else None
+    if not re.fullmatch(r"\d+(-\d+)?(,\d+(-\d+)?)*", raw):
+        return None
+    cores: set[int] = set()
+    for part in raw.split(","):
+        lo, _, hi = part.partition("-")
+        start, end = int(lo), int(hi or lo)
+        if end < start or end - start > 4096:
+            return None
+        cores.update(range(start, end + 1))
+    return float(len(cores)) if cores else None
+
+
+class SnapshotOutcome(IntEnum):
+    """Result of ``record_snapshot`` (int codes, never strings)."""
+
+    STORED = 1
+    OUT_OF_ORDER = 2  # collected_at older than the stored snapshot (replay/reorder)
+    FUTURE_DATED = 3  # collected_at beyond received_at + max skew
+    TOO_OLD = 4  # collected_at already older than the freshness window on arrival
+
+
+#: Default tolerated agent clock lead: 2x the 30s heartbeat interval.
+DEFAULT_MAX_CLOCK_SKEW_S = 60.0
+
+
+def confirm(
+    engine: Engine,
+    reservation_id: str,
+    *,
+    now: datetime | None = None,
+    policy: CapacityPolicy | None = None,
+) -> bool:
+    """Mark an ACTIVE reservation CONFIRMED once the placement succeeded.
+
+    Confirmed reservations keep counting as pending until a later snapshot shows
+    the committed usage grew (then ``record_snapshot`` releases them) or they expire
+    ``reservation_ttl_s`` after confirmation.
+
+    Returns:
+        True when a row changed.
+    """
+    pol = policy or policy_from_env()
+    current = now or datetime.now(UTC)
+    table = CapacityReservation.__table__
+    with engine.begin() as conn:
+        result = conn.execute(
+            update(table)
+            .where(table.c.public_id == reservation_id, table.c.status == RESERVATION_ACTIVE)
+            .values(
+                status=RESERVATION_CONFIRMED,
+                confirmed_at=current,
+                expires_at=current + timedelta(seconds=pol.reservation_ttl_s),
+            )
+        )
+    return bool(result.rowcount)
+
+
 def record_snapshot(
     conn: Connection,
     node_id: int,
     snap: HostResourceSnapshot,
     received_at: datetime,
-) -> bool:
-    """Upsert the node's latest snapshot and release reservations it has absorbed.
+    *,
+    max_skew_s: float = DEFAULT_MAX_CLOCK_SKEW_S,
+    max_age_s: float | None = None,
+) -> SnapshotOutcome:
+    """Validate ordering, upsert the node's latest snapshot, release absorbed reservations.
 
-    Out-of-order snapshots (older ``collected_at`` than the stored row) are ignored.
+    The agent's ``collected_at`` is untrusted: a future-dated value is refused
+    (it would otherwise outlive the freshness window and release reservations),
+    an already-stale or older-than-stored value is refused (replay). Ordering and
+    freshness are anchored on the hub's ``received_at``. Only CONFIRMED reservations
+    whose placement predates both clocks AND whose size is matched by growth in
+    the snapshot's committed totals are released; ACTIVE ones never are.
 
     Returns:
-        True when the stored snapshot was replaced; False when skipped as older.
+        ``SnapshotOutcome``; anything but ``STORED`` leaves the stored row untouched.
     """
     collected = _aware(snap.collected_at)
+    received = _aware(received_at)
+    limit_age = policy_from_env().snapshot_max_age_s if max_age_s is None else max_age_s
+    if collected > received + timedelta(seconds=max_skew_s):
+        return SnapshotOutcome.FUTURE_DATED
+    if collected < received - timedelta(seconds=limit_age):
+        return SnapshotOutcome.TOO_OLD
     table = NodeResourceSnapshot.__table__
     existing = conn.execute(
-        select(table.c.id, table.c.collected_at).where(table.c.node_id == node_id)
+        select(
+            table.c.id,
+            table.c.collected_at,
+            table.c.received_at,
+            table.c.committed_cpu_cores,
+            table.c.committed_memory_bytes,
+        ).where(table.c.node_id == node_id)
     ).mappings().first()
-    if existing is not None and _aware(existing["collected_at"]) > collected:
-        return False
+    if existing is not None and (
+        _aware(existing["collected_at"]) > collected or _aware(existing["received_at"]) > received
+    ):
+        return SnapshotOutcome.OUT_OF_ORDER
 
     values: dict[str, Any] = {
         "node_id": node_id,
-        "received_at": received_at,
+        "received_at": received,
         "collected_at": collected,
         "schema_version": snap.schema_version,
         "payload": snap.model_dump(mode="json", by_alias=True),
@@ -732,29 +861,210 @@ def record_snapshot(
     }
     if existing is None:
         conn.execute(insert(table).values(**values))
+        prev_cpu, prev_mem = 0.0, 0
     else:
         conn.execute(update(table).where(table.c.id == existing["id"]).values(**values))
+        prev_cpu = float(existing["committed_cpu_cores"])
+        prev_mem = int(existing["committed_memory_bytes"])
 
+    _release_absorbed(
+        conn,
+        node_id,
+        cutoff=min(collected, received),
+        released_at=received,
+        delta_cpu=snap.committed.cpu_cores - prev_cpu,
+        delta_mem=snap.committed.memory_bytes - prev_mem,
+    )
+    return SnapshotOutcome.STORED
+
+
+def _release_absorbed(
+    conn: Connection,
+    node_id: int,
+    *,
+    cutoff: datetime,
+    released_at: datetime,
+    delta_cpu: float,
+    delta_mem: int,
+) -> int:
+    """Release CONFIRMED reservations the new snapshot demonstrably accounts for.
+
+    Oldest first, each reservation must fit inside the remaining committed growth
+    (cpu and memory) and must have been confirmed before ``cutoff``. Unmatched
+    reservations stay pending until they expire: over-counting is the safe error.
+    """
     res = CapacityReservation.__table__
-    conn.execute(
-        update(res)
+    rows = conn.execute(
+        select(res)
         .where(
             res.c.node_id == node_id,
-            res.c.status == RESERVATION_ACTIVE,
-            res.c.created_at < collected,
+            res.c.status == RESERVATION_CONFIRMED,
+            res.c.created_at < cutoff,
+            res.c.confirmed_at < cutoff,
         )
-        .values(status=RESERVATION_RELEASED, released_at=received_at)
-    )
-    return True
+        .order_by(res.c.created_at, res.c.id)
+    ).mappings().all()
+    released = 0
+    for row in rows:
+        cpu = float(row["cpu_cores"])
+        mem = int(row["memory_bytes"])
+        if delta_cpu + 1e-9 < cpu or delta_mem < mem:
+            continue
+        delta_cpu -= cpu
+        delta_mem -= mem
+        conn.execute(
+            update(res)
+            .where(res.c.id == row["id"])
+            .values(status=RESERVATION_RELEASED, released_at=released_at)
+        )
+        released += 1
+    return released
 
 
-def resolve_node_id(conn: Connection, hostname: str) -> int | None:
-    """Map an access agent's hostname to its node row (``nodes.name``), or None."""
+@dataclass(slots=True, frozen=True)
+class AgentNodeLink:
+    """Outcome of resolving an agent to its node: ``node_id`` or a refusal ``reason``."""
+
+    node_id: int | None
+    reason: str | None = None
+
+
+def resolve_agent_node(conn: Connection, agent_id: str) -> AgentNodeLink:
+    """Resolve the node an authenticated agent may report snapshots for.
+
+    Uses only the server-side ``access_agents.node_id`` link (set at enrollment
+    from the enrollment key's ``intended_hostname``, or by an admin) and never the
+    agent's self-reported hostname. Refuses when the agent is unknown or not
+    ``active``, has no link, the node is gone, or another active agent is linked
+    to the same node.
+    """
+    from .models_sqlalchemy import Base
+
+    agents = Base.metadata.tables["access_agents"]
+    nodes = Base.metadata.tables["nodes"]
+    row = conn.execute(
+        select(agents.c.node_id, agents.c.status).where(agents.c.agent_id == agent_id)
+    ).first()
+    if row is None:
+        return AgentNodeLink(None, "unknown_agent")
+    if row[1] != "active":
+        return AgentNodeLink(None, "agent_not_active")
+    if row[0] is None:
+        return AgentNodeLink(None, "agent_not_linked_to_node")
+    node_id = int(row[0])
+    if conn.execute(select(nodes.c.id).where(nodes.c.id == node_id)).first() is None:
+        return AgentNodeLink(None, "linked_node_missing")
+    other = conn.execute(
+        select(agents.c.id).where(
+            agents.c.node_id == node_id,
+            agents.c.status == "active",
+            agents.c.agent_id != agent_id,
+        )
+    ).first()
+    if other is not None:
+        return AgentNodeLink(None, "node_has_multiple_active_agents")
+    return AgentNodeLink(node_id)
+
+
+def link_agent_to_node(
+    conn: Connection, agent_id: str, node_id: int, *, expected_tenant: str | None = None
+) -> str | None:
+    """Bind an agent to a node (server-side). Returns a refusal reason or None on success.
+
+    Refuses an unknown node, a tenant mismatch (when ``expected_tenant`` is given),
+    or a node that already has a different active agent linked.
+    """
+    from .models_sqlalchemy import Base
+
+    agents = Base.metadata.tables["access_agents"]
+    nodes = Base.metadata.tables["nodes"]
+    if conn.execute(select(agents.c.id).where(agents.c.agent_id == agent_id)).first() is None:
+        return "agent_not_found"
+    node = conn.execute(select(nodes.c.id, nodes.c.tenant_id).where(nodes.c.id == node_id)).first()
+    if node is None:
+        return "node_not_found"
+    if expected_tenant is not None and node[1] != expected_tenant:
+        return "tenant_mismatch"
+    clash = conn.execute(
+        select(agents.c.id).where(
+            agents.c.node_id == node_id,
+            agents.c.status == "active",
+            agents.c.agent_id != agent_id,
+        )
+    ).first()
+    if clash is not None:
+        return "node_already_linked"
+    conn.execute(update(agents).where(agents.c.agent_id == agent_id).values(node_id=node_id))
+    return None
+
+
+def resolve_node_by_name(conn: Connection, name: str, tenant_id: str | None = None) -> int | None:
+    """Return the unique node id named ``name`` (optionally tenant-scoped), else None.
+
+    Ambiguous names (same name in several tenants) return None: fail closed.
+    """
     from .models_sqlalchemy import Base
 
     nodes = Base.metadata.tables["nodes"]
-    row = conn.execute(select(nodes.c.id).where(nodes.c.name == hostname)).first()
-    return None if row is None else int(row[0])
+    stmt = select(nodes.c.id).where(nodes.c.name == name)
+    if tenant_id is not None:
+        stmt = stmt.where(nodes.c.tenant_id == tenant_id)
+    rows = conn.execute(stmt).all()
+    return int(rows[0][0]) if len(rows) == 1 else None
+
+
+@dataclass(slots=True, frozen=True)
+class Placement:
+    """A successful node choice: the node, its LXD member name, and the held reservation."""
+
+    node_id: int
+    member: str
+    reservation_id: str | None
+
+
+@dataclass(slots=True, frozen=True)
+class PlacementRefusal:
+    """No candidate node can take the request; ``reasons`` maps member name to reasons."""
+
+    reasons: dict[str, tuple[str, ...]]
+
+
+def _headroom_score(engine: Engine, node_id: int, now: datetime) -> float:
+    """Sortable free-memory fraction for ordering candidates (-1 when no snapshot)."""
+    with engine.connect() as conn:
+        cap = _load_capacity(conn, node_id, now)
+    if cap is None or cap.memory_total_bytes <= 0:
+        return -1.0
+    return cap.memory_available_bytes / cap.memory_total_bytes
+
+
+def place(
+    engine: Engine,
+    candidates: dict[str, int],
+    request: FitRequest,
+    *,
+    now: datetime | None = None,
+    policy: CapacityPolicy | None = None,
+) -> Placement | PlacementRefusal:
+    """Pick the best fitting node among ``candidates`` (member name -> node id) and reserve.
+
+    Candidates are tried in descending free-memory order; the first whose atomic
+    ``reserve`` succeeds wins. An empty candidate map is refused (fail closed):
+    a placement the hub cannot map to a known node is never allowed through.
+    """
+    current = now or datetime.now(UTC)
+    if not candidates:
+        return PlacementRefusal({"": ("no_candidate_nodes",)})
+    ordered = sorted(
+        candidates.items(), key=lambda kv: _headroom_score(engine, kv[1], current), reverse=True
+    )
+    reasons: dict[str, tuple[str, ...]] = {}
+    for member, node_id in ordered:
+        result = reserve(engine, node_id, request, now=current, policy=policy)
+        if result.fit.ok:  # reservation_id is None only under the kill switch (legacy pass-through)
+            return Placement(node_id, member, result.reservation_id)
+        reasons[member] = result.fit.reasons
+    return PlacementRefusal(reasons)
 
 
 @dataclass(slots=True, frozen=True)
@@ -854,6 +1164,27 @@ class FreePercentages:
     fresh: bool
 
 
+def fresh_available_memory_bytes(
+    engine: Engine,
+    node_id: int,
+    *,
+    now: datetime | None = None,
+    policy: CapacityPolicy | None = None,
+) -> int | None:
+    """Return the node's ``MemAvailable`` bytes from a trustworthy snapshot, else None.
+
+    None (fail closed) when there is no snapshot, it is stale, or any collector
+    section failed. The kill switch is honoured by callers, not here.
+    """
+    pol = policy or policy_from_env()
+    current = now or datetime.now(UTC)
+    with engine.connect() as conn:
+        cap = _load_capacity(conn, node_id, current)
+    if cap is None or cap.age_s > pol.snapshot_max_age_s or cap.section_errors:
+        return None
+    return cap.memory_available_bytes
+
+
 def free_percentages(
     engine: Engine,
     node_id: int,
@@ -936,8 +1267,16 @@ __all__ = [
     "parse_snapshot",
     "policy_from_env",
     "pressure_signals",
+    "AgentNodeLink",
+    "Placement",
+    "PlacementRefusal",
+    "SnapshotOutcome",
+    "confirm",
+    "link_agent_to_node",
+    "place",
     "record_snapshot",
     "release",
     "reserve",
-    "resolve_node_id",
+    "resolve_agent_node",
+    "resolve_node_by_name",
 ]

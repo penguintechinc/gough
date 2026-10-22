@@ -14,7 +14,7 @@ import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
-from app.clouds.base import MachineSpec
+from app.clouds.base import CloudError, MachineSpec
 from app.clouds.lxd import LXDCloud, ResourceLimitsRequiredError
 from app.workers.migration_engine import (
     BiomeSnapshot,
@@ -26,11 +26,11 @@ API_ROOT = Path(__file__).resolve().parent.parent
 
 
 def test_alembic_single_head() -> None:
-    """The migration graph has exactly one head, chained on the capacity migration."""
+    """The migration graph has exactly one head, chained on the agent-link migration."""
     cfg = Config(str(API_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
     heads = ScriptDirectory.from_config(cfg).get_heads()
-    assert heads == ["20261022_1500_node_resource_snapshots"]
+    assert heads == ["20261022_1600_agent_node_link_reservation_confirm"]
 
 
 def _lxd() -> LXDCloud:
@@ -65,20 +65,32 @@ def test_lxd_limits_built_from_size_with_hard_enforcement(monkeypatch: pytest.Mo
     cloud = _lxd()
 
     class _Instances:
-        def create(self, body: dict[str, Any], wait: bool) -> Any:
+        def create(self, body: dict[str, Any], wait: bool, target: str | None = None) -> Any:
             captured.update(body)
+            captured["_target"] = target
             raise RuntimeError("stop after config build")
 
     cloud._client = type("C", (), {"instances": _Instances()})()
     monkeypatch.setattr(cloud, "_parse_image_source", lambda image: {"type": "image", "alias": image})
-    spec = MachineSpec(name="web-1", image="ubuntu-22.04", size="2/4GiB", storage_gb=20)
+    spec = MachineSpec(
+        name="web-1", image="ubuntu-22.04", size="2/4GiB", storage_gb=20,
+        extra={"capacity_guarded": True, "target": "member-b"},
+    )
     with pytest.raises(RuntimeError, match="stop after config build"):
         cloud.create_machine(spec)
+    assert captured["_target"] == "member-b"
     config = captured["config"]
     assert config["limits.cpu"] == "2"
     assert config["limits.memory"] == "4GiB"
     assert config["limits.memory.enforce"] == "hard"
     assert captured["devices"]["root"]["size"] == "20GiB"
+
+
+def test_lxd_create_refused_without_guarded_placement() -> None:
+    """Direct create_machine without the guard's marker is refused before any LXD call."""
+    spec = MachineSpec(name="web-1", image="ubuntu-22.04", size="2/4GiB", storage_gb=20)
+    with pytest.raises(CloudError, match="capacity-guarded placement"):
+        _lxd().create_machine(spec)
 
 
 def _biome() -> BiomeSnapshot:
