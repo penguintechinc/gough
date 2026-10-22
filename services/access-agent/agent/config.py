@@ -7,6 +7,8 @@ from typing import List, Optional
 
 import yaml
 
+from .host_resources import DEFAULT_LXD_SOCKET
+
 
 @dataclass(slots=True)
 class AgentConfig:
@@ -41,6 +43,10 @@ class AgentConfig:
     heartbeat_interval: int = 30  # seconds
     heartbeat_timeout: int = 10   # seconds
 
+    # Host resource snapshot (attached to every heartbeat)
+    snapshot_timeout_s: float = 5.0  # total collection budget
+    lxd_socket: str = DEFAULT_LXD_SOCKET
+
     # TLS settings
     verify_ssl: bool = True
     ca_cert_file: Optional[str] = None
@@ -61,6 +67,8 @@ class AgentConfig:
             rssh_listen_host=os.getenv("GOUGH_RSSH_HOST", "0.0.0.0"),
             rssh_listen_port=int(os.getenv("GOUGH_RSSH_PORT", "2222")),
             heartbeat_interval=int(os.getenv("GOUGH_HEARTBEAT_INTERVAL", "30")),
+            snapshot_timeout_s=float(os.getenv("GOUGH_SNAPSHOT_TIMEOUT_S", "5")),
+            lxd_socket=os.getenv("GOUGH_LXD_SOCKET", DEFAULT_LXD_SOCKET),
             verify_ssl=os.getenv("GOUGH_VERIFY_SSL", "true").lower() == "true",
             log_level=os.getenv("GOUGH_LOG_LEVEL", "INFO"),
             capabilities=os.getenv(
