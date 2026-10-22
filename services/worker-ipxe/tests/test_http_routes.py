@@ -16,6 +16,7 @@ API = "http://api.test"
 BOOT_URL = "http://10.20.30.40:8080"
 MAC = "aa:bb:cc:dd:ee:ff"
 MAC_PATH = "aabbccddeeff"
+CLIENT = {"client": ("10.1.1.1", 4000)}
 FALLBACK_META = "instance-id: error\nlocal-hostname: unknown\n"
 FALLBACK_USERDATA = "#cloud-config\n# Error fetching user-data\n"
 
@@ -57,7 +58,7 @@ async def test_ipxe_route_returns_plain_script_with_auth(monkeypatch: pytest.Mon
         route = router.get(f"{API}/api/v1/internal/boot-script/{MAC_PATH}").mock(
             return_value=httpx.Response(200, json={"script": "#!ipxe\nexit\n"})
         )
-        resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe")
+        resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
         body = await resp.get_data(as_text=True)
 
     assert resp.status_code == 200
@@ -73,7 +74,7 @@ async def test_ipxe_route_invalid_mac_returns_error_script_not_500(monkeypatch: 
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
         route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, json={}))
-        resp = await server.app.test_client().get("/ipxe/not-a-mac.ipxe")
+        resp = await server.app.test_client().get("/ipxe/not-a-mac.ipxe", scope_base=CLIENT)
         body = await resp.get_data(as_text=True)
 
     assert resp.status_code == 200
@@ -92,7 +93,7 @@ async def test_ipxe_route_generation_failure_returns_500_script(monkeypatch: pyt
 
     server.ipxe_handler.generate_script = explode  # type: ignore[method-assign]
 
-    resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe")
+    resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
     body = await resp.get_data(as_text=True)
 
     assert resp.status_code == 500

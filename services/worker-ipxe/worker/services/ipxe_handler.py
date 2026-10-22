@@ -9,7 +9,7 @@ import re
 import structlog
 import httpx
 
-from worker.boot_tokens import BootTokenStore
+from worker.boot_tokens import DISCOVERY_TOKEN_TTL_SECONDS, BootTokenStore
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 
@@ -41,22 +41,34 @@ class IPXEHandler:
         self.enrollment = enrollment
         self.token_store = token_store
 
-    async def _embed_boot_token(self, script: str, mac: str) -> str:
-        """Mint a per-boot token bound to `mac` and set it as iPXE var ${boot_token}.
+    async def _embed_boot_token(
+        self, script: str, mac: str, source_ip: str | None, discovery: bool
+    ) -> str:
+        """Mint the MAC's one live token, bound to the requesting IP, as iPXE var ${boot_token}.
 
-        The booting machine presents it to /boot-event; without a token store the
-        script is returned unchanged (no token, so no callback can be authorised).
+        Known machines get the full TTL and every stage; unknown (discovery) machines get
+        a shorter TTL and may only report the discovery stage. Without a token store the
+        script is returned unchanged. Stronger design (follow-up): api-manager mints the
+        token inside the boot script it returns and the worker only verifies it; today
+        /internal/boot-script returns a bare script, so the worker mints.
         """
         if self.token_store is None:
             return script
-        token = await self.token_store.issue(mac)
+        if not source_ip:
+            raise ValueError("cannot bind boot token: client address unknown")
+        token = await self.token_store.issue(
+            mac,
+            source_ip,
+            ttl_seconds=DISCOVERY_TOKEN_TTL_SECONDS if discovery else None,
+            stages=frozenset({"discovery"}) if discovery else None,
+        )
         line = f"set boot_token {token}\n"
         if script.startswith("#!ipxe"):
             head, _, rest = script.partition("\n")
             return f"{head}\n{line}{rest}"
         return f"#!ipxe\n{line}{script}"
 
-    async def generate_script(self, mac: str) -> str:
+    async def generate_script(self, mac: str, source_ip: str | None = None) -> str:
         """
         Generate iPXE boot script for machine by MAC address.
 
@@ -88,13 +100,16 @@ class IPXEHandler:
                         status=data.get("status"),
                     )
 
-                    return await self._embed_boot_token(script, mac_normalized)
+                    return await self._embed_boot_token(script, mac_normalized, source_ip, discovery=False)
 
                 elif response.status_code == 404:
                     # Unknown machine - return discovery script
                     logger.info("unknown_machine_discovered", mac=mac_normalized)
                     return await self._embed_boot_token(
-                        self._generate_discovery_script(mac_normalized), mac_normalized
+                        self._generate_discovery_script(mac_normalized),
+                        mac_normalized,
+                        source_ip,
+                        discovery=True,
                     )
 
                 else:

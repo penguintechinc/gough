@@ -4,6 +4,7 @@ Configuration management for worker-ipxe.
 Loads configuration from environment variables with validation.
 """
 
+import ipaddress
 import os
 from dataclasses import dataclass, field
 from typing import Optional
@@ -27,6 +28,8 @@ class WorkerConfig:
     dhcp_interface: str
     # Shared state store (per-boot tokens, rate limits); required so >1 replica is safe
     redis_url: Optional[str] = field(default=None, repr=False)
+    # CIDRs of reverse proxies whose X-Forwarded-For is trusted for client-IP binding
+    trusted_proxies: tuple[str, ...] = ()
     dhcp_subnet: Optional[str] = None
     dhcp_range_start: Optional[str] = None
     dhcp_range_end: Optional[str] = None
@@ -82,6 +85,12 @@ class WorkerConfig:
                 "shared store so multiple worker replicas agree."
             )
         worker_id = config("WORKER_ID", default=os.environ.get("HOSTNAME", "worker-ipxe-1"))
+
+        trusted_proxies = tuple(
+            c.strip() for c in config("TRUSTED_PROXIES", default="").split(",") if c.strip()
+        )
+        for cidr in trusted_proxies:
+            ipaddress.ip_network(cidr)  # ValueError names the bad CIDR; fail at startup
 
         # DHCP settings
         dhcp_mode = config("DHCP_MODE", default="proxy")
@@ -141,6 +150,7 @@ class WorkerConfig:
             dhcp_mode=dhcp_mode,
             dhcp_interface=dhcp_interface,
             redis_url=redis_url,
+            trusted_proxies=trusted_proxies,
             dhcp_subnet=dhcp_subnet,
             dhcp_range_start=dhcp_range_start,
             dhcp_range_end=dhcp_range_end,

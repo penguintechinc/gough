@@ -36,13 +36,45 @@ DEFAULT_IMAGE_CHUNK_SIZE = 1024 * 1024  # 1 MiB
 BOOT_EVENT_MAX_BYTES = 4096
 BOOT_EVENT_RATE_LIMIT = 30
 BOOT_EVENT_RATE_WINDOW_S = 60
-BOOT_EVENT_MAX_TOKEN_LEN = 128
+BOOT_EVENT_MAC_RATE_LIMIT = 10
+IPXE_RATE_LIMIT = 60
+_TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43,128}")
 BOOT_EVENT_STAGES = frozenset(
     {"discovery", "boot", "installing", "cloud_init", "complete", "failed"}
 )
 _BOOT_EVENT_FIELDS = frozenset({"mac", "machine_id", "stage", "timestamp", "message"})
 _TIMESTAMP_RE = re.compile(r"[0-9TZ:.+-]{1,32}")
 _MESSAGE_MAX = 256
+
+
+def _resolve_client_ip(
+    peer: str | None, forwarded_for: str | None, trusted: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+) -> str | None:
+    """Return the client IP, or None when it cannot be determined (callers reject).
+
+    X-Forwarded-For is honoured only when the immediate peer is in a trusted proxy CIDR;
+    the chain is walked right to left and the first untrusted hop is the client, so
+    entries a client prepends cannot spoof its address.
+    """
+    def parse(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
+        """Parse an address, tolerating whitespace; None if malformed."""
+        try:
+            return ipaddress.ip_address(text.strip())
+        except ValueError:
+            return None
+
+    peer_ip = parse(peer) if peer else None
+    if peer_ip is None:
+        return None
+    if not any(peer_ip in net for net in trusted) or not forwarded_for:
+        return str(peer_ip)
+    for hop in reversed(forwarded_for.split(",")):
+        ip = parse(hop)
+        if ip is None:
+            return None  # malformed chain from a trusted proxy: do not guess
+        if not any(ip in net for net in trusted):
+            return str(ip)
+    return None
 
 
 @dataclass(slots=True, frozen=True)
@@ -418,6 +450,7 @@ class HTTPBootServer:
                 raise ValueError("REDIS_URL is required for boot tokens and rate limiting")
             token_store = create_token_store(config.redis_url)
         self.token_store = token_store
+        self.trusted_proxies = tuple(ipaddress.ip_network(c) for c in config.trusted_proxies)
         self.ipxe_handler = IPXEHandler(config, enrollment, token_store)
         self.image_chunk_size = _load_image_chunk_size()
         self.server_task = None
@@ -440,10 +473,20 @@ class HTTPBootServer:
 
             Queries api-manager for machine state and returns appropriate script.
             """
-            logger.info("ipxe_script_request", mac=mac, client_ip=request.remote_addr)
+            client_ip = self._client_ip()
+            logger.info("ipxe_script_request", client_ip=client_ip)
+            if client_ip is None:
+                return Response("#!ipxe\necho Unknown client address\nshell\n", mimetype="text/plain", status=400)
 
             try:
-                script = await self.ipxe_handler.generate_script(mac)
+                if not await self.token_store.allow(f"ipxe:{client_ip}", IPXE_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
+                    logger.warning("ipxe_rate_limited", client_ip=client_ip)
+                    return Response("#!ipxe\necho Rate limited\nshell\n", mimetype="text/plain", status=429)
+            except StoreUnavailableError:
+                return Response("#!ipxe\necho Service unavailable\nshell\n", mimetype="text/plain", status=503)
+
+            try:
+                script = await self.ipxe_handler.generate_script(mac, client_ip)
                 return Response(script, mimetype="text/plain")
             except Exception as e:
                 logger.error("ipxe_script_generation_error", mac=mac, error=str(e))
@@ -553,24 +596,34 @@ class HTTPBootServer:
             bound to the MAC in the body, plus a per-source-IP rate limit. Only schema-
             validated fields are forwarded and no upstream detail is echoed back.
             """
-            source = request.remote_addr or "unknown"
+            client_ip = self._client_ip()
+            if client_ip is None:
+                return jsonify({"status": "error"}), 400  # no shared "unknown" bucket
+
+            token = request.headers.get("X-Boot-Token", "")
+            if not _TOKEN_RE.fullmatch(token):
+                # Cheap rejection: no store access, so junk cannot burn anyone's rate budget
+                return jsonify({"status": "unauthorized"}), 401
+
             try:
                 if not await self.token_store.allow(
-                    source, BOOT_EVENT_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
+                    f"event-ip:{client_ip}", BOOT_EVENT_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
                 ):
-                    logger.warning("boot_event_rate_limited", source=source)
+                    logger.warning("boot_event_rate_limited", client_ip=client_ip)
                     return jsonify({"status": "error"}), 429
-
-                token = request.headers.get("X-Boot-Token", "")
-                if not token or len(token) > BOOT_EVENT_MAX_TOKEN_LEN:
-                    return jsonify({"status": "unauthorized"}), 401
 
                 event, error = _parse_boot_event(await request.get_json(silent=True))
                 if event is None:
                     return jsonify({"status": "error", "message": error}), 400
 
-                if not await self.token_store.redeem(token, event.mac):
-                    logger.warning("boot_event_token_rejected", source=source)
+                if not await self.token_store.allow(
+                    f"event-mac:{event.mac}", BOOT_EVENT_MAC_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
+                ):
+                    logger.warning("boot_event_mac_rate_limited")
+                    return jsonify({"status": "error"}), 429
+
+                if not await self.token_store.redeem(token, event.mac, client_ip, event.stage):
+                    logger.warning("boot_event_token_rejected", client_ip=client_ip)
                     return jsonify({"status": "unauthorized"}), 401
             except StoreUnavailableError:
                 logger.error("boot_event_store_unavailable")
@@ -594,6 +647,12 @@ class HTTPBootServer:
                 return jsonify({"status": "error"}), 502
 
             return jsonify({"status": "accepted"}), 202
+
+    def _client_ip(self) -> str | None:
+        """Client IP for binding and rate limiting (None if unknown); proxy-aware via TRUSTED_PROXIES."""
+        return _resolve_client_ip(
+            request.remote_addr, request.headers.get("X-Forwarded-For"), self.trusted_proxies
+        )
 
     async def _preflight_image(self, presigned_url: str, image_path: str) -> "_ImagePreflight | Response":
         """Ranged GET pre-flight (bytes=0-0): returns the total size or an error Response.

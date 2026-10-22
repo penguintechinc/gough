@@ -31,10 +31,15 @@ class FakeRedis:
             self.ttls[name] = ex
         return True
 
-    async def getdel(self, name: str) -> str | None:
-        """Atomically pop a key."""
+    async def get(self, name: str) -> str | None:
+        """Fetch a key."""
         self._check()
-        return self.data.pop(name, None)
+        return self.data.get(name)
+
+    async def delete(self, name: str) -> int:
+        """Delete a key; returns how many were removed (0 or 1)."""
+        self._check()
+        return 1 if self.data.pop(name, None) is not None else 0
 
     async def incr(self, name: str) -> int:
         """Increment a counter."""

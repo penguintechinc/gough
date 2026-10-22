@@ -237,3 +237,15 @@ async def test_cloud_init_userdata_rejects_invalid_machine_id() -> None:
 
     assert route.call_count == 0
     assert body == "#cloud-config\n# Error fetching user-data\n"
+
+
+@pytest.mark.asyncio
+async def test_token_minting_without_client_address_yields_error_script(token_store: object) -> None:
+    """With a token store but no client address, no token is minted and an error script is served."""
+    handler = IPXEHandler(_handler().config, _handler().enrollment, token_store)  # type: ignore[arg-type]
+    with respx.mock:
+        respx.get(MAC_URL).mock(return_value=httpx.Response(404))
+        script = await handler.generate_script("aa:bb:cc:dd:ee:ff")
+
+    assert "set boot_token" not in script
+    assert "client address unknown" in script

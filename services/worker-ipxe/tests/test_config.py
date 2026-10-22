@@ -113,6 +113,23 @@ def test_secrets_are_not_in_repr(clean_env: pytest.MonkeyPatch) -> None:
     assert "storage-secret-value" not in text
 
 
+def test_trusted_proxies_parsed_and_defaults_empty(clean_env: pytest.MonkeyPatch) -> None:
+    """TRUSTED_PROXIES is a comma-separated CIDR list; unset means no proxy is trusted."""
+    assert WorkerConfig.from_env().trusted_proxies == ()
+
+    clean_env.setenv("TRUSTED_PROXIES", "10.0.0.0/8, 192.168.1.0/24,")
+
+    assert WorkerConfig.from_env().trusted_proxies == ("10.0.0.0/8", "192.168.1.0/24")
+
+
+def test_invalid_trusted_proxy_cidr_fails_startup(clean_env: pytest.MonkeyPatch) -> None:
+    """A malformed CIDR fails loudly instead of silently trusting nothing or everything."""
+    clean_env.setenv("TRUSTED_PROXIES", "not-a-cidr")
+
+    with pytest.raises(ValueError):
+        WorkerConfig.from_env()
+
+
 def test_explicit_env_overrides_defaults_and_casts(clean_env: pytest.MonkeyPatch) -> None:
     """Env values are cast to bool/int and override defaults; WORKER_ID beats HOSTNAME."""
     clean_env.setenv("WORKER_ID", "explicit-id")
