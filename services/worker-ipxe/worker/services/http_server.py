@@ -4,8 +4,10 @@ HTTP boot server for iPXE scripts, kernels, and cloud-init.
 Provides dynamic iPXE script generation and serves boot images.
 """
 
+import asyncio
 import ipaddress
 import re
+import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -15,11 +17,13 @@ from quart import Quart, request, Response, jsonify
 from quart.wrappers.response import ResponseBody
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
+import httpcore
 import httpx
 
+from worker.boot_tokens import BootTokenStore, StoreUnavailableError, create_token_store
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
-from worker.services.ipxe_handler import IPXEHandler
+from worker.services.ipxe_handler import _MACHINE_ID_RE, IPXEHandler, _normalize_mac
 
 logger = structlog.get_logger()
 
@@ -27,6 +31,70 @@ logger = structlog.get_logger()
 STORAGE_CONNECT_TIMEOUT_S = 10.0
 STORAGE_READ_TIMEOUT_S = 300.0
 DEFAULT_IMAGE_CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+# /boot-event hardening: body cap, per-source-IP rate limit, strict field allowlist.
+BOOT_EVENT_MAX_BYTES = 4096
+BOOT_EVENT_RATE_LIMIT = 30
+BOOT_EVENT_RATE_WINDOW_S = 60
+BOOT_EVENT_MAX_TOKEN_LEN = 128
+BOOT_EVENT_STAGES = frozenset(
+    {"discovery", "boot", "installing", "cloud_init", "complete", "failed"}
+)
+_BOOT_EVENT_FIELDS = frozenset({"mac", "machine_id", "stage", "timestamp", "message"})
+_TIMESTAMP_RE = re.compile(r"[0-9TZ:.+-]{1,32}")
+_MESSAGE_MAX = 256
+
+
+@dataclass(slots=True, frozen=True)
+class _BootEvent:
+    """A validated boot-event: the only shape ever forwarded to api-manager."""
+
+    mac: str
+    stage: str
+    machine_id: str | None = None
+    timestamp: str | None = None
+    message: str | None = None
+
+    def as_payload(self) -> dict[str, str]:
+        """Return only the populated, validated fields for forwarding."""
+        return {
+            k: v
+            for k, v in (
+                ("mac", self.mac),
+                ("stage", self.stage),
+                ("machine_id", self.machine_id),
+                ("timestamp", self.timestamp),
+                ("message", self.message),
+            )
+            if v is not None
+        }
+
+
+def _parse_boot_event(data: object) -> tuple[_BootEvent | None, str]:
+    """Validate a /boot-event body against the strict schema; returns (event, error)."""
+    if not isinstance(data, dict):
+        return None, "JSON object body required"
+    unknown = set(data) - _BOOT_EVENT_FIELDS
+    if unknown:
+        return None, "unknown fields not allowed"
+    if not all(isinstance(v, str) for v in data.values()):
+        return None, "all fields must be strings"
+    mac = _normalize_mac(data.get("mac", ""))
+    if mac is None:
+        return None, "invalid mac"
+    stage = data.get("stage", "")
+    if stage not in BOOT_EVENT_STAGES:
+        return None, "invalid stage"
+    machine_id = data.get("machine_id")
+    if machine_id is not None and not _MACHINE_ID_RE.fullmatch(machine_id):
+        return None, "invalid machine_id"
+    timestamp = data.get("timestamp")
+    if timestamp is not None and not _TIMESTAMP_RE.fullmatch(timestamp):
+        return None, "invalid timestamp"
+    message = data.get("message")
+    if message is not None and (len(message) > _MESSAGE_MAX or not message.isprintable()):
+        return None, "invalid message"
+    return _BootEvent(mac, stage, machine_id, timestamp, message), ""
 
 
 def _load_image_chunk_size() -> int:
@@ -59,12 +127,13 @@ class _StorageStream:
         await self.client.aclose()
 
 
-async def _open_storage_stream(presigned_url: str) -> _StorageStream:
+async def _open_storage_stream(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
     """Open a streamed GET to storage without reading the body.
 
+    The host is resolved and classified once and the connection goes to that checked IP.
     Caller must close the returned stream on every path.
     """
-    client = httpx.AsyncClient(timeout=_storage_timeout())
+    client = await _make_storage_client(presigned_url, storage_host)
     try:
         upstream = await client.send(client.build_request("GET", presigned_url), stream=True)
     except BaseException:
@@ -136,10 +205,11 @@ class _LazyImageBody(ResponseBody):
     stream as belt-and-braces; close is idempotent.
     """
 
-    def __init__(self, presigned_url: str, chunk_size: int) -> None:
-        """Store the presigned URL and chunk size; acquires no resources."""
+    def __init__(self, presigned_url: str, chunk_size: int, storage_host: str | None = None) -> None:
+        """Store the presigned URL, chunk size and storage host; acquires no resources."""
         self.presigned_url = presigned_url
         self.chunk_size = chunk_size
+        self.storage_host = storage_host
         self.stream: _StorageStream | None = None
 
     async def __aenter__(self) -> "_LazyImageBody":
@@ -158,7 +228,7 @@ class _LazyImageBody(ResponseBody):
     async def _chunks(self) -> AsyncIterator[bytes]:
         """Open the storage GET, yield bounded chunks, and close in one try/finally."""
         try:
-            self.stream = await _open_storage_stream(self.presigned_url)
+            self.stream = await _open_storage_stream(self.presigned_url, self.storage_host)
             if not self.stream.upstream.is_success:
                 # 200 already committed by the HEAD preflight: abort instead of sending an empty body
                 logger.error("image_storage_get_failed", upstream_status=self.stream.upstream.status_code)
@@ -202,13 +272,38 @@ def _validate_image_path(image_path: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _validate_presigned_url(presigned_url: str) -> tuple[bool, str]:
-    """Validate presigned URL to mitigate SSRF attacks.
+def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_private: bool) -> str | None:
+    """Return a reason if `ip` must not be fetched from, else None.
 
-    Literal IPs are classified with `ipaddress` (loopback, private, link-local,
-    unspecified, multicast, reserved, incl. IPv4-mapped IPv6), so 127.0.0.0/8,
-    0.0.0.0 and IPv6 equivalents are blocked, not just 127.0.0.1.
-    Returns (is_valid: bool, error_message: str).
+    Loopback, unspecified, link-local (cloud metadata), multicast and reserved ranges are
+    always blocked, IPv4-mapped IPv6 included. Private ranges are blocked unless the host
+    is the operator-configured storage endpoint (in-cluster MinIO lives on a private IP).
+    """
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.is_loopback or ip.is_unspecified:
+        return "presigned URL points to localhost"
+    if ip.is_link_local or ip.is_multicast or ip.is_reserved:
+        return "presigned URL points to private IP range"
+    if ip.is_private and not allow_private:
+        return "presigned URL points to private IP range"
+    return None
+
+
+def _storage_host(config: WorkerConfig) -> str | None:
+    """Hostname of the configured storage endpoint (the only host allowed to be private)."""
+    endpoint = config.storage_endpoint
+    if not endpoint:
+        return None
+    parsed = urlparse(endpoint if "//" in endpoint else f"//{endpoint}")
+    return (parsed.hostname or "").lower() or None
+
+
+def _validate_presigned_url(presigned_url: str, storage_host: str | None = None) -> tuple[bool, str]:
+    """Validate presigned URL to mitigate SSRF attacks (syntax and literal-IP checks).
+
+    DNS names are resolved and classified at connect time by `_make_storage_client`,
+    which connects to the exact IP it checked. Returns (is_valid, error_message).
     """
     if not isinstance(presigned_url, str):
         return False, "presigned URL is missing or not a string"
@@ -218,7 +313,6 @@ def _validate_presigned_url(presigned_url: str) -> tuple[bool, str]:
     except ValueError as e:
         return False, f"invalid URL format: {e}"
 
-    # Enforce HTTP(S)
     if parsed.scheme not in ('https', 'http'):
         return False, f"URL scheme must be http/https, got {parsed.scheme}"
 
@@ -230,26 +324,101 @@ def _validate_presigned_url(presigned_url: str) -> tuple[bool, str]:
     try:
         ip = ipaddress.ip_address(hostname)
     except ValueError:
-        return True, ""  # DNS name: resolved by the HTTP client, not classifiable here
+        return True, ""  # DNS name: classified after resolution
 
-    if ip.version == 6 and ip.ipv4_mapped is not None:
-        ip = ip.ipv4_mapped
-    if ip.is_loopback or ip.is_unspecified:
-        return False, "presigned URL points to localhost"
-    if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved:
-        return False, "presigned URL points to private IP range"
+    reason = _ip_blocked(ip, allow_private=hostname == storage_host)
+    return (False, reason) if reason else (True, "")
 
-    return True, ""
+
+async def _resolve_host(host: str, port: int) -> list[str]:
+    """Resolve `host` to IP strings via the event loop's resolver (patchable seam)."""
+    infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    return [str(info[4][0]) for info in infos]
+
+
+class _PinnedIPBackend(httpcore.AsyncNetworkBackend):
+    """httpcore backend that dials a pre-checked IP while URL, Host, SNI and cert checks keep the hostname."""
+
+    def __init__(self, ip: str) -> None:
+        """Store the validated IP every connection will use."""
+        self._ip = ip
+        self._real = httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: object = None,
+    ) -> httpcore.AsyncNetworkStream:
+        """Connect to the pinned IP, ignoring a fresh DNS answer for `host`."""
+        return await self._real.connect_tcp(
+            self._ip, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+        )
+
+    async def sleep(self, seconds: float) -> None:
+        """Delegate sleep."""
+        await self._real.sleep(seconds)
+
+
+async def _make_storage_client(
+    presigned_url: str, storage_host: str | None, timeout: httpx.Timeout | None = None
+) -> httpx.AsyncClient:
+    """Return a client that connects only to an IP resolved and classified right here.
+
+    Resolve once, reject if ANY answer is blocked (defeats multi-record rebinding), then
+    pin the connection to the first checked IP so a second DNS lookup cannot differ.
+    Redirects stay off and env proxies are ignored. Raises ValueError when blocked.
+    """
+    parsed = urlparse(presigned_url)
+    host = (parsed.hostname or "").lower()
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    try:
+        ips = [host] if _is_ip_literal(host) else await _resolve_host(host, port)
+    except OSError as exc:
+        raise ValueError(f"cannot resolve storage host: {exc}") from exc
+    if not ips:
+        raise ValueError("storage host did not resolve")
+    for raw in ips:
+        reason = _ip_blocked(ipaddress.ip_address(raw), allow_private=host == storage_host)
+        if reason:
+            raise ValueError(reason)
+    transport = httpx.AsyncHTTPTransport()
+    transport._pool._network_backend = _PinnedIPBackend(ips[0])  # type: ignore[attr-defined]
+    return httpx.AsyncClient(
+        transport=transport, timeout=timeout or _storage_timeout(), follow_redirects=False, trust_env=False
+    )
+
+
+def _is_ip_literal(host: str) -> bool:
+    """True when `host` parses as an IP address."""
+    try:
+        ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return True
 
 
 class HTTPBootServer:
     """HTTP server for boot files and iPXE scripts."""
 
-    def __init__(self, config: WorkerConfig, enrollment: EnrollmentManager):
+    def __init__(
+        self,
+        config: WorkerConfig,
+        enrollment: EnrollmentManager,
+        token_store: BootTokenStore | None = None,
+    ):
         self.config = config
         self.enrollment = enrollment
         self.app = Quart(__name__)
-        self.ipxe_handler = IPXEHandler(config, enrollment)
+        self.app.config["MAX_CONTENT_LENGTH"] = BOOT_EVENT_MAX_BYTES
+        if token_store is None:
+            if not config.redis_url:
+                raise ValueError("REDIS_URL is required for boot tokens and rate limiting")
+            token_store = create_token_store(config.redis_url)
+        self.token_store = token_store
+        self.ipxe_handler = IPXEHandler(config, enrollment, token_store)
         self.image_chunk_size = _load_image_chunk_size()
         self.server_task = None
 
@@ -279,7 +448,7 @@ class HTTPBootServer:
             except Exception as e:
                 logger.error("ipxe_script_generation_error", mac=mac, error=str(e))
                 return Response(
-                    f"#!ipxe\necho Error generating boot script: {e}\nshell\n",
+                    "#!ipxe\necho Error generating boot script\nshell\n",
                     mimetype="text/plain",
                     status=500,
                 )
@@ -294,7 +463,7 @@ class HTTPBootServer:
                 return Response(metadata, mimetype="text/yaml")
             except Exception as e:
                 logger.error("cloud_init_metadata_error", machine_id=machine_id, error=str(e))
-                return Response(f"# Error: {e}\n", mimetype="text/yaml", status=500)
+                return Response("# Error\n", mimetype="text/yaml", status=500)
 
         @self.app.route("/cloud-init/<machine_id>/user-data")
         async def cloud_init_userdata(machine_id: str):
@@ -306,7 +475,7 @@ class HTTPBootServer:
                 return Response(userdata, mimetype="text/cloud-config")
             except Exception as e:
                 logger.error("cloud_init_userdata_error", machine_id=machine_id, error=str(e))
-                return Response(f"#cloud-config\n# Error: {e}\n", mimetype="text/cloud-config", status=500)
+                return Response("#cloud-config\n# Error\n", mimetype="text/cloud-config", status=500)
 
         @self.app.route("/images/<path:image_path>")
         async def serve_image(image_path: str):
@@ -337,7 +506,9 @@ class HTTPBootServer:
                         presigned_url = data.get("url")
 
                         # Validate presigned URL to prevent SSRF
-                        is_valid_url, url_error = _validate_presigned_url(presigned_url)
+                        is_valid_url, url_error = _validate_presigned_url(
+                            presigned_url, _storage_host(self.config)
+                        )
                         if not is_valid_url:
                             logger.warning(
                                 "presigned_url_validation_failed",
@@ -346,7 +517,13 @@ class HTTPBootServer:
                             )
                             return Response("Invalid presigned URL", status=400)
 
-                        preflight = await self._preflight_image(presigned_url, image_path)
+                        try:
+                            preflight = await self._preflight_image(presigned_url, image_path)
+                        except ValueError as blocked:
+                            logger.warning(
+                                "presigned_url_validation_failed", path=image_path, reason=str(blocked)
+                            )
+                            return Response("Invalid presigned URL", status=400)
                         if isinstance(preflight, Response):
                             return preflight
                         out_headers = _outbound_image_headers(preflight.total_length)
@@ -354,7 +531,7 @@ class HTTPBootServer:
                             out_headers["Content-Type"] = "application/octet-stream"
                             return _ImageHeadResponse(b"", headers=out_headers)
                         return Response(
-                            _LazyImageBody(presigned_url, self.image_chunk_size),
+                            _LazyImageBody(presigned_url, self.image_chunk_size, _storage_host(self.config)),
                             mimetype="application/octet-stream",
                             headers=out_headers,
                         )
@@ -369,35 +546,54 @@ class HTTPBootServer:
         @self.app.route("/boot-event", methods=["POST"])
         async def boot_event():
             """
-            Receive boot event callbacks from machines.
+            Receive boot event callbacks from booting machines.
 
-            Called by cloud-init during provisioning to report progress.
+            Unauthenticated callers cannot reach the hub with the worker's credentials:
+            the request needs the single-use per-boot token embedded in the iPXE script,
+            bound to the MAC in the body, plus a per-source-IP rate limit. Only schema-
+            validated fields are forwarded and no upstream detail is echoed back.
             """
-            data = await request.get_json(silent=True)
-            if not isinstance(data, dict):
-                # Validate at the boundary: only a JSON object is forwarded upstream
-                return jsonify({"status": "error", "message": "JSON object body required"}), 400
-            # `event` is structlog's reserved message key; passing it as a kwarg raises TypeError
-            logger.info("boot_event_received", payload=data)
+            source = request.remote_addr or "unknown"
+            try:
+                if not await self.token_store.allow(
+                    source, BOOT_EVENT_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
+                ):
+                    logger.warning("boot_event_rate_limited", source=source)
+                    return jsonify({"status": "error"}), 429
+
+                token = request.headers.get("X-Boot-Token", "")
+                if not token or len(token) > BOOT_EVENT_MAX_TOKEN_LEN:
+                    return jsonify({"status": "unauthorized"}), 401
+
+                event, error = _parse_boot_event(await request.get_json(silent=True))
+                if event is None:
+                    return jsonify({"status": "error", "message": error}), 400
+
+                if not await self.token_store.redeem(token, event.mac):
+                    logger.warning("boot_event_token_rejected", source=source)
+                    return jsonify({"status": "unauthorized"}), 401
+            except StoreUnavailableError:
+                logger.error("boot_event_store_unavailable")
+                return jsonify({"status": "error"}), 503
+
+            logger.info("boot_event_received", stage=event.stage, machine_id=event.machine_id)
 
             try:
-                # Forward event to api-manager
                 api_url = f"{self.config.api_manager_url}/api/v1/internal/boot-event"
                 headers = self.enrollment.get_auth_headers()
                 headers["Content-Type"] = "application/json"
 
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    upstream = await client.post(api_url, json=data, headers=headers)
-
-                if not upstream.is_success:
-                    # Never report "received" for an event api-manager did not store
-                    logger.error("boot_event_upstream_rejected", status=upstream.status_code)
-                    return jsonify({"status": "error", "upstream_status": upstream.status_code}), 502
-
-                return jsonify({"status": "received"})
+                    upstream = await client.post(api_url, json=event.as_payload(), headers=headers)
             except Exception as e:
                 logger.error("boot_event_forward_error", error=str(e))
-                return jsonify({"status": "error", "message": str(e)}), 500
+                return jsonify({"status": "error"}), 502
+
+            if not upstream.is_success:
+                logger.error("boot_event_upstream_rejected", status=upstream.status_code)
+                return jsonify({"status": "error"}), 502
+
+            return jsonify({"status": "accepted"}), 202
 
     async def _preflight_image(self, presigned_url: str, image_path: str) -> "_ImagePreflight | Response":
         """Ranged GET pre-flight (bytes=0-0): returns the total size or an error Response.
@@ -405,7 +601,8 @@ class HTTPBootServer:
         Same method as the presigned URL (SigV4 binds the method, so HEAD would 403).
         The pre-flight response is always closed without reading the body.
         """
-        async with httpx.AsyncClient(timeout=_storage_timeout()) as client:
+        client = await _make_storage_client(presigned_url, _storage_host(self.config))
+        async with client:
             request = client.build_request("GET", presigned_url, headers={"Range": "bytes=0-0"})
             upstream = await client.send(request, stream=True)
             try:

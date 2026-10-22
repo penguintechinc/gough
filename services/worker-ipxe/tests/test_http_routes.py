@@ -25,7 +25,7 @@ def _server(monkeypatch: pytest.MonkeyPatch) -> HTTPBootServer:
     monkeypatch.delenv("IMAGE_STREAM_CHUNK_SIZE", raising=False)
     cfg = WorkerConfig(
         api_manager_url=API,
-        worker_api_key="http-key",
+        worker_api_key="http-key", redis_url="redis://test:6379/0",
         worker_id="w-http",
         dhcp_mode="disabled",
         dhcp_interface="eth0",
@@ -62,7 +62,8 @@ async def test_ipxe_route_returns_plain_script_with_auth(monkeypatch: pytest.Mon
 
     assert resp.status_code == 200
     assert resp.mimetype == "text/plain"
-    assert body == "#!ipxe\nexit\n"
+    assert body.startswith("#!ipxe\nset boot_token ")
+    assert body.endswith("\nexit\n")
     assert route.calls.last.request.headers["X-Worker-API-Key"] == "http-key"
 
 
@@ -96,7 +97,7 @@ async def test_ipxe_route_generation_failure_returns_500_script(monkeypatch: pyt
 
     assert resp.status_code == 500
     assert resp.mimetype == "text/plain"
-    assert body.startswith("#!ipxe\necho Error generating boot script: template broke\n")
+    assert body == "#!ipxe\necho Error generating boot script\nshell\n"  # cause never reflected
 
 
 @pytest.mark.asyncio
@@ -144,7 +145,7 @@ async def test_cloud_init_metadata_route_exception_returns_500(monkeypatch: pyte
 
     assert resp.status_code == 500
     assert resp.mimetype == "text/yaml"
-    assert body == "# Error: meta exploded\n"
+    assert body == "# Error\n"  # exception text is never reflected
 
 
 @pytest.mark.asyncio
@@ -192,7 +193,8 @@ async def test_cloud_init_userdata_route_exception_returns_500(monkeypatch: pyte
 
     assert resp.status_code == 500
     assert resp.mimetype == "text/cloud-config"
-    assert "# Error:" in body and "biome" in body
+    assert body == "#cloud-config\n# Error\n"
+    assert "biome" not in body
 
 
 @pytest.mark.asyncio
@@ -273,67 +275,6 @@ async def test_image_route_api_connect_error_returns_500(monkeypatch: pytest.Mon
 
     assert resp.status_code == 500
     assert body == "Error serving image"
-
-
-@pytest.mark.asyncio
-async def test_boot_event_forwards_payload_and_auth(monkeypatch: pytest.MonkeyPatch) -> None:
-    """POST /boot-event forwards the JSON body with worker auth to api-manager and reports received."""
-    server = _server(monkeypatch)
-    with respx.mock(assert_all_called=True) as router:
-        route = router.post(f"{API}/api/v1/internal/boot-event").mock(return_value=httpx.Response(201))
-        resp = await server.app.test_client().post("/boot-event", json={"stage": "cloud-init", "node": "n1"})
-        payload = await resp.get_json()
-
-    assert resp.status_code == 200
-    assert payload == {"status": "received"}
-    sent = route.calls.last.request
-    assert sent.headers["X-Worker-API-Key"] == "http-key"
-    assert sent.headers["X-Worker-Session-Token"] == "sess-http"
-    assert sent.headers["Content-Type"] == "application/json"
-    assert httpx.Response(200, content=sent.content).json() == {"stage": "cloud-init", "node": "n1"}
-
-
-@pytest.mark.asyncio
-async def test_boot_event_upstream_rejection_is_not_reported_as_received(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """If api-manager rejects the event the route returns 502, not a false 'received'."""
-    server = _server(monkeypatch)
-    with respx.mock:
-        respx.post(f"{API}/api/v1/internal/boot-event").mock(return_value=httpx.Response(500))
-        resp = await server.app.test_client().post("/boot-event", json={"stage": "x"})
-        payload = await resp.get_json()
-
-    assert resp.status_code == 502
-    assert payload == {"status": "error", "upstream_status": 500}
-
-
-@pytest.mark.asyncio
-async def test_boot_event_transport_error_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A transport failure forwarding the event is a 500 error body carrying the message."""
-    server = _server(monkeypatch)
-    with respx.mock:
-        respx.post(f"{API}/api/v1/internal/boot-event").mock(side_effect=httpx.ConnectError("no route"))
-        resp = await server.app.test_client().post("/boot-event", json={"stage": "x"})
-        payload = await resp.get_json()
-
-    assert resp.status_code == 500
-    assert payload["status"] == "error"
-    assert "no route" in payload["message"]
-
-
-@pytest.mark.asyncio
-async def test_boot_event_non_json_body_is_400(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A non-JSON body is rejected by Quart with 400 before any forwarding."""
-    server = _server(monkeypatch)
-    with respx.mock(assert_all_called=False) as router:
-        route = router.post(url__regex=r".*").mock(return_value=httpx.Response(201))
-        resp = await server.app.test_client().post(
-            "/boot-event", data="not json", headers={"Content-Type": "text/plain"}
-        )
-
-    assert resp.status_code == 400
-    assert route.call_count == 0
 
 
 @pytest.mark.asyncio

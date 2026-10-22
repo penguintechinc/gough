@@ -55,6 +55,11 @@ spec:
         {{- end }}
         env:
         {{- toYaml .Values.env | nindent 12 }}
+            - name: WORKER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (printf "%s-auth" (include "worker-ipxe.fullname" .)) .Values.workerApiKey.existingSecret }}
+                  key: worker-api-key
         {{- with .Values.volumeMounts }}
         volumeMounts:
           {{- toYaml . | nindent 12 }}

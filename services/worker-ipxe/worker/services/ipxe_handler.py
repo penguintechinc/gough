@@ -9,6 +9,7 @@ import re
 import structlog
 import httpx
 
+from worker.boot_tokens import BootTokenStore
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 
@@ -30,9 +31,30 @@ def _normalize_mac(mac: str) -> str | None:
 class IPXEHandler:
     """Handles iPXE script generation and cloud-init data."""
 
-    def __init__(self, config: WorkerConfig, enrollment: EnrollmentManager):
+    def __init__(
+        self,
+        config: WorkerConfig,
+        enrollment: EnrollmentManager,
+        token_store: BootTokenStore | None = None,
+    ):
         self.config = config
         self.enrollment = enrollment
+        self.token_store = token_store
+
+    async def _embed_boot_token(self, script: str, mac: str) -> str:
+        """Mint a per-boot token bound to `mac` and set it as iPXE var ${boot_token}.
+
+        The booting machine presents it to /boot-event; without a token store the
+        script is returned unchanged (no token, so no callback can be authorised).
+        """
+        if self.token_store is None:
+            return script
+        token = await self.token_store.issue(mac)
+        line = f"set boot_token {token}\n"
+        if script.startswith("#!ipxe"):
+            head, _, rest = script.partition("\n")
+            return f"{head}\n{line}{rest}"
+        return f"#!ipxe\n{line}{script}"
 
     async def generate_script(self, mac: str) -> str:
         """
@@ -66,12 +88,14 @@ class IPXEHandler:
                         status=data.get("status"),
                     )
 
-                    return script
+                    return await self._embed_boot_token(script, mac_normalized)
 
                 elif response.status_code == 404:
                     # Unknown machine - return discovery script
                     logger.info("unknown_machine_discovered", mac=mac_normalized)
-                    return self._generate_discovery_script(mac_normalized)
+                    return await self._embed_boot_token(
+                        self._generate_discovery_script(mac_normalized), mac_normalized
+                    )
 
                 else:
                     logger.error(
@@ -105,13 +129,9 @@ echo ======================================
 echo MAC Address: {mac}
 echo.
 
-# Report discovery to api-manager
-echo Registering machine with provisioning server...
-chain {boot_url}/boot-event || goto failed
-
-# Boot discovery image
+# Boot discovery image (${{boot_token}} authorises its /boot-event callbacks)
 echo Booting discovery image...
-kernel {boot_url}/images/discovery/vmlinuz initrd=initrd ip=dhcp
+kernel {boot_url}/images/discovery/vmlinuz initrd=initrd ip=dhcp gough.boot_token=${{boot_token}} gough.mac={mac}
 initrd {boot_url}/images/discovery/initrd
 boot || goto failed
 

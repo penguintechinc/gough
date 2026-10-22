@@ -116,7 +116,7 @@ def _make_server(monkeypatch: pytest.MonkeyPatch, chunk_size: int = 1024) -> HTT
     monkeypatch.setenv("IMAGE_STREAM_CHUNK_SIZE", str(chunk_size))
     cfg = WorkerConfig(
         api_manager_url=f"http://{API_HOST}",
-        worker_api_key="k",
+        worker_api_key="k", redis_url="redis://test:6379/0",
         worker_id="w",
         dhcp_mode="disabled",
         dhcp_interface="eth0",
@@ -157,7 +157,7 @@ def _spy_open(monkeypatch: pytest.MonkeyPatch, upstream: CountingUpstream) -> li
     """Replace the lazy GET opener with one that records each opened stream."""
     opened: list[_StorageStream] = []
 
-    async def fake_open(presigned_url: str) -> _StorageStream:
+    async def fake_open(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
         """Return a stream over the given upstream and record it."""
         stream = _stream_for(upstream)
         opened.append(stream)
@@ -225,7 +225,7 @@ async def test_lazy_body_non_2xx_get_aborts(monkeypatch: pytest.MonkeyPatch) -> 
     """A storage GET failing after the 200 was committed aborts the body and closes."""
     upstream = CountingUpstream(total_chunks=3, chunk=b"e")
 
-    async def fake_open(presigned_url: str) -> _StorageStream:
+    async def fake_open(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
         """Return a stream whose GET status is 500."""
         client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
         return _StorageStream(client=client, upstream=httpx.Response(500, stream=upstream))
@@ -462,7 +462,7 @@ def test_chunk_size_default_and_env_override(monkeypatch: pytest.MonkeyPatch) ->
     """IMAGE_STREAM_CHUNK_SIZE defaults to 1 MiB and honours an env override."""
     monkeypatch.delenv("IMAGE_STREAM_CHUNK_SIZE", raising=False)
     cfg = WorkerConfig(
-        api_manager_url="http://x", worker_api_key="k", worker_id="w",
+        api_manager_url="http://x", worker_api_key="k", redis_url="redis://test:6379/0", worker_id="w",
         dhcp_mode="disabled", dhcp_interface="eth0",
     )
     assert HTTPBootServer(cfg, Mock()).image_chunk_size == DEFAULT_IMAGE_CHUNK_SIZE
@@ -475,7 +475,7 @@ def test_chunk_size_rejects_non_positive(monkeypatch: pytest.MonkeyPatch) -> Non
     """A chunk size below 1 fails loudly at construction time."""
     monkeypatch.setenv("IMAGE_STREAM_CHUNK_SIZE", "0")
     cfg = WorkerConfig(
-        api_manager_url="http://x", worker_api_key="k", worker_id="w",
+        api_manager_url="http://x", worker_api_key="k", redis_url="redis://test:6379/0", worker_id="w",
         dhcp_mode="disabled", dhcp_interface="eth0",
     )
     with pytest.raises(ValueError, match="IMAGE_STREAM_CHUNK_SIZE"):

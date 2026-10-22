@@ -8,9 +8,14 @@ import asyncio
 import structlog
 import subprocess
 import os
-import ssl
+import re
 import socket
+import ssl
 import hashlib
+import hmac
+
+import httpcore
+import httpx
 from typing import Optional, Literal
 from dataclasses import dataclass
 
@@ -31,24 +36,6 @@ class BMCCredentials:
     cert_fingerprint: Optional[str] = None  # SHA-256 fingerprint for cert pinning
 
 
-def _get_bmc_cert_fingerprint(host: str, port: int = 443, timeout: float = 10.0) -> str:
-    """Fetch BMC certificate SHA-256 fingerprint via raw TLS connection."""
-    try:
-        with socket.create_connection((host, port), timeout=timeout) as raw:
-            ctx = ssl.create_default_context()
-            ctx.check_hostname = False
-            ctx.verify_mode = ssl.CERT_NONE
-            with ctx.wrap_socket(raw, server_hostname=host) as tls:
-                der = tls.getpeercert(binary_form=True)
-    except OSError as exc:
-        raise RuntimeError(f"TLS handshake failed for {host}:{port}: {exc}") from exc
-
-    if not der:
-        raise RuntimeError(f"No peer certificate from {host}:{port}")
-
-    return hashlib.sha256(der).hexdigest().upper()
-
-
 def _normalize_fingerprint(fp: str) -> str:
     """Normalize fingerprint to uppercase colon-separated form."""
     cleaned = fp.replace(":", "").replace(" ", "").strip().upper()
@@ -57,46 +44,117 @@ def _normalize_fingerprint(fp: str) -> str:
     return ":".join(cleaned[i : i + 2] for i in range(0, len(cleaned), 2))
 
 
-def _verify_bmc_cert(host: str, expected_fingerprint: Optional[str], port: int = 443, timeout: float = 10.0) -> bool:
-    """Verify BMC certificate fingerprint.
+class _PinnedStream(httpcore.AsyncNetworkStream):
+    """Network stream that checks the peer leaf certificate against a pinned SHA-256.
 
-    If expected_fingerprint is set, verifies it matches the live cert.
-    If not set, checks BMC_ALLOW_INSECURE_TLS env var (must be explicitly enabled).
-
-    Returns True if verification passes.
-    Raises RuntimeError if verification fails or insecure mode not explicitly enabled.
+    The check runs right after the TLS handshake on the very connection that will carry
+    the request, so no credentials are sent to a BMC presenting any other certificate.
     """
-    # No pin configured: fail closed BEFORE any network I/O unless insecure mode is
-    # explicitly enabled. This avoids connecting to (and trusting) an unpinned BMC.
-    if not expected_fingerprint:
-        if os.getenv("BMC_ALLOW_INSECURE_TLS", "").lower() not in ("true", "1", "yes"):
-            raise RuntimeError(
-                f"BMC {host}:{port} has no certificate pin configured and "
-                "BMC_ALLOW_INSECURE_TLS is not enabled. Set BMC_ALLOW_INSECURE_TLS=true "
-                "to allow unverified TLS connections (NOT RECOMMENDED)."
-            )
-        logger.warning(
-            "bmc_insecure_tls_enabled",
-            host=host,
-            port=port,
-            message="TLS verification disabled for BMC; set cert_fingerprint to pin certificate",
+
+    def __init__(self, inner: httpcore.AsyncNetworkStream, pin: str | None, host: str) -> None:
+        """Wrap `inner`; `pin` is the normalised fingerprint expected after start_tls."""
+        self._inner = inner
+        self._pin = pin
+        self._host = host
+
+    async def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        """Delegate read."""
+        return await self._inner.read(max_bytes, timeout)
+
+    async def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        """Delegate write."""
+        await self._inner.write(buffer, timeout)
+
+    async def aclose(self) -> None:
+        """Delegate close."""
+        await self._inner.aclose()
+
+    async def start_tls(
+        self,
+        ssl_context: ssl.SSLContext,
+        server_hostname: str | None = None,
+        timeout: float | None = None,
+    ) -> httpcore.AsyncNetworkStream:
+        """Handshake, then require the leaf certificate to match the pin (else close and raise)."""
+        tls = await self._inner.start_tls(ssl_context, server_hostname, timeout)
+        if self._pin is None:
+            return tls
+        ssl_obj = tls.get_extra_info("ssl_object")
+        der = ssl_obj.getpeercert(binary_form=True) if ssl_obj is not None else None
+        live = hashlib.sha256(der).hexdigest().upper() if der else ""
+        if not der or not hmac.compare_digest(_normalize_fingerprint(live), self._pin):
+            await tls.aclose()
+            raise RuntimeError(f"BMC {self._host} certificate does not match the pinned fingerprint")
+        return _PinnedStream(tls, None, self._host)
+
+    def get_extra_info(self, info: str) -> object:
+        """Delegate extra-info lookup."""
+        return self._inner.get_extra_info(info)
+
+
+class _PinnedBackend(httpcore.AsyncNetworkBackend):
+    """httpcore backend whose TLS streams enforce a pinned leaf-certificate fingerprint."""
+
+    def __init__(self, pin: str, host: str) -> None:
+        """Store the normalised pin and the BMC host (for error messages)."""
+        self._pin = pin
+        self._host = host
+        self._real = httpcore.AnyIOBackend()
+
+    async def connect_tcp(
+        self,
+        host: str,
+        port: int,
+        timeout: float | None = None,
+        local_address: str | None = None,
+        socket_options: object = None,
+    ) -> httpcore.AsyncNetworkStream:
+        """Open TCP, returning a stream that pin-checks after start_tls."""
+        inner = await self._real.connect_tcp(
+            host, port, timeout=timeout, local_address=local_address, socket_options=socket_options
         )
-        return True
+        return _PinnedStream(inner, self._pin, self._host)
 
-    # Pin configured: fetch the live cert and require an exact fingerprint match.
-    try:
-        expected_normalized = _normalize_fingerprint(expected_fingerprint)
-    except ValueError as e:
-        raise RuntimeError(f"Invalid stored fingerprint format: {e}") from e
+    async def sleep(self, seconds: float) -> None:
+        """Delegate sleep."""
+        await self._real.sleep(seconds)
 
-    live_fp = _get_bmc_cert_fingerprint(host, port, timeout)
-    live_normalized = _normalize_fingerprint(live_fp)
-    if live_normalized != expected_normalized:
+
+def _build_redfish_client(credentials: BMCCredentials, timeout: float) -> httpx.AsyncClient:
+    """Build a Redfish client with mandatory TLS verification, or raise RuntimeError.
+
+    Order: a per-BMC pinned leaf fingerprint (credentials.cert_fingerprint) wins, else
+    the REDFISH_CA_FILE bundle verifies the chain and hostname. Neither configured means
+    refuse: there is deliberately no insecure fallback.
+    """
+    if credentials.cert_fingerprint:
+        try:
+            pin = _normalize_fingerprint(credentials.cert_fingerprint)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid stored fingerprint format: {exc}") from exc
+        # The chain is self-signed/private by nature; trust is the pin, checked per connection.
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        transport = httpx.AsyncHTTPTransport(verify=ctx)
+        transport._pool._network_backend = _PinnedBackend(pin, credentials.address)  # type: ignore[attr-defined]
+        return httpx.AsyncClient(transport=transport, timeout=timeout, trust_env=False)
+
+    ca_file = os.environ.get("REDFISH_CA_FILE", "").strip()
+    if not ca_file:
         raise RuntimeError(
-            f"BMC cert fingerprint mismatch for {host}:{port}: "
-            f"expected={expected_normalized} live={live_normalized}"
+            f"BMC {credentials.address}: refusing Redfish without TLS verification; set "
+            "REDFISH_CA_FILE or a pinned cert_fingerprint for this BMC"
         )
-    return True
+    if not os.path.isfile(ca_file):
+        raise RuntimeError(f"REDFISH_CA_FILE {ca_file!r} does not exist")
+    try:
+        ctx = ssl.create_default_context(cafile=ca_file)
+    except (ssl.SSLError, OSError) as exc:
+        raise RuntimeError(f"REDFISH_CA_FILE {ca_file!r} is not a usable CA bundle: {exc}") from exc
+    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+    return httpx.AsyncClient(verify=ctx, timeout=timeout, trust_env=False)
 
 
 def _ipmi_base_cmd(credentials: BMCCredentials, *args: str) -> list[str]:
@@ -112,8 +170,10 @@ def _ipmi_base_cmd(credentials: BMCCredentials, *args: str) -> list[str]:
 
 
 def _ipmi_env(credentials: BMCCredentials) -> dict[str, str]:
-    """Child environment carrying the BMC password for ipmitool -E (kept out of argv and ps output)."""
-    return {**os.environ, "IPMI_PASSWORD": credentials.password}
+    """Minimal child environment for ipmitool -E: the BMC password only, never the worker's own secrets."""
+    env = {k: v for k, v in os.environ.items() if k in ("PATH", "LANG", "LC_ALL")}
+    env["IPMI_PASSWORD"] = credentials.password
+    return env
 
 
 class PowerManager:
@@ -133,6 +193,8 @@ class PowerManager:
         Returns:
             (success: bool, message: str)
         """
+        if credentials.power_type == "ipmi" and credentials.address.startswith("-"):
+            return False, "Invalid BMC address"  # would be parsed as an ipmitool option
         if credentials.power_type == "ipmi":
             return await self._ipmi_control(credentials, action)
         elif credentials.power_type == "redfish":
@@ -227,8 +289,6 @@ class PowerManager:
         action: PowerAction,
     ) -> tuple[bool, str]:
         """Execute Redfish power control via REST API with certificate verification."""
-        import httpx
-
         # Map actions to Redfish reset types
         action_map = {
             "on": "On",
@@ -243,13 +303,6 @@ class PowerManager:
                 return await self._redfish_get_status(credentials)
             return False, f"Invalid Redfish action: {action}"
 
-        # Verify BMC certificate
-        try:
-            _verify_bmc_cert(credentials.address, credentials.cert_fingerprint)
-        except RuntimeError as e:
-            logger.error("bmc_cert_verification_failed", address=credentials.address, error=str(e))
-            return False, f"Certificate verification failed: {e}"
-
         # Redfish API endpoint
         redfish_url = f"https://{credentials.address}/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
 
@@ -262,7 +315,7 @@ class PowerManager:
                 action=action,
             )
 
-            async with httpx.AsyncClient(verify=False, timeout=30.0) as client:
+            async with _build_redfish_client(credentials, 30.0) as client:
                 response = await client.post(
                     redfish_url,
                     json=payload,
@@ -300,19 +353,10 @@ class PowerManager:
         credentials: BMCCredentials,
     ) -> tuple[bool, str]:
         """Get power status via Redfish with certificate verification."""
-        import httpx
-
-        # Verify BMC certificate
-        try:
-            _verify_bmc_cert(credentials.address, credentials.cert_fingerprint)
-        except RuntimeError as e:
-            logger.error("bmc_cert_verification_failed", address=credentials.address, error=str(e))
-            return False, f"Certificate verification failed: {e}"
-
         redfish_url = f"https://{credentials.address}/redfish/v1/Systems/1"
 
         try:
-            async with httpx.AsyncClient(verify=False, timeout=10.0) as client:
+            async with _build_redfish_client(credentials, 10.0) as client:
                 response = await client.get(
                     redfish_url,
                     auth=(credentials.username, credentials.password),
@@ -343,6 +387,8 @@ class PowerManager:
 
         # credentials.address contains MAC address for WOL
         mac_address = credentials.address
+        if not re.fullmatch(r"[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}", mac_address):
+            return False, "Invalid MAC address"  # also blocks option injection into wakeonlan
 
         try:
             # Send magic packet using wakeonlan utility or manual implementation
@@ -371,8 +417,7 @@ class PowerManager:
 
     async def _send_wol_manual(self, mac_address: str) -> tuple[bool, str]:
         """Send Wake-on-LAN magic packet manually."""
-        import socket
-
+        
         try:
             # Parse MAC address
             mac_bytes = bytes.fromhex(mac_address.replace(":", "").replace("-", ""))
@@ -411,6 +456,8 @@ class PowerManager:
         """
         if credentials.power_type != "ipmi":
             return False, "Boot device setting only supported via IPMI"
+        if credentials.address.startswith("-"):
+            return False, "Invalid BMC address"
 
         # Map device names to IPMI boot device codes
         device_map = {

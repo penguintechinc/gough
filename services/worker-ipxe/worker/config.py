@@ -5,9 +5,12 @@ Loads configuration from environment variables with validation.
 """
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional
 from decouple import config
+
+
+MIN_WORKER_API_KEY_LENGTH = 32
 
 
 @dataclass(slots=True)
@@ -16,12 +19,14 @@ class WorkerConfig:
 
     # API Manager connection
     api_manager_url: str
-    worker_api_key: str
+    worker_api_key: str = field(repr=False)
     worker_id: str
 
     # DHCP configuration
     dhcp_mode: str  # full, proxy, disabled
     dhcp_interface: str
+    # Shared state store (per-boot tokens, rate limits); required so >1 replica is safe
+    redis_url: Optional[str] = field(default=None, repr=False)
     dhcp_subnet: Optional[str] = None
     dhcp_range_start: Optional[str] = None
     dhcp_range_end: Optional[str] = None
@@ -40,7 +45,7 @@ class WorkerConfig:
     # Storage (MinIO/S3)
     storage_endpoint: Optional[str] = None
     storage_access_key: Optional[str] = None
-    storage_secret_key: Optional[str] = None
+    storage_secret_key: Optional[str] = field(default=None, repr=False)
     storage_bucket_boot: str = "boot-images"
     storage_bucket_biomes: str = "biomes"
     storage_use_ssl: bool = False
@@ -63,7 +68,19 @@ class WorkerConfig:
 
         # Required settings
         api_manager_url = config("API_MANAGER_URL", default="http://api-manager:5000")
-        worker_api_key = config("WORKER_API_KEY", default="worker-secret")
+        worker_api_key = config("WORKER_API_KEY", default="")
+        if len(worker_api_key) < MIN_WORKER_API_KEY_LENGTH:
+            # Never log the value; length only. No default exists on purpose.
+            raise ValueError(
+                f"WORKER_API_KEY must be set and at least {MIN_WORKER_API_KEY_LENGTH} "
+                f"characters (got {len(worker_api_key)})."
+            )
+        redis_url = config("REDIS_URL", default="")
+        if not redis_url:
+            raise ValueError(
+                "REDIS_URL must be set: per-boot tokens and rate limits are kept in a "
+                "shared store so multiple worker replicas agree."
+            )
         worker_id = config("WORKER_ID", default=os.environ.get("HOSTNAME", "worker-ipxe-1"))
 
         # DHCP settings
@@ -123,6 +140,7 @@ class WorkerConfig:
             worker_id=worker_id,
             dhcp_mode=dhcp_mode,
             dhcp_interface=dhcp_interface,
+            redis_url=redis_url,
             dhcp_subnet=dhcp_subnet,
             dhcp_range_start=dhcp_range_start,
             dhcp_range_end=dhcp_range_end,

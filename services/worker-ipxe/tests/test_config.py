@@ -13,8 +13,9 @@ _ENV_KEYS = (
     "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY", "STORAGE_BUCKET_BOOT_IMAGES",
     "STORAGE_BUCKET_BIOMES", "STORAGE_USE_SSL", "HEARTBEAT_INTERVAL",
     "ENROLLMENT_RETRY_INTERVAL", "MAX_ENROLLMENT_RETRIES", "LOG_LEVEL", "METRICS_ENABLED",
-    "METRICS_PORT",
+    "METRICS_PORT", "REDIS_URL",
 )
+GOOD_KEY = "k" * 32
 
 
 @pytest.fixture
@@ -23,6 +24,8 @@ def clean_env(monkeypatch: pytest.MonkeyPatch) -> pytest.MonkeyPatch:
     for key in _ENV_KEYS:
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("HOSTNAME", "host-from-env")
+    monkeypatch.setenv("WORKER_API_KEY", GOOD_KEY)
+    monkeypatch.setenv("REDIS_URL", "redis://redis:6379/0")
     return monkeypatch
 
 
@@ -45,7 +48,8 @@ def test_defaults_when_env_empty(clean_env: pytest.MonkeyPatch) -> None:
     cfg = WorkerConfig.from_env()
 
     assert cfg.api_manager_url == "http://api-manager:5000"
-    assert cfg.worker_api_key == "worker-secret"
+    assert cfg.worker_api_key == GOOD_KEY
+    assert cfg.redis_url == "redis://redis:6379/0"
     assert cfg.worker_id == "host-from-env"
     assert cfg.dhcp_mode == "proxy"
     assert cfg.dhcp_dns_servers == "8.8.8.8,8.8.4.4"
@@ -58,6 +62,55 @@ def test_defaults_when_env_empty(clean_env: pytest.MonkeyPatch) -> None:
     assert cfg.metrics_port == 9090
     assert cfg.storage_bucket_boot == "boot-images"
     assert cfg.storage_use_ssl is False
+
+
+def test_missing_worker_api_key_fails_startup(clean_env: pytest.MonkeyPatch) -> None:
+    """With WORKER_API_KEY unset there is no default: startup fails loudly."""
+    clean_env.delenv("WORKER_API_KEY")
+
+    with pytest.raises(ValueError, match="WORKER_API_KEY must be set"):
+        WorkerConfig.from_env()
+
+
+@pytest.mark.parametrize("key", ["", "worker-secret", "k" * 31])
+def test_short_worker_api_key_fails_startup_without_echoing_it(
+    clean_env: pytest.MonkeyPatch, key: str
+) -> None:
+    """Keys under 32 characters (incl. the old default) are refused and never appear in the error."""
+    clean_env.setenv("WORKER_API_KEY", key)
+
+    with pytest.raises(ValueError) as excinfo:
+        WorkerConfig.from_env()
+
+    assert "at least 32" in str(excinfo.value)
+    if key:
+        assert key not in str(excinfo.value)
+
+
+def test_exactly_32_char_key_is_accepted(clean_env: pytest.MonkeyPatch) -> None:
+    """The 32-character boundary is inclusive."""
+    clean_env.setenv("WORKER_API_KEY", "x" * 32)
+
+    assert WorkerConfig.from_env().worker_api_key == "x" * 32
+
+
+def test_missing_redis_url_fails_startup(clean_env: pytest.MonkeyPatch) -> None:
+    """Boot tokens need a shared store, so REDIS_URL is mandatory."""
+    clean_env.delenv("REDIS_URL")
+
+    with pytest.raises(ValueError, match="REDIS_URL must be set"):
+        WorkerConfig.from_env()
+
+
+def test_secrets_are_not_in_repr(clean_env: pytest.MonkeyPatch) -> None:
+    """repr() (used by loggers/tracebacks) must not expose the API key, Redis URL or storage secret."""
+    clean_env.setenv("STORAGE_SECRET_KEY", "storage-secret-value")
+
+    text = repr(WorkerConfig.from_env())
+
+    assert GOOD_KEY not in text
+    assert "redis://" not in text
+    assert "storage-secret-value" not in text
 
 
 def test_explicit_env_overrides_defaults_and_casts(clean_env: pytest.MonkeyPatch) -> None:

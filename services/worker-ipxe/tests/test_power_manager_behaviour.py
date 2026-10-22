@@ -7,13 +7,15 @@ TLS/socket fingerprinting via fake socket and SSL objects.
 import asyncio
 import hashlib
 import socket
-import ssl
+import tempfile
+from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
 import respx
 
+from tests.certs import make_cert as _make_cert
 from worker.services import power_manager as pm
 from worker.services.power_manager import BMCCredentials, PowerManager
 
@@ -66,8 +68,10 @@ def _spawn(monkeypatch: pytest.MonkeyPatch, proc: FakeProc | None, calls: list[d
 
 
 def _no_cert_check(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass BMC certificate verification for control-path tests."""
-    monkeypatch.setattr(pm, "_verify_bmc_cert", lambda *a, **k: True)
+    """Satisfy the mandatory-TLS gate with a CA bundle (HTTP itself is mocked by respx)."""
+    ca = Path(tempfile.mkdtemp()) / "ca.pem"
+    ca.write_bytes(_make_cert("ca.test")[0])
+    monkeypatch.setenv("REDFISH_CA_FILE", str(ca))
 
 
 # --- fingerprint helpers ---------------------------------------------------------------
@@ -85,149 +89,6 @@ def test_normalize_fingerprint_rejects_wrong_length(bad: str) -> None:
     """Anything that is not 64 hex characters after cleanup is refused with the length in the message."""
     with pytest.raises(ValueError, match="Invalid SHA-256 fingerprint length"):
         pm._normalize_fingerprint(bad)
-
-
-class _FakeTLS:
-    """TLS socket stand-in returning a fixed DER certificate."""
-
-    def __init__(self, der: bytes | None) -> None:
-        """Remember the DER bytes to return from getpeercert."""
-        self._der = der
-
-    def __enter__(self) -> "_FakeTLS":
-        """Enter the context manager."""
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        """Leave the context manager without suppressing errors."""
-
-    def getpeercert(self, binary_form: bool = False) -> bytes | None:
-        """Return the DER certificate when binary form is requested."""
-        assert binary_form is True
-        return self._der
-
-
-class _FakeRaw:
-    """Plain socket stand-in usable as a context manager."""
-
-    def __enter__(self) -> "_FakeRaw":
-        """Enter the context manager."""
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        """Leave the context manager without suppressing errors."""
-
-
-class _FakeCtx:
-    """SSL context stand-in recording the verification settings used."""
-
-    def __init__(self, der: bytes | None, settings: dict[str, Any]) -> None:
-        """Hold the certificate to present and a dict to record settings into."""
-        self._der = der
-        self._settings = settings
-        self.check_hostname = True
-        self.verify_mode = None
-
-    def wrap_socket(self, raw: object, server_hostname: str) -> _FakeTLS:
-        """Record the SNI host and present the fake certificate."""
-        self._settings["sni"] = server_hostname
-        self._settings["check_hostname"] = self.check_hostname
-        self._settings["verify_mode"] = self.verify_mode
-        return _FakeTLS(self._der)
-
-
-def _fake_tls(monkeypatch: pytest.MonkeyPatch, der: bytes | None, settings: dict[str, Any],
-              connect_error: Exception | None = None) -> None:
-    """Patch socket.create_connection and ssl context creation for fingerprint fetches."""
-
-    def fake_connect(address: tuple[str, int], timeout: float) -> _FakeRaw:
-        """Simulate TCP connect to the BMC, optionally failing."""
-        settings["address"] = address
-        if connect_error is not None:
-            raise connect_error
-        return _FakeRaw()
-
-    monkeypatch.setattr(socket, "create_connection", fake_connect)
-    monkeypatch.setattr(ssl, "create_default_context", lambda: _FakeCtx(der, settings))
-
-
-def test_get_fingerprint_is_sha256_of_peer_der(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The live fingerprint is the uppercase SHA-256 of the presented DER certificate."""
-    der = b"\x30\x82fake-der-bytes"
-    settings: dict[str, Any] = {}
-    _fake_tls(monkeypatch, der, settings)
-
-    fp = pm._get_bmc_cert_fingerprint(HOST, 8443, timeout=3.0)
-
-    assert fp == hashlib.sha256(der).hexdigest().upper()
-    assert settings["address"] == (HOST, 8443)
-    assert settings["sni"] == HOST
-    assert settings["check_hostname"] is False
-    assert settings["verify_mode"] == ssl.CERT_NONE
-
-
-def test_get_fingerprint_socket_error_is_runtime_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A TCP/TLS failure is re-raised as RuntimeError naming host and port."""
-    _fake_tls(monkeypatch, b"x", {}, connect_error=ConnectionRefusedError("refused"))
-
-    with pytest.raises(RuntimeError, match=rf"TLS handshake failed for {HOST}:443"):
-        pm._get_bmc_cert_fingerprint(HOST)
-
-
-def test_get_fingerprint_without_peer_certificate_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A TLS session that yields no peer certificate is an error, never an empty fingerprint."""
-    _fake_tls(monkeypatch, None, {})
-
-    with pytest.raises(RuntimeError, match="No peer certificate"):
-        pm._get_bmc_cert_fingerprint(HOST)
-
-
-def test_verify_without_pin_fails_closed_before_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    """With no pin and insecure mode off, verification refuses before opening any connection."""
-    monkeypatch.delenv("BMC_ALLOW_INSECURE_TLS", raising=False)
-    touched: list[bool] = []
-    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: touched.append(True))
-
-    with pytest.raises(RuntimeError, match="no certificate pin configured"):
-        pm._verify_bmc_cert(HOST, None)
-
-    assert touched == []
-
-
-@pytest.mark.parametrize("flag", ["true", "1", "YES"])
-def test_verify_without_pin_allowed_when_insecure_flag_set(monkeypatch: pytest.MonkeyPatch, flag: str) -> None:
-    """BMC_ALLOW_INSECURE_TLS (true/1/yes, any case) explicitly permits unpinned connections."""
-    monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", flag)
-
-    assert pm._verify_bmc_cert(HOST, None) is True
-
-
-def test_verify_with_matching_pin_passes(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A live certificate whose fingerprint equals the pin (any spelling) verifies."""
-    der = b"matching-cert"
-    _fake_tls(monkeypatch, der, {})
-    pin = hashlib.sha256(der).hexdigest()
-
-    assert pm._verify_bmc_cert(HOST, pin.lower()) is True
-
-
-def test_verify_with_mismatched_pin_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A different live certificate is rejected with both fingerprints in the message."""
-    _fake_tls(monkeypatch, b"attacker-cert", {})
-
-    with pytest.raises(RuntimeError, match="cert fingerprint mismatch"):
-        pm._verify_bmc_cert(HOST, PIN)
-
-
-def test_verify_with_malformed_stored_pin_fails(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A corrupt stored pin is reported as a stored-format error, before any network I/O."""
-    touched: list[bool] = []
-    monkeypatch.setattr(socket, "create_connection", lambda *a, **k: touched.append(True))
-
-    with pytest.raises(RuntimeError, match="Invalid stored fingerprint format"):
-        pm._verify_bmc_cert(HOST, "not-a-fingerprint")
-
-    assert touched == []
 
 
 # --- dispatch ------------------------------------------------------------------------
@@ -257,6 +118,48 @@ async def test_ipmi_power_on_success_passes_password_via_env_not_argv(monkeypatc
     assert argv == ["ipmitool", "-I", "lanplus", "-H", HOST, "-U", "admin", "-E", "power", "on"]
     assert "s3cret-pass" not in " ".join(argv)
     assert calls[0]["env"]["IPMI_PASSWORD"] == "s3cret-pass"
+
+
+@pytest.mark.asyncio
+async def test_ipmi_child_env_excludes_worker_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+    """ipmitool gets a minimal environment: the BMC password, never the worker's own secrets."""
+    monkeypatch.setenv("WORKER_API_KEY", "worker-key-should-not-leak")
+    monkeypatch.setenv("STORAGE_SECRET_KEY", "storage-should-not-leak")
+    monkeypatch.setenv("PATH", "/usr/bin")
+    calls: list[dict[str, Any]] = []
+    _spawn(monkeypatch, FakeProc(returncode=0, stdout=b"ok"), calls)
+
+    await PowerManager().power_control(_creds(), "on")
+
+    assert set(calls[0]["env"]) <= {"PATH", "LANG", "LC_ALL", "IPMI_PASSWORD"}
+    assert "IPMI_PASSWORD" in calls[0]["env"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("address", ["-oProxyCommand=evil", "-h"])
+async def test_ipmi_address_that_looks_like_an_option_is_refused(
+    monkeypatch: pytest.MonkeyPatch, address: str
+) -> None:
+    """A BMC address starting with '-' would be parsed as an ipmitool option; it never spawns."""
+    calls: list[dict[str, Any]] = []
+    _spawn(monkeypatch, FakeProc(), calls)
+
+    ok, msg = await PowerManager().power_control(_creds(address=address), "on")
+    ok_boot, _ = await PowerManager().set_boot_device(_creds(address=address), "pxe")
+
+    assert (ok, msg, ok_boot, calls) == (False, "Invalid BMC address", False, [])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mac", ["-v", "not-a-mac", "00:11:22:33:44", "00:11:22:33:44:55:66"])
+async def test_wol_rejects_non_mac_address_before_spawning(monkeypatch: pytest.MonkeyPatch, mac: str) -> None:
+    """Only a 6-octet MAC reaches wakeonlan; anything else (incl. option-like input) is refused."""
+    calls: list[dict[str, Any]] = []
+    _spawn(monkeypatch, FakeProc(), calls)
+
+    ok, msg = await PowerManager().power_control(_creds("wol", address=mac), "on")
+
+    assert (ok, msg, calls) == (False, "Invalid MAC address", [])
 
 
 @pytest.mark.asyncio
@@ -394,21 +297,16 @@ async def test_redfish_invalid_action_is_rejected(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_redfish_certificate_failure_blocks_control(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If certificate verification fails, no reset is sent and the reason is returned."""
-
-    def bad_cert(*a: object, **k: object) -> bool:
-        """Simulate a pin mismatch."""
-        raise RuntimeError("cert fingerprint mismatch")
-
-    monkeypatch.setattr(pm, "_verify_bmc_cert", bad_cert)
+async def test_redfish_without_ca_or_pin_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No REDFISH_CA_FILE and no pin: no request is made and the error says why."""
+    monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
     with respx.mock(assert_all_called=False) as router:
         route = router.post(REDFISH_RESET).mock(return_value=httpx.Response(204))
-        ok, msg = await PowerManager().power_control(_creds("redfish", cert_fingerprint=PIN), "on")
+        ok, msg = await PowerManager().power_control(_creds("redfish"), "on")
 
     assert route.call_count == 0
     assert ok is False
-    assert msg == "Certificate verification failed: cert fingerprint mismatch"
+    assert "refusing Redfish without TLS verification" in msg
 
 
 @pytest.mark.asyncio
@@ -460,19 +358,14 @@ async def test_redfish_status_exception_is_failure(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_certificate_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Status reads are also gated by certificate verification."""
-
-    def bad_cert(*a: object, **k: object) -> bool:
-        """Simulate an unpinned BMC."""
-        raise RuntimeError("no pin")
-
-    monkeypatch.setattr(pm, "_verify_bmc_cert", bad_cert)
+async def test_redfish_status_without_ca_or_pin_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Status reads are gated by the same mandatory TLS verification."""
+    monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
 
     ok, msg = await PowerManager().power_control(_creds("redfish"), "status")
 
     assert ok is False
-    assert msg == "Certificate verification failed: no pin"
+    assert "refusing Redfish without TLS verification" in msg
 
 
 # --- Wake-on-LAN ---------------------------------------------------------------------

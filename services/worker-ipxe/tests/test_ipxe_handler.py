@@ -70,8 +70,8 @@ async def test_unknown_machine_gets_discovery_script() -> None:
     assert script.startswith("#!ipxe\n")
     assert "# Discovery script for new machine: aabbccddeeff" in script
     assert "echo MAC Address: aabbccddeeff" in script
-    assert f"chain {BOOT_URL}/boot-event || goto failed" in script
-    assert f"kernel {BOOT_URL}/images/discovery/vmlinuz initrd=initrd ip=dhcp" in script
+    assert "chain " not in script.split("Boot discovery image")[0]  # no GET chain to the POST-only /boot-event
+    assert f"kernel {BOOT_URL}/images/discovery/vmlinuz initrd=initrd ip=dhcp gough.boot_token=${{boot_token}}" in script
     assert f"initrd {BOOT_URL}/images/discovery/initrd" in script
     assert script.rstrip().endswith("shell")
 
@@ -147,7 +147,7 @@ def test_discovery_script_uses_boot_url_from_config() -> None:
 
     script = handler._generate_discovery_script("001122334455")
 
-    assert "https://boot.example.net:9443/boot-event" in script
+    assert "https://boot.example.net:9443/images/discovery/vmlinuz" in script
     assert "http://10.20.30.40" not in script
 
 

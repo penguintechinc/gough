@@ -308,12 +308,25 @@ def test_main_exits_one_on_invalid_configuration(monkeypatch: pytest.MonkeyPatch
     assert excinfo.value.code == 1
 
 
+def test_main_exits_one_without_worker_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no WORKER_API_KEY the worker refuses to start (no default credential)."""
+    monkeypatch.delenv("WORKER_API_KEY", raising=False)
+    monkeypatch.setenv("REDIS_URL", "redis://test:6379/0")
+
+    with pytest.raises(SystemExit) as excinfo:
+        asyncio.run(main())
+
+    assert excinfo.value.code == 1
+
+
 def test_main_exits_one_when_worker_run_fails(monkeypatch: pytest.MonkeyPatch) -> None:
     """A fatal error from run() is logged and converted into exit status 1."""
     monkeypatch.setenv("DHCP_MODE", "disabled")
     monkeypatch.setenv("TFTP_ENABLED", "False")
     monkeypatch.setenv("METRICS_ENABLED", "False")
     monkeypatch.setenv("LOG_LEVEL", "debug")
+    monkeypatch.setenv("WORKER_API_KEY", "k" * 32)
+    monkeypatch.setenv("REDIS_URL", "redis://test:6379/0")
 
     async def boom(self: WorkerIPXE) -> None:
         """Simulate a fatal runtime failure inside the worker."""
@@ -333,6 +346,8 @@ def test_main_runs_worker_and_returns_on_success(monkeypatch: pytest.MonkeyPatch
     """A clean run() lets main() return normally and passes the parsed config into WorkerIPXE."""
     monkeypatch.setenv("DHCP_MODE", "disabled")
     monkeypatch.setenv("LOG_LEVEL", "warning")
+    monkeypatch.setenv("WORKER_API_KEY", "k" * 32)
+    monkeypatch.setenv("REDIS_URL", "redis://test:6379/0")
     seen: list[WorkerConfig] = []
 
     async def ok(self: WorkerIPXE) -> None:
