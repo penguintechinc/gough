@@ -4,6 +4,7 @@ This module contains all REST API endpoints for Gough organized by domain.
 """
 
 from .agents import agents_bp
+from .lxd_cluster import lxd_bp
 from .clouds import clouds_bp
 from .secrets import secrets_bp
 from .shell import shell_bp
@@ -13,6 +14,7 @@ from .teams import teams_bp
 
 __all__ = [
     "agents_bp",
+    "lxd_bp",
     "clouds_bp",
     "secrets_bp",
     "shell_bp",

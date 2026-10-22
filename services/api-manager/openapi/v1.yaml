@@ -1,0 +1,84 @@
+openapi: 3.0.3
+info:
+  title: Gough API Manager (LXD cluster join)
+  version: 1.0.0
+  description: >
+    Scope: installer hub contracts only (LXD cluster join tokens). Other API Manager
+    endpoints are not yet documented in this file.
+servers:
+  - url: https://{hub}
+    variables:
+      hub:
+        default: hub.example.internal
+paths:
+  /api/v1/lxd/cluster-join-tokens:
+    post:
+      operationId: createLxdClusterJoinToken
+      summary: Mint a one-time LXD cluster join token for a new member
+      security:
+        - agentBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/JoinTokenRequest"
+      responses:
+        "200":
+          description: Join token issued
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JoinTokenResponse"
+        "400":
+          $ref: "#/components/responses/Error"
+        "401":
+          $ref: "#/components/responses/Error"
+        "403":
+          $ref: "#/components/responses/Error"
+        "409":
+          $ref: "#/components/responses/Error"
+        "429":
+          $ref: "#/components/responses/Error"
+        "502":
+          $ref: "#/components/responses/Error"
+        "503":
+          $ref: "#/components/responses/Error"
+components:
+  securitySchemes:
+    agentBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Agent access token (type agent_access) issued by POST /api/v1/agents/enroll.
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    JoinTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [member_name]
+      properties:
+        member_name:
+          type: string
+          maxLength: 63
+          pattern: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+          description: RFC 1123 hostname of the joining member.
+    JoinTokenResponse:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+          description: LXD cluster join token (base64). Single use; never logged by the hub.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
