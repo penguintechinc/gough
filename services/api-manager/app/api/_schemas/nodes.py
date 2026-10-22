@@ -30,6 +30,7 @@ class NicInfo(BaseModel):
 class SmartAttribute(BaseModel):
     """Single SMART attribute entry for a disk."""
 
+    device: Optional[str] = Field(None, max_length=255, description="Disk device name, e.g. sda")
     id: int = Field(..., description="SMART attribute ID")
     name: str = Field(..., description="Attribute name")
     value: int = Field(..., description="Normalised value (0-255)")
@@ -60,6 +61,16 @@ class AcceleratorInfo(BaseModel):
     model: str = Field(..., description="Human-readable model name")
     vram_mb: Optional[int] = Field(None, description="VRAM in MiB")
     pci_address: Optional[str] = Field(None, description="PCI BDF address")
+
+
+BmcTlsStatus = Literal[
+    "ok",
+    "bmc_tls_unverified",
+    "bmc_cert_mismatch",
+    "bmc_unreachable",
+    "bmc_not_configured",
+    "bmc_pin_conflict",
+]
 
 
 class DiscoverRequest(BaseModel):
@@ -94,6 +105,18 @@ class DiscoverRequest(BaseModel):
     hardware_tags: list[str] = Field(
         default_factory=list,
         description="Auto-discovered hardware tags from the agent",
+    )
+    hostname: Optional[str] = Field(None, max_length=255, description="Kernel hostname at probe time")
+    sys_vendor: Optional[str] = Field(None, max_length=255, description="DMI sys_vendor")
+    product_name: Optional[str] = Field(None, max_length=255, description="DMI product_name")
+    bios_version: Optional[str] = Field(None, max_length=255, description="DMI bios_version")
+    bmc_tls_status: Optional[BmcTlsStatus] = Field(
+        None, description="BMC certificate verification outcome; null when the BMC was not probed"
+    )
+    bmc_cert_sha256: Optional[str] = Field(
+        None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="Observed BMC leaf-certificate SHA-256 (lowercase hex)",
     )
 
 

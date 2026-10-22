@@ -12,7 +12,6 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -288,40 +287,19 @@ func collectProbesWith(ctx context.Context, runner exec.Runner) (tags.HardwareIn
 	}, nil
 }
 
-// buildDiscoverRequest assembles the POST body from probe results.
+// buildDiscoverRequest assembles the hub-shaped POST body from probe results.
 func buildDiscoverRequest(mac, hostname string, hw tags.HardwareInput, hwTags []string) (discover.Request, error) {
-	req := discover.Request{
-		MACAddress:   mac,
+	return discover.BuildRequest(discover.Input{
+		MAC:          mac,
 		Hostname:     hostname,
-		ProductUUID:  hw.DMI.ProductUUID,
-		SysVendor:    hw.DMI.SysVendor,
-		ProductName:  hw.DMI.ProductName,
-		BIOSVersion:  hw.DMI.BIOSVersion,
-		FirmwareType: string(hw.Firmware),
+		DMI:          hw.DMI,
+		Firmware:     hw.Firmware,
+		Lshw:         hw.Lshw.Raw,
+		Lsblk:        hw.Lsblk.Raw,
+		NICs:         hw.NICs,
+		SMART:        hw.SMART,
+		NUMA:         hw.NUMA,
+		Accelerators: hw.Accelerators,
 		HardwareTags: hwTags,
-	}
-
-	if hw.Lshw.Raw != nil {
-		req.Lshw = hw.Lshw.Raw
-	}
-	if hw.Lsblk.Raw != nil {
-		req.Lsblk = hw.Lsblk.Raw
-	}
-
-	for _, s := range hw.SMART {
-		if s.Raw != nil {
-			req.SMART = append(req.SMART, s.Raw)
-		}
-	}
-
-	if hw.NUMA.Lstopo.Raw != nil {
-		req.NumaJSON = hw.NUMA.Lstopo.Raw
-	}
-
-	accelJSON, err := json.Marshal(hw.Accelerators)
-	if err == nil {
-		req.AcceleratorJSON = accelJSON
-	}
-
-	return req, nil
+	})
 }

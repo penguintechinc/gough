@@ -143,10 +143,11 @@ func TestValidateBMCCert(t *testing.T) {
 			wantMismatch: true,
 		},
 		{
-			name:      "CA that did not issue the leaf fails the handshake",
-			trust:     func(bmcFixture) BMCTrust { return BMCTrust{CAFile: otherCA} },
-			wantErr:   true,
-			wantConns: 1,
+			name:         "CA that did not issue the leaf reports mismatch, not unreachable",
+			trust:        func(bmcFixture) BMCTrust { return BMCTrust{CAFile: otherCA} },
+			wantStatus:   BMCStatusCertMismatch,
+			wantConns:    1,
+			wantMismatch: true,
 		},
 		{
 			name:      "missing CA file",

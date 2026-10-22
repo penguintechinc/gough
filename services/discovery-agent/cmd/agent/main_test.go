@@ -135,14 +135,13 @@ func TestBuildDiscoverRequest(t *testing.T) {
 		wantNuma     bool
 		wantFirmware probe.FirmwareType
 	}{
-		{name: "empty hardware", hw: tags.HardwareInput{}, wantFirmware: ""},
 		{
 			name: "raw blobs forwarded, smart without raw skipped",
 			hw: tags.HardwareInput{
 				Lshw:     probe.LshwOutput{Raw: json.RawMessage(`{"class":"system"}`)},
 				Lsblk:    probe.LsblkOutput{Raw: json.RawMessage(`{"blockdevices":[]}`)},
-				SMART:    []probe.SmartOutput{{Raw: json.RawMessage(`{"a":1}`)}, smartOK},
-				NUMA:     probe.NUMAProbeResult{Lstopo: probe.LstopoOutput{Raw: json.RawMessage(`{"topo":true}`)}},
+				SMART:    []probe.SmartOutput{mustSmartRow(), smartOK},
+				NUMA:     probe.NUMAProbeResult{Numactl: probe.NumactlOutput{Available: 1, NodeCPUs: map[int][]int{0: {0, 1}}, NodeMem: map[int]int64{0: 1024}}},
 				Firmware: probe.FirmwareUEFI,
 				DMI:      probe.DMIInfo{ProductUUID: "uuid-1", SysVendor: "Dell", ProductName: "R640", BIOSVersion: "2.1"},
 			},
@@ -156,32 +155,32 @@ func TestBuildDiscoverRequest(t *testing.T) {
 			if err != nil {
 				t.Fatalf("buildDiscoverRequest: %v", err)
 			}
-			if req.MACAddress != "aa:bb:cc:dd:ee:ff" || req.Hostname != "node-01" {
-				t.Errorf("mac/hostname = %q/%q", req.MACAddress, req.Hostname)
+			if req.PrimaryNICMAC != "aa:bb:cc:dd:ee:ff" || req.Hostname != "node-01" {
+				t.Errorf("mac/hostname = %q/%q", req.PrimaryNICMAC, req.Hostname)
 			}
-			if req.ProductUUID != tc.hw.DMI.ProductUUID || req.SysVendor != tc.hw.DMI.SysVendor {
-				t.Errorf("DMI fields not mapped: %+v", req)
+			if req.DMIUUID != tc.hw.DMI.ProductUUID || req.SysVendor != tc.hw.DMI.SysVendor {
+				t.Errorf("dmi = %q/%q", req.DMIUUID, req.SysVendor)
 			}
-			if string(req.FirmwareType) != string(tc.wantFirmware) {
+			if req.FirmwareType != string(tc.wantFirmware) {
 				t.Errorf("FirmwareType = %q, want %q", req.FirmwareType, tc.wantFirmware)
 			}
 			if len(req.HardwareTags) != 1 {
 				t.Errorf("HardwareTags = %v", req.HardwareTags)
 			}
-			if (req.Lshw != nil) != tc.wantLshw {
-				t.Errorf("Lshw present = %v, want %v", req.Lshw != nil, tc.wantLshw)
+			if (req.LshwJSON != nil) != tc.wantLshw {
+				t.Errorf("LshwJSON present = %v, want %v", req.LshwJSON != nil, tc.wantLshw)
 			}
-			if (req.Lsblk != nil) != tc.wantLsblk {
-				t.Errorf("Lsblk present = %v, want %v", req.Lsblk != nil, tc.wantLsblk)
+			if (req.LsblkJSON != nil) != tc.wantLsblk {
+				t.Errorf("LsblkJSON present = %v, want %v", req.LsblkJSON != nil, tc.wantLsblk)
 			}
-			if len(req.SMART) != tc.wantSMART {
-				t.Errorf("SMART entries = %d, want %d", len(req.SMART), tc.wantSMART)
+			if len(req.SmartAttributes) != tc.wantSMART {
+				t.Errorf("SmartAttributes = %d, want %d", len(req.SmartAttributes), tc.wantSMART)
 			}
-			if (req.NumaJSON != nil) != tc.wantNuma {
-				t.Errorf("NumaJSON present = %v, want %v", req.NumaJSON != nil, tc.wantNuma)
+			if (req.NumaTopology != nil) != tc.wantNuma {
+				t.Errorf("NumaTopology present = %v, want %v", req.NumaTopology != nil, tc.wantNuma)
 			}
-			if len(req.AcceleratorJSON) == 0 {
-				t.Error("AcceleratorJSON should always be marshalled")
+			if req.Accelerators == nil || req.Nics == nil || req.SmartAttributes == nil {
+				t.Error("list fields must be non-nil so the hub never receives null")
 			}
 		})
 	}
@@ -262,5 +261,23 @@ func TestRunFailsBeforeNetworkWithoutCmdline(t *testing.T) {
 	}
 	if errors.Is(err, context.Canceled) {
 		t.Errorf("unexpected cancellation: %v", err)
+	}
+}
+
+// mustSmartRow returns a SMART probe with one ATA table row for disk sda.
+func mustSmartRow() probe.SmartOutput {
+	var so probe.SmartOutput
+	raw := `{"device":{"name":"sda"},"ata_smart_attributes":{"table":[{"id":5,"name":"Reallocated_Sector_Ct","value":100,"worst":100,"thresh":10,"raw":{"value":0}}]}}`
+	if err := json.Unmarshal([]byte(raw), &so); err != nil {
+		panic(err)
+	}
+	return so
+}
+
+// TestBuildDiscoverRequest_RejectsEmptyHardware asserts the builder fails loudly
+// when the hub-required DMI UUID or firmware type is missing, instead of posting a 422.
+func TestBuildDiscoverRequest_RejectsEmptyHardware(t *testing.T) {
+	if _, err := buildDiscoverRequest("aa:bb:cc:dd:ee:ff", "node-01", tags.HardwareInput{}, nil); err == nil {
+		t.Fatal("expected error for empty DMI UUID and firmware")
 	}
 }

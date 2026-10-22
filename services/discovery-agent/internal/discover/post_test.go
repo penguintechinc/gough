@@ -81,8 +81,8 @@ func TestPost(t *testing.T) {
 				if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 					t.Errorf("decode request: %v", err)
 				}
-				if req.MACAddress != "aa:bb:cc:dd:ee:ff" {
-					t.Errorf("MACAddress = %q", req.MACAddress)
+				if req.PrimaryNICMAC != "aa:bb:cc:dd:ee:ff" {
+					t.Errorf("PrimaryNICMAC = %q", req.PrimaryNICMAC)
 				}
 				w.WriteHeader(tc.status)
 				if tc.body != "" {
@@ -97,7 +97,7 @@ func TestPost(t *testing.T) {
 			srv.StartTLS()
 			defer srv.Close()
 
-			req := discover.Request{MACAddress: "aa:bb:cc:dd:ee:ff", HardwareTags: []string{"disk:nvme"}}
+			req := discover.Request{DMIUUID: "uuid-1", PrimaryNICMAC: "aa:bb:cc:dd:ee:ff", HardwareTags: []string{"disk:nvme"}}
 			got, err := discover.Post(context.Background(), srv.URL, tc.token, caPath, req)
 
 			if (err != nil) != tc.wantErr {
@@ -231,21 +231,22 @@ func TestRequest_JSON(t *testing.T) {
 		absentKeys []string
 	}{
 		{
-			name:       "minimal request omits optional raw blobs",
-			req:        discover.Request{MACAddress: "aa:bb:cc:dd:ee:ff"},
-			wantKeys:   []string{"mac_address", "hostname", "hardware_tags"},
-			absentKeys: []string{"lshw", "lsblk", "smart", "numa", "accelerators"},
+			name:       "minimal request omits optional objects",
+			req:        discover.Request{DMIUUID: "uuid-1", PrimaryNICMAC: "aa:bb:cc:dd:ee:ff"},
+			wantKeys:   []string{"dmi_uuid", "primary_nic_mac", "firmware_type", "smart_attributes", "nics", "accelerators", "hardware_tags"},
+			absentKeys: []string{"lshw_json", "lsblk_json", "numa_topology", "hostname", "bmc_tls_status", "bmc_cert_sha256"},
 		},
 		{
-			name: "raw blobs are forwarded verbatim",
+			name: "raw objects are forwarded under hub field names",
 			req: discover.Request{
-				MACAddress:      "aa:bb:cc:dd:ee:ff",
-				Lshw:            json.RawMessage(`{"class":"system"}`),
-				SMART:           []json.RawMessage{json.RawMessage(`{"smart_status":{"passed":true}}`)},
-				AcceleratorJSON: json.RawMessage(`{"pci_devices":[]}`),
+				DMIUUID:       "uuid-1",
+				LshwJSON:      json.RawMessage(`{"class":"system"}`),
+				LsblkJSON:     json.RawMessage(`{"blockdevices":[]}`),
+				BMCTLSStatus:  "ok",
+				BMCCertSHA256: strings.Repeat("a", 64),
 			},
-			wantKeys:   []string{"lshw", "smart", "accelerators"},
-			absentKeys: []string{"lsblk", "numa"},
+			wantKeys:   []string{"lshw_json", "lsblk_json", "bmc_tls_status", "bmc_cert_sha256"},
+			absentKeys: []string{"lshw", "lsblk", "mac_address"},
 		},
 	}
 	for _, tc := range tests {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/cmdline"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/discover"
+	"github.com/penguintechinc/gough/services/discovery-agent/internal/probe"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/tags"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/testutil"
 )
@@ -112,11 +113,11 @@ func TestAttachBMCStatus(t *testing.T) {
 			wantStatus: bmcStatusOK, wantConns: 1, wantSHA: true,
 		},
 		{
-			name:       "cmdline pin overrides a wrong env pin: ok",
+			name:       "cmdline pin conflicting with env pin: pin_conflict, no connection",
 			bmc:        func(f bmcFixture) string { return f.addr },
 			pin:        func(f bmcFixture) string { return f.sha },
 			envPin:     wrongPin,
-			wantStatus: bmcStatusOK, wantConns: 1, wantSHA: true,
+			wantStatus: bmcStatusPinConflict, wantConns: 0,
 		},
 		{
 			name:       "no trust configured: tls_unverified, no connection",
@@ -235,7 +236,8 @@ func TestBuildPayloadPostsBMCStatus(t *testing.T) {
 	params.BMC = bmc.addr
 	params.BMCSHA256 = bmc.sha
 
-	req, err := buildPayload(context.Background(), params, tags.HardwareInput{}, []string{"cpu:vendor:intel"})
+	hw := tags.HardwareInput{DMI: probe.DMIInfo{ProductUUID: "uuid-bmc"}, Firmware: probe.FirmwareUEFI}
+	req, err := buildPayload(context.Background(), params, hw, []string{"cpu:vendor:intel"})
 	if err != nil {
 		t.Fatalf("buildPayload: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"strings"
@@ -120,9 +121,10 @@ func loadCAPool(path string) (*x509.CertPool, error) {
 // ValidateBMCCert connects to the BMC HTTPS endpoint and verifies its certificate
 // according to trust. With no trust configured it returns BMCStatusUnverified
 // without opening a connection: an unverified BMC is reported, never trusted.
-// A pin mismatch increments the BMC mismatch counter and returns
-// BMCStatusCertMismatch with a nil error; transport and configuration failures
-// are returned as errors.
+// Certificate verification failures (unknown authority, invalid chain, hostname
+// mismatch, pin mismatch) return BMCStatusCertMismatch with the observed leaf
+// SHA-256 and a nil error; only dial, timeout and configuration failures are
+// returned as errors (reported upstream as bmc_unreachable).
 func ValidateBMCCert(ctx context.Context, bmcIP string, trust BMCTrust) (BMCResult, error) {
 	if trust.CAFile == "" && trust.CertSHA256 == "" {
 		return BMCResult{Status: BMCStatusUnverified}, nil
@@ -137,43 +139,57 @@ func ValidateBMCCert(ctx context.Context, bmcIP string, trust BMCTrust) (BMCResu
 		pin = p
 	}
 
-	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
-	var (
-		observed atomic.Pointer[string]
-		mismatch atomic.Bool
-	)
-
+	var roots *x509.CertPool
 	if trust.CAFile != "" {
 		pool, err := loadCAPool(trust.CAFile)
 		if err != nil {
 			return BMCResult{}, err
 		}
-		cfg.RootCAs = pool
-	} else {
-		// Pin-only path: BMCs typically present self-signed certificates with no chain
-		// to verify, so chain verification is skipped. The leaf pin is enforced in
-		// VerifyConnection, which runs after every handshake, including resumed ones,
-		// so a wrong certificate fails the handshake before any application data.
-		cfg.InsecureSkipVerify = true //#nosec G402 -- self-signed BMC; leaf pin enforced in VerifyConnection //nolint:gosec
+		roots = pool
 	}
 
-	if pin != "" {
-		// Session tickets are disabled so every connection performs a full handshake
-		// and the pin check cannot be bypassed by resumption.
-		cfg.SessionTicketsDisabled = true
-		cfg.VerifyConnection = func(cs tls.ConnectionState) error {
-			if len(cs.PeerCertificates) == 0 {
-				return errors.New("bmc: peer presented no certificate")
-			}
-			sum := sha256.Sum256(cs.PeerCertificates[0].Raw)
-			got := hex.EncodeToString(sum[:])
-			observed.Store(&got)
-			if got != pin {
-				mismatch.Store(true)
-				return errors.New("bmc: certificate does not match pinned thumbprint")
-			}
-			return nil
+	// Verification runs in VerifyConnection so the observed leaf is captured even
+	// when the chain is rejected. InsecureSkipVerify only disables the stdlib
+	// chain check; the explicit chain and pin checks below replace it.
+	cfg := &tls.Config{
+		MinVersion:             tls.VersionTLS12,
+		InsecureSkipVerify:     true, //#nosec G402 -- replaced by VerifyConnection chain/pin checks below //nolint:gosec
+		SessionTicketsDisabled: true, // full handshake on every connection so checks cannot be resumed around
+	}
+	var (
+		observed atomic.Pointer[string]
+		mismatch atomic.Bool
+	)
+	cfg.VerifyConnection = func(cs tls.ConnectionState) error {
+		if len(cs.PeerCertificates) == 0 {
+			return errors.New("bmc: peer presented no certificate")
 		}
+		leaf := cs.PeerCertificates[0]
+		sum := sha256.Sum256(leaf.Raw)
+		got := hex.EncodeToString(sum[:])
+		observed.Store(&got)
+
+		if roots != nil {
+			inter := x509.NewCertPool()
+			for _, c := range cs.PeerCertificates[1:] {
+				inter.AddCert(c)
+			}
+			_, err := leaf.Verify(x509.VerifyOptions{
+				DNSName:       bmcHost(bmcIP),
+				Roots:         roots,
+				Intermediates: inter,
+				KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageAny},
+			})
+			if err != nil {
+				mismatch.Store(true)
+				return fmt.Errorf("bmc: chain verification failed: %w", err)
+			}
+		}
+		if pin != "" && got != pin {
+			mismatch.Store(true)
+			return errors.New("bmc: certificate does not match pinned thumbprint")
+		}
+		return nil
 	}
 
 	client := &http.Client{
@@ -190,9 +206,13 @@ func ValidateBMCCert(ctx context.Context, bmcIP string, trust BMCTrust) (BMCResu
 
 	resp, err := client.Do(req)
 	if err != nil {
-		if mismatch.Load() {
+		if mismatch.Load() || isVerificationError(err) {
 			metrics.BMCCertMismatchTotal.Inc()
-			return BMCResult{Status: BMCStatusCertMismatch, Thumbprint: *observed.Load()}, nil
+			thumb := ""
+			if p := observed.Load(); p != nil {
+				thumb = *p
+			}
+			return BMCResult{Status: BMCStatusCertMismatch, Thumbprint: thumb}, nil
 		}
 		return BMCResult{}, fmt.Errorf("bmc: connect %s: %w", bmcIP, err)
 	}
@@ -209,4 +229,27 @@ func ValidateBMCCert(ctx context.Context, bmcIP string, trust BMCTrust) (BMCResu
 		result.Status = BMCStatusVerifiedPin
 	}
 	return result, nil
+}
+
+// bmcHost strips an optional :port so the certificate is checked against the host alone.
+func bmcHost(addr string) string {
+	if host, _, err := net.SplitHostPort(addr); err == nil {
+		return host
+	}
+	return addr
+}
+
+// isVerificationError reports whether err originates from X.509 or TLS
+// certificate verification, as opposed to a dial, timeout or protocol failure.
+func isVerificationError(err error) bool {
+	var (
+		unknownAuth x509.UnknownAuthorityError
+		invalid     x509.CertificateInvalidError
+		hostErr     x509.HostnameError
+		certVerify  *tls.CertificateVerificationError
+	)
+	return errors.As(err, &unknownAuth) ||
+		errors.As(err, &invalid) ||
+		errors.As(err, &hostErr) ||
+		errors.As(err, &certVerify)
 }
