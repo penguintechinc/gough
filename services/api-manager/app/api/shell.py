@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from typing import Any
 
@@ -17,10 +18,21 @@ from ..middleware import auth_required, get_current_user, user_has_role
 from ..audit import get_audit_logger
 from ..db.run_db import run_db
 from ..models import get_db
+from ..shell_tickets import TICKET_TTL_SECONDS, TicketClaims, get_ticket_store
 
 log = logging.getLogger(__name__)
 
 shell_bp = Blueprint("shell", __name__, url_prefix="/api/v1/shell")
+
+
+def user_is_admin(user_id: int) -> bool:
+    """Return True if the user holds the ``admin`` role (blocking DB call)."""
+    db = get_db()
+    rows = db(
+        (db.auth_user_roles.user_id == user_id) & (
+            db.auth_role.id == db.auth_user_roles.role_id)
+    ).select(db.auth_role.name)
+    return any(r.name == "admin" for r in rows)
 
 
 def check_shell_access(
@@ -228,7 +240,9 @@ async def create_session():
     # Generate WebSocket URL
     # In production, this would be the actual WebSocket endpoint
     # with proper protocol (wss://) and hostname
-    websocket_url = f"wss://gough.local/ws/shell/{session_id}"
+    # (a single-use ticket from POST /sessions/<id>/ticket is appended by
+    # the client as ``&ticket=``)
+    websocket_url = f"wss://gough.local/ws/shell?session_id={session_id}"
 
     return jsonify({
         "message": "Shell session created successfully",
@@ -378,3 +392,69 @@ async def terminate_session(session_id: str):
         "session_id": session_id,
         "duration_seconds": result,
     }), 200
+
+
+@dataclass(slots=True, frozen=True)
+class ShellTicketResponse:
+    """Response DTO for a minted WebSocket shell ticket."""
+
+    ticket: str
+    expires_in: int
+    websocket_url: str
+
+
+@shell_bp.route("/sessions/<session_id>/ticket", methods=["POST"])
+@auth_required
+async def issue_ticket(session_id: str):
+    """Mint a single-use 60s WebSocket ticket for a shell session.
+
+    The ticket is bound to the authenticated user, their tenant and the
+    session, and is presented as ``?ticket=`` on ``/ws/shell``. Requires the
+    ``gough.shell.attach`` scope (enforced by SCOPE_POLICY), session ownership
+    (or admin) and shell access to the session's resource.
+
+    Returns:
+        200: Ticket issued (``ShellTicketResponse``)
+        403: Not owner/admin or no shell access
+        404: Session not found
+        409: Session already ended
+    """
+    current_user = get_current_user()
+    tc = g.get("tenant_context")
+    tenant = getattr(tc, "tenant_id", None)
+    if not tenant:
+        return jsonify({"error": "Tenant required"}), 403
+
+    def _check() -> tuple[Any, str | None, int]:
+        db = get_db()
+        sess = db(db.shell_sessions.session_id == session_id).select().first()
+        if not sess:
+            return None, "Session not found", 404
+        if sess.user_id != current_user["id"] and not user_is_admin(current_user["id"]):
+            return None, "Access denied", 403
+        if sess.ended_at:
+            return None, "Session already terminated", 409
+        ok, err = check_shell_access(
+            current_user["id"], sess.resource_type, sess.resource_id
+        )
+        if not ok:
+            return None, err or "Access denied", 403
+        return sess, None, 200
+
+    sess, err, status = await run_db(_check)
+    if sess is None:
+        return jsonify({"error": err}), status
+
+    ticket = await get_ticket_store().mint(
+        TicketClaims(user_id=current_user["id"], session_id=session_id, tenant=str(tenant))
+    )
+    audit_logger = get_audit_logger()
+    if audit_logger:
+        audit_logger.log_shell_ticket_issued(session_id, current_user["id"])
+
+    dto = ShellTicketResponse(
+        ticket=ticket,
+        expires_in=TICKET_TTL_SECONDS,
+        websocket_url=f"wss://gough.local/ws/shell?session_id={session_id}",
+    )
+    return jsonify(asdict(dto)), 200

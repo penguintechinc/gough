@@ -1,354 +1,204 @@
-"""WebSocket Support for Real-Time Shell Sessions.
+"""WebSocket endpoint for interactive shell sessions (hub side).
 
-Provides Quart native WebSocket integration for interactive shell sessions
-with PTY support. Handles WebSocket connections, PTY process
-management, and terminal I/O forwarding.
+SECURITY: the hub NEVER executes a local shell. This module contains no
+process-spawning code of any kind (enforced by a test). Shell I/O is proxied to
+the target hypervisor's access-agent reverse-SSH server through a
+:class:`ShellTransport`.
+
+Every upgrade is authenticated *before* ``accept``: a single-use 60s ticket
+(minted by ``POST /api/v1/shell/sessions/<id>/ticket``) bound to user, tenant
+and session; then the session owner (or admin) and ``check_shell_access`` are
+re-verified and the session is atomically claimed (one connection per session).
+
+FOLLOW-UP: no transport is wired yet. After authn/authz the endpoint closes
+with 4501 "shell proxy not yet available". To implement: mint a short-lived
+user cert via ``app.ssh_ca`` (principal = target host + user), dial the
+agent's server in ``services/access-agent/agent/rssh_server.py`` and pass the
+resulting channel to :func:`run_session` as a ``ShellTransport``.
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
-import os
-import pty
-import select
-import struct
-import subprocess
-import termios
-from datetime import datetime
-from typing import Any, Optional
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from quart import Quart, websocket
 
 from .audit import get_audit_logger
 from .db.run_db import run_db
+from .licensing import feature_enabled
 from .models import get_db
+from .shell_tickets import get_ticket_store
 
 log = logging.getLogger(__name__)
 
+FLAG_DISABLE_SHELL = "gough.disable-shell"
+MAX_MESSAGE_BYTES = 64 * 1024
+MAX_DIM = 1000
+VALID_MESSAGE_TYPES = frozenset({"input", "resize"})
 
-def init_websocket(app: Quart) -> None:
-    """Initialize Quart native WebSocket routes for shell sessions.
-
-    Args:
-        app: Quart application instance
-    """
-    @app.websocket('/ws/shell')
-    async def shell_websocket():
-        """Handle shell WebSocket connections."""
-        session_id = websocket.args.get("session_id")
-
-        if not session_id:
-            log.warning("Connection rejected: No session_id provided")
-            await websocket.close(1008, "No session_id provided")
-            return
-
-        # Validate session exists in database.
-        # Regression: gh-22. Off the event loop via run_db() instead of
-        # blocking the WebSocket coroutine inline (this service is
-        # single-process/single-loop, gRPC included).
-        db = get_db()
-
-        def _fetch_session() -> Any:
-            return db(db.shell_sessions.session_id == session_id).select().first()
-
-        session = await run_db(_fetch_session)
-
-        if not session:
-            log.warning(
-                f"Connection rejected: Invalid session_id {session_id}"
-            )
-            await websocket.close(1008, "Invalid session_id")
-            return
-
-        # Check if session already ended
-        if session.ended_at:
-            log.warning(
-                f"Connection rejected: Session {session_id} already ended"
-            )
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": "Session already terminated"
-            }))
-            await websocket.close(1000)
-            return
-
-        log.info(f"Client connected to shell session {session_id}")
-
-        # Start PTY session
-        try:
-            rows = int(websocket.args.get("rows", 24))
-            cols = int(websocket.args.get("cols", 80))
-
-            manager = ShellSessionManager(session_id)
-            command = _get_shell_command(session.session_type)
-            await manager.start(command=command, rows=rows, cols=cols)
-
-            # Send connected message
-            await websocket.send(json.dumps({
-                "type": "connected",
-                "session_id": session_id,
-                "message": "Shell ready"
-            }))
-
-            # Handle messages
-            try:
-                async for message in websocket:
-                    data = json.loads(message)
-                    msg_type = data.get("type")
-
-                    if msg_type == "input":
-                        await manager.write_input(data.get("input", ""))
-                    elif msg_type == "resize":
-                        await manager.resize(data.get("rows", 24), data.get("cols", 80))
-
-            except Exception as e:
-                log.exception(f"Error handling websocket message: {e}")
-            finally:
-                # Cleanup
-                await manager.cleanup()
-
-                # Regression: gh-22. Session refetch + conditional
-                # update+commit + audit log is one logical "session
-                # teardown" unit of work -- stays in a single run_db()
-                # closure per the house rule (see app/db/run_db.py).
-                def _finish_session() -> None:
-                    sess = (
-                        db(db.shell_sessions.session_id == session_id)
-                        .select()
-                        .first()
-                    )
-
-                    if sess and not sess.ended_at:
-                        # Calculate duration
-                        duration_seconds = None
-                        if sess.started_at:
-                            duration_seconds = int(
-                                (datetime.utcnow() - sess.started_at).total_seconds()
-                            )
-
-                        # Update session
-                        db(db.shell_sessions.session_id == session_id).update(
-                            ended_at=datetime.utcnow()
-                        )
-                        db.commit()
-
-                        # Audit log
-                        audit_logger = get_audit_logger()
-                        if audit_logger:
-                            audit_logger.log_shell_session_terminate(
-                                session_id=session_id,
-                                reason="client_disconnect",
-                                duration_seconds=duration_seconds,
-                            )
-
-                await run_db(_finish_session)
-
-        except Exception as e:
-            log.exception(f"Error starting shell session: {e}")
-            await websocket.send(json.dumps({
-                "type": "error",
-                "message": f"Failed to start shell: {e}"
-            }))
-            await websocket.close(1011)
-
-    log.info("Quart WebSocket initialized for shell sessions")
+CLOSE_POLICY = 1008
+CLOSE_ENDED = 4410
+CLOSE_CONFLICT = 4409
+CLOSE_BAD_MESSAGE = 1003
+CLOSE_TOO_BIG = 1009
+CLOSE_UNAVAILABLE = 4501
+CLOSE_DISABLED = 4503
 
 
-def _get_shell_command(session_type: str) -> str:
-    """Get shell command based on session type.
+@dataclass(slots=True, frozen=True)
+class ClientMessage:
+    """A validated client frame: ``input`` text or ``resize`` dimensions."""
 
-    Args:
-        session_type: Type of session (ssh, kubectl, docker, cloud_cli)
-
-    Returns:
-        Shell command to execute
-    """
-    # Map session types to commands
-    # In production, this would be more sophisticated
-    commands = {
-        "ssh": "/bin/bash",
-        "kubectl": "/bin/bash",  # Would wrap kubectl
-        "docker": "/bin/bash",  # Would wrap docker exec
-        "cloud_cli": "/bin/bash",  # Would wrap cloud CLI tools
-    }
-
-    return commands.get(session_type, "/bin/bash")
+    type: str
+    data: str = ""
+    rows: int = 24
+    cols: int = 80
 
 
-class ShellSessionManager:
-    """Manages PTY sessions for shell access.
+class MalformedMessage(ValueError):
+    """Raised when a client frame is oversized, non-JSON or invalid."""
 
-    Handles process spawning, I/O forwarding, and cleanup.
-    """
 
-    def __init__(self, session_id: str):
-        """Initialize shell session manager.
+class ShellTransport(Protocol):
+    """Remote shell channel (reverse-SSH to the target agent)."""
 
-        Args:
-            session_id: Unique session identifier
-        """
-        self.session_id = session_id
-        self.master_fd: Optional[int] = None
-        self.slave_fd: Optional[int] = None
-        self.process: Optional[subprocess.Popen] = None
-        self.reader_task: Optional[asyncio.Task] = None
-        self.running = False
-
-    async def start(
-        self,
-        command: str = "/bin/bash",
-        rows: int = 24,
-        cols: int = 80,
-    ) -> None:
-        """Start PTY process.
-
-        Args:
-            command: Shell command to execute
-            rows: Terminal rows
-            cols: Terminal columns
-        """
-        # Create PTY
-        self.master_fd, self.slave_fd = await asyncio.to_thread(pty.openpty)
-
-        # Set terminal size
-        await self.resize(rows, cols)
-
-        # Start shell process
-        self.process = await asyncio.to_thread(
-            subprocess.Popen,
-            [command],
-            stdin=self.slave_fd,
-            stdout=self.slave_fd,
-            stderr=self.slave_fd,
-            shell=False,
-            preexec_fn=os.setsid,
-        )
-
-        self.running = True
-
-        # Start reader task
-        self.reader_task = asyncio.create_task(self._read_output())
-
-        log.info(
-            f"Shell session {self.session_id} started with PID "
-            f"{self.process.pid}"
-        )
-
-    async def _read_output(self) -> None:
-        """Read output from PTY and send via WebSocket.
-
-        Runs as async task to continuously read PTY output.
-        """
-        while self.running and self.master_fd:
-            try:
-                # Use select to check if data is available
-                readable, _, _ = await asyncio.to_thread(
-                    select.select, [self.master_fd], [], [], 0.1
-                )
-
-                if self.master_fd in readable:
-                    # Read output from PTY
-                    try:
-                        output = await asyncio.to_thread(os.read, self.master_fd, 1024)
-
-                        if not output:
-                            # EOF - process terminated
-                            self.running = False
-                            break
-
-                        # Send output via WebSocket
-                        await websocket.send(json.dumps({
-                            "type": "output",
-                            "data": output.decode("utf-8", errors="replace")
-                        }))
-
-                    except OSError as e:
-                        log.warning(f"Error reading PTY output: {e}")
-                        self.running = False
-                        break
-
-            except Exception as e:
-                log.exception(f"Error in output reader: {e}")
-                self.running = False
-                break
-
-        # Notify disconnect
-        try:
-            await websocket.send(json.dumps({
-                "type": "disconnect_message",
-                "reason": "Process terminated"
-            }))
-        except Exception:
-            pass  # Connection may already be closed
-
-        log.info(f"Shell session {self.session_id} output reader stopped")
-
-    async def write_input(self, data: str) -> None:
-        """Write input to PTY.
-
-        Args:
-            data: Input data to write
-        """
-        if self.master_fd and self.running:
-            try:
-                await asyncio.to_thread(os.write, self.master_fd, data.encode("utf-8"))
-            except OSError as e:
-                log.error(f"Error writing to PTY: {e}")
-                self.running = False
+    async def write(self, data: str) -> None:
+        """Send terminal input to the remote shell."""
 
     async def resize(self, rows: int, cols: int) -> None:
-        """Resize PTY terminal.
+        """Resize the remote PTY."""
 
-        Args:
-            rows: Number of rows
-            cols: Number of columns
-        """
-        if self.master_fd:
+    async def close(self) -> None:
+        """Close the channel."""
+
+
+def parse_client_message(raw: str | bytes) -> ClientMessage:
+    """Validate one inbound frame (size cap, JSON object, known type, bounds)."""
+    if len(raw) > MAX_MESSAGE_BYTES:
+        raise MalformedMessage("message too large")
+    try:
+        obj = json.loads(raw)
+    except (ValueError, UnicodeDecodeError) as exc:
+        raise MalformedMessage("invalid JSON") from exc
+    if not isinstance(obj, dict):
+        raise MalformedMessage("message must be an object")
+    mtype = obj.get("type")
+    if mtype not in VALID_MESSAGE_TYPES:
+        raise MalformedMessage("unknown message type")
+    if mtype == "input":
+        text = obj.get("input", "")
+        if not isinstance(text, str):
+            raise MalformedMessage("input must be a string")
+        return ClientMessage(type="input", data=text)
+    rows, cols = obj.get("rows", 24), obj.get("cols", 80)
+    for dim in (rows, cols):
+        if isinstance(dim, bool) or not isinstance(dim, int) or not 1 <= dim <= MAX_DIM:
+            raise MalformedMessage("invalid terminal size")
+    return ClientMessage(type="resize", rows=rows, cols=cols)
+
+
+def _audit_attach(session_id: str, user_id: int | None, outcome: str, reason: str) -> None:
+    """Best-effort audit of an attach/deny decision (never breaks the socket)."""
+    try:
+        audit = get_audit_logger()
+        if audit:
+            audit.log_shell_attach(session_id, user_id, outcome, reason)
+    except Exception:  # noqa: BLE001
+        log.exception("shell attach audit failed")
+    log.info("shell attach %s session=%s user=%s reason=%s", outcome, session_id, user_id, reason)
+
+
+async def run_session(transport: ShellTransport) -> None:
+    """Pump validated client frames into ``transport`` until the client leaves."""
+    try:
+        async for raw in websocket:
             try:
-                # Set window size using TIOCSWINSZ ioctl
-                winsize = struct.pack("HHHH", rows, cols, 0, 0)
-                import fcntl
-                await asyncio.to_thread(
-                    fcntl.ioctl, self.master_fd, termios.TIOCSWINSZ, winsize
+                msg = parse_client_message(raw)
+            except MalformedMessage as exc:
+                code = CLOSE_TOO_BIG if "large" in str(exc) else CLOSE_BAD_MESSAGE
+                await websocket.close(code, str(exc))
+                return
+            if msg.type == "input":
+                await transport.write(msg.data)
+            else:
+                await transport.resize(msg.rows, msg.cols)
+    finally:
+        await transport.close()
+
+
+async def open_transport(session: Any) -> ShellTransport | None:
+    """Open the agent reverse-SSH transport for ``session`` (not yet implemented)."""
+    return None
+
+
+def _authorize(session_id: str, user_id: int) -> tuple[Any | None, str]:
+    """Blocking authz: session exists, owner-or-admin, resource shell access."""
+    from .api.shell import check_shell_access, user_is_admin
+
+    db = get_db()
+    session = db(db.shell_sessions.session_id == session_id).select().first()
+    if not session:
+        return None, "unknown session"
+    if session.user_id != user_id and not user_is_admin(user_id):
+        return None, "not session owner"
+    ok, err = check_shell_access(user_id, session.resource_type, session.resource_id)
+    if not ok:
+        return None, err or "shell access denied"
+    return session, ""
+
+
+def init_websocket(app: Quart) -> None:
+    """Register the authenticated ``/ws/shell`` route on ``app``."""
+
+    @app.websocket("/ws/shell")
+    async def shell_websocket() -> None:
+        """Authenticate, authorize and claim a session, then proxy its shell."""
+        session_id = websocket.args.get("session_id") or ""
+        ticket = websocket.args.get("ticket") or ""
+
+        if await feature_enabled(FLAG_DISABLE_SHELL):
+            _audit_attach(session_id, None, "deny", "kill switch")
+            await websocket.close(CLOSE_DISABLED, "shell disabled")
+            return
+
+        claims = await get_ticket_store().consume(ticket) if ticket else None
+        if claims is None or not claims.tenant or claims.session_id != session_id:
+            _audit_attach(session_id, getattr(claims, "user_id", None), "deny", "bad ticket")
+            await websocket.close(CLOSE_POLICY, "authentication required")
+            return
+
+        session, reason = await run_db(lambda: _authorize(session_id, claims.user_id))
+        if session is None:
+            _audit_attach(session_id, claims.user_id, "deny", reason)
+            await websocket.close(CLOSE_POLICY, "access denied")
+            return
+        if session.ended_at:
+            _audit_attach(session_id, claims.user_id, "deny", "session ended")
+            await websocket.close(CLOSE_ENDED, "session ended")
+            return
+
+        store = get_ticket_store()
+        if not await store.try_attach(session_id):
+            _audit_attach(session_id, claims.user_id, "deny", "already attached")
+            await websocket.close(CLOSE_CONFLICT, "session already attached")
+            return
+
+        try:
+            await websocket.accept()
+            transport = await open_transport(session)
+            if transport is None:
+                _audit_attach(session_id, claims.user_id, "deny", "proxy unavailable")
+                await websocket.send(
+                    json.dumps({"type": "error", "message": "shell proxy not yet available"})
                 )
-            except Exception as e:
-                log.error(f"Error resizing PTY: {e}")
+                await websocket.close(CLOSE_UNAVAILABLE, "shell proxy not yet available")
+                return
+            _audit_attach(session_id, claims.user_id, "attach", "ok")
+            await run_session(transport)
+        finally:
+            await store.release(session_id)
 
-    async def cleanup(self) -> None:
-        """Clean up PTY and process resources."""
-        self.running = False
-
-        # Cancel reader task
-        if self.reader_task and not self.reader_task.done():
-            self.reader_task.cancel()
-            try:
-                await self.reader_task
-            except asyncio.CancelledError:
-                pass
-
-        # Terminate process
-        if self.process:
-            try:
-                await asyncio.to_thread(self.process.terminate)
-                await asyncio.to_thread(self.process.wait, timeout=5)
-            except subprocess.TimeoutExpired:
-                await asyncio.to_thread(self.process.kill)
-            except Exception as e:
-                log.error(f"Error terminating process: {e}")
-
-        # Close file descriptors
-        if self.master_fd:
-            try:
-                await asyncio.to_thread(os.close, self.master_fd)
-            except OSError:
-                pass
-
-        if self.slave_fd:
-            try:
-                await asyncio.to_thread(os.close, self.slave_fd)
-            except OSError:
-                pass
-
-        log.info(f"Shell session {self.session_id} cleaned up")
+    log.info("Authenticated shell WebSocket registered")
