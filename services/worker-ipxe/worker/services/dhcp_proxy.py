@@ -7,12 +7,34 @@ Works alongside existing DHCP server.
 
 import asyncio
 import struct
+import time
 import structlog
+from decouple import config as env_config
+from prometheus_client import Counter, Histogram
 from typing import Optional
 
 from worker.config import WorkerConfig
 
 logger = structlog.get_logger()
+
+DEFAULT_DHCP_MAX_INFLIGHT = 256
+
+DHCP_DROPPED_TOTAL = Counter(
+    "gough_ipxe_dhcp_dropped_total",
+    "DHCP datagrams dropped because the in-flight handler cap was reached",
+)
+DHCP_HANDLE_SECONDS = Histogram(
+    "gough_ipxe_dhcp_handle_seconds",
+    "Time spent handling one ProxyDHCP datagram",
+)
+
+
+def _load_max_inflight() -> int:
+    """Read DHCP_MAX_INFLIGHT from env; fail loudly if below 1."""
+    value = env_config("DHCP_MAX_INFLIGHT", default=DEFAULT_DHCP_MAX_INFLIGHT, cast=int)
+    if value < 1:
+        raise ValueError(f"DHCP_MAX_INFLIGHT must be >= 1, got {value}")
+    return value
 
 
 class DHCPProxyServer:
@@ -39,6 +61,49 @@ class DHCPProxyServer:
         self.config = config
         self.running = False
         self.transport: Optional[asyncio.DatagramTransport] = None
+        # Strong references keep in-flight handler tasks alive until they finish
+        self._tasks: set[asyncio.Task[None]] = set()
+        self.max_inflight = _load_max_inflight()
+
+    def dispatch_packet(self, data: bytes, addr: tuple) -> None:
+        """Schedule handling of one datagram, dropping it if the in-flight cap is reached.
+
+        Dropped datagrams are recovered by client DHCP retransmission; the drop is counted.
+        """
+        if len(self._tasks) >= self.max_inflight:
+            DHCP_DROPPED_TOTAL.inc()
+            logger.warning(
+                "dhcp_datagram_dropped",
+                reason="inflight_cap",
+                inflight=len(self._tasks),
+                max_inflight=self.max_inflight,
+                client=addr[0],
+            )
+            return
+        task = asyncio.get_running_loop().create_task(self._timed_handle(data, addr))
+        self._tasks.add(task)
+        task.add_done_callback(self._on_task_done)
+
+    async def _timed_handle(self, data: bytes, addr: tuple) -> None:
+        """Run _handle_packet and record its duration in the handle histogram."""
+        start = time.perf_counter()
+        try:
+            await self._handle_packet(data, addr)
+        finally:
+            DHCP_HANDLE_SECONDS.observe(time.perf_counter() - start)
+
+    def _on_task_done(self, task: asyncio.Task[None]) -> None:
+        """Release the task reference and log any handler exception (never silent)."""
+        self._tasks.discard(task)
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.error(
+                "dhcp_packet_handler_error",
+                error_type=type(exc).__name__,
+                error=str(exc),
+            )
 
     def _parse_dhcp_packet(self, data: bytes) -> Optional[dict]:
         """Parse DHCP packet and extract relevant fields."""
@@ -162,7 +227,7 @@ class DHCPProxyServer:
             self.transport = transport
 
         def datagram_received(self, data, addr):
-            asyncio.create_task(self.server._handle_packet(data, addr))
+            self.server.dispatch_packet(data, addr)
 
     async def _handle_packet(self, data: bytes, addr: tuple):
         """Handle incoming DHCP packet."""
@@ -226,5 +291,12 @@ class DHCPProxyServer:
         """Stop ProxyDHCP server."""
         self.running = False
         if self.transport:
+            # Stop accepting new datagrams before draining in-flight handlers
             self.transport.close()
-            logger.info("proxydhcp_server_stopped")
+        pending = list(self._tasks)
+        for task in pending:
+            task.cancel()
+        if pending:
+            await asyncio.gather(*pending, return_exceptions=True)
+        if self.transport:
+            logger.info("proxydhcp_server_stopped", cancelled_tasks=len(pending))
