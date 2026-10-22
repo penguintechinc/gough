@@ -78,6 +78,10 @@ Every instance carries explicit LXD limits and a root disk. The renderer emits t
 
 - Sizes: strict `<int>KiB|MiB|GiB|TiB`, IEC only. `8G`, `8GB`, `8gib`, `0GiB`, decimals and unitless values are refused.
 - Below the minimum, or a malformed value, the render fails with no output.
+- Storage pools are trusted-caller input. `render_biome(dir, params, allowed_pools)` takes the allowlist from the hub or installer config. Tenant params never supply it: `allowed_pools` in params is an unknown-parameter failure.
+- `allowed_pools` None permits only the manifest default pool (`root_disk.pool`). A list permits exactly those pools, and the default must be on it if `storage_pool` is not set. Any other `storage_pool` fails loudly.
+- The hub decides allowed pools per tenant and node. Tenants never supply them.
+- The installer passes `--allowed-storage-pools` (comma-separated). Default: `default`, the pool its LXD preseed creates.
 - Defaults are sized so the controller can host the kubeadm control plane and Cilium operator. Hub-side workloads (the gough hub) may run on workers, not the controller.
 - `instance.json` = `{config: {limits.*}, devices: {root: {type: disk, path: /, pool, size}}}`. Instance config and devices override the profile's entries, so one biome profile serves differently sized instances.
 - The installer must merge `instance.json` `config` and `devices` into the `lxc launch` stdin document. See installer/ on feature/installer-instance-limits.
