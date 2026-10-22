@@ -1,0 +1,7 @@
+.worktrees/
+.PLAN
+.TODO
+__pycache__/
+*.pyc
+.venv/
+dist/
