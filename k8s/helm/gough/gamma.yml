@@ -3,7 +3,10 @@
 namespace: gough
 
 api-manager:
+  # Pinned to 1: shell sessions are process-local (see https://github.com/penguintechinc/gough/issues/43).
   replicaCount: 1
+  autoscaling:
+    enabled: false
   image:
     pullPolicy: IfNotPresent
   configMapData:

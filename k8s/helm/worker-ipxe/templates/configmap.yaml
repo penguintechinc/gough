@@ -5,5 +5,11 @@ metadata:
   labels:
     {{- include "worker-ipxe.labels" . | nindent 4 }}
   namespace: {{ .Release.Namespace }}
+{{- /* Umbrella global.objectStorage (when set) overrides the storage keys. */}}
+{{- $cm := deepCopy .Values.configMapData }}
+{{- $os := dig "global" "objectStorage" (dict) .Values.AsMap }}
+{{- if $os.endpoint }}
+{{- $cm = mergeOverwrite $cm (dict "storage-endpoint" $os.endpoint "storage-use-ssl" (toString $os.useSsl) "storage-bucket-boot-images" $os.bucketBootImages "storage-bucket-biomes" $os.bucketBiomes) }}
+{{- end }}
 data:
-  {{- toYaml .Values.configMapData | nindent 2 }}
+  {{- toYaml $cm | nindent 2 }}

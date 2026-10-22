@@ -1,5 +1,6 @@
 {{- if .Values.redis.enabled }}
 # STATEFUL EXCEPTION (pending approval): in-chart Redis for non-prod only.
+# Valkey (Redis-protocol compatible, redis-py clients work unchanged).
 # Password comes from the api-manager-secret; it is written to a memory-backed
 # config file rather than passed on the process command line.
 apiVersion: v1
@@ -67,7 +68,7 @@ spec:
             - >-
               umask 077 &&
               printf 'requirepass %s\nappendonly yes\ndir /data\n' "$REDIS_PASSWORD" > /run/redis/redis.conf &&
-              exec redis-server /run/redis/redis.conf
+              exec valkey-server /run/redis/redis.conf
           ports:
             - name: redis
               containerPort: 6379
@@ -78,7 +79,13 @@ spec:
                 secretKeyRef:
                   name: api-manager-secret
                   key: redis-password
-            # redis-cli reads REDISCLI_AUTH, so probes never put the password in argv.
+            # valkey-cli reads VALKEYCLI_AUTH (REDISCLI_AUTH kept for redis-cli compatibility),
+            # so probes never put the password in argv.
+            - name: VALKEYCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: api-manager-secret
+                  key: redis-password
             - name: REDISCLI_AUTH
               valueFrom:
                 secretKeyRef:
@@ -86,14 +93,14 @@ spec:
                   key: redis-password
           readinessProbe:
             exec:
-              command: ["/bin/sh", "-c", "redis-cli ping | grep -q PONG"]
+              command: ["/bin/sh", "-c", "valkey-cli ping | grep -q PONG"]
             initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             exec:
-              command: ["/bin/sh", "-c", "redis-cli ping | grep -q PONG"]
+              command: ["/bin/sh", "-c", "valkey-cli ping | grep -q PONG"]
             initialDelaySeconds: 20
             periodSeconds: 10
             timeoutSeconds: 5

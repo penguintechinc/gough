@@ -16,11 +16,14 @@ maintainers:
 # so they are deliberately NOT dependencies of the hub umbrella.
 dependencies:
   - name: api-manager
+    condition: api-manager.enabled
     version: 1.0.0
     repository: file://../api-manager
   - name: webui
+    condition: webui.enabled
     version: 1.0.0
     repository: file://../webui
   - name: worker-ipxe
+    condition: worker-ipxe.enabled
     version: 1.0.0
     repository: file://../worker-ipxe

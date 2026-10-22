@@ -1,0 +1,35 @@
+{{- /*
+Tetragon exec allowlist per hub workload: any sys_execve outside the workload's
+allowed binaries is SIGKILLed (enforced, not observe-only). Rendered only when
+tetragon.enabled=true; disabled envs render nothing and need no Tetragon CRDs.
+*/ -}}
+{{- if .Values.tetragon.enabled }}
+{{- range $name, $policy := .Values.tetragon.policies }}
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: gough-{{ $name }}-exec-allowlist
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "gough.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $policy.selector | nindent 6 }}
+  kprobes:
+    - call: "sys_execve"
+      syscall: true
+      args:
+        - index: 0
+          type: "string"
+      selectors:
+        - matchArgs:
+            - index: 0
+              operator: "NotEqual"
+              values:
+                {{- toYaml $policy.allowed | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+{{- end }}
+{{- end }}

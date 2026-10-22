@@ -5,25 +5,105 @@
 global:
   # Image tag for every gough service (ghcr.io/penguintechinc/gough/<svc>:<tag>).
   # REQUIRED: set per env in the env file or via --set global.imageTag=<tag>.
-  # Production must use an immutable tag (vX.Y.Z) or be pinned by digest in CI.
   imageTag: ""
+  # External S3-compatible storage (AWS S3, MinIO, ...). Consumed by worker-ipxe
+  # (boot images + biome artifacts). api-manager storage is configured per tenant
+  # through its API/DB, not via env, so it has no entry here.
+  objectStorage:
+    endpoint: ""              # e.g. https://s3.us-east-1.amazonaws.com; REQUIRED when worker-ipxe.enabled
+    useSsl: true
+    bucketBootImages: boot-images
+    bucketBiomes: biomes
+    # Preferred: reference a Secret that already exists in the namespace.
+    accessKeySecretRef:
+      name: ""                # e.g. gough-object-storage
+      accessKeyKey: access-key
+      secretKeyKey: secret-key
+    # Dev-only inline alternative (--set-string); never commit values.
+    accessKey: ""
+    secretKey: ""
+
+# OIDC ES256 signing keystore mounted by api-manager (penguin-aaa FileKeyStore:
+# {"keys":[{"kid","pem"}]}, EC P-256). Generated in-chart on first install and
+# kept across upgrades via lookup. generate=false requires the Secret to exist.
+oidcKeystore:
+  generate: true
+  secretName: api-manager-oidc-keystore
 
 # Subcharts keep the literal Secret/ConfigMap/Service names their values reference
 # (api-manager-secret, api-manager-config, ...), so fullnameOverride pins them.
 api-manager:
+  enabled: true
   fullnameOverride: api-manager
+  keystoreSecret:
+    create: false           # umbrella renders api-manager-oidc-keystore (oidcKeystore)
   image:
     pullPolicy: IfNotPresent
 
 webui:
+  enabled: true
   fullnameOverride: webui
   image:
     pullPolicy: IfNotPresent
 
 worker-ipxe:
+  # Alpha disables this: the lab provisions via USB/MaaS, not gough PXE.
+  enabled: true
   fullnameOverride: worker-ipxe
   image:
     pullPolicy: IfNotPresent
+
+# Tetragon TracingPolicyNamespaced exec allowlists (mandatory baseline).
+# Each workload may exec only the binaries listed; anything else is SIGKILLed.
+# Requires the Tetragon CRDs; when disabled nothing is rendered.
+# Allowlists were derived from image entrypoints and probe commands - validate on a
+# live cluster before enforcing in a new env. api-manager shell sessions spawn a shell
+# and will be killed by this policy; that feature needs an explicit exception.
+tetragon:
+  enabled: true
+  policies:
+    api-manager:
+      selector: {app.kubernetes.io/name: api-manager}
+      allowed:
+        - /usr/local/bin/python
+        - /usr/local/bin/python3
+        - /usr/local/bin/python3.13
+        - /bin/sleep
+    webui:
+      selector: {app.kubernetes.io/name: webui}
+      allowed:
+        - /usr/local/bin/node
+        - /bin/sleep
+    worker-ipxe:
+      selector: {app.kubernetes.io/name: worker-ipxe}
+      allowed:
+        - /usr/local/bin/python
+        - /usr/local/bin/python3
+        - /usr/local/bin/python3.13
+        - /bin/sleep
+    postgres:
+      selector: {app.kubernetes.io/name: postgres}
+      allowed:
+        - /bin/sh
+        - /usr/local/bin/docker-entrypoint.sh
+        - /usr/lib/postgresql/17/bin/postgres
+        - /usr/lib/postgresql/17/bin/initdb
+        - /usr/lib/postgresql/17/bin/pg_isready
+        - /usr/bin/pg_isready
+        - /usr/bin/id
+        - /usr/bin/mkdir
+        - /usr/bin/chmod
+        - /usr/bin/find
+        - /bin/sleep
+    redis:
+      selector: {app.kubernetes.io/name: redis}
+      allowed:
+        - /bin/sh
+        - /usr/local/bin/docker-entrypoint.sh
+        - /usr/local/bin/valkey-server
+        - /usr/local/bin/valkey-cli
+        - /usr/bin/grep
+        - /bin/sleep
 
 # In-chart PostgreSQL (StatefulSet). Non-prod only - production uses a managed
 # database: set postgresql.enabled=false, fill externalDatabase, and set
@@ -49,15 +129,16 @@ postgresql:
       cpu: 250m
       memory: 256Mi
 
-# In-chart Redis (StatefulSet, password-protected). Non-prod only.
+# In-chart cache (Valkey, Redis-protocol compatible; redis-py clients work unchanged).
+# Keys stay `redis.*` for compatibility with the api-manager env wiring.
 # STATEFUL EXCEPTION (pending approval)
 redis:
   enabled: true
   image:
-    repository: docker.io/library/redis
-    tag: 7.4-bookworm
-    # Multi-arch index digest: docker buildx imagetools inspect redis:7.4-bookworm
-    digest: sha256:44960b3100c48159a66d28c18b0588c193492e25f7551d60e51dd464fc3eca5b
+    repository: docker.io/valkey/valkey
+    tag: "8-bookworm"
+    # Multi-arch index digest: docker buildx imagetools inspect valkey/valkey:8-bookworm
+    digest: sha256:fea8b3e67b15729d4bb70589eb03367bab9ad1ee89c876f54327fc7c6e618571
     pullPolicy: IfNotPresent
   storageSize: 1Gi
   storageClassName: ""
@@ -79,8 +160,6 @@ externalRedisUrl: ""   # full URL incl. password, e.g. rediss://:<pw>@host:6380/
 # Application secrets supplied at install time; never committed.
 secrets:
   licenseKey: ""
-  storageAccessKey: ""
-  storageSecretKey: ""
 
 # Namespace of the ingress controller allowed to reach api-manager and webui.
 ingressController:

@@ -2,6 +2,8 @@
 
 ## ES256 OIDC Keystore (penguin-aaa)
 
+> Hub deploys (umbrella `k8s/helm/gough`) generate this keystore in-chart (`oidcKeystore.generate`). The manual keygen below applies only to standalone installs of this subchart.
+
 api-manager is its own first-party OIDC issuer: it mints and validates ES256
 access/id tokens locally via a penguin-aaa `FileKeyStore`, no external
 JWKS/discovery endpoint. **All replicas share the same key file** — since

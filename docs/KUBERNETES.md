@@ -24,8 +24,7 @@ make deploy-alpha            # imports images, helm upgrade --install gough -n g
 make deploy-alpha-clean      # same, after deleting namespace gough
 ```
 
-`scripts/deploy-alpha.sh` always passes `--kube-context local-alpha`. Prerequisite: the one-time
-`api-manager-oidc-keystore` secret (see `k8s/helm/api-manager/README.md`).
+`scripts/deploy-alpha.sh` always passes `--kube-context local-alpha` and is non-interactive. The ES256 OIDC keystore, DB/Redis and admin credentials are generated in-chart and kept across upgrades.
 
 ## Validation
 
@@ -39,5 +38,6 @@ Non-alpha renders require the image tag from CI: `--set global.imageTag=<tag>`.
 
 ## Secrets
 
-- Generated on first install (`lookup` + `randAlphaNum`) and kept across upgrades: DB, Redis, admin, secret-key, worker API key.
+- Generated on first install (`lookup` + `randAlphaNum`) and kept across upgrades: DB, Valkey, admin, secret-key, worker API key, OIDC ES256 keystore (`genPrivateKey "ecdsa"`, `oidcKeystore.generate`).
+- Object storage (worker-ipxe): `global.objectStorage.endpoint` required while worker-ipxe is enabled; credentials via `accessKeySecretRef` (preferred) or inline dev values.
 - Supplied at install time, never committed: `secrets.licenseKey`, storage keys, `externalDatabase.password`, `externalRedisUrl`.

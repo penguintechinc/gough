@@ -242,7 +242,8 @@ configMapData:
   tftp-enabled: "true"
   tftp-port: "69"
   http-port: "8080"
-  storage-endpoint: "http://minio:9000"
+  # Set via umbrella global.objectStorage.endpoint (no in-cluster default).
+  storage-endpoint: ""
   storage-bucket-boot-images: "boot-images"
   storage-bucket-biomes: "biomes"
   storage-use-ssl: "false"

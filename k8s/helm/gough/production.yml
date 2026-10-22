@@ -4,15 +4,16 @@
 # Managed Postgres and Redis are external: supply via --set-file / CI secrets, never committed.
 namespace: gough
 
+# Object storage endpoint/credentials come from CI (--set) or an env-specific values block;
+# the umbrella fails to render while worker-ipxe is enabled without them.
+
 api-manager:
-  # Floor of 3 per prod tier. OPEN: websocket shell sessions are process-local; confirm sticky sessions or move to shared state before go-live.
-  replicaCount: 3
+  # Pinned to 1: shell sessions are process-local (see https://github.com/penguintechinc/gough/issues/43).
+  replicaCount: 1
+  autoscaling:
+    enabled: false
   image:
     pullPolicy: IfNotPresent
-  autoscaling:
-    enabled: true
-    minReplicas: 3
-    maxReplicas: 10
   resources:
     requests:
       cpu: 500m
