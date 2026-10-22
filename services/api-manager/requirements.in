@@ -47,6 +47,7 @@ grpcio==1.70.0
 
 # Event stream / messaging
 nats-py==2.9.0  # NATS JetStream client; Sprint 4 event stream
+redis==5.2.1  # redis.asyncio client (session/cache store)
 cryptography==46.0.6
 
 # Observability - OTel logs+metrics+traces for the migration lifecycle

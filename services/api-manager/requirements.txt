@@ -2059,6 +2059,10 @@ quart-cors==0.7.0 \
     --hash=sha256:d667a0f13b4ce6d9e926489de5d819780844fbff5b2cdea156bd8867dd426a37 \
     --hash=sha256:fa872cc94a2ae6b51a35b028ebca65c14069d7121d63a4caa3526ebbfb7c5a99
     # via -r requirements.in
+redis==5.2.1 \
+    --hash=sha256:16f2e22dff21d5125e8481515e386711a34cbec50f0e44413dd7d9c060a54e0f \
+    --hash=sha256:ee7e1056b9aea0f04c6c2ed59452947f34c4940ee025f5dd83e6a6418b6989e4
+    # via -r requirements.in
 referencing==0.36.2 \
     --hash=sha256:df2e89862cd09deabbdba16944cc3f10feb6b3e6f18e902f7cc25609a34775aa \
     --hash=sha256:e8699adbbf8b5c7de96d8ffa0eb5c158b3beafce084968e2ea8bb08c6794dcd0
