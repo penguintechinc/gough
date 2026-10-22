@@ -33,7 +33,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
 
-from ..catalog import CILIUM_VERSION, canonical_biome_name
+from ..catalog import CILIUM_IMAGE_DIGESTS, CILIUM_VERSION, canonical_biome_name
 from ..mirrors import MirrorConfig, MirrorConfigError, load_mirror_config
 
 
@@ -421,6 +421,74 @@ def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes,
 # ---------------------------------------------------------------------------
 
 
+def _image_values(indent: str, mirror_image: str, registry: str) -> list[str]:
+    """Return chart values pinning one Cilium image to the mirror by digest.
+
+    ``mirror_image`` is the repository name under ``<registry>/cilium/``; the digest
+    comes from ``CILIUM_IMAGE_DIGESTS`` so chart values and catalog share one source.
+    """
+    return [
+        f"{indent}image:",
+        f"{indent}  repository: {registry}/cilium/{mirror_image}",
+        f"{indent}  useDigest: true",
+        f"{indent}  digest: {CILIUM_IMAGE_DIGESTS[mirror_image]}",
+    ]
+
+
+def _render_cilium_values(service_host: str, mirrors: MirrorConfig) -> str:
+    """Render the Cilium helm values: every image from the mirror, pinned by digest.
+
+    No upstream registry name is emitted. Envoy, certgen and hubble-relay are
+    included because the chart pulls them by default or when Hubble is enabled.
+    ``enableCiliumEndpointSlice`` is deliberately absent: chart 1.20.1 refuses it.
+    """
+    registry = mirrors.registry_host
+    lines = [
+        "kubeProxyReplacement: true",
+        f"k8sServiceHost: {service_host}",
+        "k8sServicePort: 6443",
+        *_image_values("", "cilium", registry),
+        "ipam:",
+        "  mode: kubernetes",
+        "ipv4:",
+        "  enabled: true",
+        "ipv6:",
+        "  enabled: false",
+        "l2announcements:",
+        "  enabled: true",
+        "externalIPs:",
+        "  enabled: true",
+        "loadBalancer:",
+        "  algorithm: maglev",
+        "  mode: snat",
+        "bpf:",
+        "  masquerade: true",
+        "socketLB:",
+        "  enabled: true",
+        "nodePort:",
+        "  enabled: true",
+        "hostServices:",
+        "  enabled: true",
+        "envoyConfig:",
+        "  enabled: true",
+        "envoy:",
+        *_image_values("  ", "cilium-envoy", registry),
+        "operator:",
+        "  replicas: 1",
+        *_image_values("  ", "operator", registry),
+        "certgen:",
+        *_image_values("  ", "certgen", registry),
+        "hubble:",
+        "  enabled: true",
+        "  relay:",
+        "    enabled: true",
+        *_image_values("    ", "hubble-relay", registry),
+        "gatewayAPI:",
+        "  enabled: true",
+    ]
+    return "\n".join(lines) + "\n"
+
+
 def _fetch_verified_cmd(url: str, sha256: str, dest: str) -> str:
     """Return a shell step that downloads ``url`` to ``dest`` and fails unless sha256 matches.
 
@@ -539,44 +607,8 @@ def _render_cni_install(
 
     service_host = endpoint.split(":")[0]
 
-    # Generate cilium-values.yaml with templated service host
-    cilium_yaml = (
-        "kubeProxyReplacement: true\n"
-        f"k8sServiceHost: {service_host}\n"
-        "k8sServicePort: 6443\n"
-        "ipam:\n"
-        "  mode: kubernetes\n"
-        "ipv4:\n"
-        "  enabled: true\n"
-        "ipv6:\n"
-        "  enabled: false\n"
-        "l2announcements:\n"
-        "  enabled: true\n"
-        "externalIPs:\n"
-        "  enabled: true\n"
-        "loadBalancer:\n"
-        "  algorithm: maglev\n"
-        "  mode: snat\n"
-        "bpf:\n"
-        "  masquerade: true\n"
-        "socketLB:\n"
-        "  enabled: true\n"
-        "nodePort:\n"
-        "  enabled: true\n"
-        "hostServices:\n"
-        "  enabled: true\n"
-        "enableCiliumEndpointSlice: true\n"
-        "envoyConfig:\n"
-        "  enabled: true\n"
-        "operator:\n"
-        "  replicas: 1\n"
-        "hubble:\n"
-        "  enabled: true\n"
-        "  relay:\n"
-        "    enabled: true\n"
-        "gatewayAPI:\n"
-        "  enabled: true\n"
-    )
+    # Generate cilium-values.yaml with templated service host and mirror-pinned images
+    cilium_yaml = _render_cilium_values(service_host, mirrors)
 
     write_files.append({
         "path": "/etc/gough/cilium-values.yaml",

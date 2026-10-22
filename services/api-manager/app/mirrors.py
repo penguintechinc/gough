@@ -8,10 +8,11 @@ Settings come from environment variables so the hub stays stateless.
 
 from __future__ import annotations
 
+import os
 import re
 from collections.abc import Mapping
-import os
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # https only, and no characters that could break out of a shell-quoted argument.
@@ -39,6 +40,11 @@ class MirrorConfig:
     def cilium_chart_url(self, version: str) -> str:
         """Return the chart tarball URL on the mirror for ``version``."""
         return f"{self.chart_mirror_url.rstrip('/')}/cilium-{version}.tgz"
+
+    @property
+    def registry_host(self) -> str:
+        """Return the mirror's ``host[:port]``, used to build digest-pinned image references."""
+        return urlsplit(self.registry_mirror).netloc
 
 
 def _require(env: Mapping[str, str], key: str) -> str:
