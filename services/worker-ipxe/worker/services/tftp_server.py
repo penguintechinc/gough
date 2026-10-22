@@ -29,10 +29,13 @@ class RootedFileReader(FileReader):
     def __init__(self, root: Path, fname, chunk_size=0, mode=None):
         """Open `fname` under `root`; raise FileNotFoundError on traversal or missing file."""
         self._f = None
+        name = os.fsdecode(fname)
+        if "\x00" in name:
+            raise FileNotFoundError("filename contains NUL byte")
         root_resolved = root.resolve()
-        candidate = (root_resolved / os.fsdecode(fname).lstrip("/")).resolve()
+        candidate = (root_resolved / name.lstrip("/")).resolve()
         if not candidate.is_relative_to(root_resolved) or not candidate.is_file():
-            raise FileNotFoundError(os.fsdecode(fname))
+            raise FileNotFoundError(name)
         self.fname = candidate
         self.chunk_size = chunk_size
         self._f = self._open_file()
