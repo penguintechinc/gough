@@ -48,6 +48,7 @@ def agents_client(dal, monkeypatch):
             Field("agent_id", "string", notnull=True),
             Field("hostname", "string"),
             Field("node_id", "integer"),
+            Field("tenant_id", "string"),
             Field("ip_address", "string"),
             Field("enrollment_key_hash", "string"),
             Field("enrollment_completed", "boolean", default=False),

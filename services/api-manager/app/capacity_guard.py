@@ -983,8 +983,15 @@ def link_agent_to_node(
 
     agents = Base.metadata.tables["access_agents"]
     nodes = Base.metadata.tables["nodes"]
-    if conn.execute(select(agents.c.id).where(agents.c.agent_id == agent_id)).first() is None:
+    agent = conn.execute(
+        select(agents.c.id, agents.c.tenant_id).where(agents.c.agent_id == agent_id)
+    ).first()
+    if agent is None:
         return "agent_not_found"
+    # Non-cross-tenant callers may only move agents that belong to their own tenant;
+    # legacy agents (NULL tenant) need a cross-tenant caller (expected_tenant None).
+    if expected_tenant is not None and agent[1] != expected_tenant:
+        return "tenant_mismatch"
     node = conn.execute(select(nodes.c.id, nodes.c.tenant_id).where(nodes.c.id == node_id)).first()
     if node is None:
         return "node_not_found"

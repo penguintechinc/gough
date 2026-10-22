@@ -30,7 +30,7 @@ def test_alembic_single_head() -> None:
     cfg = Config(str(API_ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(API_ROOT / "alembic"))
     heads = ScriptDirectory.from_config(cfg).get_heads()
-    assert heads == ["20261022_1600_agent_node_link_reservation_confirm"]
+    assert heads == ["20261022_1700_access_agents_tenant"]
 
 
 def _lxd() -> LXDCloud:

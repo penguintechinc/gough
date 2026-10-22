@@ -148,3 +148,12 @@ class TestComplianceLanes:
         """Dangerous override scopes are in catalog."""
         assert {"gough.dr.promote", "gough.biomes.unsafe-skip-signing",
                 "gough.migration.override-lock"}.issubset(KNOWN_SCOPES)
+
+
+def test_agent_node_link_route_declares_scope() -> None:
+    """PUT /agents/{id}/node must declare a scope (capacity-guard link is privileged)."""
+    from app.security.scope_policy import SCOPE_POLICY
+
+    assert SCOPE_POLICY[("PUT", "/api/v1/agents/<string:agent_id>/node")] == frozenset(
+        {"gough.nodes.provision"}
+    )

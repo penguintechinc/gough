@@ -668,7 +668,7 @@ async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tu
     members, clustered = await asyncio.to_thread(cloud.list_cluster_members)
 
     def _choose() -> capacity_guard.Placement | capacity_guard.PlacementRefusal:
-        with db.engine.connect() as conn:
+        with db.engine.begin() as conn:
             candidates: dict[str, int] = {}
             for name in members:
                 node_id = capacity_guard.resolve_node_by_name(conn, name)

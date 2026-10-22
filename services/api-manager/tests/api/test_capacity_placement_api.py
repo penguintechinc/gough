@@ -65,6 +65,7 @@ def guard_app(dal, monkeypatch):
         Field("agent_id", "string", notnull=True),
         Field("hostname", "string"),
         Field("node_id", "integer"),
+        Field("tenant_id", "string"),
         Field("ip_address", "string"),
         Field("enrollment_key_hash", "string"),
         Field("enrollment_completed", "boolean", default=False),
@@ -211,9 +212,10 @@ def _agent_token(agent_id: str) -> str:
 
 
 def _add_agent(dal: Any, agent_id: str, *, node_id: int | None, status: str = "active",
-               hostname: str = "self-reported") -> None:
+               hostname: str = "self-reported", tenant: str | None = "default") -> None:
     """Insert an enrolled agent with an optional server-side node link."""
     dal.access_agents.insert(agent_id=agent_id, hostname=hostname, node_id=node_id, status=status,
+                             tenant_id=tenant,
                              enrolled_at=datetime.utcnow())
     dal.commit()
 
@@ -761,3 +763,28 @@ async def test_exception_mid_deploy_releases_reservation(guard_app, monkeypatch)
         with pytest.raises(RuntimeError, match="db exploded"):
             await _deploy(client, node_id, biome_id)
     assert _reservation_statuses(dal) == [2]  # RELEASED
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_agent_relink_denied_404(guard_app):
+    """A tenant-default admin cannot re-link another tenant's agent, even onto its own node."""
+    dal = guard_app.dal
+    mine = _add_node(dal, "host-a")
+    _add_agent(dal, "ag-b", node_id=None, tenant="tenant-b")
+    async with guard_app.app.test_client() as client:
+        resp = await client.put("/api/v1/agents/ag-b/node", json={"node_id": mine})
+    assert resp.status_code == 404
+    assert dal(dal.access_agents.agent_id == "ag-b").select().first().node_id is None
+
+
+@pytest.mark.asyncio
+async def test_legacy_null_tenant_agent_needs_super_admin(guard_app, monkeypatch):
+    """A NULL-tenant agent: tenant admin gets 404; a cross-tenant super-admin can link it."""
+    dal = guard_app.dal
+    node_id = _add_node(dal, "host-a")
+    _add_agent(dal, "ag-old", node_id=None, tenant=None)
+    async with guard_app.app.test_client() as client:
+        assert (await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})).status_code == 404
+    monkeypatch.setattr(guard_app.agents, "request_is_cross_tenant", lambda: True)
+    async with guard_app.app.test_client() as client:
+        assert (await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})).status_code == 200

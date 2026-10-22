@@ -348,6 +348,7 @@ async def enroll_agent():
                 agent_id=agent_id,
                 hostname=hostname,
                 node_id=link_node_id,
+                tenant_id=key_meta.get("tenant_id") if isinstance(key_meta.get("tenant_id"), str) else None,
                 ip_address=data.get("ip_address"),
                 enrollment_key_hash=key_hash,
                 enrollment_completed=True,
@@ -428,7 +429,7 @@ def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -
     tenant = key_meta.get("tenant_id")
     if not isinstance(tenant, str) or not tenant:
         return None
-    with db.engine.connect() as conn:
+    with db.engine.begin() as conn:
         node_id = capacity_guard.resolve_node_by_name(conn, intended, tenant)
     explicit = key_meta.get("node_id")
     if isinstance(explicit, int) and not isinstance(explicit, bool):
@@ -467,8 +468,9 @@ async def link_agent_node(agent_id: str):
 
     refusal = await run_db(_link)
     if refusal in ("agent_not_found", "node_not_found", "tenant_mismatch"):
+        # all three look identical to the caller: no cross-tenant existence leak
         # tenant_mismatch reports as not-found: never confirm another tenant's node exists.
-        return jsonify({"error": "node_not_found" if refusal == "tenant_mismatch" else refusal}), 404
+        return jsonify({"error": "not_found"}), 404
     if refusal is not None:
         return jsonify({"error": refusal}), 409
     log.info("agent %s linked to node %s", agent_id, node_id)

@@ -701,6 +701,8 @@ class AccessAgent(Base):
     # intended_hostname) or by an admin. The capacity guard trusts ONLY this link,
     # never the agent's self-reported hostname.
     node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    # Tenant stamped from the enrollment key; NULL for legacy agents (super-admin link only).
+    tenant_id = Column(String(255), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

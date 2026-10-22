@@ -56,7 +56,7 @@ def _agent(engine: Any, agent_id: str, *, node_id: int | None, status: str = "ac
     with engine.begin() as conn:
         conn.execute(
             insert(agents).values(
-                agent_id=agent_id, hostname="self-reported", status=status, node_id=node_id
+                agent_id=agent_id, hostname="self-reported", status=status, node_id=node_id, tenant_id="t1"
             )
         )
 
@@ -196,6 +196,7 @@ def test_link_agent_refusals_and_success(engine: Any) -> None:
         assert cg.link_agent_to_node(conn, "nope", 1) == "agent_not_found"
         assert cg.link_agent_to_node(conn, "ag-1", 99) == "node_not_found"
         assert cg.link_agent_to_node(conn, "ag-1", 1, expected_tenant="other") == "tenant_mismatch"
+        assert cg.link_agent_to_node(conn, "ag-1", 4, expected_tenant="t1") == "tenant_mismatch"
         assert cg.link_agent_to_node(conn, "ag-1", 1, expected_tenant="t1") is None
         assert cg.link_agent_to_node(conn, "ag-2", 1) == "node_already_linked"
 
