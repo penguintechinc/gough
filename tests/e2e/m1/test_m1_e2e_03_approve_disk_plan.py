@@ -1,4 +1,4 @@
-"""M1 E2E Test 03: Operator approves disk plan + k8s-primary biome via API."""
+"""M1 E2E Test 03: Operator approves disk plan + k8s-controller biome via API."""
 
 import pytest
 import time
@@ -6,7 +6,7 @@ import time
 
 def test_m1_e2e_03_approve_disk_plan(primary_cluster, sim_node_factory, api_client):
     """
-    Test: Operator approves disk plan + `k8s-primary` biome via API
+    Test: Operator approves disk plan + `k8s-controller` biome via API
     Pass criteria:
       - Phase-2 deploy starts
       - `nodes.state = deploying`

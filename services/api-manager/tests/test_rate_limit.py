@@ -207,9 +207,20 @@ class TestRateLimiterInitApp:
         limiter = RateLimiter(app)
         assert limiter._enabled is True
 
-    def test_init_with_redis_falls_back_on_error(self):
-        from app.rate_limit import RateLimiter, InMemoryStorage
+    def test_init_with_redis_fails_loudly_on_error_without_fallback_flag(self):
+        """Unreachable Redis aborts init unless RATE_LIMIT_ALLOW_MEMORY_FALLBACK is set."""
+        from app.rate_limit import RateLimiter, RateLimiterBackendUnavailable
         app = _make_app(RATE_LIMIT_REDIS_URL="redis://bad-host:6379/0")
+        with pytest.raises(RateLimiterBackendUnavailable):
+            RateLimiter(app)
+
+    def test_init_with_redis_falls_back_when_flag_explicitly_set(self):
+        """With the explicit opt-in flag, an unreachable Redis falls back to memory."""
+        from app.rate_limit import RateLimiter, InMemoryStorage
+        app = _make_app(
+            RATE_LIMIT_REDIS_URL="redis://bad-host:6379/0",
+            RATE_LIMIT_ALLOW_MEMORY_FALLBACK=True,
+        )
         limiter = RateLimiter(app)
         assert isinstance(limiter._storage, InMemoryStorage)
 

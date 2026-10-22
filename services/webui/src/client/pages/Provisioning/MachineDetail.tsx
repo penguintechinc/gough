@@ -189,7 +189,7 @@ export const MachineDetail: React.FC = () => {
 
     try {
       const params: Record<string, unknown> = {};
-      if (selectedBiome === 'k8s-primary') {
+      if (selectedBiome === 'k8s-controller') {
         const cpfParams: ControlPlaneFrontendParams = {
           mode: frontendMode,
         };
@@ -606,14 +606,14 @@ export const MachineDetail: React.FC = () => {
                 className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
               >
                 <option value="">Select a biome...</option>
-                <option value="k8s-primary">k8s-primary</option>
+                <option value="k8s-controller">k8s-controller</option>
                 <option value="k8s-worker">k8s-worker</option>
                 <option value="storage">storage</option>
               </select>
             </div>
 
-            {/* k8s-primary Control Plane Frontend Picker */}
-            {selectedBiome === 'k8s-primary' && (
+            {/* k8s-controller Control Plane Frontend Picker */}
+            {selectedBiome === 'k8s-controller' && (
               <div className="mb-4 p-4 bg-dark-800 rounded border border-dark-700">
                 <label className="block text-sm font-medium text-gold-400 mb-3">Control Plane Frontend</label>
 

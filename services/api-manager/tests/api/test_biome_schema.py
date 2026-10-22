@@ -24,13 +24,13 @@ class TestBiomeCreateMinimal:
     def test_minimal_required_fields(self) -> None:
         b = BiomeCreate.model_validate(
             {
-                "name": "k8s-primary",
+                "name": "k8s-controller",
                 "display_name": "Kubernetes Primary",
                 "biome_type": "lxd_container",
                 "version": "1.31.0",
             }
         )
-        assert b.name == "k8s-primary"
+        assert b.name == "k8s-controller"
         assert b.biome_kind == "custom"  # default
         assert b.phase == "post_deploy"
         assert b.workload_type == "lxc"
@@ -95,7 +95,7 @@ class TestBiomeCreateFullSpec:
 
     def test_full_spec(self) -> None:
         body = {
-            "name": "k8s-primary",
+            "name": "k8s-controller",
             "display_name": "MicroK8s Primary",
             "description": "Bootstraps the cluster control plane.",
             "biome_type": "lxd_container",

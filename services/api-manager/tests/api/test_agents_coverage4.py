@@ -261,7 +261,7 @@ async def test_revoke_enrollment_key_exception_path(agents_client):
 
     delete_query = MagicMock()
     mock_db.return_value = delete_query
-    delete_query.delete.side_effect = RuntimeError("DB Delete failed")
+    delete_query.update.side_effect = RuntimeError("DB Delete failed")  # revoke is a soft-delete update
 
     response = await client.delete("/api/v1/agents/enrollment-keys/1")
 
@@ -361,6 +361,7 @@ async def test_enroll_agent_key_already_used(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.is_used = True
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)
 
@@ -385,6 +386,7 @@ async def test_enroll_agent_key_expired(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() - timedelta(hours=1)
 
@@ -410,6 +412,7 @@ async def test_enroll_agent_success(agents_client):
 
     # Setup: valid key
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.id = 1
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)
@@ -444,6 +447,7 @@ async def test_enroll_agent_exception_path(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.id = 1
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)

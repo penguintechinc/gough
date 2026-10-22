@@ -387,7 +387,7 @@ func TestDeploymentListWithDeployments(t *testing.T) {
 	deployments := []client.Deployment{
 		{
 			ID:        "dep-1",
-			BiomeName: "k8s-primary",
+			BiomeName: "k8s-controller",
 			BiomeID:   1,
 			NodeID:    1,
 			Status:    "succeeded",
@@ -421,7 +421,7 @@ func TestDeploymentListWithFilters(t *testing.T) {
 	deployments := []client.Deployment{
 		{
 			ID:        "dep-1",
-			BiomeName: "k8s-primary",
+			BiomeName: "k8s-controller",
 			BiomeID:   1,
 			NodeID:    1,
 			Status:    "succeeded",
@@ -432,7 +432,7 @@ func TestDeploymentListWithFilters(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(deployments)))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"deployment", "list", "--status", "succeeded", "--biome-id", "k8s-primary"})
+	rootCmd.SetArgs([]string{"deployment", "list", "--status", "succeeded", "--biome-id", "k8s-controller"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 	err := rootCmd.Execute()

@@ -57,6 +57,9 @@ class NodeSnapshot:
     forecast_disk_free_pct: float
     hardware_tags: frozenset[str] = field(default_factory=frozenset)
     composite_load_score: float = 0.0
+    # False when no fresh host snapshot backs the free-percentages. Headroom
+    # checks fail closed on False; they never assume free capacity.
+    telemetry_fresh: bool = False
 
 
 @dataclass(slots=True, frozen=True)
@@ -303,6 +306,18 @@ def _violates_headroom(
 ) -> Optional[Violation]:
     """Return a violation if simulating the biome's load on the node breaches the
     headroom requirements; else ``None``."""
+    if not node.telemetry_fresh:
+        return Violation(
+            code="no_fresh_host_telemetry",
+            message=(
+                f"Target node {node.node_id} has no fresh host resource snapshot; "
+                "headroom cannot be verified"
+            ),
+            node_id=node.node_id,
+            field="host_resource_snapshot",
+            actual=0.0,
+            required=1.0,
+        )
     cpu_after = node.forecast_cpu_free_pct - biome.expected_cpu_load_pct
     mem_after = node.forecast_mem_free_pct - biome.expected_mem_load_pct
     disk_after = node.forecast_disk_free_pct - biome.expected_disk_load_pct

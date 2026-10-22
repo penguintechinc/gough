@@ -20,9 +20,11 @@ from __future__ import annotations
 
 import base64
 import json
+import logging
 import os
 import re
 import secrets
+import shlex
 import time
 import uuid
 from collections import deque
@@ -31,6 +33,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
+from ..catalog import CILIUM_IMAGE_DIGESTS, CILIUM_VERSION, canonical_biome_name
+from ..mirrors import MirrorConfig, MirrorConfigError, load_mirror_config
 
 
 # ---------------------------------------------------------------------------
@@ -417,19 +422,131 @@ def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes,
 # ---------------------------------------------------------------------------
 
 
+def _image_values(indent: str, mirror_image: str, registry: str) -> list[str]:
+    """Return chart values pinning one Cilium image to the mirror by digest.
+
+    ``mirror_image`` is the repository name under ``<registry>/cilium/``; the digest
+    comes from ``CILIUM_IMAGE_DIGESTS`` so chart values and catalog share one source.
+    """
+    return [
+        f"{indent}image:",
+        f"{indent}  repository: {registry}/cilium/{mirror_image}",
+        f"{indent}  useDigest: true",
+        f"{indent}  digest: {CILIUM_IMAGE_DIGESTS[mirror_image]}",
+    ]
+
+
+def _render_cilium_values(service_host: str, mirrors: MirrorConfig) -> str:
+    """Render the Cilium helm values: every image from the mirror, pinned by digest.
+
+    No upstream registry name is emitted. Envoy, certgen and hubble-relay are
+    included because the chart pulls them by default or when Hubble is enabled.
+    ``enableCiliumEndpointSlice`` is deliberately absent: chart 1.20.1 refuses it.
+    """
+    registry = mirrors.registry_host
+    lines = [
+        "kubeProxyReplacement: true",
+        f"k8sServiceHost: {service_host}",
+        "k8sServicePort: 6443",
+        *_image_values("", "cilium", registry),
+        "ipam:",
+        "  mode: kubernetes",
+        "ipv4:",
+        "  enabled: true",
+        "ipv6:",
+        "  enabled: false",
+        "l2announcements:",
+        "  enabled: true",
+        "externalIPs:",
+        "  enabled: true",
+        "loadBalancer:",
+        "  algorithm: maglev",
+        "  mode: snat",
+        "bpf:",
+        "  masquerade: true",
+        "socketLB:",
+        "  enabled: true",
+        "nodePort:",
+        "  enabled: true",
+        "hostServices:",
+        "  enabled: true",
+        "envoyConfig:",
+        "  enabled: true",
+        "envoy:",
+        *_image_values("  ", "cilium-envoy", registry),
+        "operator:",
+        "  replicas: 1",
+        *_image_values("  ", "operator", registry),
+        "certgen:",
+        *_image_values("  ", "certgen", registry),
+        "hubble:",
+        "  enabled: true",
+        "  relay:",
+        "    enabled: true",
+        *_image_values("    ", "hubble-relay", registry),
+        "gatewayAPI:",
+        "  enabled: true",
+    ]
+    return "\n".join(lines) + "\n"
+
+
+def _fetch_verified_cmd(url: str, sha256: str, dest: str) -> str:
+    """Return a shell step that downloads ``url`` to ``dest`` and fails unless sha256 matches.
+
+    Verify-before-apply: the artifact is only applied after this step succeeds.
+    Inputs are validated upstream (https-only, no quotes/spaces) and shell-quoted here.
+    """
+    q_url = shlex.quote(url)
+    q_dest = shlex.quote(dest)
+    return (
+        f"mkdir -p {shlex.quote(os.path.dirname(dest))} && "
+        f"curl -fsSL --proto '=https' --tlsv1.2 -o {q_dest} {q_url} && "
+        f"echo {shlex.quote(sha256 + '  ' + dest)} | sha256sum -c - || exit 1"
+    )
+
+
+def _render_registry_mirror_files(mirrors: MirrorConfig) -> tuple[list[dict[str, Any]], list[str]]:
+    """Render containerd hosts.toml files routing each upstream registry through the mirror.
+
+    Returns (write_files, runcmds). The runcmd fails loudly if containerd does not
+    read ``/etc/containerd/certs.d``, so pulls can never silently go upstream.
+    """
+    write_files: list[dict[str, Any]] = []
+    for registry in mirrors.mirrored_registries:
+        upstream = "registry-1.docker.io" if registry == "docker.io" else registry
+        write_files.append({
+            "path": f"/etc/containerd/certs.d/{registry}/hosts.toml",
+            "content": (
+                f'server = "https://{upstream}"\n\n'
+                f'[host."{mirrors.registry_mirror}"]\n'
+                '  capabilities = ["pull", "resolve"]\n'
+            ),
+            "permissions": "0644",
+        })
+    runcmds = [
+        "# Fail loudly unless containerd reads per-registry mirror config",
+        "grep -q 'config_path = \"/etc/containerd/certs.d\"' /etc/containerd/config.toml "
+        "|| (echo 'FATAL: containerd config_path for certs.d is not set' && exit 1)",
+    ]
+    return (write_files, runcmds)
+
+
 def _render_cni_install(
     cni_mode: str,
     cni_params: dict[str, Any],
     endpoint: str | None,
+    mirror_config: MirrorConfig | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[PlanValidationError]]:
     """Render CNI install (Cilium) or skip if mode=none.
 
     Returns (write_files, runcmds, errors).
 
-    On bootstrap with cni=cilium:
+    On bootstrap with cni=cilium (airgap: every artifact from an operator mirror,
+    sha256-verified before use; no public upstream host access):
       - Write cilium-values.yaml with templated k8sServiceHost
-      - Pre-apply all 14 Cilium CRDs from pinned version URL
-      - Helm install with pinned chart version and digests
+      - Write containerd hosts.toml routing upstream registries through the mirror
+      - Fetch the Cilium CRD bundle and Gateway API CRDs, verify sha256, then apply
+      - Helm install from the verified chart tarball
       - Wait for operator Ready + DaemonSet rolled out
       - Verify critical CRDs present (ciliumenvoyconfigs, ciliumclusterwideenvoyconfigs)
 
@@ -466,47 +583,33 @@ def _render_cni_install(
         )
         return (write_files, runcmds, errors)
 
-    version = cni_params.get("version", "1.19.1")
+    version = str(cni_params.get("version", CILIUM_VERSION))
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        errors.append(
+            PlanValidationError(
+                code="cloud_init_validation_error",
+                message=f"Invalid Cilium version {version!r}; expected MAJOR.MINOR.PATCH",
+                details={"cilium_version": version},
+            )
+        )
+        return (write_files, runcmds, errors)
+
+    try:
+        mirrors = mirror_config or load_mirror_config()
+    except MirrorConfigError as exc:
+        errors.append(
+            PlanValidationError(
+                code="cloud_init_validation_error",
+                message=f"airgap mirror configuration invalid: {exc}",
+                details={},
+            )
+        )
+        return (write_files, runcmds, errors)
+
     service_host = endpoint.split(":")[0]
 
-    # Generate cilium-values.yaml with templated service host
-    cilium_yaml = (
-        "kubeProxyReplacement: true\n"
-        f"k8sServiceHost: {service_host}\n"
-        "k8sServicePort: 6443\n"
-        "ipam:\n"
-        "  mode: kubernetes\n"
-        "ipv4:\n"
-        "  enabled: true\n"
-        "ipv6:\n"
-        "  enabled: false\n"
-        "l2announcements:\n"
-        "  enabled: true\n"
-        "externalIPs:\n"
-        "  enabled: true\n"
-        "loadBalancer:\n"
-        "  algorithm: maglev\n"
-        "  mode: snat\n"
-        "bpf:\n"
-        "  masquerade: true\n"
-        "socketLB:\n"
-        "  enabled: true\n"
-        "nodePort:\n"
-        "  enabled: true\n"
-        "hostServices:\n"
-        "  enabled: true\n"
-        "enableCiliumEndpointSlice: true\n"
-        "envoyConfig:\n"
-        "  enabled: true\n"
-        "operator:\n"
-        "  replicas: 1\n"
-        "hubble:\n"
-        "  enabled: true\n"
-        "  relay:\n"
-        "    enabled: true\n"
-        "gatewayAPI:\n"
-        "  enabled: true\n"
-    )
+    # Generate cilium-values.yaml with templated service host and mirror-pinned images
+    cilium_yaml = _render_cilium_values(service_host, mirrors)
 
     write_files.append({
         "path": "/etc/gough/cilium-values.yaml",
@@ -514,52 +617,38 @@ def _render_cni_install(
         "permissions": "0644",
     })
 
-    # All 14 Cilium CRDs for v1.19.1
-    crds = [
-        "ciliumcidrgroups",
-        "ciliumclusterwideenvoyconfigs",
-        "ciliumclusterwideexternalworkloads",
-        "ciliumclusterwidenetworkpolicies",
-        "ciliumendpoints",
-        "ciliumendpointslices",
-        "ciliumenvoyconfigs",
-        "ciliumexternalworkloads",
-        "ciliumidentities",
-        "ciliumloadbalancerippools",
-        "ciliumnetworkpolicies",
-        "ciliumnodeconfigs",
-        "ciliumnodes",
-        "ciliumpodippools",
-    ]
+    # Airgap: route every upstream registry through the operator mirror.
+    registry_files, registry_cmds = _render_registry_mirror_files(mirrors)
+    write_files.extend(registry_files)
+    runcmds.extend(registry_cmds)
 
-    crd_base_url = f"https://raw.githubusercontent.com/cilium/cilium/v{version}/install/kubernetes/helm/cilium/crds"
+    # Airgap: every artifact comes from an operator mirror and is sha256-verified
+    # before it is applied. Nothing is fetched from upstream hosts.
+    crd_bundle_path = "/var/lib/gough/airgap/cilium-crds.yaml"
+    gateway_crd_path = "/var/lib/gough/airgap/gateway-api-crds.yaml"
+    chart_path = f"/var/lib/gough/airgap/cilium-{version}.tgz"
 
-    # Pre-apply Gateway API CRDs v1.0.0 (serves both v1 and v1alpha2 for TLSRoute) — before Cilium CRDs
-    runcmds.append("# Pre-apply Gateway API CRDs at v1.0.0 (Cilium 1.19.1 requires TLSRoute v1alpha2)")
+    # Gateway API CRDs first: gatewayAPI is enabled in the values, so TLSRoute must be served.
+    runcmds.append("# Fetch + verify Gateway API CRDs from the mirror (gatewayAPI is enabled)")
     runcmds.append(
-        "kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml || true"
+        _fetch_verified_cmd(mirrors.gateway_api_crds_url, mirrors.gateway_api_crds_sha256, gateway_crd_path)
     )
-    runcmds.append(
-        "kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml || true"
-    )
+    runcmds.append(f"kubectl apply -f {shlex.quote(gateway_crd_path)} || exit 1")
     runcmds.append(
         "kubectl get crd tlsroutes.gateway.networking.k8s.io -o jsonpath='{.spec.versions[?(@.name==\"v1alpha2\")].served}' | grep -q true "
         "|| (echo 'FATAL: TLSRoute v1alpha2 not served — Cilium operator will crash' && exit 1)"
     )
 
-    # Pre-apply CRDs (before operator starts) — prevent operator stuck-on-CRDs deadlock
-    runcmds.append("# Pre-apply Cilium CRDs to prevent operator stuck-on-CRDs deadlock")
-    for crd in crds:
-        crd_url = f"{crd_base_url}/{crd}.yaml"
-        runcmds.append(
-            f"kubectl apply -f {crd_url} || (echo 'CRD {crd} apply failed' && exit 1)"
-        )
+    # Pre-apply the Cilium CRD bundle (single verified file) before the operator starts.
+    runcmds.append("# Fetch + verify + pre-apply Cilium CRD bundle (prevents operator stuck-on-CRDs deadlock)")
+    runcmds.append(_fetch_verified_cmd(mirrors.cilium_crds_url, mirrors.cilium_crds_sha256, crd_bundle_path))
+    runcmds.append(f"kubectl apply -f {shlex.quote(crd_bundle_path)} || exit 1")
 
-    # Helm repo + install (idempotent: install -> helm upgrade --install)
-    runcmds.append("helm repo add cilium https://helm.cilium.io/ --force-update")
+    # Chart from the mirror, verified, installed from the local tarball (no helm repo).
+    runcmds.append("# Fetch + verify Cilium chart from the mirror, then helm install from the local tarball")
+    runcmds.append(_fetch_verified_cmd(mirrors.cilium_chart_url(version), mirrors.cilium_chart_sha256, chart_path))
     runcmds.append(
-        f"helm install cilium cilium/cilium "
-        f"--version {version} "
+        f"helm install cilium {shlex.quote(chart_path)} "
         f"--namespace kube-system --create-namespace "
         f"-f /etc/gough/cilium-values.yaml "
         f"--wait --timeout 10m"
@@ -637,11 +726,11 @@ def _render_control_plane_frontend(
     runcmds: list[str] = []
     joiner_secrets: list[dict[str, Any]] = []
 
-    if biome_name != "k8s-primary":
+    if biome_name != "k8s-controller":
         errors.append(
             PlanValidationError(
                 code="cloud_init_validation_error",
-                message=f"control_plane_frontend params only valid on k8s-primary biome, not {biome_name!r}",
+                message=f"control_plane_frontend params only valid on k8s-controller biome, not {biome_name!r}",
                 details={"biome": biome_name},
             )
         )
@@ -858,14 +947,14 @@ spec:
         # Emit joiner secrets (placeholder extraction; real impl uses kubeadm hooks)
         joiner_secrets.append({
             "cluster_id": cluster_id,
-            "egg_kind": "k8s-primary",
+            "egg_kind": "k8s-controller",
             "extractor_name": "control_plane_endpoint",
             "scope": "cluster",
             "value": endpoint,
         })
         joiner_secrets.append({
             "cluster_id": cluster_id,
-            "egg_kind": "k8s-primary",
+            "egg_kind": "k8s-controller",
             "extractor_name": "kubeadm_certificate_key",
             "scope": "cluster",
             "value": f"<cert-key-from-init>",  # Real impl extracts from kubeadm
@@ -929,7 +1018,7 @@ def _validate_frontend_params(
     if not params:
         return errors
 
-    if biome_name != "k8s-primary":
+    if biome_name != "k8s-controller":
         return errors
 
     mode = params.get("mode", "kube-vip")
@@ -1243,9 +1332,19 @@ def _find_cycle(start: int, nodes: dict[int, _BiomeNode], max_len: int = 20) -> 
 
 
 def _check_vram_requirements(
-    node: Any, biome_id: int, biome_name: str, needs_gpu: dict[str, Any]
+    node: Any,
+    biome_id: int,
+    biome_name: str,
+    needs_gpu: dict[str, Any],
+    free_ram_bytes: int | None = None,
 ) -> list[PlanValidationError]:
-    """Validate VRAM and GPU constraints from storage_requirements_json.needs_gpu."""
+    """Validate VRAM and GPU constraints from storage_requirements_json.needs_gpu.
+
+    ``free_ram_bytes`` is the node's live ``MemAvailable`` from a fresh capacity
+    snapshot. None (no fresh/trustworthy snapshot) fails closed: an integrated GPU
+    sharing system RAM is never admitted on a guess. The static
+    ``hardware_json.free_ram_mb`` inventory value is not trusted for this decision.
+    """
     errors: list[PlanValidationError] = []
     hw: dict[str, Any] = getattr(node, "hardware_json", None) or {}
     accelerators: list[dict[str, Any]] = hw.get("accelerators", [])
@@ -1258,7 +1357,7 @@ def _check_vram_requirements(
     device_count_min = needs_gpu.get("device_count_min", 1)
     device_count_max = needs_gpu.get("device_count_max", 9999)
     shared_memory_acceptable = needs_gpu.get("shared_memory_acceptable", False)
-    free_ram_gb: float = hw.get("free_ram_mb", 0) / 1024.0
+    free_ram_gb: float | None = None if free_ram_bytes is None else free_ram_bytes / 1024.0**3
     shared_memory_buffer_gb: float = hw.get("shared_memory_buffer_gb", 2.0)
     interconnect = needs_gpu.get("interconnect")
     min_compute = needs_gpu.get("min_compute_capability")
@@ -1278,6 +1377,11 @@ def _check_vram_requirements(
                 return False, "integrated GPU not acceptable (shared_memory_acceptable=false)"
             # Check free RAM headroom
             needed = vram_per_device_min_gb + shared_memory_buffer_gb
+            if free_ram_gb is None:
+                return (
+                    False,
+                    "integrated GPU: no fresh host memory snapshot (fail closed)",
+                )
             if free_ram_gb < needed:
                 return (
                     False,
@@ -1731,6 +1835,9 @@ class PlanCompiler:
             row_dict = row.as_dict()
             eid = row_dict["id"]
             found_ids.add(eid)
+            # Rows stored before the k8s-controller rename still carry the legacy name.
+            if isinstance(row_dict.get("name"), str):
+                row_dict["name"] = canonical_biome_name(row_dict["name"])
 
             # Parse JSON fields
             def _j(col: str, default: Any = None) -> Any:
@@ -1919,13 +2026,37 @@ class PlanCompiler:
     ) -> list[PlanValidationError]:
         """Check VRAM requirements from storage_requirements_json.needs_gpu."""
         errors: list[PlanValidationError] = []
+        free_ram_bytes: int | None = None
+        looked_up = False
         for eid, egg_node in biome_nodes.items():
             needs_gpu = egg_node.storage_requirements.get("needs_gpu")
             if needs_gpu:
+                if not looked_up:
+                    free_ram_bytes = self._fresh_free_ram_bytes(node)
+                    looked_up = True
                 errors.extend(
-                    _check_vram_requirements(node, eid, egg_node.biome_name, needs_gpu)
+                    _check_vram_requirements(
+                        node, eid, egg_node.biome_name, needs_gpu, free_ram_bytes
+                    )
                 )
         return errors
+
+    def _fresh_free_ram_bytes(self, node: Any) -> int | None:
+        """Live ``MemAvailable`` for ``node`` from its capacity snapshot, None if untrusted.
+
+        Fails closed on any lookup error (no engine, missing table, bad row) so the GPU
+        eligibility check can never pass on unverified memory.
+        """
+        from .. import capacity_guard
+
+        try:
+            node_id = int(getattr(node, "id"))
+            return capacity_guard.fresh_available_memory_bytes(self.db_session.engine, node_id)
+        except Exception:  # noqa: BLE001 -- fail closed: unverifiable memory means ineligible
+            logging.getLogger(__name__).warning(
+                "capacity snapshot lookup failed for GPU check", exc_info=True
+            )
+            return None
 
     def _check_version_ranges(
         self, biome_nodes: dict[int, _BiomeNode]

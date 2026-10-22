@@ -17,7 +17,7 @@ func TestBiomeUpgradeCmd_Deferred(t *testing.T) {
 	}))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "--to", "2.0.0"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "--to", "2.0.0"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 	_ = rootCmd.Execute()
@@ -28,7 +28,7 @@ func TestBiomeUpgradeCmd_Success(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(map[string]string{})))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "--to", "2.0.0"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "--to", "2.0.0"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 	_ = rootCmd.Execute()

@@ -5,11 +5,14 @@ Provides REST API for managing cloud providers and machines.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
 from quart import Blueprint, jsonify, request
 
+from .. import capacity_guard
+from ..clouds.lxd import ResourceLimitsRequiredError
 from ..clouds import (
     CLOUD_REGISTRY,
     CloudAuthError,
@@ -527,11 +530,24 @@ async def create_machine(provider_id: int):
             region=data.get("region", ""),
             cloud_init=data.get("cloud_init", ""),
             ssh_keys=data.get("ssh_keys", []),
+            networks=data.get("networks", []),
+            storage_gb=data.get("storage_gb", 0),
             tags=data.get("tags", {}),
             extra=data.get("extra", {}),
         )
+        if (
+            not isinstance(spec.storage_gb, int)
+            or isinstance(spec.storage_gb, bool)
+            or spec.storage_gb < 0
+            or not isinstance(spec.extra, dict)
+            or not isinstance(spec.networks, list)
+        ):
+            raise ValueError("storage_gb must be a non-negative integer; extra an object")
     except Exception as e:  # noqa: BLE001 -- untrusted request body, any construction error is a 400
         return jsonify({"error": f"Invalid machine spec: {e}"}), 400
+    # The hub alone chooses the LXD target member; a client-supplied one is discarded.
+    spec.extra.pop("target", None)
+    spec.extra.pop("capacity_guarded", None)
 
     if not spec.name:
         return jsonify({"error": "Machine name required"}), 400
@@ -564,7 +580,26 @@ async def create_machine(provider_id: int):
     try:
         cloud = get_cloud_provider(provider.provider_type, provider.config_data)
         cloud.authenticate()
-        machine = cloud.create_machine(spec)
+
+        # LXD instances land on a hypervisor, so every LXD create passes the capacity
+        # guard: the hub picks the member (``target``), reserves its capacity, and
+        # releases on failure. Non-LXD providers are provider-managed (no hub-known
+        # host to guard) and never reach LXD.
+        reservation_id: str | None = None
+        if provider.provider_type == "lxd":
+            placement = await _place_lxd_machine(db, cloud, spec)
+            if isinstance(placement, tuple):
+                return placement
+            reservation_id = placement
+
+        try:
+            machine = await asyncio.to_thread(cloud.create_machine, spec)
+        except BaseException:
+            if reservation_id:
+                await run_db(lambda: capacity_guard.release(db.engine, reservation_id))
+            raise
+        if reservation_id:
+            await run_db(lambda: capacity_guard.confirm(db.engine, reservation_id))
 
         # Store in database.  Regression: gh-22. insert + commit is one
         # unit of work -- stays in one run_db() closure per the house rule
@@ -600,9 +635,61 @@ async def create_machine(provider_id: int):
     except CloudQuotaError as e:
         return jsonify({"error": f"Quota exceeded: {e}"}), 429
 
+    except ResourceLimitsRequiredError as e:
+        return jsonify({"error": str(e)}), 400
+
     except CloudError as e:
         log.error(f"Error creating machine: {e}")
         return jsonify({"error": str(e)}), 500
+
+
+async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tuple[Any, int]:
+    """Choose an LXD member for ``spec`` through the capacity guard and reserve it.
+
+    Sets ``spec.extra['target']`` (clustered LXD) and ``spec.extra['storage_pool']``.
+    Fails closed: unparseable limits -> 400, no mappable/fitting member -> 409 with
+    per-member reasons. Returns the reservation id ("" when the kill switch is ON), or a
+    ready ``(response, status)`` tuple on refusal.
+    """
+    cpu = capacity_guard.parse_cpu_limit(spec.size.split("/")[0]) if spec.size else None
+    mem_text = spec.size.split("/")[1] if spec.size.count("/") >= 1 else ""
+    mem = capacity_guard.parse_memory_limit(mem_text)
+    if cpu is None or mem is None or spec.storage_gb <= 0:
+        raise ResourceLimitsRequiredError(
+            "resource limits required: size must be '<cpu>/<memory>' with a numeric cpu "
+            "count and absolute memory (e.g. '2/4GiB'), and storage_gb > 0"
+        )
+    pool = str(spec.extra.get("storage_pool") or capacity_guard.policy_from_env().default_pool)
+    spec.extra["storage_pool"] = pool
+    request_fit = capacity_guard.FitRequest(
+        cpu_cores=cpu, memory_bytes=mem, disk_bytes=spec.storage_gb * 1024**3, pool=pool
+    )
+
+    members, clustered = await asyncio.to_thread(cloud.list_cluster_members)
+
+    def _choose() -> capacity_guard.Placement | capacity_guard.PlacementRefusal:
+        with db.engine.connect() as conn:
+            candidates: dict[str, int] = {}
+            for name in members:
+                node_id = capacity_guard.resolve_node_by_name(conn, name)
+                if node_id is not None:
+                    candidates[name] = node_id
+        return capacity_guard.place(db.engine, candidates, request_fit)
+
+    result = await run_db(_choose)
+    if isinstance(result, capacity_guard.PlacementRefusal):
+        log.info("LXD placement refused for %s: %s", spec.name, result.reasons)
+        return (
+            jsonify({
+                "error": "insufficient_capacity",
+                "reasons": {m: list(r) for m, r in result.reasons.items()},
+            }),
+            409,
+        )
+    if clustered:
+        spec.extra["target"] = result.member
+    spec.extra["capacity_guarded"] = True
+    return result.reservation_id or ""
 
 
 @clouds_bp.route("/<int:provider_id>/machines/<machine_id>", methods=["GET"])

@@ -101,7 +101,7 @@ func TestClusterStatusCmd(t *testing.T) {
 
 func TestBiomeListCmd(t *testing.T) {
 	biomes := []client.Biome{
-		{Name: "k8s-primary", Version: "1.0.0", Kind: "infrastructure"},
+		{Name: "k8s-controller", Version: "1.0.0", Kind: "infrastructure"},
 	}
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(biomes)))
 	defer cleanup()

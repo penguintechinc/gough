@@ -13,9 +13,12 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
+    false as sa_false,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
@@ -694,6 +697,10 @@ class AccessAgent(Base):
     last_heartbeat = Column(DateTime)
     status = Column(String(50), default="pending", nullable=False)
     capabilities = Column(Text)
+    # Server-side agent<->node link, set at enrollment (from the enrollment key's
+    # intended_hostname) or by an admin. The capacity guard trusts ONLY this link,
+    # never the agent's self-reported hostname.
+    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -708,6 +715,7 @@ class EnrollmentKey(Base):
     created_by = Column(Integer, ForeignKey("auth_user.id"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     is_used = Column(Boolean, default=False)
+    revoked = Column(Boolean, default=False, nullable=False, server_default=sa_false())
     used_by_agent = Column(Integer, ForeignKey("access_agents.id"))
     metadata_json = Column('metadata', Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -768,6 +776,77 @@ class SystemLog(Base):
     job_id = Column(Integer, ForeignKey("deployment_jobs.id"))
     user_id = Column(Integer, ForeignKey("auth_user.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# =============================================================================
+# LXD cluster join issuance and bootstrap tombstones
+# =============================================================================
+
+class LxdJoinTokenIssuance(Base):
+    """One row per LXD cluster join token grant; never deleted, expiry enforced by time."""
+
+    __tablename__ = "lxd_join_token_issuances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    member_name = Column(String(255), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False)
+    status = Column(Integer, nullable=False, default=0)  # 0=issued, 1=failed
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    # "live" mirrors of agent/member/key, set only while ISSUED and NULL once FAILED.
+    # Unique columns allow many NULLs on both SQLite and PostgreSQL, so they act as
+    # partial unique indexes: at most one live grant per agent, member, and key.
+    agent_live = Column(String(255), unique=True, nullable=True)
+    member_live = Column(String(255), unique=True, nullable=True)
+    key_live = Column(String(255), unique=True, nullable=True)
+
+
+class BootstrapTokenSeed(Base):
+    """Tombstone recording that a bootstrap token was seeded; never deleted, keyed by SHA-256 hash."""
+
+    __tablename__ = "bootstrap_token_seeds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    seeded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# =============================================================================
+# Hub biome bundle cache (verified biomes releases served to instances)
+# =============================================================================
+
+class BiomeBundleImport(Base):
+    """One verified biomes release; written only after sha256 (and cosign, if configured) pass."""
+
+    __tablename__ = "biome_bundle_imports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    public_id = Column(String(36), unique=True, nullable=False)
+    version = Column(String(64), unique=True, nullable=False)
+    source_sha256 = Column(String(64), nullable=False)
+    source_url = Column(Text, nullable=False)
+    signature_status = Column(Integer, nullable=False)  # 0=not required, 1=verified
+    file_count = Column(Integer, nullable=False)
+    imported_by = Column(String(255), nullable=False)
+    imported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class BiomeBundleFile(Base):
+    """One verified file from a biomes release, keyed by (import, biome, path)."""
+
+    __tablename__ = "biome_bundle_files"
+    __table_args__ = (
+        UniqueConstraint("import_id", "biome", "path", name="uq_bundle_file_path"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    import_id = Column(Integer, ForeignKey("biome_bundle_imports.id"), nullable=False, index=True)
+    biome = Column(String(64), nullable=False)
+    path = Column(String(512), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    content = Column(LargeBinary, nullable=False)
 
 
 def convert_pydal_to_sqlalchemy_uri(db_uri: str) -> str:

@@ -25,7 +25,7 @@ func TestDevSeedCmd(t *testing.T) {
 	})))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"dev", "seed", "--biomes", "k8s-primary,nest-agent"})
+	rootCmd.SetArgs([]string{"dev", "seed", "--biomes", "k8s-controller,nest-agent"})
 	_ = rootCmd.Execute()
 }
 

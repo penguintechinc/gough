@@ -52,9 +52,9 @@ See `/docs/specs/platform-spec.md` sections "Personas" (full text in plan file) 
 - [x] Joiner secret encryption/decryption
 
 ### Phase-3 (Orchestration)
-- [x] Kubernetes control plane bootstrap (k8s-primary biome)
+- [x] Kubernetes control plane bootstrap (k8s-controller biome)
 - [x] Kubernetes worker join (k8s-worker biome)
-- [x] Built-in biome catalog (k8s-primary, k8s-worker, nest-agent, longhorn-agent)
+- [x] Built-in biome catalog (k8s-controller, k8s-worker, nest-agent, longhorn-agent)
 - [x] Custom biome authoring support
 
 ### Security & Identity
@@ -117,7 +117,7 @@ CREATE TABLE cloud_machines (
 
 -- Biomes (workload templates)
 CREATE TABLE biomes (
-  id TEXT PRIMARY KEY,                          -- k8s-primary, vault-leader, ...
+  id TEXT PRIMARY KEY,                          -- k8s-controller, vault-leader, ...
   name TEXT, version TEXT,
   biome_kind TEXT,                                -- infrastructure, application
   phase TEXT,                                   -- post_deploy, always_on, ...

@@ -28,6 +28,7 @@ import yaml
 from quart import Blueprint, current_app, g, jsonify, request
 from werkzeug.utils import secure_filename
 
+from .. import capacity_guard
 from .. import metrics as _metrics
 from ..db.run_db import run_db
 from ..licensing import feature_enabled
@@ -129,6 +130,16 @@ def _user_has_scope(scope: str) -> bool:
     return scope in scopes
 
 
+def _safe_int(value: object) -> int:
+    """Coerce a biome minimum to a non-negative int; 0 (skip) when absent or invalid."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return 0
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return 0
+
+
 def _eval_node_eligibility(db, biome, node) -> EligibilityResult:
     """Run the full eligibility evaluation (tags + resource constraints)."""
     requires = getattr(biome, "requires_hardware_tags", None) or []
@@ -179,6 +190,25 @@ def _eval_node_eligibility(db, biome, node) -> EligibilityResult:
                     "available": hw["architecture"],
                 }
             )
+
+    # Capacity guard (fail-closed): the node must have a fresh snapshot and room
+    # for the biome's declared minimums. Missing or stale telemetry refuses.
+    # Non-integer minimums are skipped (same as the hardware_json checks above),
+    # so the guard still enforces freshness and pressure for them.
+    min_ram_mb = _safe_int(getattr(biome, "min_ram_mb", None))
+    min_disk_gb = _safe_int(getattr(biome, "min_disk_gb", None))
+    fit = capacity_guard.check_fit_for_db(
+        db,
+        int(node.id),
+        capacity_guard.FitRequest(
+            cpu_cores=0.0,
+            memory_bytes=min_ram_mb * 1024 * 1024,
+            disk_bytes=min_disk_gb * 1024**3,
+            pool=capacity_guard.policy_from_env().default_pool,
+        ),
+    )
+    for reason in fit.reasons:
+        resource_violations.append({"resource": "capacity_guard", "reason": reason})
 
     return check_tag_eligibility(
         requires,

@@ -244,28 +244,28 @@ func TestWebhookTest_Deferred(t *testing.T) {
 func TestBiomePromote_Deferred(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 202, deferredResponse()))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "promote", "k8s-primary", "1.2.0"})
+	rootCmd.SetArgs([]string{"biome", "promote", "k8s-controller", "1.2.0"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeRollback_Deferred(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 202, deferredResponse()))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "rollback", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "rollback", "k8s-controller"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeDiff_Success(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(map[string]string{"diff": "content"})))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "diff", "k8s-primary", "1.0.0", "1.1.0"})
+	rootCmd.SetArgs([]string{"biome", "diff", "k8s-controller", "1.0.0", "1.1.0"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeReSign_Deferred(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 202, deferredResponse()))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "re-sign", "k8s-primary", "1.0.0"})
+	rootCmd.SetArgs([]string{"biome", "re-sign", "k8s-controller", "1.0.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -286,14 +286,14 @@ func TestBiomeEligibilityCheck_Deferred(t *testing.T) {
 func TestBiomeUpgrade_Deferred(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 202, deferredResponse()))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "1.2.0"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "1.2.0"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeUpgrade_Success(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(map[string]string{})))
 	defer cleanup()
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "1.2.0"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "1.2.0"})
 	_ = rootCmd.Execute()
 }
 

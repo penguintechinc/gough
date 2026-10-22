@@ -88,7 +88,7 @@ def _seed_joiner_secret(dal_db: Any, *, emitter_biome_id: int, **overrides: Any)
     base: dict[str, Any] = dict(
         id=str(uuid.uuid4()),
         cluster_id=str(uuid.uuid4()),
-        biome_kind="k8s-primary",
+        biome_kind="k8s-controller",
         emitter_biome_id=emitter_biome_id,
         emitter_node_id=None,
         extractor_name="kubeadm_join_token",
@@ -228,7 +228,7 @@ class TestResolveJoinerSecretsAmbientTenantScoping:
                 phase="post_deploy",
                 consumes_joiner_secrets_from=[
                     {
-                        "biome_kind": "k8s-primary",
+                        "biome_kind": "k8s-controller",
                         "extractor_name": "kubeadm_join_token",
                         "scope": "cluster",
                     }

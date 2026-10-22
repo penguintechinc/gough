@@ -27043,6 +27043,99 @@ paths:
       security:
       - bearerAuth: []
       - mutualTLS: []
+  /api/v1/lxd/cluster-join-tokens:
+    post:
+      operationId: createLxdClusterJoinToken
+      summary: Mint a one-time LXD cluster join token for the calling agent's enrolled hostname.
+      description: >
+        Agent bearer auth. Refused unless the agent is active, its enrollment key is
+        join-eligible (node-join or bootstrap) and not revoked, a node-join key's intended
+        hostname matches the agent, and member_name equals the agent's enrolled hostname.
+        One live grant per agent, member, and key; a second grant is refused with 409.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [member_name]
+              properties:
+                member_name:
+                  type: string
+                  maxLength: 63
+                  pattern: "^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$"
+      responses:
+        "200":
+          description: Join token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [token]
+                properties:
+                  token:
+                    type: string
+                    description: LXD cluster join token (base64). Never logged in full.
+        "400":
+          description: Invalid body or hostname
+        "401":
+          description: Missing, invalid, or expired agent token
+        "403":
+          description: Agent inactive, key not join-eligible or revoked, or hostname mismatch
+        "409":
+          description: Join right already consumed by a live grant, or LXD member already exists
+        "502":
+          description: LXD error
+        "503":
+          description: LXD unreachable, timed out, or not configured
+  /api/v1/lxd/node-join-keys:
+    post:
+      operationId: createNodeJoinKey
+      summary: Issue a single-use join-eligible enrollment key bound to one hostname (admin; shown once).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [intended_hostname]
+              properties:
+                intended_hostname:
+                  type: string
+                  maxLength: 63
+                ttl_hours:
+                  type: integer
+                  minimum: 1
+                  maximum: 24
+                  default: 24
+      responses:
+        "201":
+          description: Key issued (secret returned once)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [enrollment_key, expires_at, intended_hostname]
+                properties:
+                  enrollment_key:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+                  intended_hostname:
+                    type: string
+        "400":
+          description: Invalid body, hostname, or ttl
+        "401":
+          description: Missing or invalid token
+        "403":
+          description: Caller is not an admin
 components:
   securitySchemes:
     bearerAuth:

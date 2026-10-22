@@ -31,10 +31,10 @@
    gough node list --filter="state=ready" --json | jq '.[] | {id,state}'
    ```
 
-3. **Replacement node must be biome-eligible** for `k8s-primary`:
+3. **Replacement node must be biome-eligible** for `k8s-controller`:
    ```bash
    gough node describe <new-node-id> | jq '.hardware_tags'
-   # Must match k8s-primary requirements (e.g., memory >= 8GB, disk >= 50GB)
+   # Must match k8s-controller requirements (e.g., memory >= 8GB, disk >= 50GB)
    ```
 
 4. **Target node to replace must be identifiable:**

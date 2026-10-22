@@ -32,6 +32,10 @@
       "description": "auth resource group"
     },
     {
+      "name": "biome_cache",
+      "description": "biome_cache resource group"
+    },
+    {
       "name": "biomes",
       "description": "biomes resource group"
     },
@@ -56,6 +60,10 @@
       "description": "hello resource group"
     },
     {
+      "name": "install",
+      "description": "install resource group"
+    },
+    {
       "name": "integrations",
       "description": "integrations resource group"
     },
@@ -66,6 +74,10 @@
     {
       "name": "joiner_secrets",
       "description": "joiner_secrets resource group"
+    },
+    {
+      "name": "lxd",
+      "description": "lxd resource group"
     },
     {
       "name": "migration",
@@ -1575,6 +1587,226 @@
           "agents"
         ],
         "operationId": "agents_get_agent_get",
+        "parameters": [
+          {
+            "name": "agent_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "mutualTLS": []
+          }
+        ]
+      }
+    },
+    "/api/v1/agents/{agent_id}/node": {
+      "put": {
+        "summary": "Link an enrolled agent to the node it reports capacity for (admin only).",
+        "description": "Body: ``{\"node_id\": <int>}``. The binding is server-side and is the only way the\ncapacity guard maps heartbeat snapshots to a node.\n\nReturns:\n    200: linked; 400: bad body; 404: agent or node unknown;\n    409: node already linked to another active agent.",
+        "tags": [
+          "agents"
+        ],
+        "operationId": "agents_link_agent_node_put",
         "parameters": [
           {
             "name": "agent_id",
@@ -4924,6 +5156,445 @@
             "mutualTLS": []
           }
         ]
+      }
+    },
+    "/api/v1/biomes/cache/imports": {
+      "post": {
+        "summary": "Import a pinned biomes release into the verified cache (admin only).",
+        "description": "Returns 201 with the import summary. Hash mismatch and failed signature checks\nreturn 422 and store nothing.",
+        "tags": [
+          "biome_cache"
+        ],
+        "operationId": "biome_cache_import_bundle_post",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "mutualTLS": []
+          }
+        ]
+      }
+    },
+    "/api/v1/biomes/cache/{version}/{biome}/{path}": {
+      "get": {
+        "summary": "Serve one verified biome file to an active enrolled agent.",
+        "description": "Returns 401 without a valid agent token, 403 for a non-active agent, 400 for a\nmalformed key or traversal attempt, and 404 when the file is not cached.",
+        "tags": [
+          "biome_cache"
+        ],
+        "operationId": "biome_cache_get_cached_file_get",
+        "parameters": [
+          {
+            "name": "version",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "biome",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
       }
     },
     "/api/v1/biomes/deployments": {
@@ -17431,6 +18102,410 @@
         ]
       }
     },
+    "/api/v1/install/gough-install.py": {
+      "get": {
+        "summary": "Serve the installer script from the cached biomes release (anonymous, rate-limited).",
+        "tags": [
+          "install"
+        ],
+        "operationId": "install_get_installer_get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/install/gough-install.py.sha256": {
+      "get": {
+        "summary": "Serve the sha256 of the installer in ``sha256sum`` format (anonymous, rate-limited).",
+        "tags": [
+          "install"
+        ],
+        "operationId": "install_get_installer_sha256_get",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
     "/api/v1/integrations/status": {
       "get": {
         "summary": "Return the operator-visible integration table.",
@@ -25452,6 +26527,419 @@
         ]
       }
     },
+    "/api/v1/lxd/cluster-join-tokens": {
+      "post": {
+        "summary": "Mint a one-time LXD cluster join token for the calling agent's own hostname.",
+        "description": "Auth: ``Authorization: Bearer <agent access token>`` from ``/agents/enroll``.\n\nBody: ``{\"member_name\": \"<RFC 1123 hostname>\"}``\n\nReturns:\n    200: ``{\"token\": \"<lxd join token>\"}``\n    400: invalid body or hostname\n    401: missing, invalid, or expired agent token, or unknown agent\n    403: agent inactive; key missing, revoked, or not join-eligible; intended hostname\n         or member_name not the agent's enrolled hostname\n    409: join right already consumed by a live grant, or LXD member already exists\n    502: LXD returned an error or unusable response\n    503: LXD unreachable, timed out, or not configured",
+        "tags": [
+          "lxd"
+        ],
+        "operationId": "lxd_create_cluster_join_token_post",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": []
+      }
+    },
+    "/api/v1/lxd/node-join-keys": {
+      "post": {
+        "summary": "Issue a single-use, join-eligible enrollment key bound to one hostname. Shown once.",
+        "description": "Body: ``{\"intended_hostname\": \"<RFC 1123 hostname>\", \"ttl_hours\": 1..24 (optional, default 24)}``\n\nReturns:\n    201: ``{\"enrollment_key\": \"<secret>\", \"expires_at\": \"<iso8601>\", \"intended_hostname\": \"...\"}``\n    400: invalid body, hostname, or ttl",
+        "tags": [
+          "lxd"
+        ],
+        "operationId": "lxd_create_node_join_key_post",
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "mutualTLS": []
+          }
+        ]
+      }
+    },
     "/api/v1/migration/biome/{instance_id}": {
       "post": {
         "summary": "Trigger a manual migration for a biome instance.",
@@ -28044,6 +29532,227 @@
           },
           {
             "name": "biome_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "mutualTLS": []
+          }
+        ]
+      }
+    },
+    "/api/v1/nodes/api/v1/nodes/{node_id}/capacity": {
+      "get": {
+        "summary": "Return the node's capacity guard view: capacity, reserve, committed, pending,",
+        "description": "allocatable, pressure and snapshot age. Read-only; never places work.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes_get_node_capacity_get",
+        "parameters": [
+          {
+            "name": "node_id",
             "in": "path",
             "required": true,
             "schema": {

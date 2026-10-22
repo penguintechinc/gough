@@ -80,6 +80,7 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Nodes endpoints
     ("GET", "/api/v1/nodes"): frozenset({"gough.nodes.read"}),
     ("GET", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.read"}),
+    ("GET", "/api/v1/nodes/<int:node_id>/capacity"): frozenset({"gough.nodes.read"}),
     ("PATCH", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/deploy"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/reject"): frozenset({"gough.nodes.provision"}),
@@ -132,6 +133,8 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Cluster LXD endpoints
     ("GET", "/api/v1/clusters/<uuid:cluster_id>/lxd/members"): frozenset({"gough.cluster.read"}),
     ("POST", "/api/v1/clusters/<uuid:cluster_id>/lxd/join"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/lxd/node-join-keys"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/biomes/cache/imports"): frozenset({"gough.cluster.admin"}),
 
     # Cluster network endpoints
     ("GET", "/api/v1/clusters/<uuid:cluster_id>/network-pools"): frozenset({"gough.cluster.read"}),
@@ -240,6 +243,16 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     # handler authenticates a single-use, 60s ticket (app.shell_tickets) bound
     # to user + session before accepting.
     ("GET", "/ws/shell"),
+    # LXD cluster join: HS256 agent_access bearer validated in the handler
+    # (app.api.lxd_cluster._authenticate_agent); agent must hold a join-eligible key.
+    ("POST", "/api/v1/lxd/cluster-join-tokens"),
+    # Biome bundle file read: HS256 agent_access bearer validated in the handler
+    # (app.api.biome_cache); agent must be active; path traversal rejected in-handler.
+    ("GET", "/api/v1/biomes/cache/<string:version>/<string:biome>/<path:path>"),
+    # Installer distribution: the script and its sha256 are public by design
+    # (rate-limited in app.api.install). Nothing else under /install is anonymous.
+    ("GET", "/api/v1/install/gough-install.py"),
+    ("GET", "/api/v1/install/gough-install.py.sha256"),
 })
 
 
@@ -338,10 +351,18 @@ def _expand_roles_to_scopes(role_names: list[str]) -> list[str]:
 
 
 def _anon_template_to_regex(policy_path: str) -> re.Pattern[str]:
-    """Compile a Flask ``<type:name>`` template path into a concrete-path regex."""
-    parts = re.split(r"<[^>]+>", policy_path)
-    pattern = r"[^/]+".join(re.escape(p) for p in parts)
-    return re.compile(r"^" + pattern + r"$")
+    """Compile a Flask ``<type:name>`` template path into a concrete-path regex.
+
+    ``<path:...>`` converters span slashes (nested biome file paths); every other
+    converter matches a single segment. Handlers validate the captured value.
+    """
+    out: list[str] = []
+    for token in re.split(r"(<[^>]+>)", policy_path):
+        if token.startswith("<") and token.endswith(">"):
+            out.append(r".+" if token.startswith("<path:") else r"[^/]+")
+        else:
+            out.append(re.escape(token))
+    return re.compile(r"^" + "".join(out) + r"$")
 
 
 _ANON_EXACT_PATHS: frozenset[str] = frozenset(

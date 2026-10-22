@@ -77,6 +77,10 @@ BLUEPRINT_SPECS: tuple[tuple[str, str, str], ...] = (
     ("app.api.nodes", "nodes_bp", "/api/v1/nodes"),
     ("app.api.primary", "primary_bp", "/api/v1/primary"),
     ("app.api.webhooks", "webhooks_bp", "/api/v1/webhooks"),
+    # Blueprints that own their url_prefix internally (empty extra prefix).
+    ("app.api.lxd_cluster", "lxd_bp", ""),
+    ("app.api.biome_cache", "biome_cache_bp", ""),
+    ("app.api.install", "install_bp", ""),
 )
 
 
@@ -293,6 +297,9 @@ def _extract_routes(
             name = bp.name
             name_prefix = ""
             subdomain = None
+            # False skips record_once() hooks (e.g. lxd_bp's before_app_serving seed):
+            # schema capture must never run startup side effects.
+            first_registration = False
 
             def add_url_rule(  # noqa: D401, PLR0913 — mimics Quart signature
                 self,

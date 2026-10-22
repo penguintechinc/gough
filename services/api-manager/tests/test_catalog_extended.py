@@ -22,18 +22,18 @@ class TestBuiltinBiomesConstant:
     def test_builtin_biomes_names(self):
         """Test BUILTIN_BIOMES contains expected names."""
         names = [b["name"] for b in BUILTIN_BIOMES]
-        assert "k8s-primary" in names
+        assert "k8s-controller" in names
         assert "k8s-worker" in names
         assert "nest-agent" in names
         assert "longhorn-agent" in names
 
-    def test_k8s_primary_properties(self):
-        """Test k8s-primary biome configuration."""
-        k8s_primary = next(b for b in BUILTIN_BIOMES if b["name"] == "k8s-primary")
-        assert k8s_primary["biome_kind"] == "infrastructure"
-        assert k8s_primary["phase"] == "post_deploy"
-        assert k8s_primary["lock_to_host"] is True
-        assert k8s_primary["emits_joiner_secrets"] is True
+    def test_k8s_controller_properties(self):
+        """Test k8s-controller biome configuration."""
+        k8s_controller = next(b for b in BUILTIN_BIOMES if b["name"] == "k8s-controller")
+        assert k8s_controller["biome_kind"] == "infrastructure"
+        assert k8s_controller["phase"] == "post_deploy"
+        assert k8s_controller["lock_to_host"] is True
+        assert k8s_controller["emits_joiner_secrets"] is True
 
     def test_k8s_worker_properties(self):
         """Test k8s-worker biome configuration."""
@@ -99,7 +99,7 @@ class TestSeedBuiltinBiomes:
         mock_query = MagicMock()
         mock_db.return_value = mock_query
         mock_query.select.return_value.first.side_effect = [
-            None,  # k8s-primary doesn't exist
+            None,  # k8s-controller doesn't exist
             existing,  # k8s-worker exists
             None,  # nest-agent doesn't exist
             existing,  # longhorn-agent exists
@@ -107,12 +107,12 @@ class TestSeedBuiltinBiomes:
 
         seed_builtin_biomes(mock_db)
 
-        # Should insert only k8s-primary and nest-agent
+        # Should insert only k8s-controller and nest-agent
         assert mock_db.biomes.insert.call_count == 2
         mock_db.commit.assert_called_once()
 
-    def test_seed_builtin_biomes_insert_parameters_k8s_primary(self):
-        """Test seed_builtin_biomes() passes correct parameters for k8s-primary."""
+    def test_seed_builtin_biomes_insert_parameters_k8s_controller(self):
+        """Test seed_builtin_biomes() passes correct parameters for k8s-controller."""
         mock_db = MagicMock()
         mock_query = MagicMock()
         mock_db.return_value = mock_query
@@ -120,15 +120,15 @@ class TestSeedBuiltinBiomes:
 
         seed_builtin_biomes(mock_db)
 
-        # Find the call that inserted k8s-primary
+        # Find the call that inserted k8s-controller
         insert_calls = mock_db.biomes.insert.call_args_list
-        k8s_primary_call = next(
-            (call for call in insert_calls if call[1].get("name") == "k8s-primary"),
+        k8s_controller_call = next(
+            (call for call in insert_calls if call[1].get("name") == "k8s-controller"),
             None
         )
-        assert k8s_primary_call is not None
-        assert k8s_primary_call[1]["signature_verified"] is True
-        assert k8s_primary_call[1]["published_at"] is not None
+        assert k8s_controller_call is not None
+        assert k8s_controller_call[1]["signature_verified"] is True
+        assert k8s_controller_call[1]["published_at"] is not None
 
     def test_seed_builtin_biomes_signature_verified_true(self):
         """Test all inserted biomes have signature_verified=True."""
@@ -199,11 +199,11 @@ class TestBuiltinBiomesIntegration:
         count = db(db.biomes.id > 0).count()
         assert count == 4
 
-        # Verify k8s-primary properties
-        k8s_primary = db(db.biomes.name == "k8s-primary").select().first()
-        assert k8s_primary is not None
-        assert k8s_primary.biome_kind == "infrastructure"
-        assert k8s_primary.lock_to_host is True
+        # Verify k8s-controller properties
+        k8s_controller = db(db.biomes.name == "k8s-controller").select().first()
+        assert k8s_controller is not None
+        assert k8s_controller.biome_kind == "infrastructure"
+        assert k8s_controller.lock_to_host is True
 
         # Seeding again should be idempotent
         seed_builtin_biomes(db)

@@ -121,10 +121,24 @@ class Config:
 
     # Redis (for caching and sessions)
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    # Bounds on every Redis round-trip (seconds) so a dead Redis cannot stall
+    # startup or request handling indefinitely.
+    REDIS_SOCKET_TIMEOUT = float(os.getenv("REDIS_SOCKET_TIMEOUT", "2"))
+    REDIS_SOCKET_CONNECT_TIMEOUT = float(os.getenv("REDIS_SOCKET_CONNECT_TIMEOUT", "2"))
+
+    # Graceful shutdown budget (seconds) for hypercorn. Must stay below the pod's
+    # terminationGracePeriodSeconds (30s) so in-flight requests drain before SIGKILL.
+    GRACEFUL_SHUTDOWN_TIMEOUT = float(os.getenv("GRACEFUL_SHUTDOWN_TIMEOUT", "25"))
 
     # Rate Limiting
     RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
     RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", REDIS_URL)
+    # Fail-closed: Redis configured but unreachable at startup aborts boot.
+    # Set true only to explicitly accept per-process in-memory limits (logs ERROR,
+    # sets gough_rate_limit_degraded=1).
+    RATE_LIMIT_ALLOW_MEMORY_FALLBACK = (
+        os.getenv("RATE_LIMIT_ALLOW_MEMORY_FALLBACK", "false").lower() == "true"
+    )
     RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "100/minute;1000/hour")
     # Global floor applied to every /api/ route (regression: security audit
     # 2026-09-22 -- only 6 of 106 input endpoints previously carried an

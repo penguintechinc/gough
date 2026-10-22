@@ -141,24 +141,24 @@ At scale (7+ control-plane nodes), dedicated LB hardware outperforms a kubelet s
 
 ### Frontend mode selection at deploy time
 
-When deploying the `k8s-primary` biome:
+When deploying the `k8s-controller` biome:
 
 ```bash
 # kube-vip mode (default)
-gough biome deploy k8s-primary --node node-01 \
+gough biome deploy k8s-controller --node node-01 \
   --frontend-mode kube-vip \
   --frontend-endpoint 10.2.0.10:6443 \
   --frontend-interface ens3 \
   --frontend-baseline external
 
 # external mode
-gough biome deploy k8s-primary --node node-01 \
+gough biome deploy k8s-controller --node node-01 \
   --frontend-mode external \
   --frontend-endpoint nlb.internal.example.com:6443 \
   --frontend-baseline external
 
 # none mode (single-node lab)
-gough biome deploy k8s-primary --node node-01 \
+gough biome deploy k8s-controller --node node-01 \
   --frontend-mode none
 ```
 

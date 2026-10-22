@@ -34,7 +34,7 @@ def sample_eggs(dal_with_eggs):
     biomes = []
     specs = [
         {
-            "name": "k8s-primary",
+            "name": "k8s-controller",
             "display_name": "Kubernetes Primary",
             "biome_kind": "k8s",
             "phase": "phase2_initial",
@@ -159,7 +159,7 @@ class TestEggsList:
         body = await response.get_json()
         biomes = body["data"]["biomes"]
         assert len(biomes) == 1
-        assert biomes[0]["name"] == "k8s-primary"
+        assert biomes[0]["name"] == "k8s-controller"
 
     async def test_list_filter_by_multiple_egg_kinds(self, app_client, sample_eggs):
         """Filter by multiple biome_kind values (repeated query param)."""
@@ -169,7 +169,7 @@ class TestEggsList:
         biomes = body["data"]["biomes"]
         assert len(biomes) == 2
         names = {e["name"] for e in biomes}
-        assert names == {"k8s-primary", "nest-agent"}
+        assert names == {"k8s-controller", "nest-agent"}
 
     async def test_list_filter_by_phase(self, app_client, sample_eggs):
         """Filter biomes by phase."""
@@ -198,7 +198,7 @@ class TestEggsList:
         biomes = body["data"]["biomes"]
         assert len(biomes) == 2
         names = {e["name"] for e in biomes}
-        assert names == {"k8s-primary", "vault-leader"}
+        assert names == {"k8s-controller", "vault-leader"}
 
     async def test_list_filter_by_name_contains(self, app_client, sample_eggs):
         """Filter biomes by name substring."""
@@ -302,7 +302,7 @@ class TestEggsCreate:
     async def test_create_egg_duplicate_name(self, app_client, sample_eggs):
         """Duplicate biome name returns conflict."""
         body = {
-            "name": "k8s-primary",  # already exists
+            "name": "k8s-controller",  # already exists
             "display_name": "Another K8s",
             "biome_type": "lxd_container",
             "version": "1.5.0",
@@ -334,7 +334,7 @@ class TestEggSign:
         egg_id = sample_eggs[0][0]
         body = {
             "key_id": "my-signing-key",
-            "reason": "CVE patch for k8s-primary",
+            "reason": "CVE patch for k8s-controller",
         }
         response = await app_client.post(f"/api/v1/biomes/{egg_id}/sign", json=body)
         assert response.status_code == 202
@@ -411,7 +411,7 @@ class TestEggEligibility:
 
     async def test_egg_eligibility_check_eligible(self, app_client, sample_eggs, sample_nodes):
         """Node is eligible for biome based on hardware tags."""
-        egg_id = sample_eggs[0][0]  # k8s-primary requires cpu:cores:8, mem:total-gb:32
+        egg_id = sample_eggs[0][0]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
         node_id = sample_nodes[0][0]  # node-1 has cpu:cores:16, mem:total-gb:128
         response = await app_client.get(
             f"/api/v1/biomes/{egg_id}/eligibility?node_id={node_id}"
@@ -423,7 +423,7 @@ class TestEggEligibility:
 
     async def test_egg_eligibility_check_insufficient_resources(self, app_client, sample_eggs, sample_nodes):
         """Node is ineligible due to insufficient resources."""
-        egg_id = sample_eggs[0][0]  # k8s-primary requires cpu:cores:8, mem:total-gb:32
+        egg_id = sample_eggs[0][0]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
         node_id = sample_nodes[3][0]  # node-4 has cpu:cores:4, mem:total-gb:16
         response = await app_client.get(
             f"/api/v1/biomes/{egg_id}/eligibility?node_id={node_id}"
@@ -880,7 +880,7 @@ class TestListBiomesFilters:
         body = await response.get_json()
         # node-4 can't satisfy cpu:cores:8 requirement
         names = {b["name"] for b in body["data"]["biomes"]}
-        assert "k8s-primary" not in names
+        assert "k8s-controller" not in names
 
 
 # ---------------------------------------------------------------------------
