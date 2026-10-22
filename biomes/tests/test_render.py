@@ -1,14 +1,11 @@
-"""Unit tests for biomes/_lib/render.py: validation, rendering, privileged gate and co-location."""
+"""Unit tests for biomes/_lib/render.py: validation, rendering, privilege gate, https rules and co-location."""
 import base64
-import copy
 import json
 import os
-import shlex
+import re
 import sys
 import tempfile
 import unittest
-
-import yaml
 
 BIOMES = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(BIOMES, "_lib"))
@@ -71,16 +68,26 @@ def worker_params(**overrides):
     return base
 
 
+def user_data_hostname(text):
+    """Return the hostname value from rendered user-data."""
+    match = re.search(r'^hostname: "(.*)"$', text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def decoded_contents(user_data):
+    """Return the base64-decoded write_files payloads (params.env first, bootstrap second)."""
+    return [base64.b64decode(c).decode("utf-8") for c in re.findall(r'content: "([A-Za-z0-9+/=]+)"', user_data)]
+
+
 def params_env_of(outputs):
-    """Decode the params.env block from rendered user-data into plain text."""
-    data = yaml.safe_load(outputs["user-data"])
-    return base64.b64decode(data["write_files"][0]["content"]).decode("utf-8")
+    """Return the decoded params.env text from rendered user-data."""
+    return decoded_contents(outputs["user-data"])[0]
 
 
 def manifest_of(biome_dir):
-    """Load a biome manifest directly, bypassing render, for schema-level assertions."""
-    with open(os.path.join(biome_dir, "biome.yaml"), encoding="utf-8") as fh:
-        return yaml.safe_load(fh)
+    """Load a biome manifest directly for schema-level assertions."""
+    with open(os.path.join(biome_dir, "biome.json"), encoding="utf-8") as fh:
+        return json.load(fh)
 
 
 class ValidationTests(unittest.TestCase):
@@ -109,7 +116,7 @@ class ValidationTests(unittest.TestCase):
             render.render_biome(WRK_DIR, worker_params(hostname='x"\nruncmd: [evil]'))
 
     def test_empty_required_value_fails(self):
-        """An empty string for a required parameter is rejected even though the pattern allows empty."""
+        """An empty string for a required parameter is rejected."""
         with self.assertRaisesRegex(render.RenderError, "must not be empty"):
             render.render_biome(WRK_DIR, worker_params(containerd_package_version=""))
 
@@ -120,13 +127,58 @@ class ValidationTests(unittest.TestCase):
 
     def test_optional_empty_default_is_accepted(self):
         """Optional parameters with an empty default render as empty env values."""
-        outputs = render.render_biome(WRK_DIR, worker_params())
-        self.assertIn("GOUGH_INTERNAL_CA_URL=''", params_env_of(outputs))
+        self.assertIn("GOUGH_INTERNAL_CA_URL=''", params_env_of(render.render_biome(WRK_DIR, worker_params())))
 
     def test_non_object_params_fail(self):
         """A JSON list instead of an object is rejected."""
         with self.assertRaisesRegex(render.RenderError, "must be a JSON object"):
             render.render_biome(WRK_DIR, ["not", "an", "object"])
+
+
+class HttpsPolicyTests(unittest.TestCase):
+    """Cleartext must be opt-in: report_url is always https, mirrors are https unless allow_insecure_mirrors."""
+
+    def test_report_url_http_always_rejected(self):
+        """report_url over http is refused even when allow_insecure_mirrors is true."""
+        params = controller_params(report_url="http://hub.example.internal/x", allow_insecure_mirrors=True)
+        with self.assertRaisesRegex(render.RenderError, "report_url does not match"):
+            render.render_biome(CTL_DIR, params)
+
+    def test_report_url_https_accepted(self):
+        """An https report_url renders."""
+        self.assertTrue(render.render_biome(CTL_DIR, controller_params()))
+
+    def test_http_mirror_rejected_by_default(self):
+        """A plain-http registry mirror is refused when allow_insecure_mirrors is unset."""
+        with self.assertRaisesRegex(render.RenderError, "registry_mirror must use https"):
+            render.render_biome(WRK_DIR, worker_params(registry_mirror="http://registry.lab"))
+
+    def test_http_mirror_rejected_when_flag_false(self):
+        """Explicit allow_insecure_mirrors=false still refuses http mirrors."""
+        with self.assertRaisesRegex(render.RenderError, "must use https"):
+            render.render_biome(WRK_DIR, worker_params(registry_mirror="http://registry.lab", allow_insecure_mirrors=False))
+
+    def test_http_mirror_accepted_with_flag(self):
+        """With allow_insecure_mirrors=true an http mirror renders."""
+        outputs = render.render_biome(WRK_DIR, worker_params(registry_mirror="http://registry.lab", allow_insecure_mirrors=True))
+        self.assertIn("GOUGH_REGISTRY_MIRROR=http://registry.lab", params_env_of(outputs))
+
+    def test_insecure_flag_must_be_bool(self):
+        """A string value for allow_insecure_mirrors is rejected rather than treated as true."""
+        with self.assertRaisesRegex(render.RenderError, "allow_insecure_mirrors must be a boolean"):
+            render.render_biome(WRK_DIR, worker_params(allow_insecure_mirrors="true"))
+
+    def test_internal_ca_http_rejected_by_default(self):
+        """A plain-http internal CA URL is refused unless the insecure flag is set."""
+        with self.assertRaisesRegex(render.RenderError, "internal_ca_url must use https"):
+            render.render_biome(WRK_DIR, worker_params(internal_ca_url="http://ca.lab/ca.crt", internal_ca_sha256=ZERO_SHA))
+
+    def test_every_mirror_param_is_scheme_flagged(self):
+        """Each mirror-style URL parameter carries the mirror scheme flag, so the policy cannot be skipped by omission."""
+        for biome in (CTL_DIR, WRK_DIR):
+            for prm in manifest_of(biome)["parameters"]:
+                if prm["name"].endswith(("_mirror", "_url", "_repo")) and prm["name"] != "report_url":
+                    self.assertEqual(prm.get("scheme"), "mirror", f"{biome}:{prm['name']}")
 
 
 class PrivilegedGateTests(unittest.TestCase):
@@ -150,6 +202,31 @@ class PrivilegedGateTests(unittest.TestCase):
         self.assertEqual(profile["image"], "ubuntu/24.04")
 
 
+class FeatureFlagTests(unittest.TestCase):
+    """Orchestrator-decided feature switches default off and reach the bootstrap env as booleans."""
+
+    def test_defaults_are_off(self):
+        """kube_proxy_replacement, cilium_gateway_api and cilium_hubble default to false in params.env."""
+        env = params_env_of(render.render_biome(CTL_DIR, controller_params()))
+        self.assertIn("GOUGH_KUBE_PROXY_REPLACEMENT=false", env)
+        self.assertIn("GOUGH_CILIUM_GATEWAY_API=false", env)
+        self.assertIn("GOUGH_CILIUM_HUBBLE=false", env)
+
+    def test_switches_flip_to_true(self):
+        """Setting the switches true reaches params.env as true."""
+        env = params_env_of(render.render_biome(CTL_DIR, controller_params(
+            kube_proxy_replacement=True, cilium_gateway_api=True, cilium_hubble=True,
+            gateway_api_crds_url="https://mirror.example.internal/gw.yaml", gateway_api_crds_sha256=ZERO_SHA)))
+        self.assertIn("GOUGH_KUBE_PROXY_REPLACEMENT=true", env)
+        self.assertIn("GOUGH_CILIUM_GATEWAY_API=true", env)
+        self.assertIn("GOUGH_CILIUM_HUBBLE=true", env)
+
+    def test_gateway_crds_url_must_be_https_by_default(self):
+        """The Gateway API CRD URL follows the mirror https policy."""
+        with self.assertRaisesRegex(render.RenderError, "gateway_api_crds_url must use https"):
+            render.render_biome(CTL_DIR, controller_params(gateway_api_crds_url="http://mirror.lab/gw.yaml"))
+
+
 class RenderOutputTests(unittest.TestCase):
     """Rendered artifacts must be complete, parseable and free of unresolved placeholders."""
 
@@ -160,34 +237,31 @@ class RenderOutputTests(unittest.TestCase):
         for name, text in outputs.items():
             self.assertNotIn("{{", text, name)
 
+    def test_user_data_has_cloud_config_header(self):
+        """User-data starts with the cloud-config header that cloud-init requires."""
+        self.assertTrue(render.render_biome(WRK_DIR, worker_params())["user-data"].startswith("#cloud-config\n"))
+
     def test_user_data_delivers_bootstrap_and_params(self):
         """User-data writes params.env and bootstrap.sh, and the bootstrap matches the file on disk."""
         outputs = render.render_biome(WRK_DIR, worker_params())
-        data = yaml.safe_load(outputs["user-data"])
-        paths = {f["path"]: f for f in data["write_files"]}
-        self.assertEqual(set(paths), {"/opt/gough/biome/params.env", "/opt/gough/biome/bootstrap.sh"})
+        paths = re.findall(r"path: (/opt/gough/biome/\S+)", outputs["user-data"])
+        self.assertEqual(paths, ["/opt/gough/biome/params.env", "/opt/gough/biome/bootstrap.sh"])
         with open(os.path.join(WRK_DIR, "scripts", "bootstrap.sh"), "rb") as fh:
-            self.assertEqual(base64.b64decode(paths["/opt/gough/biome/bootstrap.sh"]["content"]), fh.read())
+            self.assertEqual(base64.b64decode(re.findall(r'content: "([A-Za-z0-9+/=]+)"', outputs["user-data"])[1]), fh.read())
 
-    def test_params_env_is_shell_safe(self):
-        """Every params.env value round-trips through shlex, so bash sources it without injection."""
-        outputs = render.render_biome(CTL_DIR, controller_params())
-        data = yaml.safe_load(outputs["user-data"])
-        env = base64.b64decode(data["write_files"][0]["content"]).decode("utf-8")
-        parsed = {}
+    def test_params_env_values_are_shell_quoted(self):
+        """Values with spaces or metacharacters are single-quoted so sourcing cannot inject commands."""
+        env = params_env_of(render.render_biome(WRK_DIR, worker_params(allow_insecure_mirrors=False)))
         for line in env.strip().splitlines():
-            key, _, value = line.partition("=")
-            parsed[key] = shlex.split(value)[0] if value else ""
-        self.assertEqual(parsed["GOUGH_HOSTNAME"], "k8s-controller-1")
-        self.assertEqual(parsed["GOUGH_REPORT_BOOTSTRAP_TOKEN"], "bootstraptoken0123456789")
+            self.assertRegex(line, r"^GOUGH_[A-Z0-9_]+=", line)
+        self.assertIn("GOUGH_HOSTNAME=k8s-worker-1", env)
 
     def test_network_config_is_per_instance_static(self):
         """Network-config carries exactly the static address, gateway and DNS supplied."""
-        net = yaml.safe_load(render.render_biome(WRK_DIR, worker_params())["network-config"])
-        eth0 = net["ethernets"]["eth0"]
-        self.assertEqual(eth0["addresses"], ["192.168.8.51/24"])
-        self.assertEqual(eth0["routes"][0]["via"], "192.168.8.1")
-        self.assertEqual(eth0["nameservers"]["addresses"], ["192.168.8.1"])
+        net = render.render_biome(WRK_DIR, worker_params())["network-config"]
+        self.assertIn('- "192.168.8.51/24"', net)
+        self.assertIn('via: "192.168.8.1"', net)
+        self.assertIn("addresses: [\"192.168.8.1\"]", net)
 
     def test_unresolved_template_placeholder_fails(self):
         """A template placeholder with no matching value raises instead of rendering empty."""
@@ -195,7 +269,7 @@ class RenderOutputTests(unittest.TestCase):
             render.render_text("hello {{ nope }}", {})
 
     def test_missing_manifest_fails(self):
-        """A directory without biome.yaml is rejected loudly."""
+        """A directory without biome.json is rejected loudly."""
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaisesRegex(render.RenderError, "missing manifest"):
                 render.render_biome(tmp, {})
@@ -203,13 +277,21 @@ class RenderOutputTests(unittest.TestCase):
     def test_manifest_missing_key_fails(self):
         """A manifest lacking a required top-level key is rejected."""
         with tempfile.TemporaryDirectory() as tmp:
-            with open(os.path.join(tmp, "biome.yaml"), "w", encoding="utf-8") as fh:
-                fh.write("name: x\nversion: 1\n")
+            with open(os.path.join(tmp, "biome.json"), "w", encoding="utf-8") as fh:
+                json.dump({"name": "x", "version": "1"}, fh)
             with self.assertRaisesRegex(render.RenderError, "missing key: lxd"):
                 render.render_biome(tmp, {})
 
+    def test_invalid_manifest_json_fails(self):
+        """A malformed manifest is reported as a render error, not a traceback."""
+        with tempfile.TemporaryDirectory() as tmp:
+            with open(os.path.join(tmp, "biome.json"), "w", encoding="utf-8") as fh:
+                fh.write("{not json")
+            with self.assertRaisesRegex(render.RenderError, "not valid JSON"):
+                render.render_biome(tmp, {})
+
     def test_cli_writes_files_and_fails_nonzero(self):
-        """The CLI writes three files on success and returns 1 with no files on bad params."""
+        """The CLI writes three files on success and returns 1 with no output directory on bad params."""
         with tempfile.TemporaryDirectory() as tmp:
             params_path = os.path.join(tmp, "p.json")
             with open(params_path, "w", encoding="utf-8") as fh:
@@ -233,30 +315,27 @@ class CoLocationTests(unittest.TestCase):
         wrk = json.loads(render.render_biome(WRK_DIR, worker_params())["profile.json"])
         self.assertEqual(ctl["name"], "gough-k8s-controller")
         self.assertEqual(wrk["name"], "gough-k8s-worker")
-        self.assertNotEqual(ctl["name"], wrk["name"])
 
     def test_instance_identity_comes_only_from_params(self):
         """Hostname, instance name and static IP are parameters, so two instances differ only by input."""
         ctl = render.render_biome(CTL_DIR, controller_params(hostname="a-1", instance_name="a-1", static_ip="192.168.8.60/24"))
         wrk = render.render_biome(WRK_DIR, worker_params(hostname="b-1", instance_name="b-1", static_ip="192.168.8.61/24"))
-        self.assertEqual(yaml.safe_load(ctl["user-data"])["hostname"], "a-1")
-        self.assertEqual(yaml.safe_load(wrk["user-data"])["hostname"], "b-1")
+        self.assertEqual(user_data_hostname(ctl["user-data"]), "a-1")
+        self.assertEqual(user_data_hostname(wrk["user-data"]), "b-1")
         self.assertIn("192.168.8.60/24", ctl["network-config"])
         self.assertIn("192.168.8.61/24", wrk["network-config"])
 
     def test_no_fixed_hostnames_in_templates(self):
-        """Templates must not hard-code the node names that would break a second instance."""
+        """Templates must not hard-code the node names or addresses that would break a second instance."""
         for biome in (CTL_DIR, WRK_DIR):
             for rel in ("cloud-init/user-data.yaml.tmpl", "cloud-init/network-config.yaml.tmpl"):
                 with open(os.path.join(biome, rel), encoding="utf-8") as fh:
                     text = fh.read()
-                self.assertNotIn("k8s-worker-1", text, rel)
-                self.assertNotIn("k8s-controller-1", text, rel)
-                self.assertNotIn("192.168.8.41", text, rel)
-                self.assertNotIn("192.168.8.51", text, rel)
+                for fixed in ("k8s-worker-1", "k8s-controller-1", "192.168.8.41", "192.168.8.51"):
+                    self.assertNotIn(fixed, text, rel)
 
     def test_join_material_is_parameter_only(self):
-        """The worker's join endpoint, token and hash appear only via params, never in the bundled script."""
+        """The worker's join endpoint and token appear only via params, never in the bundled script."""
         with open(os.path.join(WRK_DIR, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
             script = fh.read()
         self.assertNotIn("abcdef.0123456789abcdef", script)

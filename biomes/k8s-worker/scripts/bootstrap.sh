@@ -11,7 +11,8 @@ LOG_FILE=/var/log/gough-biome.log
 PARAMS_FILE="$BIOME_DIR/params.env"
 
 install -d -m 0755 "$STATE_DIR"
-touch "$LOG_FILE"
+[[ -f "$LOG_FILE" ]] || install -m 0600 /dev/null "$LOG_FILE"
+chmod 0600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 [[ -f "$PARAMS_FILE" ]] || { echo "missing $PARAMS_FILE" >&2; exit 1; }
@@ -28,11 +29,27 @@ log() { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$ROLE" "$*"; }
 # Log a fatal error and exit non-zero so cloud-init records the run as failed.
 die() { log "FATAL: $*"; exit 1; }
 
-# Download a URL to a destination and fail unless its sha256 matches the expected value.
+# Download to a 0600 temp file, verify sha256, and only then install to the destination (never trust unverified bytes).
 fetch_verified() {
-  local url="$1" sha="$2" dest="$3"
-  curl --fail --silent --show-error --location --retry 3 -o "$dest" "$url" || die "download failed: $url"
-  echo "${sha}  ${dest}" | sha256sum --check --strict - >/dev/null || die "checksum mismatch: $url"
+  local url="$1" sha="$2" dest="$3" tmp
+  tmp="$(mktemp)"
+  if ! curl --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
+    rm -f "$tmp"
+    die "download failed: $url"
+  fi
+  if ! echo "${sha}  ${tmp}" | sha256sum --check --strict - >/dev/null; then
+    rm -f "$tmp"
+    die "checksum mismatch: $url"
+  fi
+  install -m 0644 "$tmp" "$dest"
+  rm -f "$tmp"
+}
+
+# Log a warning when plain-HTTP mirrors were explicitly allowed; artifacts stay sha256-verified.
+warn_insecure_mirrors() {
+  if [[ "${GOUGH_ALLOW_INSECURE_MIRRORS:-false}" == "true" ]]; then
+    log "WARNING: allow_insecure_mirrors=true; mirror traffic may be plaintext HTTP (artifacts are still sha256-verified)"
+  fi
 }
 
 # Point Ubuntu apt at the operator mirror; the original deb822 file is kept once as .gough-orig.
@@ -147,6 +164,7 @@ UNIT
 
 # Run every node-prep sub-step in dependency order; each is idempotent on re-run.
 prepare_node() {
+  warn_insecure_mirrors
   prep_apt_sources
   prep_internal_ca
   prep_k8s_apt

@@ -11,7 +11,8 @@ LOG_FILE=/var/log/gough-biome.log
 PARAMS_FILE="$BIOME_DIR/params.env"
 
 install -d -m 0755 "$STATE_DIR"
-touch "$LOG_FILE"
+[[ -f "$LOG_FILE" ]] || install -m 0600 /dev/null "$LOG_FILE"
+chmod 0600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
 [[ -f "$PARAMS_FILE" ]] || { echo "missing $PARAMS_FILE" >&2; exit 1; }
@@ -28,11 +29,27 @@ log() { printf '%s [%s] %s\n' "$(date -u +%FT%TZ)" "$ROLE" "$*"; }
 # Log a fatal error and exit non-zero so cloud-init records the run as failed.
 die() { log "FATAL: $*"; exit 1; }
 
-# Download a URL to a destination and fail unless its sha256 matches the expected value.
+# Download to a 0600 temp file, verify sha256, and only then install to the destination (never trust unverified bytes).
 fetch_verified() {
-  local url="$1" sha="$2" dest="$3"
-  curl --fail --silent --show-error --location --retry 3 -o "$dest" "$url" || die "download failed: $url"
-  echo "${sha}  ${dest}" | sha256sum --check --strict - >/dev/null || die "checksum mismatch: $url"
+  local url="$1" sha="$2" dest="$3" tmp
+  tmp="$(mktemp)"
+  if ! curl --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
+    rm -f "$tmp"
+    die "download failed: $url"
+  fi
+  if ! echo "${sha}  ${tmp}" | sha256sum --check --strict - >/dev/null; then
+    rm -f "$tmp"
+    die "checksum mismatch: $url"
+  fi
+  install -m 0644 "$tmp" "$dest"
+  rm -f "$tmp"
+}
+
+# Log a warning when plain-HTTP mirrors were explicitly allowed; artifacts stay sha256-verified.
+warn_insecure_mirrors() {
+  if [[ "${GOUGH_ALLOW_INSECURE_MIRRORS:-false}" == "true" ]]; then
+    log "WARNING: allow_insecure_mirrors=true; mirror traffic may be plaintext HTTP (artifacts are still sha256-verified)"
+  fi
 }
 
 # Point Ubuntu apt at the operator mirror; the original deb822 file is kept once as .gough-orig.
@@ -147,6 +164,7 @@ UNIT
 
 # Run every node-prep sub-step in dependency order; each is idempotent on re-run.
 prepare_node() {
+  warn_insecure_mirrors
   prep_apt_sources
   prep_internal_ca
   prep_k8s_apt
@@ -187,30 +205,78 @@ kubeadm_reset_if_partial() {
   fi
 }
 
-# Initialise the control plane with kube-proxy skipped, since Cilium replaces it.
+# Write the kubeadm config file: InitConfiguration, ClusterConfiguration and, when kube-proxy is kept, a KubeProxyConfiguration with conntrack zeroed (runbook-verified LXC fix applied before creation).
+write_kubeadm_config() {
+  local cfg=/var/lib/gough/biome/kubeadm-config.yaml
+  install -m 0600 /dev/null "$cfg"
+  cat > "$cfg" <<YAML
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: "${GOUGH_APISERVER_ADVERTISE_ADDRESS}"
+nodeRegistration:
+  name: "$(hostname)"
+  ignorePreflightErrors:
+    - SystemVerification
+---
+apiVersion: kubeadm.k8s.io/v1beta4
+kind: ClusterConfiguration
+controlPlaneEndpoint: "${GOUGH_CONTROL_PLANE_ENDPOINT}"
+networking:
+  podSubnet: "${GOUGH_POD_CIDR}"
+  serviceSubnet: "${GOUGH_SERVICE_CIDR}"
+YAML
+  if [[ "$GOUGH_KUBE_PROXY_REPLACEMENT" != "true" ]]; then
+    cat >> "$cfg" <<YAML
+---
+apiVersion: kubeproxy.config.k8s.io/v1alpha1
+kind: KubeProxyConfiguration
+conntrack:
+  maxPerCore: 0
+  min: 0
+  tcpEstablishedTimeout: 0s
+  tcpCloseWaitTimeout: 0s
+YAML
+  fi
+  printf '%s' "$cfg"
+}
+
+# Initialise the control plane; kube-proxy is skipped only when Cilium replaces it.
 controller_init() {
   if [[ -f /etc/kubernetes/admin.conf ]] && kubectl --kubeconfig /etc/kubernetes/admin.conf get --raw=/readyz >/dev/null 2>&1; then
     log "control plane already healthy; not re-initialising"
   else
     kubeadm_reset_if_partial
-    kubeadm init \
-      --apiserver-advertise-address="$GOUGH_APISERVER_ADVERTISE_ADDRESS" \
-      --control-plane-endpoint="$GOUGH_CONTROL_PLANE_ENDPOINT" \
-      --pod-network-cidr="$GOUGH_POD_CIDR" \
-      --service-cidr="$GOUGH_SERVICE_CIDR" \
-      --node-name="$(hostname)" \
-      --skip-phases=addon/kube-proxy \
-      --ignore-preflight-errors=SystemVerification
+    local cfg out=/var/lib/gough/biome/kubeadm-init.out
+    cfg="$(write_kubeadm_config)"
+    install -m 0600 /dev/null "$out"
+    local -a skip=()
+    if [[ "$GOUGH_KUBE_PROXY_REPLACEMENT" == "true" ]]; then
+      skip=(--skip-phases=addon/kube-proxy)
+      log "kube-proxy replacement: Cilium will own service load balancing"
+    else
+      log "kube-proxy kept (conntrack zeroed via KubeProxyConfiguration)"
+    fi
+    # Output goes to a root-only file: --skip-token-print keeps the default token out of it, and
+    # any failure tail is redacted before it reaches the biome log.
+    if ! kubeadm init --config "$cfg" "${skip[@]}" --skip-token-print >"$out" 2>&1; then
+      sed -E 's/[a-z0-9]{6}\.[a-z0-9]{16}/<redacted-token>/g' "$out" | tail -n 40
+      die "kubeadm init failed; full output is in $out (mode 0600)"
+    fi
+    log "kubeadm init complete (full output in $out, mode 0600)"
   fi
   install -d -m 0700 /root/.kube
   install -m 0600 /etc/kubernetes/admin.conf /root/.kube/config
 }
 
-# Install the pinned Cilium CLI and chart from the mirror, pre-apply CRDs, then install Cilium.
+# Install the pinned Cilium CLI and chart from the mirror, pre-apply CRDs, then install Cilium with the selected features.
 controller_cilium() {
   export KUBECONFIG=/etc/kubernetes/admin.conf
   local work=/var/lib/gough/biome/cilium
   local api_host="${GOUGH_CONTROL_PLANE_ENDPOINT%%:*}"
+  local kpr="$GOUGH_KUBE_PROXY_REPLACEMENT"
+  local hubble="$GOUGH_CILIUM_HUBBLE"
+  local gateway="$GOUGH_CILIUM_GATEWAY_API"
   rm -rf "$work"
   install -d -m 0700 "$work"
   fetch_verified "$GOUGH_CHART_MIRROR_URL/cilium-${GOUGH_CILIUM_VERSION}.tgz" "$GOUGH_CILIUM_CHART_SHA256" "$work/chart.tgz"
@@ -224,33 +290,52 @@ controller_cilium() {
   (( ${#crds[@]} > 0 )) || die "no Cilium CRDs found in chart at $crd_dir"
   kubectl apply --server-side --force-conflicts -f "$crd_dir"
   kubectl wait --for=condition=Established --timeout=180s -f "$crd_dir"
-  cilium install --chart-directory "$work/cilium" \
-    --set kubeProxyReplacement=true \
-    --set k8sServiceHost="$api_host" \
-    --set k8sServicePort=6443 \
-    --set ipam.mode=kubernetes \
-    --set ipv4.enabled=true \
-    --set ipv6.enabled=false \
-    --set l2announcements.enabled=true \
-    --set externalIPs.enabled=true \
-    --set loadBalancer.algorithm=maglev \
-    --set loadBalancer.mode=snat \
-    --set bpf.masquerade=true \
-    --set socketLB.enabled=true \
-    --set nodePort.enabled=true \
-    --set hostServices.enabled=true \
-    --set enableCiliumEndpointSlice=true \
-    --set envoyConfig.enabled=true \
-    --set operator.replicas=1 \
-    --set hubble.enabled=false \
-    --set gatewayAPI.enabled=false
+  if [[ "$gateway" == "true" ]]; then
+    [[ -n "$GOUGH_GATEWAY_API_CRDS_URL" && -n "$GOUGH_GATEWAY_API_CRDS_SHA256" ]] \
+      || die "cilium_gateway_api=true requires gateway_api_crds_url and gateway_api_crds_sha256"
+    fetch_verified "$GOUGH_GATEWAY_API_CRDS_URL" "$GOUGH_GATEWAY_API_CRDS_SHA256" "$work/gateway-api-crds.yaml"
+    kubectl apply --server-side --force-conflicts -f "$work/gateway-api-crds.yaml"
+    kubectl wait --for=condition=Established --timeout=180s -f "$work/gateway-api-crds.yaml"
+  fi
+  local -a sets=(
+    --set "kubeProxyReplacement=${kpr}"
+    --set "k8sServiceHost=${api_host}"
+    --set k8sServicePort=6443
+    --set ipam.mode=kubernetes
+    --set ipv4.enabled=true
+    --set ipv6.enabled=false
+    --set "l2announcements.enabled=${kpr}"
+    --set "externalIPs.enabled=${kpr}"
+    --set "socketLB.enabled=${kpr}"
+    --set "nodePort.enabled=${kpr}"
+    --set "hostServices.enabled=${kpr}"
+    --set "bpf.masquerade=${kpr}"
+    --set loadBalancer.algorithm=maglev
+    --set loadBalancer.mode=snat
+    --set enableCiliumEndpointSlice=true
+    --set envoyConfig.enabled=true
+    --set operator.replicas=1
+    --set "hubble.enabled=${hubble}"
+    --set "hubble.relay.enabled=${hubble}"
+    --set "gatewayAPI.enabled=${gateway}"
+  )
+  cilium install --chart-directory "$work/cilium" "${sets[@]}"
   cilium status --wait --wait-duration 15m
   kubectl wait --for=condition=Ready "node/$(hostname)" --timeout=300s
 }
 
-# Create a bounded-TTL join token, store join material locally (mode 600), and report it to the hub.
+# Delete every bootstrap token except the report token, so only the short-TTL token survives.
+prune_bootstrap_tokens() {
+  local keep="${1%%.*}" id
+  while read -r id; do
+    [[ -n "$id" && "$id" != "$keep" ]] || continue
+    kubeadm token delete "$id" >/dev/null
+  done < <(kubeadm token list | awk 'NR>1 {print $1}' | sed 's/\..*$//')
+}
+
+# Mint a short-TTL report token, store join material locally (mode 600), report it over https, then prune other bootstrap tokens.
 controller_publish_join() {
-  local out token hash body hdr
+  local out token hash json body hdr
   out="$(kubeadm token create --ttl "$GOUGH_JOIN_TOKEN_TTL" --print-join-command)"
   [[ "$out" =~ --token\ ([a-z0-9]{6}\.[a-z0-9]{16}) ]] || die "could not parse join token"
   token="${BASH_REMATCH[1]}"
@@ -259,15 +344,18 @@ controller_publish_join() {
   install -m 0600 /dev/null "$JOIN_FILE"
   printf 'GOUGH_JOIN_ENDPOINT=%s\nGOUGH_JOIN_TOKEN=%s\nGOUGH_JOIN_CA_CERT_HASH=%s\n' \
     "$GOUGH_CONTROL_PLANE_ENDPOINT" "$token" "$hash" > "$JOIN_FILE"
-  body=$(printf '{"biome":"%s","hostname":"%s","join_endpoint":"%s","join_token":"%s","ca_cert_hash":"%s","cilium_version":"%s"}' \
+  json=$(printf '{"biome":"%s","hostname":"%s","join_endpoint":"%s","join_token":"%s","ca_cert_hash":"%s","cilium_version":"%s"}' \
     "$ROLE" "$(hostname)" "$GOUGH_CONTROL_PLANE_ENDPOINT" "$token" "$hash" "$GOUGH_CILIUM_VERSION")
-  umask 077
+  body="$(mktemp)"
   hdr="$(mktemp)"
-  trap 'rm -f "$hdr"' RETURN
-  printf 'header = "Authorization: Bearer %s"\n' "$GOUGH_REPORT_BOOTSTRAP_TOKEN" > "$hdr"
+  trap 'rm -f "$body" "$hdr"; trap - RETURN' RETURN
+  printf '%s' "$json" > "$body"
+  printf 'header = "Authorization: Bearer %s"\ndata-binary = "@%s"\n' "$GOUGH_REPORT_BOOTSTRAP_TOKEN" "$body" > "$hdr"
   curl --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 30 \
-    --config "$hdr" -H 'Content-Type: application/json' -X POST --data "$body" "$GOUGH_REPORT_URL" >/dev/null
+    --config "$hdr" -H 'Content-Type: application/json' -X POST "$GOUGH_REPORT_URL" >/dev/null
   log "join material reported to hub"
+  prune_bootstrap_tokens "$token"
+  log "default bootstrap tokens pruned; only the report token remains"
 }
 
 # Entry point: prepare the node, bring up the control plane, install Cilium, publish join material.
@@ -277,7 +365,8 @@ main() {
     GOUGH_CONTAINERD_PACKAGE_VERSION GOUGH_REGISTRY_MIRROR GOUGH_MIRRORED_REGISTRIES \
     GOUGH_APISERVER_ADVERTISE_ADDRESS GOUGH_CONTROL_PLANE_ENDPOINT GOUGH_POD_CIDR GOUGH_SERVICE_CIDR \
     GOUGH_CHART_MIRROR_URL GOUGH_CILIUM_VERSION GOUGH_CILIUM_CHART_SHA256 GOUGH_CILIUM_CLI_URL \
-    GOUGH_CILIUM_CLI_SHA256 GOUGH_JOIN_TOKEN_TTL GOUGH_REPORT_URL GOUGH_REPORT_BOOTSTRAP_TOKEN
+    GOUGH_CILIUM_CLI_SHA256 GOUGH_JOIN_TOKEN_TTL GOUGH_REPORT_URL GOUGH_REPORT_BOOTSTRAP_TOKEN \
+    GOUGH_KUBE_PROXY_REPLACEMENT GOUGH_CILIUM_GATEWAY_API GOUGH_CILIUM_HUBBLE
   run_step node-prep prepare_node
   run_step control-plane-init controller_init
   run_step cilium controller_cilium

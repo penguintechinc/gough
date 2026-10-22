@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Render a gough biome directory into cloud-init user-data, network-config and an LXD profile.
 
-Shared by the hub-api and gough-install.py. Requires PyYAML. Fails loudly on
-missing or invalid parameters, unknown placeholders, and privileged profiles
-without explicit allow_privileged opt-in.
+Shared by the hub-api and gough-install.py. Standard library only, so it runs on
+bare hosts with no pip. Fails loudly on missing or invalid parameters, unknown
+placeholders, and privileged profiles without explicit allow_privileged opt-in.
 """
 import argparse
 import base64
@@ -13,8 +13,6 @@ import re
 import shlex
 import sys
 
-import yaml
-
 PLACEHOLDER = re.compile(r"\{\{\s*([A-Za-z_][A-Za-z0-9_]*)\s*\}\}")
 FORBIDDEN = re.compile(r'[\x00-\x1f\x7f"\\]')
 TEMPLATES = (
@@ -22,6 +20,7 @@ TEMPLATES = (
     ("cloud-init/network-config.yaml.tmpl", "network-config"),
 )
 REQUIRED_MANIFEST_KEYS = ("name", "version", "lxd", "parameters")
+USER_DATA_HEADER = "#cloud-config\n"
 
 
 class RenderError(Exception):
@@ -29,17 +28,17 @@ class RenderError(Exception):
 
 
 def load_manifest(biome_dir):
-    """Load and minimally validate biome.yaml from a biome directory."""
-    path = os.path.join(biome_dir, "biome.yaml")
+    """Load and minimally validate biome.json from a biome directory."""
+    path = os.path.join(biome_dir, "biome.json")
     if not os.path.isfile(path):
         raise RenderError(f"missing manifest: {path}")
     try:
         with open(path, encoding="utf-8") as fh:
-            manifest = yaml.safe_load(fh)
-    except yaml.YAMLError as exc:
-        raise RenderError(f"manifest is not valid YAML: {exc}") from exc
+            manifest = json.load(fh)
+    except json.JSONDecodeError as exc:
+        raise RenderError(f"manifest is not valid JSON: {exc}") from exc
     if not isinstance(manifest, dict):
-        raise RenderError("manifest is not a mapping")
+        raise RenderError("manifest is not an object")
     for key in REQUIRED_MANIFEST_KEYS:
         if key not in manifest:
             raise RenderError(f"manifest missing key: {key}")
@@ -57,6 +56,7 @@ def resolve_params(manifest, supplied):
     """Validate supplied parameters against the manifest schema and apply defaults."""
     if not isinstance(supplied, dict):
         raise RenderError("parameters must be a JSON object")
+    insecure_ok = _insecure_flag(manifest, supplied)
     declared = {}
     for spec in manifest["parameters"]:
         name = spec.get("name")
@@ -66,10 +66,18 @@ def resolve_params(manifest, supplied):
     unknown = sorted(set(supplied) - set(declared))
     if unknown:
         raise RenderError("unknown parameters: " + ", ".join(unknown))
-    return {name: _resolve_one(name, spec, supplied) for name, spec in declared.items()}
+    return {name: _resolve_one(name, spec, supplied, insecure_ok) for name, spec in declared.items()}
 
 
-def _resolve_one(name, spec, supplied):
+def _insecure_flag(manifest, supplied):
+    """Return the allow_insecure_mirrors flag, rejecting a non-boolean value."""
+    value = supplied.get("allow_insecure_mirrors", False)
+    if not isinstance(value, bool):
+        raise RenderError("parameter allow_insecure_mirrors must be a boolean")
+    return value
+
+
+def _resolve_one(name, spec, supplied, insecure_ok):
     """Return one validated value, applying the default when the parameter is absent."""
     if name in supplied:
         value = supplied[name]
@@ -97,6 +105,8 @@ def _resolve_one(name, spec, supplied):
     pattern = spec.get("pattern")
     if pattern and value != "" and not re.fullmatch(pattern, value):
         raise RenderError(f"parameter {name} does not match required format")
+    if spec.get("scheme") == "mirror" and value and not insecure_ok and not value.startswith("https://"):
+        raise RenderError(f"parameter {name} must use https (set allow_insecure_mirrors=true for plain HTTP mirrors)")
     return value
 
 
@@ -156,12 +166,8 @@ def render_biome(biome_dir, supplied):
     for template, out_name in TEMPLATES:
         with open(os.path.join(biome_dir, template), encoding="utf-8") as fh:
             rendered = render_text(fh.read(), values)
-        try:
-            parsed = yaml.safe_load(rendered)
-        except yaml.YAMLError as exc:
-            raise RenderError(f"{out_name} is not valid YAML: {exc}") from exc
-        if not isinstance(parsed, dict):
-            raise RenderError(f"{out_name} did not render to a YAML mapping")
+        if out_name == "user-data" and not rendered.startswith(USER_DATA_HEADER):
+            raise RenderError("user-data must start with the #cloud-config header")
         outputs[out_name] = rendered
     profile = build_profile(manifest, resolved, values)
     outputs["profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
