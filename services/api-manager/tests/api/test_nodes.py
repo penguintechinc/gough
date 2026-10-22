@@ -1950,6 +1950,78 @@ class TestLxdJoin:
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("addr", ["127.0.0.1", "169.254.169.254", "169.254.10.1", "0.0.0.0", "224.0.0.1"])
+    async def test_lxd_join_blocked_registered_address_409(self, nodes_app, dal, join_node, addr):
+        """regression: operator-editable ipv4_static must not steer the join token to blocked hosts."""
+        dal(dal.nodes.id == join_node).update(ipv4_static=addr)
+        dal.commit()
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.fixture()
+    def linked_agent(self, dal, join_node):
+        from penguin_dal import Field
+
+        dal.define_table(
+            "access_agents", Field("node_id", "integer"), Field("status", "string"),
+            Field("tenant_id", "string"), Field("ip_address", "string"), migrate=True,
+        )
+
+        def _add(ip, tenant="acme"):
+            dal.access_agents.insert(node_id=join_node, status="active", tenant_id=tenant, ip_address=ip)
+            dal.commit()
+
+        return _add
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_address_mismatch_409(self, nodes_app, join_node, linked_agent):
+        """The agent-reported address and the registered one must agree."""
+        linked_agent("10.0.0.99")  # registered is 10.0.0.5
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_reporting_blocked_address_409(self, nodes_app, dal, join_node, linked_agent):
+        dal(dal.nodes.id == join_node).update(ipv4=None)
+        dal.commit()
+        linked_agent("169.254.169.254")
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_other_tenants_agent_is_ignored(self, nodes_app, join_node, linked_agent):
+        """An agent stamped with another tenant is not a trusted source for this node's address."""
+        linked_agent("10.9.9.9", tenant="globex")
+        mock_token = MagicMock()
+        mock_token.token = "t"
+        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
+             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code in (201, 500)  # membership table absent in fixture may 500 after the join
+        assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_address_used_when_it_agrees(self, nodes_app, join_node, linked_agent):
+        linked_agent("10.0.0.5")
+        mock_token = MagicMock()
+        mock_token.token = "t"
+        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
+             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+            async with nodes_app.test_client() as client:
+                await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
+
+    @pytest.mark.asyncio
     async def test_lxd_join_no_cluster_registry_503(self, nodes_app, seed_node):
         """No clusters table: fail closed rather than skipping the ownership check."""
         async with nodes_app.test_client() as client:

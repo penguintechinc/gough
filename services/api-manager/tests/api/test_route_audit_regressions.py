@@ -217,3 +217,149 @@ class TestIpxePowerNotFaked:
                 resp, status = await fn("1", "on")
         assert status == 501
         logged.assert_not_called()
+
+
+def _secrets_app_for(tenant: str, monkeypatch):
+    import app.middleware as mw_mod
+
+    monkeypatch.setattr(mw_mod, "auth_required", _passthrough)
+    monkeypatch.setattr(mw_mod, "roles_required", _passthrough)
+    sys.modules.pop("app.api.secrets", None)
+    mod = importlib.import_module("app.api.secrets")
+    app = _tenant_app(tenant)
+    app.url_map.strict_slashes = False
+    app.register_blueprint(mod.secrets_bp)
+    return app, mod
+
+
+def _rebinding_resolver(monkeypatch, answers: list[str]) -> list[str]:
+    """Make the event loop's resolver return ``answers`` in order (one per lookup), like a rebinding DNS."""
+    import asyncio
+
+    seen: list[str] = []
+    queue = list(answers)
+
+    async def fake_getaddrinfo(self, host, port, *a, **kw):
+        seen.append(host)
+        ip = queue.pop(0) if len(queue) > 1 else queue[0]
+        return [(2, 1, 6, "", (ip, port))]
+
+    monkeypatch.setattr(asyncio.BaseEventLoop, "getaddrinfo", fake_getaddrinfo)
+    return seen
+
+
+class TestDnsRebinding:
+    """regression: a hostname that resolves publicly at check time and to loopback at use time."""
+
+    @pytest.mark.asyncio
+    async def test_elder_connects_to_the_vetted_ip_never_re_resolving(self, monkeypatch) -> None:
+        import httpx
+
+        from app.integrations.elder import get_elder_client
+
+        _rebinding_resolver(monkeypatch, ["93.184.216.34", "127.0.0.1"])  # 2nd answer must never be used
+        db = MagicMock()
+        db.tables = ["elder_config"]
+        cfg = MagicMock()
+        cfg.elder_url = "https://elder.example.test:8443"
+        cfg.api_key = "k"
+        cfg.timeout = "5"
+        cfg.max_retries = "1"
+        db.return_value.select.return_value.first.return_value = cfg
+        client = await get_elder_client(db)
+        assert client.pinned_ip == "93.184.216.34"
+
+        captured: dict = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            captured["host"] = request.url.host
+            captured["host_header"] = request.headers["host"]
+            captured["sni"] = request.extensions.get("sni_hostname")
+            return httpx.Response(200, json={"ok": True})
+
+        client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+        await client._request("GET", "/api/v1/health")
+        assert captured == {
+            "host": "93.184.216.34",
+            "host_header": "elder.example.test:8443",
+            "sni": "elder.example.test",
+        }
+
+    @pytest.mark.asyncio
+    async def test_elder_use_time_vet_refuses_when_dns_now_points_at_loopback(self, monkeypatch) -> None:
+        from app.integrations.elder import ElderError, get_elder_client
+
+        _rebinding_resolver(monkeypatch, ["127.0.0.1"])
+        db = MagicMock()
+        db.tables = ["elder_config"]
+        cfg = MagicMock()
+        cfg.elder_url = "https://elder.example.test"
+        cfg.api_key = "k"
+        db.return_value.select.return_value.first.return_value = cfg
+        with pytest.raises(ElderError):
+            await get_elder_client(db)
+
+    @pytest.mark.asyncio
+    async def test_stored_cloud_config_is_revetted_on_every_build(self, monkeypatch) -> None:
+        """Stored config_data passed write-time vetting once; a later rebind to loopback is caught."""
+        from app.api import clouds as clouds_mod
+        from app.clouds import CloudError
+
+        built: list = []
+        monkeypatch.setattr(clouds_mod, "get_cloud_provider", lambda t, c: built.append(c) or object())
+        cfg = {"MAAS_API_URL": "https://maas.example.test:5240/MAAS"}
+
+        _rebinding_resolver(monkeypatch, ["93.184.216.34"])
+        await clouds_mod._build_provider("maas", cfg)  # first lookup: public -> allowed
+        assert built == [cfg]
+
+        _rebinding_resolver(monkeypatch, ["127.0.0.1"])  # DNS flipped after the first check
+        with pytest.raises(CloudError):
+            await clouds_mod._build_provider("maas", cfg)
+        assert built == [cfg]  # the SDK was NOT constructed for the rebound lookup
+
+    @pytest.mark.asyncio
+    async def test_storage_use_time_vet_refuses_rebound_endpoint(self, monkeypatch) -> None:
+        from app.services import storage as svc
+
+        _rebinding_resolver(monkeypatch, ["169.254.169.254"])
+        row = SimpleNamespace(
+            id=1, name="s", provider_type="minio", endpoint_url="http://minio.example.test:9000",
+            region=None, bucket_name="b", credentials_path="p", is_default=True, is_active=True,
+            use_ssl=False, config_data=None, created_by=1, created_at=None, updated_at=None,
+        )
+        db = MagicMock()
+        db.return_value.select.return_value.first.return_value = row
+        with patch.object(svc, "get_db", return_value=db), pytest.raises(svc.StorageValidationError):
+            await svc.get_storage_service(config_id=1)
+
+
+class TestSecretsListingPrefix:
+    """regression: listing must not leak a sibling tenant whose id shares a prefix."""
+
+    @pytest.mark.asyncio
+    async def test_tenant_a_does_not_see_tenant_ab(self, monkeypatch) -> None:
+        app, mod = _secrets_app_for("a", monkeypatch)
+        manager = AsyncMock()
+        # A sloppy backend returns everything under a string prefix, plus an unrelated key.
+        manager.list_secrets = AsyncMock(
+            return_value=["tenants/a/x", "tenants/ab/secret", "platform/db", "tenants/a/y/z"]
+        )
+        with patch.object(mod, "get_secrets_manager", return_value=manager):
+            resp = await app.test_client().get("/?path=")
+        manager.list_secrets.assert_awaited_once_with("tenants/a/")
+        body = await resp.get_json()
+        assert body["secrets"] == ["x", "y/z"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("tenant", ["a/b", "..", "a/../b", "", "x y", "a\\b"])
+    async def test_malformed_tenant_id_never_reaches_backend(self, monkeypatch, tenant) -> None:
+        app, mod = _secrets_app_for(tenant, monkeypatch)
+        manager = AsyncMock()
+        with patch.object(mod, "get_secrets_manager", return_value=manager):
+            resp = await app.test_client().get("/some/path")
+            listing = await app.test_client().get("/?path=")
+        assert resp.status_code == 400
+        assert listing.status_code == 400
+        manager.get_secret.assert_not_called()
+        manager.list_secrets.assert_not_called()

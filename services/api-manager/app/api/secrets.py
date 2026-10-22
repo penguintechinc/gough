@@ -7,6 +7,7 @@ Admin-only access for all operations.
 from __future__ import annotations
 
 import logging
+import re
 
 from quart import Blueprint, current_app, jsonify, request
 
@@ -25,6 +26,9 @@ secrets_bp = Blueprint("secrets", __name__)
 
 _TENANT_NS = "tenants"
 
+#: A tenant id usable as ONE path segment: no separator, no traversal, bounded length.
+_TENANT_SEGMENT_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}")
+
 
 def _scoped_path(path: str) -> str | None:
     """Map a caller-supplied secret path into the caller's tenant namespace.
@@ -42,7 +46,10 @@ def _scoped_path(path: str) -> str | None:
         return None
     if request_is_cross_tenant():
         return path
-    return "/".join([_TENANT_NS, request_tenant_id(), *parts])
+    tenant = request_tenant_id()
+    if not _TENANT_SEGMENT_RE.fullmatch(tenant) or ".." in tenant:
+        return None  # a tenant id that could escape its namespace never reaches the backend
+    return "/".join([_TENANT_NS, tenant, *parts])
 
 
 @secrets_bp.route("/backends", methods=["GET"])
@@ -323,11 +330,14 @@ async def list_secrets():
 
     try:
         manager = await get_secrets_manager()
-        secrets = await manager.list_secrets(scoped)
-        if not request_is_cross_tenant():
-            # Hide the tenant namespace prefix from the caller's view.
+        if request_is_cross_tenant():
+            secrets = await manager.list_secrets(scoped)
+        else:
+            # Trailing separator: tenant "a" must never match tenant "ab"'s keys. Anything the
+            # backend returns outside the caller's prefix is DROPPED, never passed through.
             prefix = f"{_TENANT_NS}/{request_tenant_id()}/"
-            secrets = [x[len(prefix):] if isinstance(x, str) and x.startswith(prefix) else x for x in secrets]
+            listed = await manager.list_secrets(scoped + "/")
+            secrets = [x[len(prefix):] for x in listed if isinstance(x, str) and x.startswith(prefix)]
 
         return jsonify({
             "path": path or "/",

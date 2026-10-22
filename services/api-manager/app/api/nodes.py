@@ -2294,22 +2294,39 @@ def _lxd_leader_address() -> str:
     return f"{parsed.hostname or 'localhost'}:{parsed.port or _LXD_NODE_PORT}"
 
 
-def _node_lxd_address(node: Any) -> Optional[str]:
-    """Derive the node's LXD ``host:port`` from its REGISTERED address (static, then discovered).
-
-    Never taken from the request: a caller-supplied URL would let a tenant steer the
-    join-token POST to an arbitrary host (SSRF / token exfiltration).
-    """
+def _parse_ip(raw: Any) -> Any:
+    """Return an ``ipaddress`` object for ``raw`` or None when it is not a literal IP."""
     import ipaddress
 
-    raw = _g(node, "ipv4_static") or _g(node, "ipv4")
     if not isinstance(raw, str) or not raw.strip():
         return None
     try:
-        addr = ipaddress.ip_address(raw.strip())
+        return ipaddress.ip_address(raw.strip())
     except ValueError:
         return None
-    return f"{addr}:{_LXD_NODE_PORT}"
+
+
+def _node_lxd_address(node: Any, agent_ip: Any = None) -> tuple[Optional[str], Optional[str]]:
+    """Derive the node's LXD ``host:port``; returns ``(address, refusal_reason)``.
+
+    ``ipv4_static`` is operator-editable, so it is never trusted alone for an outbound call
+    that carries a join token. The address the node's enrolled, tenant-linked access agent
+    reported is preferred; when both it and the registered address exist they MUST agree.
+    Whatever is chosen must pass the SSRF blocklist (loopback, link-local, cloud metadata)
+    and be a routable unicast address. Never taken from the request.
+    """
+    from ..clients.cluster_discovery import _is_blocked_ip
+
+    registered = _parse_ip(_g(node, "ipv4_static") or _g(node, "ipv4"))
+    reported = _parse_ip(agent_ip)
+    if reported is not None and registered is not None and reported != registered:
+        return None, "node registered address does not match the address its agent reported"
+    chosen = reported or registered
+    if chosen is None:
+        return None, "no registered IP address to join from"
+    if _is_blocked_ip(chosen) or chosen.is_unspecified or chosen.is_multicast:
+        return None, "node address is loopback, link-local, metadata or otherwise not routable"
+    return f"{chosen}:{_LXD_NODE_PORT}", None
 
 
 @nodes_bp.route("/<int:node_id>/lxd/join", methods=["POST"])
@@ -2374,9 +2391,23 @@ async def node_lxd_join(node_id: int) -> Any:
     if not cluster_ok:
         return err_not_found(f"Cluster {cluster_id_raw} not found")
 
-    api_url = _node_lxd_address(node)
+    # The enrolled agent linked to THIS node (same tenant, active) is the authenticated source of
+    # the node's address; its report is cross-checked against the registered address.
+    def _linked_agent_ip() -> Any:
+        if "access_agents" not in getattr(db, "tables", []):
+            return None
+        rows = db(
+            (db.access_agents.node_id == node_id) & (db.access_agents.status == "active")
+        ).select()
+        for row in rows:
+            if _g(row, "tenant_id") == _g(node, "tenant_id", "__default__"):
+                return _g(row, "ip_address")
+        return None
+
+    agent_ip = await run_db(_linked_agent_ip)
+    api_url, refusal = _node_lxd_address(node, agent_ip)
     if api_url is None:
-        return err_conflict(f"Node {node_id} has no registered IP address to join from")
+        return err_conflict(f"Node {node_id}: {refusal}")
 
     from ..clients import lxd_extra
 

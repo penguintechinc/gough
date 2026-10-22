@@ -127,6 +127,24 @@ async def _refuse_unsafe_endpoint(config: Any) -> str | None:
     return None
 
 
+async def _build_provider(provider_type: str, config: Any) -> Any:
+    """Build a provider client from STORED config, re-vetting its endpoints first.
+
+    Stored ``config_data`` is as untrusted as a request body (it was written by an admin, or by
+    an older version without the guard), and DNS can change between the write-time check and
+    now. The provider SDKs resolve hostnames themselves and cannot be pinned to an IP, so the
+    endpoint is re-resolved and checked here, immediately before the SDK is constructed and
+    called; the residual rebinding window is the SDK's own lookup moments later.
+
+    Raises:
+        CloudError: when an endpoint resolves to a blocked (loopback/link-local/metadata) target.
+    """
+    refusal = await _refuse_unsafe_endpoint(config)
+    if refusal:
+        raise CloudError(refusal)
+    return get_cloud_provider(provider_type, config)
+
+
 @clouds_bp.route("/", methods=["GET"])
 @auth_required
 @roles_accepted("admin", "maintainer", "viewer")
@@ -433,7 +451,7 @@ async def test_provider(provider_id: int):
         return jsonify({"status": "config_error", "error": refusal}), 400
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
 
         # Update status
@@ -491,7 +509,7 @@ async def list_machines(provider_id: int):
     if refresh:
         # Fetch from cloud API
         try:
-            cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+            cloud = await _build_provider(provider.provider_type, provider.config_data)
             await asyncio.to_thread(cloud.authenticate)
             machines = await asyncio.to_thread(cloud.list_machines)
 
@@ -622,7 +640,7 @@ async def create_machine(provider_id: int):
     spec.tags = stamp_managed_tag(spec.tags)
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
 
         # LXD instances land on a hypervisor, so every LXD create passes the capacity
@@ -766,7 +784,7 @@ async def get_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         machine = await asyncio.to_thread(cloud.get_machine, machine_id)
 
@@ -806,7 +824,7 @@ async def destroy_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         await asyncio.to_thread(cloud.destroy_machine, machine_id)
 
@@ -859,7 +877,7 @@ async def start_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         await asyncio.to_thread(cloud.start_machine, machine_id)
 
@@ -910,7 +928,7 @@ async def stop_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         await asyncio.to_thread(cloud.stop_machine, machine_id)
 
@@ -961,7 +979,7 @@ async def reboot_machine(provider_id: int, machine_id: str):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         await asyncio.to_thread(cloud.reboot_machine, machine_id)
 
@@ -997,7 +1015,7 @@ async def list_images(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         images = await asyncio.to_thread(cloud.list_images)
 
@@ -1025,7 +1043,7 @@ async def list_sizes(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         sizes = await asyncio.to_thread(cloud.list_sizes)
 
@@ -1053,7 +1071,7 @@ async def list_regions(provider_id: int):
         return jsonify({"error": "Provider not found"}), 404
 
     try:
-        cloud = get_cloud_provider(provider.provider_type, provider.config_data)
+        cloud = await _build_provider(provider.provider_type, provider.config_data)
         await asyncio.to_thread(cloud.authenticate)
         regions = await asyncio.to_thread(cloud.list_regions)
 

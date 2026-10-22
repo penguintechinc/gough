@@ -101,6 +101,7 @@ class ElderClient:
         api_key: str,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         max_retries: int = MAX_RETRIES,
+        pinned_ip: Optional[str] = None,
     ):
         """Initialize Elder client.
 
@@ -109,7 +110,10 @@ class ElderClient:
             api_key: API key for authentication
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
+            pinned_ip: Already-vetted IP to connect to. When set the hostname is never
+                resolved again (DNS-rebinding TOCTOU); it only supplies the Host header and TLS SNI.
         """
+        self.pinned_ip = pinned_ip
         self.elder_url = elder_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
@@ -125,11 +129,27 @@ class ElderClient:
         """Async context manager exit."""
         await self.close()
 
+    def _pin(self, url: str) -> tuple[str, dict[str, str], dict[str, str]]:
+        """Rewrite ``url`` to the pinned IP, keeping the original host for Host header and SNI."""
+        from urllib.parse import urlparse, urlunparse
+
+        parsed = urlparse(url)
+        host = parsed.hostname or ""
+        ip = f"[{self.pinned_ip}]" if ":" in (self.pinned_ip or "") else str(self.pinned_ip)
+        netloc = f"{ip}:{parsed.port}" if parsed.port else ip
+        original = f"{host}:{parsed.port}" if parsed.port else host
+        return (
+            urlunparse(parsed._replace(netloc=netloc)),
+            {"Host": original},
+            {"sni_hostname": host},
+        )
+
     async def _ensure_client(self) -> None:
         """Ensure async client is initialized."""
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=self.timeout,
+                follow_redirects=False,  # a 3xx must never walk past the vetted address
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
@@ -179,12 +199,23 @@ class ElderClient:
                     f"Elder {method} {path} (attempt {attempt + 1}/{self.max_retries})"
                 )
 
-                response = await self._client.request(
-                    method=method,
-                    url=url,
-                    json=data,
-                    params=params,
-                )
+                if self.pinned_ip:
+                    pin_url, pin_headers, pin_ext = self._pin(url)
+                    response = await self._client.request(
+                        method=method,
+                        url=pin_url,
+                        json=data,
+                        params=params,
+                        headers=pin_headers,
+                        extensions=pin_ext,
+                    )
+                else:
+                    response = await self._client.request(
+                        method=method,
+                        url=url,
+                        json=data,
+                        params=params,
+                    )
 
                 # Handle authentication errors
                 if response.status_code == 401:
@@ -553,7 +584,7 @@ async def get_elder_client(db) -> Optional[ElderClient]:
     from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
 
     try:
-        await _validate_discovery_endpoint(config.elder_url)
+        vetted = await _validate_discovery_endpoint(config.elder_url)
     except ClusterDiscoveryUnavailable as exc:
         log.error("Elder endpoint refused by SSRF guard: %s", exc)
         raise ElderError("Elder endpoint refused: loopback/link-local/metadata or unresolvable") from exc
@@ -565,4 +596,5 @@ async def get_elder_client(db) -> Optional[ElderClient]:
         api_key=config.api_key,
         timeout=float(config.timeout or 10.0),
         max_retries=int(config.max_retries or 3),
+        pinned_ip=vetted.pinned_ip,
     )
