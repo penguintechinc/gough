@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 from pydantic import BaseModel, ValidationError
-from quart import jsonify, request
+from quart import g, jsonify, request
 
 log = logging.getLogger(__name__)
 
@@ -410,3 +410,27 @@ def node_effective_tags(db, node) -> list[str]:
             merged.append(t)
     merged.extend(operator_tags)
     return merged
+
+
+def request_tenant_id() -> str:
+    """Return the authenticated caller's tenant from the request context (token-derived).
+
+    Falls back to the JWT payload and finally ``__default__``; never reads the
+    request body or query, so a client cannot choose its tenant.
+    """
+    tc = g.get("tenant_context")
+    if tc is not None:
+        return str(getattr(tc, "tenant_id", "__default__"))
+    user = g.get("current_user") or {}
+    payload = user.get("_jwt_payload") if isinstance(user, dict) else None
+    return str((payload or {}).get("tenant", "__default__"))
+
+
+def request_is_cross_tenant() -> bool:
+    """True only for a super-admin token carrying ``cross_tenant`` (token-derived)."""
+    tc = g.get("tenant_context")
+    if tc is not None:
+        return bool(getattr(tc, "cross_tenant", False))
+    user = g.get("current_user") or {}
+    payload = user.get("_jwt_payload") if isinstance(user, dict) else None
+    return bool((payload or {}).get("cross_tenant", False))

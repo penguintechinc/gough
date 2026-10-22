@@ -21,7 +21,7 @@ from enum import IntEnum
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
-from prometheus_client import Gauge
+from prometheus_client import Counter, Gauge
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import insert, select, update
 from sqlalchemy.engine import Connection, Engine
@@ -70,6 +70,11 @@ node_pressured: Gauge = Gauge(
     "gough_node_pressured",
     "1 when the node's latest snapshot trips a live pressure gate, else 0.",
     ["node_id"],
+)
+agent_enroll_unlinked: Counter = Counter(
+    "gough_agent_enroll_unlinked_total",
+    "Agents enrolled without a verified node link (no capacity ingest possible), by reason.",
+    ["reason"],
 )
 capacity_guard_disabled: Gauge = Gauge(
     "gough_capacity_guard_disabled",
@@ -999,8 +1004,9 @@ def link_agent_to_node(
 
 
 def resolve_node_by_name(conn: Connection, name: str, tenant_id: str | None = None) -> int | None:
-    """Return the unique node id named ``name`` (optionally tenant-scoped), else None.
+    """Return the unique node id named ``name``, tenant-scoped when ``tenant_id`` is given.
 
+    Security-relevant callers (agent enrollment/link) must always pass ``tenant_id``.
     Ambiguous names (same name in several tenants) return None: fail closed.
     """
     from .models_sqlalchemy import Base

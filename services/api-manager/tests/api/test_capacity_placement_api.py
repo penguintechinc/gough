@@ -159,6 +159,7 @@ def guard_app(dal, monkeypatch):
     monkeypatch.setattr(clouds_mod, "node_allowance", _unlimited)
     monkeypatch.setattr(nodes_mod, "node_allowance", _unlimited)
     monkeypatch.setattr(nodes_mod, "feature_enabled", lambda *_a, **_k: _flag_off())
+    monkeypatch.setattr(agents_mod, "get_current_user", lambda: {"id": 1, "username": "admin"})
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -238,7 +239,7 @@ async def test_enroll_heartbeat_capacity_end_to_end(guard_app):
     dal.enrollment_keys.insert(
         key_hash=hashlib.sha256(key.encode()).hexdigest(),
         expires_at=datetime.utcnow() + timedelta(hours=1),
-        metadata=json.dumps({"purpose": "node-join", "intended_hostname": "host-a"}),
+        metadata=json.dumps({"purpose": "node-join", "intended_hostname": "host-a", "tenant_id": "default"}),
     )
     dal.commit()
     async with guard_app.app.test_client() as client:
@@ -573,12 +574,17 @@ async def test_deploy_stale_or_missing_snapshot_409(guard_app):
 
 @pytest.mark.asyncio
 async def test_deploy_assignment_failure_releases_reservation(guard_app):
-    """An unknown biome id fails assignment creation and the reservation is released."""
+    """A valid biome plus an unknown id: the 404 path releases the hold taken for the valid one."""
     dal = guard_app.dal
     node_id = _add_node(dal, "host-a")
     _seed(dal, node_id)
+    biome_id = _add_biome(dal, ram_mb=1024, disk_gb=1)
     async with guard_app.app.test_client() as client:
-        resp = await _deploy(client, node_id, 4242)
+        resp = await client.post(
+            f"/api/v1/nodes/{node_id}/deploy",
+            json={"biome_assignments": [{"biome_id": biome_id}, {"biome_id": 4242}]},
+            headers={"X-Idempotency-Key": "k2"},
+        )
     assert resp.status_code == 404
     table = cg.CapacityReservation.__table__
     with dal.engine.connect() as conn:
@@ -622,3 +628,136 @@ def test_biome_eligibility_real_guard(dal):
         res = _eval(biome, node_id)
         assert res.eligible is False
         assert any(v.get("reason") == "stale_or_missing_snapshot" for v in res.resource_violations)
+
+
+# --- tenant scoping of the agent<->node link --------------------------------------
+
+
+def _enroll_key(dal: Any, key: str, meta: dict[str, Any]) -> None:
+    """Insert an unused enrollment key with ``meta`` as its server-side metadata."""
+    dal.enrollment_keys.insert(
+        key_hash=hashlib.sha256(key.encode()).hexdigest(),
+        expires_at=datetime.utcnow() + timedelta(hours=1),
+        metadata=json.dumps(meta),
+    )
+    dal.commit()
+
+
+async def _enroll(guard_app: Any, key: str, hostname: str) -> Any:
+    """Enroll an agent with ``key`` and return its stored access_agents row."""
+    async with guard_app.app.test_client() as client:
+        resp = await client.post("/api/v1/agents/enroll", headers={"X-Enrollment-Key": key},
+                                 json={"hostname": hostname})
+        assert resp.status_code == 201
+        agent_id = (await resp.get_json())["agent_id"]
+    return guard_app.dal(guard_app.dal.access_agents.agent_id == agent_id).select().first()
+
+
+@pytest.mark.asyncio
+async def test_key_without_tenant_enrolls_unlinked(guard_app):
+    """A key lacking tenant_id never triggers an unscoped lookup: the agent enrolls unlinked."""
+    dal = guard_app.dal
+    _add_node(dal, "host-a")
+    _enroll_key(dal, "ENROLL-NOTENANT-0001", {"intended_hostname": "host-a"})
+    row = await _enroll(guard_app, "ENROLL-NOTENANT-0001", "host-a")
+    assert row.node_id is None
+
+
+@pytest.mark.asyncio
+async def test_cross_tenant_name_collision_links_only_own_tenant(guard_app):
+    """Same node name in two tenants: each key links its own tenant's node; a third tenant gets none."""
+    dal = guard_app.dal
+    mine = _add_node(dal, "host-a", tenant="tenant-a")
+    theirs = _add_node(dal, "host-a", tenant="tenant-b")
+    _enroll_key(dal, "ENROLL-TENANT-A-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-a"})
+    _enroll_key(dal, "ENROLL-TENANT-B-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-b"})
+    _enroll_key(dal, "ENROLL-TENANT-C-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-c"})
+    assert (await _enroll(guard_app, "ENROLL-TENANT-A-0001", "host-a")).node_id == mine
+    assert (await _enroll(guard_app, "ENROLL-TENANT-B-0001", "host-a")).node_id == theirs
+    assert (await _enroll(guard_app, "ENROLL-TENANT-C-0001", "host-a")).node_id is None
+
+
+@pytest.mark.asyncio
+async def test_key_creation_stamps_tenant_from_token_not_body(guard_app):
+    """POST /enrollment-keys overrides any body tenant_id with the admin token's tenant."""
+    async with guard_app.app.test_client() as client:
+        resp = await client.post(
+            "/api/v1/agents/enrollment-keys",
+            json={"metadata": {"intended_hostname": "host-a", "tenant_id": "evil"}},
+        )
+    assert resp.status_code == 201
+    row = guard_app.dal(guard_app.dal.enrollment_keys.id > 0).select().first()
+    meta = json.loads(row.metadata)
+    assert meta["tenant_id"] == "default" and meta["intended_hostname"] == "host-a"
+
+
+@pytest.mark.asyncio
+async def test_admin_link_rejects_other_tenants_node(guard_app):
+    """A tenant admin cannot link an agent to a node of another tenant (reported as 404)."""
+    dal = guard_app.dal
+    foreign = _add_node(dal, "host-x", tenant="tenant-b")
+    _add_agent(dal, "ag-1", node_id=None)
+    async with guard_app.app.test_client() as client:
+        resp = await client.put("/api/v1/agents/ag-1/node", json={"node_id": foreign})
+    assert resp.status_code == 404
+    assert dal(dal.access_agents.agent_id == "ag-1").select().first().node_id is None
+
+
+# --- deploy reservation lifecycle --------------------------------------------------
+
+
+def _reservation_statuses(dal: Any) -> list[int]:
+    """Return every reservation's status code."""
+    table = cg.CapacityReservation.__table__
+    with dal.engine.connect() as conn:
+        return [r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))]
+
+
+@pytest.mark.asyncio
+async def test_duplicate_deploy_holds_no_reservation(guard_app):
+    """Re-deploying a biome already assigned inserts nothing and reserves nothing new."""
+    dal = guard_app.dal
+    node_id = _add_node(dal, "host-a")
+    _seed(dal, node_id)
+    biome_id = _add_biome(dal, ram_mb=4096, disk_gb=20)
+    async with guard_app.app.test_client() as client:
+        assert (await _deploy(client, node_id, biome_id)).status_code == 202
+        assert (await _deploy(client, node_id, biome_id)).status_code == 202
+    assert _reservation_statuses(dal) == [4]  # only the first deploy's CONFIRMED hold
+
+
+@pytest.mark.asyncio
+async def test_duplicate_deploy_not_refused_for_capacity(guard_app):
+    """A no-op re-deploy is not blocked by capacity: nothing new would be placed."""
+    dal = guard_app.dal
+    node_id = _add_node(dal, "host-a")
+    _seed(dal, node_id)
+    biome_id = _add_biome(dal, ram_mb=4096, disk_gb=20)
+    async with guard_app.app.test_client() as client:
+        assert (await _deploy(client, node_id, biome_id)).status_code == 202
+    with dal.engine.begin() as conn:  # snapshot goes stale afterwards
+        conn.execute(cg.NodeResourceSnapshot.__table__.update().values(
+            received_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+    async with guard_app.app.test_client() as client:
+        assert (await _deploy(client, node_id, biome_id)).status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_exception_mid_deploy_releases_reservation(guard_app, monkeypatch):
+    """An exception while creating assignments releases the hold instead of leaking it."""
+    dal = guard_app.dal
+    node_id = _add_node(dal, "host-a")
+    _seed(dal, node_id)
+    biome_id = _add_biome(dal, ram_mb=4096, disk_gb=20)
+
+    async def _boom(fn: Any) -> Any:
+        if getattr(fn, "__name__", "") == "_create_assignments":
+            raise RuntimeError("db exploded")
+        return await real_run_db(fn)
+
+    real_run_db = guard_app.nodes.run_db
+    monkeypatch.setattr(guard_app.nodes, "run_db", _boom)
+    async with guard_app.app.test_client() as client:
+        with pytest.raises(RuntimeError, match="db exploded"):
+            await _deploy(client, node_id, biome_id)
+    assert _reservation_statuses(dal) == [2]  # RELEASED

@@ -51,6 +51,7 @@ from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required
 from ..models import get_db
 from ..rate_limit import rate_limit
+from ._helpers import request_tenant_id
 
 log = logging.getLogger(__name__)
 
@@ -542,7 +543,8 @@ async def create_node_join_key():
     expires_at = datetime.utcnow() + timedelta(hours=ttl_raw)
     await run_db(lambda: _db_insert_enrollment_key(
         hashlib.sha256(key.encode()).hexdigest(), owner_id, expires_at,
-        {"purpose": PURPOSE_NODE_JOIN, "intended_hostname": intended},
+        {"purpose": PURPOSE_NODE_JOIN, "intended_hostname": intended,
+         "tenant_id": request_tenant_id()},
     ))
     _audit("lxd.node_join_key.issued", "node-join enrollment key issued", AuditSeverity.INFO,
            {"owner_id": owner_id, "intended_hostname": intended, "ttl_hours": ttl_raw})

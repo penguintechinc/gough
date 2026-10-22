@@ -23,6 +23,7 @@ from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
 from ..models import get_db
+from ._helpers import request_is_cross_tenant, request_tenant_id
 
 log = logging.getLogger(__name__)
 
@@ -77,6 +78,11 @@ async def create_enrollment_key():
     data = await request.get_json() or {}
     expires_in_hours = data.get("expires_in_hours", 24)
     metadata = data.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return jsonify({"error": "metadata must be an object"}), 400
+    # The key's tenant is stamped from the creating admin's token, never the body:
+    # it scopes the agent<->node link made at enrollment.
+    metadata = {**(metadata or {}), "tenant_id": request_tenant_id()}
 
     db = get_db()
 
@@ -102,7 +108,7 @@ async def create_enrollment_key():
                 key_hash=key_hash,
                 created_by=current_user["id"],
                 expires_at=expires_at,
-                metadata=str(metadata) if metadata else None,
+                metadata=json.dumps(metadata),
             )
             db.commit()
             return True, key_id
@@ -303,6 +309,15 @@ async def enroll_agent():
         if intended is not None
         else None
     )
+    if intended is not None and link_node_id is None:
+        capacity_guard.agent_enroll_unlinked.labels(
+            "no_tenant" if not key_meta.get("tenant_id") else "no_unique_node"
+        ).inc()
+        log.warning(
+            "agent enrolled UNLINKED (no capacity ingest): key has no tenant_id or no unique "
+            "tenant-scoped node named %s",
+            intended,
+        )
 
     # Generate agent ID + JWT tokens (non-DB, pure/local)
     agent_id = str(uuid.uuid4())
@@ -404,15 +419,17 @@ async def enroll_agent():
 def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -> int | None:
     """Resolve the node an enrolling agent is bound to, from server-side key metadata.
 
-    An explicit ``node_id`` in the key metadata must equal the unique node named
-    ``intended_hostname`` (tenant-scoped when the key names a ``tenant_id``);
-    otherwise the unique node with that name is used. Ambiguous or missing nodes
-    yield None: the agent enrolls unlinked and snapshot ingest refuses it.
+    Requires the key's stamped ``tenant_id``: a key without one (e.g. issued before
+    tenant stamping; re-link such agents with ``PUT /agents/{id}/node``) yields None and
+    NEVER triggers an unscoped, cross-tenant name lookup. The node must be the unique
+    node named ``intended_hostname`` within that tenant, and equal an explicit
+    ``node_id`` in the metadata when one is present.
     """
     tenant = key_meta.get("tenant_id")
-    tenant_id = tenant if isinstance(tenant, str) and tenant else None
+    if not isinstance(tenant, str) or not tenant:
+        return None
     with db.engine.connect() as conn:
-        node_id = capacity_guard.resolve_node_by_name(conn, intended, tenant_id)
+        node_id = capacity_guard.resolve_node_by_name(conn, intended, tenant)
     explicit = key_meta.get("node_id")
     if isinstance(explicit, int) and not isinstance(explicit, bool):
         return node_id if node_id == explicit else None
@@ -438,13 +455,20 @@ async def link_agent_node(agent_id: str):
         return jsonify({"error": "node_id must be a positive integer"}), 400
     db = get_db()
 
+    # Tenant-scoped admins may only link nodes of their own tenant; only a
+    # cross-tenant super-admin token may link across tenants.
+    expected_tenant = None if request_is_cross_tenant() else request_tenant_id()
+
     def _link() -> str | None:
         with db.engine.begin() as conn:
-            return capacity_guard.link_agent_to_node(conn, agent_id, node_id)
+            return capacity_guard.link_agent_to_node(
+                conn, agent_id, node_id, expected_tenant=expected_tenant
+            )
 
     refusal = await run_db(_link)
-    if refusal in ("agent_not_found", "node_not_found"):
-        return jsonify({"error": refusal}), 404
+    if refusal in ("agent_not_found", "node_not_found", "tenant_mismatch"):
+        # tenant_mismatch reports as not-found: never confirm another tenant's node exists.
+        return jsonify({"error": "node_not_found" if refusal == "tenant_mismatch" else refusal}), 404
     if refusal is not None:
         return jsonify({"error": refusal}), 409
     log.info("agent %s linked to node %s", agent_id, node_id)
