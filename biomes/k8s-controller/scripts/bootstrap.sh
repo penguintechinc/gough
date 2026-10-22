@@ -283,13 +283,11 @@ controller_cilium() {
   tar -xzf "$work/chart.tgz" -C "$work" --no-same-owner
   fetch_verified "$GOUGH_CILIUM_CLI_URL" "$GOUGH_CILIUM_CLI_SHA256" "$work/cilium-cli.tgz"
   tar -xzf "$work/cilium-cli.tgz" -C /usr/local/bin cilium
-  local crd_dir="$work/cilium/crds"
-  shopt -s nullglob
-  local crds=("$crd_dir"/*.yaml)
-  shopt -u nullglob
-  (( ${#crds[@]} > 0 )) || die "no Cilium CRDs found in chart at $crd_dir"
-  kubectl apply --server-side --force-conflicts -f "$crd_dir"
-  kubectl wait --for=condition=Established --timeout=180s -f "$crd_dir"
+  [[ -n "$GOUGH_CILIUM_CRDS_URL" && -n "$GOUGH_CILIUM_CRDS_SHA256" ]] \
+    || die "cilium_crds_url and cilium_crds_sha256 are required"
+  fetch_verified "$GOUGH_CILIUM_CRDS_URL" "$GOUGH_CILIUM_CRDS_SHA256" "$work/cilium-crds.yaml"
+  kubectl apply --server-side --force-conflicts -f "$work/cilium-crds.yaml"
+  kubectl wait --for=condition=Established --timeout=180s -f "$work/cilium-crds.yaml"
   if [[ "$gateway" == "true" ]]; then
     [[ -n "$GOUGH_GATEWAY_API_CRDS_URL" && -n "$GOUGH_GATEWAY_API_CRDS_SHA256" ]] \
       || die "cilium_gateway_api=true requires gateway_api_crds_url and gateway_api_crds_sha256"
@@ -364,7 +362,7 @@ main() {
     GOUGH_K8S_APT_KEY_SHA256 GOUGH_K8S_VERSION GOUGH_K8S_PACKAGE_VERSION \
     GOUGH_CONTAINERD_PACKAGE_VERSION GOUGH_REGISTRY_MIRROR GOUGH_MIRRORED_REGISTRIES \
     GOUGH_APISERVER_ADVERTISE_ADDRESS GOUGH_CONTROL_PLANE_ENDPOINT GOUGH_POD_CIDR GOUGH_SERVICE_CIDR \
-    GOUGH_CHART_MIRROR_URL GOUGH_CILIUM_VERSION GOUGH_CILIUM_CHART_SHA256 GOUGH_CILIUM_CLI_URL \
+    GOUGH_CHART_MIRROR_URL GOUGH_CILIUM_VERSION GOUGH_CILIUM_CHART_SHA256 GOUGH_CILIUM_CRDS_URL GOUGH_CILIUM_CRDS_SHA256 GOUGH_CILIUM_CLI_URL \
     GOUGH_CILIUM_CLI_SHA256 GOUGH_JOIN_TOKEN_TTL GOUGH_REPORT_URL GOUGH_REPORT_BOOTSTRAP_TOKEN \
     GOUGH_KUBE_PROXY_REPLACEMENT GOUGH_CILIUM_GATEWAY_API GOUGH_CILIUM_HUBBLE
   run_step node-prep prepare_node

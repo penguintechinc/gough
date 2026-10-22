@@ -35,6 +35,8 @@ def controller_params(**overrides):
         "registry_mirror": "https://registry.example.internal",
         "chart_mirror_url": "https://mirror.example.internal/helm",
         "cilium_chart_sha256": ZERO_SHA,
+        "cilium_crds_url": "https://mirror.example.internal/cilium/cilium-crds-v1.20.1.yaml",
+        "cilium_crds_sha256": ZERO_SHA,
         "cilium_cli_url": "https://mirror.example.internal/cilium/cilium-cli.tar.gz",
         "cilium_cli_sha256": ZERO_SHA,
         "report_url": "https://hub.example.internal/api/v1/biomes/join-material",
@@ -267,6 +269,15 @@ class RenderOutputTests(unittest.TestCase):
         """A template placeholder with no matching value raises instead of rendering empty."""
         with self.assertRaisesRegex(render.RenderError, "unresolved placeholders: nope"):
             render.render_text("hello {{ nope }}", {})
+
+    def test_crd_bundle_is_required_and_mirrored(self):
+        """Omitting the Cilium CRD bundle fails rendering; its URL follows the mirror https policy."""
+        params = controller_params()
+        del params["cilium_crds_url"]
+        with self.assertRaisesRegex(render.RenderError, "missing required parameter: cilium_crds_url"):
+            render.render_biome(CTL_DIR, params)
+        with self.assertRaisesRegex(render.RenderError, "cilium_crds_url must use https"):
+            render.render_biome(CTL_DIR, controller_params(cilium_crds_url="http://mirror.lab/crds.yaml"))
 
     def test_missing_manifest_fails(self):
         """A directory without biome.json is rejected loudly."""

@@ -173,6 +173,13 @@ class ScriptStaticTests(unittest.TestCase):
         self.assertIn('if [[ "$GOUGH_KUBE_PROXY_REPLACEMENT" == "true" ]]; then', init_body)
         self.assertIn("--skip-phases=addon/kube-proxy", init_body)
 
+    def test_cilium_crds_come_from_verified_bundle(self):
+        """CRDs are fetched as one sha256-verified bundle, not read from the chart directory (the chart has none)."""
+        body = function_body(read(script_path("k8s-controller")), "controller_cilium")
+        self.assertIn('fetch_verified "$GOUGH_CILIUM_CRDS_URL" "$GOUGH_CILIUM_CRDS_SHA256"', body)
+        self.assertNotIn("cilium/crds", body)
+        self.assertLess(body.index("fetch_verified \"$GOUGH_CILIUM_CRDS_URL\""), body.index("kubectl apply --server-side"))
+
     def test_gateway_api_requires_crd_url_and_sha(self):
         """Enabling Gateway API without its CRD URL and checksum fails loudly."""
         body = function_body(read(script_path("k8s-controller")), "controller_cilium")

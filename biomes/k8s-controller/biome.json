@@ -210,6 +210,21 @@
       "description": "sha256 of the Cilium chart tgz."
     },
     {
+      "name": "cilium_crds_url",
+      "type": "string",
+      "required": true,
+      "scheme": "mirror",
+      "pattern": "^https?://\\S+$",
+      "description": "URL of the Cilium CRD bundle (single multi-document YAML built by tools/build-cilium-crd-bundle.sh) on the operator mirror. Chart tgz has no CRDs."
+    },
+    {
+      "name": "cilium_crds_sha256",
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the Cilium CRD bundle."
+    },
+    {
       "name": "cilium_cli_url",
       "type": "string",
       "required": true,

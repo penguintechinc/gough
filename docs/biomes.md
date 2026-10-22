@@ -89,6 +89,7 @@ Set by the gough orchestrator for this release. Change them only through the coo
 | `chart_mirror_url` | yes | - | Base URL; chart is `<base>/cilium-<cilium_version>.tgz`. |
 | `cilium_version` | no | `1.20.1` | |
 | `cilium_chart_sha256`, `cilium_cli_url`, `cilium_cli_sha256` | yes | - | Pinned by checksum. |
+| `cilium_crds_url`, `cilium_crds_sha256` | yes | - | Single CRD bundle on the mirror (https unless `allow_insecure_mirrors`). The chart tgz has no CRDs. Build it with the tool below. |
 | `cilium_gateway_api` | no | `false` | Requires `gateway_api_crds_url` and `gateway_api_crds_sha256`. |
 | `gateway_api_crds_url`, `gateway_api_crds_sha256` | no | empty | Standard-install Gateway API CRD manifest on the chart/file mirror. |
 | `cilium_hubble` | no | `false` | Enables Hubble and Hubble relay. |
@@ -120,13 +121,23 @@ Nothing is fetched from github.com, raw.githubusercontent.com, helm.cilium.io or
 | Kubernetes apt key | apt | `k8s_apt_key_url` | sha256 |
 | Kubernetes packages `kubelet`, `kubeadm`, `kubectl` | both | `k8s_apt_repo` (minor line) | exact version |
 | Kubernetes control-plane and pause images | controller (init), both (pause) | `registry_mirror`, path `registry.k8s.io/...` | Kubernetes version (kubeadm) |
-| Cilium chart `cilium-<ver>.tgz` (includes CRDs under `cilium/crds`) | controller | `chart_mirror_url` | sha256 |
+| Cilium chart `cilium-<ver>.tgz` (no CRDs inside; verified: 0 of 166 entries) | controller | `chart_mirror_url` | sha256 |
+| Cilium CRD bundle `cilium-crds-v<ver>.yaml` (22 CRDs from `pkg/k8s/apis/cilium.io/client/crds/{v2,v2alpha1}` at the tag) | controller | `cilium_crds_url`, built by `tools/build-cilium-crd-bundle.sh` on a connected machine | sha256 |
 | Cilium images (`quay.io/cilium/cilium`, `operator-generic`, `cilium-envoy`) | both nodes | `registry_mirror`, path `quay.io/cilium/...` | chart-pinned tags/digests |
 | cilium-cli linux-amd64 tarball | controller | `cilium_cli_url` | sha256 |
 | Gateway API standard-install CRDs (only when `cilium_gateway_api`) | controller | `gateway_api_crds_url` (on the chart/file mirror) | sha256 |
 | Optional internal CA PEM | both | `internal_ca_url` | sha256 |
 
 The registry mirror must present upstream repository paths. A pull-through cache that keeps the same namespaces works. containerd `hosts.toml` redirects pulls, so chart values keep upstream image names.
+
+## Building the Cilium CRD bundle (connected machine only)
+
+```
+tools/build-cilium-crd-bundle.sh 1.20.1 dist      # needs gh, authenticated
+# -> dist/cilium-crds-v1.20.1.yaml (22 CRDs), prints sha256
+```
+
+Upload the file to the operator mirror and set `cilium_crds_url` and `cilium_crds_sha256` to the mirror URL and the printed hash. The airgapped host never runs this tool. Verified: v1.20.1 built with 22 files; sha256 `abb345439856d5aae0e5201e9fed3b72d7997095182941cb7e911a106e523d9d`.
 
 ## Hub contract (must be implemented by gough)
 
@@ -186,7 +197,6 @@ Content-Type: application/json
 
 ## Open items
 
-- Confirm the Cilium chart tgz contains `cilium/crds/*.yaml` (bootstrap fails loudly if not).
 - Confirm `k8s_package_version` (`1.35.9-1.1`) and `containerd_package_version` against the actual mirror.
 - Cilium 1.20.1 end-to-end is not verified in this repo; run `cilium connectivity test` on the live cluster.
 - kube_proxy_replacement=true is not verified in LXC; the default kube-proxy path is the runbook-verified one.
