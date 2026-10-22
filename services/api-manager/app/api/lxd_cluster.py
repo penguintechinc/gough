@@ -303,7 +303,7 @@ def _db_key_join_info(key_hash: str) -> Optional[KeyJoinInfo]:
         key_hash=key_hash,
         purpose=purpose if isinstance(purpose, str) else None,
         intended_hostname=intended if isinstance(intended, str) else None,
-        revoked=bool(row["revoked"]),
+        revoked=isinstance(row["revoked"], (bool, int)) and bool(row["revoked"]),
     )
 
 

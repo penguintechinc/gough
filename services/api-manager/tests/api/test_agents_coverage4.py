@@ -261,7 +261,7 @@ async def test_revoke_enrollment_key_exception_path(agents_client):
 
     delete_query = MagicMock()
     mock_db.return_value = delete_query
-    delete_query.delete.side_effect = RuntimeError("DB Delete failed")
+    delete_query.update.side_effect = RuntimeError("DB Update failed")
 
     response = await client.delete("/api/v1/agents/enrollment-keys/1")
 

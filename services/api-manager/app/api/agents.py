@@ -264,7 +264,7 @@ async def enroll_agent():
     if not key_record:
         return jsonify({"error": "Invalid enrollment key"}), 401
 
-    if key_record.revoked:
+    if isinstance(key_record.revoked, (bool, int)) and bool(key_record.revoked):
         return jsonify({"error": "Enrollment key revoked"}), 401
 
     if key_record.is_used:

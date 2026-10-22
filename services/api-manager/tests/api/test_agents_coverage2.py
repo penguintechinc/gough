@@ -32,6 +32,7 @@ def agents_client(dal, monkeypatch):
             Field("created_by", "string"),
             Field("expires_at", "datetime"),
             Field("is_used", "boolean", default=False),
+            Field("revoked", "boolean", default=False),
             Field("used_by_agent", "integer"),
             Field("metadata", "string"),
             Field("created_at", "datetime"),
