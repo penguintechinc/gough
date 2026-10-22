@@ -1,0 +1,46 @@
+[build-system]
+requires = ["setuptools>=69.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gough-agent"
+dynamic = ["version"]
+description = "Gough access agent: rssh server and enrollment client for managed hosts"
+readme = "README.md"
+requires-python = ">=3.13"
+authors = [{name = "Penguin Tech Inc", email = "support@penguintech.io"}]
+# Exact pins mirror requirements.txt (hash-locked). Regenerate both together.
+dependencies = [
+    "cryptography==50.0.2",
+    "httpx==0.28.1",
+    "paramiko==5.1.0",
+    "penguin-utils==0.3.0",
+    "prometheus-client==0.26.0",
+    "psutil==7.2.2",
+    "pyjwt==2.15.1",
+    "python-dotenv==1.2.4",
+    "pyyaml==6.0.3",
+    "structlog==26.1.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest==9.1.1",
+    "pytest-asyncio==1.4.0",
+]
+
+[project.scripts]
+gough-agent = "agent.main:run"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.packages.find]
+include = ["agent*"]
+
+[tool.setuptools.dynamic]
+version = {attr = "agent.__version__"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

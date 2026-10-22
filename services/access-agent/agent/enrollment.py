@@ -12,6 +12,7 @@ from typing import Optional, Tuple
 
 import httpx
 
+from . import __version__
 from .config import AgentConfig
 
 log = logging.getLogger(__name__)
@@ -144,7 +145,7 @@ class AgentEnrollment:
                 json={
                     "hostname": self.config.hostname,
                     "ip_address": self._get_primary_ip(),
-                    "agent_version": "1.0.0",
+                    "agent_version": __version__,
                     "capabilities": self.config.capabilities,
                 },
             )
