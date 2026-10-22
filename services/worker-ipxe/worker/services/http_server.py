@@ -4,8 +4,8 @@ HTTP boot server for iPXE scripts, kernels, and cloud-init.
 Provides dynamic iPXE script generation and serves boot images.
 """
 
+import ipaddress
 import re
-import os
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -74,6 +74,7 @@ async def _open_storage_stream(presigned_url: str) -> _StorageStream:
 
 
 _CONTENT_RANGE_TOTAL = re.compile(r"^bytes 0-0/(\d+)$")
+_IMAGE_PATH_RE = re.compile(r"[A-Za-z0-9._/-]+")
 
 
 def _total_length(upstream: httpx.Response) -> int | None:
@@ -194,8 +195,8 @@ def _validate_image_path(image_path: str) -> tuple[bool, str]:
     if '%2e%2e' in image_path.lower() or '%2f' in image_path.lower():
         return False, "path contains URL-encoded traversal"
 
-    # Strict allowlist: only [A-Za-z0-9._/-]
-    if not re.match(r'^[A-Za-z0-9._/-]+$', image_path):
+    # Strict allowlist: only [A-Za-z0-9._/-] (fullmatch: `$` would accept a trailing newline)
+    if not _IMAGE_PATH_RE.fullmatch(image_path):
         return False, "path contains invalid characters"
 
     return True, ""
@@ -204,28 +205,39 @@ def _validate_image_path(image_path: str) -> tuple[bool, str]:
 def _validate_presigned_url(presigned_url: str) -> tuple[bool, str]:
     """Validate presigned URL to mitigate SSRF attacks.
 
+    Literal IPs are classified with `ipaddress` (loopback, private, link-local,
+    unspecified, multicast, reserved, incl. IPv4-mapped IPv6), so 127.0.0.0/8,
+    0.0.0.0 and IPv6 equivalents are blocked, not just 127.0.0.1.
     Returns (is_valid: bool, error_message: str).
     """
+    if not isinstance(presigned_url, str):
+        return False, "presigned URL is missing or not a string"
     try:
         parsed = urlparse(presigned_url)
-    except Exception as e:
+        hostname = (parsed.hostname or "").lower()
+    except ValueError as e:
         return False, f"invalid URL format: {e}"
 
-    # Enforce HTTPS
+    # Enforce HTTP(S)
     if parsed.scheme not in ('https', 'http'):
         return False, f"URL scheme must be http/https, got {parsed.scheme}"
 
-    # Reject localhost/127.0.0.1 and private IP ranges (basic SSRF prevention)
-    if parsed.hostname:
-        hostname = parsed.hostname.lower()
-        if hostname in ('localhost', '127.0.0.1', '::1') or hostname.startswith('[::1]'):
-            return False, "presigned URL points to localhost"
-        # Reject private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16)
-        if hostname.startswith(('10.', '172.16.', '172.17.', '172.18.', '172.19.',
-                               '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
-                               '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
-                               '172.30.', '172.31.', '192.168.', '169.254.')):
-            return False, "presigned URL points to private IP range"
+    if not hostname:
+        return False, "presigned URL has no host"
+    if hostname == "localhost" or hostname.endswith(".localhost"):
+        return False, "presigned URL points to localhost"
+
+    try:
+        ip = ipaddress.ip_address(hostname)
+    except ValueError:
+        return True, ""  # DNS name: resolved by the HTTP client, not classifiable here
+
+    if ip.version == 6 and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
+    if ip.is_loopback or ip.is_unspecified:
+        return False, "presigned URL points to localhost"
+    if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_reserved:
+        return False, "presigned URL points to private IP range"
 
     return True, ""
 
@@ -361,8 +373,12 @@ class HTTPBootServer:
 
             Called by cloud-init during provisioning to report progress.
             """
-            data = await request.get_json()
-            logger.info("boot_event_received", event=data)
+            data = await request.get_json(silent=True)
+            if not isinstance(data, dict):
+                # Validate at the boundary: only a JSON object is forwarded upstream
+                return jsonify({"status": "error", "message": "JSON object body required"}), 400
+            # `event` is structlog's reserved message key; passing it as a kwarg raises TypeError
+            logger.info("boot_event_received", payload=data)
 
             try:
                 # Forward event to api-manager
@@ -371,7 +387,12 @@ class HTTPBootServer:
                 headers["Content-Type"] = "application/json"
 
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    await client.post(api_url, json=data, headers=headers)
+                    upstream = await client.post(api_url, json=data, headers=headers)
+
+                if not upstream.is_success:
+                    # Never report "received" for an event api-manager did not store
+                    logger.error("boot_event_upstream_rejected", status=upstream.status_code)
+                    return jsonify({"status": "error", "upstream_status": upstream.status_code}), 502
 
                 return jsonify({"status": "received"})
             except Exception as e:

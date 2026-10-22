@@ -141,6 +141,10 @@ class DHCPProxyServer:
                     continue
 
                 opt_len = data[i + 1]
+                if i + 2 + opt_len > len(data):
+                    # Declared option length overruns the datagram: malformed, do not guess
+                    logger.warning("dhcp_option_truncated", option=opt_code, declared_len=opt_len)
+                    return None
                 opt_data = data[i + 2 : i + 2 + opt_len]
                 options[opt_code] = opt_data
                 i += 2 + opt_len

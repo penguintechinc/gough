@@ -99,6 +99,23 @@ def _verify_bmc_cert(host: str, expected_fingerprint: Optional[str], port: int =
     return True
 
 
+def _ipmi_base_cmd(credentials: BMCCredentials, *args: str) -> list[str]:
+    """Build an ipmitool lanplus command; `-E` makes ipmitool read the password from IPMI_PASSWORD."""
+    return [
+        "ipmitool",
+        "-I", "lanplus",
+        "-H", credentials.address,
+        "-U", credentials.username,
+        "-E",
+        *args,
+    ]
+
+
+def _ipmi_env(credentials: BMCCredentials) -> dict[str, str]:
+    """Child environment carrying the BMC password for ipmitool -E (kept out of argv and ps output)."""
+    return {**os.environ, "IPMI_PASSWORD": credentials.password}
+
+
 class PowerManager:
     """Manages power operations for bare metal machines."""
 
@@ -144,15 +161,8 @@ class PowerManager:
         if not ipmi_cmd:
             return False, f"Invalid IPMI action: {action}"
 
-        # Build ipmitool command
-        cmd = [
-            "ipmitool",
-            "-I", "lanplus",
-            "-H", credentials.address,
-            "-U", credentials.username,
-            "-P", credentials.password,
-            *ipmi_cmd.split(),
-        ]
+        # Build ipmitool command; password travels in IPMI_PASSWORD (-E), never in argv
+        cmd = _ipmi_base_cmd(credentials, *ipmi_cmd.split())
 
         try:
             logger.info(
@@ -165,6 +175,7 @@ class PowerManager:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=_ipmi_env(credentials),
             )
 
             stdout, stderr = await asyncio.wait_for(
@@ -365,6 +376,8 @@ class PowerManager:
         try:
             # Parse MAC address
             mac_bytes = bytes.fromhex(mac_address.replace(":", "").replace("-", ""))
+            if len(mac_bytes) != 6:
+                return False, f"Invalid MAC address length: {len(mac_bytes)} bytes"
 
             # Build magic packet (6 bytes of FF + 16 repetitions of MAC)
             magic_packet = b"\xff" * 6 + mac_bytes * 16
@@ -412,14 +425,7 @@ class PowerManager:
 
         # Build ipmitool command
         persistence = "persistent" if persistent else "options=efiboot"
-        cmd = [
-            "ipmitool",
-            "-I", "lanplus",
-            "-H", credentials.address,
-            "-U", credentials.username,
-            "-P", credentials.password,
-            "chassis", "bootdev", ipmi_device, persistence,
-        ]
+        cmd = _ipmi_base_cmd(credentials, "chassis", "bootdev", ipmi_device, persistence)
 
         try:
             logger.info(
@@ -433,6 +439,7 @@ class PowerManager:
                 *cmd,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
+                env=_ipmi_env(credentials),
             )
 
             stdout, stderr = await asyncio.wait_for(

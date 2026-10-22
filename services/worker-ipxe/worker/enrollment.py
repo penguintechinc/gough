@@ -108,6 +108,9 @@ class EnrollmentManager:
                 return True
 
             retry_count += 1
+            if retry_count >= self.config.max_enrollment_retries:
+                break  # No attempts remain; do not sleep before giving up
+
             wait_time = min(
                 self.config.enrollment_retry_interval * (2 ** min(retry_count - 1, 5)),
                 60,  # Max 60 seconds between retries

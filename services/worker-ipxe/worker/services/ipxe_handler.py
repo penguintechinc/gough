@@ -4,14 +4,27 @@ iPXE script generation and cloud-init handling.
 Queries api-manager for machine state and generates appropriate boot scripts.
 """
 
+import re
+
 import structlog
 import httpx
-from typing import Optional
 
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 
 logger = structlog.get_logger()
+
+# Canonical 12-hex-digit MAC (after normalisation) and machine IDs (UUID-shaped).
+_MAC_RE = re.compile(r"^[0-9a-f]{12}$")
+_MACHINE_ID_RE = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+_CLOUD_INIT_META_FALLBACK = "instance-id: error\nlocal-hostname: unknown\n"
+_CLOUD_INIT_USERDATA_FALLBACK = "#cloud-config\n# Error fetching user-data\n"
+
+
+def _normalize_mac(mac: str) -> str | None:
+    """Return the lowercase 12-hex MAC without separators, or None if malformed."""
+    normalized = mac.replace(":", "").replace("-", "").lower()
+    return normalized if _MAC_RE.fullmatch(normalized) else None
 
 
 class IPXEHandler:
@@ -27,8 +40,12 @@ class IPXEHandler:
 
         Queries api-manager for machine state and returns appropriate script.
         """
-        # Normalize MAC address (remove colons, dashes, uppercase)
-        mac_normalized = mac.replace(":", "").replace("-", "").lower()
+        # Normalize MAC address and reject anything that is not 12 hex digits
+        # (the value is interpolated into a URL path and an iPXE script)
+        mac_normalized = _normalize_mac(mac)
+        if mac_normalized is None:
+            logger.warning("ipxe_invalid_mac", mac_length=len(mac))
+            return self._generate_error_script("Invalid MAC address")
 
         # Query api-manager for boot script
         api_url = f"{self.config.api_manager_url}/api/v1/internal/boot-script/{mac_normalized}"
@@ -107,12 +124,13 @@ shell
         return script
 
     def _generate_error_script(self, error_message: str) -> str:
-        """Generate error iPXE script."""
+        """Generate error iPXE script; line breaks are flattened so text cannot inject iPXE commands."""
+        safe_message = " ".join(error_message.splitlines())
         script = f"""#!ipxe
 echo ======================================
 echo Gough Provisioning - Error
 echo ======================================
-echo {error_message}
+echo {safe_message}
 echo.
 echo Dropping to iPXE shell.
 echo Type 'reboot' to restart.
@@ -126,6 +144,9 @@ shell
 
         Returns YAML metadata for cloud-init datasource.
         """
+        if not _MACHINE_ID_RE.fullmatch(machine_id):
+            logger.warning("cloud_init_invalid_machine_id", machine_id_length=len(machine_id))
+            return _CLOUD_INIT_META_FALLBACK
         api_url = f"{self.config.api_manager_url}/api/v1/internal/cloud-init/{machine_id}/meta-data"
         headers = self.enrollment.get_auth_headers()
 
@@ -141,11 +162,11 @@ shell
                         machine_id=machine_id,
                         status=response.status_code,
                     )
-                    return "instance-id: error\nlocal-hostname: unknown\n"
+                    return _CLOUD_INIT_META_FALLBACK
 
         except Exception as e:
             logger.error("cloud_init_metadata_error", machine_id=machine_id, error=str(e))
-            return "instance-id: error\nlocal-hostname: unknown\n"
+            return _CLOUD_INIT_META_FALLBACK
 
     async def get_cloud_init_userdata(self, machine_id: str) -> str:
         """
@@ -153,6 +174,9 @@ shell
 
         Returns merged cloud-init YAML with all biomes applied.
         """
+        if not _MACHINE_ID_RE.fullmatch(machine_id):
+            logger.warning("cloud_init_invalid_machine_id", machine_id_length=len(machine_id))
+            return _CLOUD_INIT_USERDATA_FALLBACK
         api_url = f"{self.config.api_manager_url}/api/v1/internal/cloud-init/{machine_id}/user-data"
         headers = self.enrollment.get_auth_headers()
 
@@ -168,8 +192,8 @@ shell
                         machine_id=machine_id,
                         status=response.status_code,
                     )
-                    return "#cloud-config\n# Error fetching user-data\n"
+                    return _CLOUD_INIT_USERDATA_FALLBACK
 
         except Exception as e:
             logger.error("cloud_init_userdata_error", machine_id=machine_id, error=str(e))
-            return "#cloud-config\n# Error fetching user-data\n"
+            return _CLOUD_INIT_USERDATA_FALLBACK

@@ -133,11 +133,25 @@ class WorkerIPXE:
         for sig in (signal.SIGINT, signal.SIGTERM):
             loop.add_signal_handler(sig, signal_handler)
 
-        # Wait for stop event
-        await stop_event.wait()
+        # Wait for a shutdown signal OR for any service task to finish. A service task
+        # that ends on its own is a failure: exiting loudly beats running half-dead.
+        stop_waiter = asyncio.ensure_future(stop_event.wait())
+        done, _ = await asyncio.wait(
+            [stop_waiter, *self.tasks], return_when=asyncio.FIRST_COMPLETED
+        )
+        failed = [t for t in done if t is not stop_waiter]
+        stop_waiter.cancel()
 
         # Cleanup
         await self.stop()
+
+        for task in failed:
+            if task.cancelled():
+                raise RuntimeError("service task cancelled unexpectedly")
+            exc = task.exception()
+            if exc is not None:
+                raise RuntimeError(f"service failed: {exc}") from exc
+            raise RuntimeError("service task exited unexpectedly")
 
 
 async def main():
