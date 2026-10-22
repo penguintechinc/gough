@@ -7,9 +7,11 @@ graceful-shutdown window, and the ordered teardown of runtime resources.
 from __future__ import annotations
 
 import asyncio
+import signal
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
+from hypercorn.asyncio import serve as hypercorn_serve
 from hypercorn.config import Config as HypercornConfig
 from quart import Quart
 
@@ -98,6 +100,46 @@ async def _dispose_db(app: Quart) -> None:
     db = app.config.get("db")
     if db is not None:
         await asyncio.to_thread(db.engine.dispose)
+
+
+_SHUTDOWN_SIGNALS = (signal.SIGINT, signal.SIGTERM)
+
+
+def install_shutdown_signals(event: asyncio.Event) -> None:
+    """Set ``event`` on SIGINT/SIGTERM so the server begins graceful shutdown.
+
+    Must be called from within the running loop. Replaces the default handlers
+    for those signals until :func:`remove_shutdown_signals` is called.
+    """
+    loop = asyncio.get_running_loop()
+    for sig in _SHUTDOWN_SIGNALS:
+        loop.add_signal_handler(sig, event.set)
+
+
+def remove_shutdown_signals() -> None:
+    """Restore default SIGINT/SIGTERM handling for the running loop."""
+    loop = asyncio.get_running_loop()
+    for sig in _SHUTDOWN_SIGNALS:
+        loop.remove_signal_handler(sig)
+
+
+async def serve_app(
+    app: Quart,
+    config: HypercornConfig,
+    shutdown_event: asyncio.Event | None = None,
+) -> None:
+    """Serve ``app`` with hypercorn until SIGINT/SIGTERM (or ``shutdown_event``).
+
+    Hypercorn drives the ASGI lifespan, so ``before_serving``/``after_serving``
+    hooks (including :func:`close_runtime_resources`) run around the serve loop.
+    The graceful window is ``config.graceful_timeout``.
+    """
+    event = shutdown_event or asyncio.Event()
+    install_shutdown_signals(event)
+    try:
+        await hypercorn_serve(app, config, shutdown_trigger=event.wait)
+    finally:
+        remove_shutdown_signals()
 
 
 async def close_runtime_resources(app: Quart) -> None:

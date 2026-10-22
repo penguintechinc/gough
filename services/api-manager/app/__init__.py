@@ -31,7 +31,11 @@ from .websocket import init_websocket
 from .middleware import CookieAuthShimMiddleware, wire_middleware
 from .catalog import seed_builtin_biomes
 from .lifecycle import close_runtime_resources, redis_client_kwargs
-from .metrics import capacity_predictor_degraded
+from .metrics import (
+    audit_logger_degraded,
+    biome_seed_degraded,
+    capacity_predictor_degraded,
+)
 
 
 def _resolve_cors_origins(app: Quart) -> list[str]:
@@ -80,14 +84,20 @@ async def create_app(config_class: type = Config) -> Quart:
         # Store datastore in app for access in blueprints
         app.user_datastore = user_datastore
 
-        # Initialize audit logger (graceful degradation if fails)
+        # Initialize audit logger. ImportError propagates (broken install must
+        # fail startup); runtime failures degrade with ERROR + gauge.
         if app.config.get("AUDIT_ENABLED", True):
             try:
                 init_audit_logger(app)
+            except ImportError:
+                raise
             except Exception as e:
-                import sys
-                print(f"WARNING: Audit logger initialization failed: {e}", file=sys.stderr)
-                print("Continuing without audit logger", file=sys.stderr)
+                app.logger.error(
+                    "Audit logger initialization failed; DEGRADED (audit persistence off): %s",
+                    e,
+                    exc_info=True,
+                )
+                audit_logger_degraded.set(1)
 
         # Initialize rate limiter (graceful degradation if fails). Also installs
         # the global /api/ rate-limit floor (regression: security audit
@@ -110,12 +120,20 @@ async def create_app(config_class: type = Config) -> Quart:
         app.socketio = socketio
 
         # Seed built-in biomes (idempotent, only if DB available)
+        # ImportError propagates; runtime DB failures degrade with ERROR + gauge.
         if db is not None:
             try:
                 seed_builtin_biomes(db)
+                biome_seed_degraded.set(0)
+            except ImportError:
+                raise
             except Exception as e:
-                import sys
-                print(f"WARNING: Failed to seed built-in biomes: {e}", file=sys.stderr)
+                app.logger.error(
+                    "Failed to seed built-in biomes; DEGRADED (biome catalog may be incomplete): %s",
+                    e,
+                    exc_info=True,
+                )
+                biome_seed_degraded.set(1)
 
         # Note: Default admin is created by SQLAlchemy during schema initialization
 

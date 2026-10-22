@@ -166,6 +166,16 @@ capacity_predictor_degraded: Gauge = Gauge(
     "Redis cache) is unavailable; 0 when fully initialized.",
 )
 
+audit_logger_degraded: Gauge = Gauge(
+    "gough_audit_logger_degraded",
+    "1 when the audit logger failed to initialize at startup (audit persistence disabled); 0 otherwise.",
+)
+
+biome_seed_degraded: Gauge = Gauge(
+    "gough_biome_seed_degraded",
+    "1 when seeding built-in biomes failed at startup (runtime DB error); 0 otherwise.",
+)
+
 audit_nats_publish_failures_total: Counter = Counter(
     "gough_audit_nats_publish_failures_total",
     "Audit entry-written events that failed to publish to NATS.",

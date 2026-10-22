@@ -312,10 +312,12 @@ class AuditLogger:
             async def _publish_async() -> None:
                 """Publish one audit event; failures are counted and logged, never raised."""
                 try:
+                    # nats-py publish(subject, payload: bytes, reply, headers) has no
+                    # tenant kwarg: the tenant travels inside the JSON body instead.
+                    body = json.dumps({**payload, "tenant_id": "__default__"}).encode("utf-8")
                     await nats_client.publish(
                         subject="gough.audit.entry-written",
-                        payload=payload,
-                        tenant_id="__default__",
+                        payload=body,
                     )
                 except Exception as exc:  # noqa: BLE001
                     audit_nats_publish_failures_total.inc()
