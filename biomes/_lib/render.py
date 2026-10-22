@@ -211,23 +211,34 @@ def render_text(text, values):
     return PLACEHOLDER.sub(lambda m: values[m.group(1)], text)
 
 
-def build_profile(manifest, resolved, values, limits):
-    """Build the LXD profile document: explicit limits, root disk, and the privileged opt-in gate."""
+def build_profile(manifest, resolved, values):
+    """Build the per-biome LXD profile: biome-wide security and kernel settings only, plus the privileged opt-in gate.
+
+    Profiles are shared by every instance of a biome, so per-instance limits and the root disk never go here.
+    """
     lxd = json.loads(render_text(json.dumps(manifest["lxd"]), values))
     config = {key: stringify(val) for key, val in (lxd.get("config") or {}).items()}
-    config.update({k: v for k, v in limits.items() if k.startswith("limits.")})
     if config.get("security.privileged") == "true" and resolved.get("allow_privileged") is not True:
         raise RenderError("biome requires security.privileged; set allow_privileged=true to opt in")
     name = lxd.get("profile_name")
     if not name:
         raise RenderError("manifest lxd.profile_name is required")
-    devices = dict(lxd.get("devices") or {})
-    devices["root"] = {"type": "disk", "path": "/", "pool": limits["root_pool"], "size": limits["root_size"]}
     return {
         "name": name,
         "image": lxd.get("image"),
         "config": config,
-        "devices": devices,
+        "devices": lxd.get("devices") or {},
+    }
+
+
+def build_instance(limits):
+    """Build the per-instance document piped to `lxc launch`: limits and root disk for this instance only.
+
+    Instance config and devices override profile entries, so one biome's profile can serve many differently sized instances.
+    """
+    return {
+        "config": {key: val for key, val in limits.items() if key.startswith("limits.")},
+        "devices": {"root": {"type": "disk", "path": "/", "pool": limits["root_pool"], "size": limits["root_size"]}},
     }
 
 
@@ -267,8 +278,9 @@ def render_biome(biome_dir, supplied):
         if out_name == "user-data" and not rendered.startswith(USER_DATA_HEADER):
             raise RenderError("user-data must start with the #cloud-config header")
         outputs[out_name] = rendered
-    profile = build_profile(manifest, resolved, values, limits)
+    profile = build_profile(manifest, resolved, values)
     outputs["profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
+    outputs["instance.json"] = json.dumps(build_instance(limits), indent=2, sort_keys=True) + "\n"
     return outputs
 
 

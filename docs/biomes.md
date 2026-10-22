@@ -6,7 +6,7 @@ A biome is a versioned directory that turns a fresh LXD instance into a workload
 
 ```
 biomes/
-├── _lib/render.py                  # stdlib-only renderer: biome dir + params JSON -> user-data, network-config, profile.json
+├── _lib/render.py                  # stdlib-only renderer: biome dir + params JSON -> user-data, network-config, profile.json, instance.json
 ├── tests/                          # unittest: renderer + static script checks
 ├── k8s-controller/
 │   ├── biome.json                  # manifest: lxd profile, parameter schema
@@ -19,7 +19,7 @@ biomes/
 - Stdlib only. The renderer runs on bare hosts (the installer imports it); no pip. A test fails if any module under `_lib` imports a non-stdlib package.
 - Manifests are JSON (`biome.json`). Templates are plain text.
 - Tests: `python3 -I -W error -m unittest discover -s biomes/tests -p 'test_*.py'`. Needs `shellcheck` on PATH; a missing tool fails the test.
-- Render: `python3 -I biomes/_lib/render.py --biome biomes/k8s-worker --params params.json --out OUT` writes `user-data`, `network-config`, `profile.json` (mode 0600), or exits 1 with no output.
+- Render: `python3 -I biomes/_lib/render.py --biome biomes/k8s-worker --params params.json --out OUT` writes `user-data`, `network-config`, `profile.json`, `instance.json` (mode 0600), or exits 1 with no output.
 
 ## Manifest (`biome.json`)
 
@@ -67,7 +67,7 @@ Set by the gough orchestrator for this release. Change them only through the coo
 
 ## Resources
 
-Every instance carries explicit LXD limits and a root disk. The renderer always emits them into `profile.json`, so the profile is the only place limits live.
+Every instance carries explicit LXD limits and a root disk. The renderer emits them into `instance.json`, a per-instance document the installer pipes to `lxc launch`. `profile.json` never carries them: profiles are shared by every instance of a biome, so a per-instance limit there would resize all of them on the next `ensure_profile`.
 
 | Parameter | Default (controller / worker) | Minimum | Rendered as |
 |---|---|---|---|
@@ -79,7 +79,8 @@ Every instance carries explicit LXD limits and a root disk. The renderer always 
 - Sizes: strict `<int>KiB|MiB|GiB|TiB`, IEC only. `8G`, `8GB`, `8gib`, `0GiB`, decimals and unitless values are refused.
 - Below the minimum, or a malformed value, the render fails with no output.
 - Defaults are sized so the controller can host the kubeadm control plane and Cilium operator. Hub-side workloads (the gough hub) may run on workers, not the controller.
-- Rendering `profile.json` extends the existing `config` and `devices` maps. The installer's `ensure_profile` already applies both, so no installer change is needed.
+- `instance.json` = `{config: {limits.*}, devices: {root: {type: disk, path: /, pool, size}}}`. Instance config and devices override the profile's entries, so one biome profile serves differently sized instances.
+- The installer must merge `instance.json` `config` and `devices` into the `lxc launch` stdin document. See installer/ on feature/installer-instance-limits.
 
 ### Kubelet reservation
 

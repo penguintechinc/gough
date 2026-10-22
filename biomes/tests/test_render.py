@@ -272,7 +272,7 @@ class RenderOutputTests(unittest.TestCase):
     def test_controller_renders_all_outputs(self):
         """Controller render yields user-data, network-config and profile with no leftover placeholders."""
         outputs = render.render_biome(CTL_DIR, controller_params())
-        self.assertEqual(set(outputs), {"user-data", "network-config", "profile.json"})
+        self.assertEqual(set(outputs), {"user-data", "network-config", "profile.json", "instance.json"})
         for name, text in outputs.items():
             self.assertNotIn("{{", text, name)
 
@@ -339,14 +339,14 @@ class RenderOutputTests(unittest.TestCase):
                 render.render_biome(tmp, {})
 
     def test_cli_writes_files_and_fails_nonzero(self):
-        """The CLI writes three files on success and returns 1 with no output directory on bad params."""
+        """The CLI writes four files on success and returns 1 with no output directory on bad params."""
         with tempfile.TemporaryDirectory() as tmp:
             params_path = os.path.join(tmp, "p.json")
             with open(params_path, "w", encoding="utf-8") as fh:
                 json.dump(worker_params(), fh)
             out = os.path.join(tmp, "out")
             self.assertEqual(render.main(["--biome", WRK_DIR, "--params", params_path, "--out", out]), 0)
-            self.assertEqual(sorted(os.listdir(out)), ["network-config", "profile.json", "user-data"])
+            self.assertEqual(sorted(os.listdir(out)), ["instance.json", "network-config", "profile.json", "user-data"])
             bad_path = os.path.join(tmp, "bad.json")
             with open(bad_path, "w", encoding="utf-8") as fh:
                 json.dump({}, fh)
@@ -403,23 +403,27 @@ class ResourceTests(unittest.TestCase):
         """Render and return the parsed profile.json for one biome."""
         return json.loads(render.render_biome(biome_dir, params)["profile.json"])
 
+    def instance(self, biome_dir, params):
+        """Render and return the parsed instance.json (per-instance limits and root disk) for one biome."""
+        return json.loads(render.render_biome(biome_dir, params)["instance.json"])
+
     def test_controller_defaults_rendered(self):
         """Controller defaults: 4 cores, 8GiB hard memory without swap, 50GiB root on the default pool."""
-        profile = self.profile(CTL_DIR, controller_params())
-        self.assertEqual(profile["config"]["limits.cpu"], "4")
-        self.assertEqual(profile["config"]["limits.memory"], "8GiB")
-        self.assertEqual(profile["devices"]["root"], {"type": "disk", "path": "/", "pool": "default", "size": "50GiB"})
+        inst = self.instance(CTL_DIR, controller_params())
+        self.assertEqual(inst["config"]["limits.cpu"], "4")
+        self.assertEqual(inst["config"]["limits.memory"], "8GiB")
+        self.assertEqual(inst["devices"]["root"], {"type": "disk", "path": "/", "pool": "default", "size": "50GiB"})
 
     def test_worker_defaults_rendered(self):
         """Worker defaults: 4 cores, 8GiB, 100GiB root."""
-        profile = self.profile(WRK_DIR, worker_params())
-        self.assertEqual(profile["config"]["limits.cpu"], "4")
-        self.assertEqual(profile["config"]["limits.memory"], "8GiB")
-        self.assertEqual(profile["devices"]["root"]["size"], "100GiB")
+        inst = self.instance(WRK_DIR, worker_params())
+        self.assertEqual(inst["config"]["limits.cpu"], "4")
+        self.assertEqual(inst["config"]["limits.memory"], "8GiB")
+        self.assertEqual(inst["devices"]["root"]["size"], "100GiB")
 
     def test_lxd_limit_fields_exact(self):
         """The limits block carries exactly the four limit keys with the hard-enforce and no-swap values."""
-        config = self.profile(WRK_DIR, worker_params())["config"]
+        config = self.instance(WRK_DIR, worker_params())["config"]
         limits = {k: v for k, v in config.items() if k.startswith("limits.")}
         self.assertEqual(limits, {
             "limits.cpu": "4",
@@ -430,24 +434,24 @@ class ResourceTests(unittest.TestCase):
 
     def test_root_device_fields_exact(self):
         """The root device is a disk on / with the supplied pool and size and no other keys."""
-        devices = self.profile(CTL_DIR, controller_params(storage_pool="fast", root_disk_size="30GiB"))["devices"]
+        devices = self.instance(CTL_DIR, controller_params(storage_pool="fast", root_disk_size="30GiB"))["devices"]
         self.assertEqual(devices["root"], {"type": "disk", "path": "/", "pool": "fast", "size": "30GiB"})
-        self.assertEqual(devices["eth0"]["parent"], "br0")
+        self.assertEqual(self.profile(CTL_DIR, controller_params())["devices"]["eth0"]["parent"], "br0")
 
     def test_override_above_min_accepted(self):
         """Overrides at or above the minimum render into the profile and params.env."""
         out = render.render_biome(WRK_DIR, worker_params(cpu_cores=8, memory="16GiB", root_disk_size="200GiB"))
-        profile = json.loads(out["profile.json"])
-        self.assertEqual(profile["config"]["limits.cpu"], "8")
-        self.assertEqual(profile["config"]["limits.memory"], "16GiB")
-        self.assertEqual(profile["devices"]["root"]["size"], "200GiB")
+        inst = json.loads(out["instance.json"])
+        self.assertEqual(inst["config"]["limits.cpu"], "8")
+        self.assertEqual(inst["config"]["limits.memory"], "16GiB")
+        self.assertEqual(inst["devices"]["root"]["size"], "200GiB")
         self.assertIn("GOUGH_CPU_CORES=8", params_env_of(out))
 
     def test_minimum_values_accepted(self):
         """Values exactly at the minimum are valid."""
-        profile = self.profile(CTL_DIR, controller_params(cpu_cores=2, memory="4GiB", root_disk_size="20GiB"))
-        self.assertEqual(profile["config"]["limits.cpu"], "2")
-        self.assertEqual(profile["config"]["limits.memory"], "4GiB")
+        inst = self.instance(CTL_DIR, controller_params(cpu_cores=2, memory="4GiB", root_disk_size="20GiB"))
+        self.assertEqual(inst["config"]["limits.cpu"], "2")
+        self.assertEqual(inst["config"]["limits.memory"], "4GiB")
 
     def test_cpu_below_min_rejected(self):
         """A cpu count below the manifest minimum fails loudly."""
@@ -498,6 +502,19 @@ class ResourceTests(unittest.TestCase):
                 json.dump(manifest, fh)
             with self.assertRaisesRegex(render.RenderError, "missing key: resources"):
                 render.load_manifest(tmp)
+
+    def test_profile_carries_no_instance_limits(self):
+        """The shared per-biome profile has no limits.* keys and no root device, whatever the instance asks for."""
+        profile = self.profile(WRK_DIR, worker_params(cpu_cores=8, memory="16GiB", root_disk_size="200GiB"))
+        self.assertFalse([k for k in profile["config"] if k.startswith("limits.")])
+        self.assertNotIn("root", profile["devices"])
+
+    def test_same_biome_profile_identical_across_cpu_sizes(self):
+        """Two instances of one biome with different cpu_cores render byte-identical profile.json."""
+        small = render.render_biome(WRK_DIR, worker_params(instance_name="w-1", hostname="w-1", cpu_cores=2))
+        large = render.render_biome(WRK_DIR, worker_params(instance_name="w-2", hostname="w-2", cpu_cores=16))
+        self.assertEqual(small["profile.json"], large["profile.json"])
+        self.assertNotEqual(small["instance.json"], large["instance.json"])
 
     def test_resource_params_declared_in_manifests(self):
         """Both manifests declare the four resource parameters and a resources block."""
