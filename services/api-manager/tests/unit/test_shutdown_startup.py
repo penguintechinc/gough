@@ -8,17 +8,18 @@ against a closed Redis port (no mocks on the Redis path).
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import signal
 import socket
 import uuid
 from pathlib import Path
-from typing import Any
+from unittest.mock import create_autospec
 
 import pytest
 from prometheus_client import REGISTRY
 from quart import Quart
+
+from app.db.rls import set_current_tenant
 
 from app.audit import AuditEvent, AuditEventType, AuditLogger, AuditSeverity, drain_audit_publish_tasks
 from app.lifecycle import (
@@ -121,27 +122,16 @@ def test_serve_app_runs_lifespan_and_stops_on_event(tmp_path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _FakeNats:
-    """Stub NATS client with nats-py's exact publish signature; records calls."""
+def test_audit_publish_matches_real_natsclient_signature() -> None:
+    """Audit publish calls the real NatsClient.publish signature with the request tenant.
 
-    def __init__(self) -> None:
-        """Start with no recorded publishes."""
-        self.calls: list[dict[str, Any]] = []
+    The mock is autospecced from the real class, so a kwarg mismatch raises
+    TypeError inside the publish task and is counted as a failure: the
+    failure-counter assertion below fails the test on any signature drift.
+    """
+    from app.clients.nats import NatsClient
 
-    async def publish(
-        self,
-        subject: str,
-        payload: bytes = b"",
-        reply: str = "",
-        headers: dict[str, str] | None = None,
-    ) -> None:
-        """Record a publish; a TypeError here means the call shape is not nats-py's."""
-        self.calls.append({"subject": subject, "payload": payload, "reply": reply, "headers": headers})
-
-
-def test_audit_publish_matches_nats_py_signature() -> None:
-    """Publish uses nats-py kwargs only, with bytes JSON payload carrying the tenant."""
-    fake = _FakeNats()
+    fake = create_autospec(NatsClient, instance=True)
     app = Quart(__name__)
     app.config["AUDIT_RECORDING_ENABLED"] = False
     app.nats_client = fake  # type: ignore[attr-defined]
@@ -154,20 +144,22 @@ def test_audit_publish_matches_nats_py_signature() -> None:
     failures_before = _sample("gough_audit_nats_publish_failures_total")
 
     async def run() -> None:
-        """Schedule the publish and drain it."""
+        """Set the request tenant, schedule the publish, and drain it."""
         async with app.app_context():
-            logger._publish_audit_event_nats(event)
-            await drain_audit_publish_tasks(timeout=2.0)
+            set_current_tenant("tenant-abc")
+            try:
+                logger._publish_audit_event_nats(event)
+                await drain_audit_publish_tasks(timeout=2.0)
+            finally:
+                set_current_tenant(None)
 
     asyncio.run(run())
 
-    assert len(fake.calls) == 1
-    call = fake.calls[0]
-    assert call["subject"] == "gough.audit.entry-written"
-    assert isinstance(call["payload"], bytes)
-    body = json.loads(call["payload"].decode("utf-8"))
-    assert body["tenant_id"] == "__default__"
-    assert body["event_id"] == event.event_id
+    fake.publish.assert_awaited_once()
+    kwargs = fake.publish.await_args.kwargs
+    assert kwargs["subject"] == "gough.audit.entry-written"
+    assert kwargs["payload"]["event_id"] == event.event_id
+    assert kwargs["tenant_id"] == "tenant-abc"
     assert _sample("gough_audit_nats_publish_failures_total") == failures_before
 
 

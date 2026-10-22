@@ -308,16 +308,21 @@ class AuditLogger:
                 "timestamp": event.timestamp.isoformat(),
             }
 
+            # Resolve the request tenant here, while the request ContextVar is still
+            # set; the task below copies the context only at creation time.
+            from .db.rls import get_current_tenant
+
+            tenant_id = get_current_tenant() or "__default__"
+
             # Schedule async publish as a fire-and-forget task
             async def _publish_async() -> None:
                 """Publish one audit event; failures are counted and logged, never raised."""
                 try:
-                    # nats-py publish(subject, payload: bytes, reply, headers) has no
-                    # tenant kwarg: the tenant travels inside the JSON body instead.
-                    body = json.dumps({**payload, "tenant_id": "__default__"}).encode("utf-8")
+                    # NatsClient (app/clients/nats.py) takes a dict payload and tenant_id kwarg.
                     await nats_client.publish(
                         subject="gough.audit.entry-written",
-                        payload=body,
+                        payload=payload,
+                        tenant_id=tenant_id,
                     )
                 except Exception as exc:  # noqa: BLE001
                     audit_nats_publish_failures_total.inc()
