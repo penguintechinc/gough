@@ -72,6 +72,7 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Nodes endpoints
     ("GET", "/api/v1/nodes"): frozenset({"gough.nodes.read"}),
     ("GET", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.read"}),
+    ("GET", "/api/v1/nodes/<int:node_id>/capacity"): frozenset({"gough.nodes.read"}),
     ("PATCH", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/deploy"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/reject"): frozenset({"gough.nodes.provision"}),

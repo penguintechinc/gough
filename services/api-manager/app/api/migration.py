@@ -25,6 +25,7 @@ from typing import Any, Callable, Optional
 
 from quart import Blueprint, current_app, g, jsonify, request
 
+from .. import capacity_guard
 from ..db.run_db import run_db
 from ..licensing import feature_enabled
 from ..middleware import auth_required
@@ -252,27 +253,33 @@ async def _load_cluster_state(cluster_id: str) -> ClusterState:
         nodes: list[NodeSnapshot] = []
         if "nodes" in getattr(db, "tables", []):
             rows = db(db.nodes.id > 0).select()
+            # Kill switch ON = legacy behaviour (hardware_json defaults, treated as fresh).
+            legacy = capacity_guard.guard_disabled()
             for row in rows:
                 hw = getattr(row, "hardware_json", None) or {}
-                cpu_free = float(hw.get("cpu_free_pct", 100.0))
-                mem_free = float(hw.get("mem_free_pct", 100.0))
-                disk_free = float(hw.get("disk_free_pct", 100.0))
                 tags = frozenset(hw.get("tags", []) or [])
                 score = float(hw.get("composite_load_score", 0.0))
+                if legacy:
+                    cpu_free = float(hw.get("cpu_free_pct", 100.0))
+                    mem_free = float(hw.get("mem_free_pct", 100.0))
+                    disk_free = float(hw.get("disk_free_pct", 100.0))
+                    fresh = True
+                else:
+                    free = capacity_guard.free_percentages(db.engine, int(row.id))
+                    cpu_free, mem_free = free.cpu_free_pct, free.mem_free_pct
+                    disk_free, fresh = free.disk_free_pct, free.fresh
                 nodes.append(NodeSnapshot(
                     node_id=row.id,
                     state=str(row.state or "unknown"),
                     cpu_free_pct=cpu_free,
                     mem_free_pct=mem_free,
                     disk_free_pct=disk_free,
-                    forecast_cpu_free_pct=float(hw.get("forecast_cpu_free_pct",
-                                                        cpu_free)),
-                    forecast_mem_free_pct=float(hw.get("forecast_mem_free_pct",
-                                                        mem_free)),
-                    forecast_disk_free_pct=float(hw.get("forecast_disk_free_pct",
-                                                         disk_free)),
+                    forecast_cpu_free_pct=cpu_free,
+                    forecast_mem_free_pct=mem_free,
+                    forecast_disk_free_pct=disk_free,
                     hardware_tags=tags,
                     composite_load_score=score,
+                    telemetry_fresh=fresh,
                 ))
         in_flight = 0
         if "migration_events" in getattr(db, "tables", []):

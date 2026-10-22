@@ -10,6 +10,7 @@ from typing import Any
 
 from quart import Blueprint, jsonify, request
 
+from ..clouds.lxd import ResourceLimitsRequiredError
 from ..clouds import (
     CLOUD_REGISTRY,
     CloudAuthError,
@@ -599,6 +600,9 @@ async def create_machine(provider_id: int):
 
     except CloudQuotaError as e:
         return jsonify({"error": f"Quota exceeded: {e}"}), 429
+
+    except ResourceLimitsRequiredError as e:
+        return jsonify({"error": str(e)}), 400
 
     except CloudError as e:
         log.error(f"Error creating machine: {e}")

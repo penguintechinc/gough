@@ -11,12 +11,14 @@ import json
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import jwt
+from pydantic import ValidationError
 from quart import Blueprint, current_app, g, jsonify, request
 
+from .. import capacity_guard
 from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
@@ -505,6 +507,18 @@ async def agent_heartbeat():
     if not ok:
         return jsonify({"error": str(err)}), 500
 
+    # The heartbeat is recorded above even when the resource snapshot is rejected.
+    raw_snapshot = data.get("resource_snapshot")
+    if raw_snapshot is not None:
+        snapshot_error = await run_db(
+            lambda: _ingest_resource_snapshot(db, agent_id, raw_snapshot)
+        )
+        if snapshot_error is not None:
+            return jsonify({
+                "status": "heartbeat_recorded",
+                "error": snapshot_error,
+            }), 400
+
     # Check for pending commands (future feature)
     commands = []
 
@@ -512,6 +526,44 @@ async def agent_heartbeat():
         "status": "ok",
         "commands": commands,
     }), 200
+
+
+def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None:
+    """Validate and persist a heartbeat's ``resource_snapshot`` for the agent's node.
+
+    The agent maps to a node by hostname (``access_agents.hostname`` equals
+    ``nodes.name``). An unmapped agent is logged and skipped, not an error.
+
+    Args:
+        db: penguin-dal handle; its SQLAlchemy engine is used for the write.
+        agent_id: Authenticated agent identifier from the access token.
+        raw: Untrusted ``resource_snapshot`` value from the request body.
+
+    Returns:
+        None on success or when unmapped; a short error string when invalid (-> 400).
+    """
+    try:
+        snap = capacity_guard.parse_snapshot(raw)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+        )
+        log.warning("rejected resource_snapshot from agent %s: %s", agent_id, details)
+        return f"invalid resource_snapshot: {details}"
+
+    agent = db(db.access_agents.agent_id == agent_id).select().first()
+    hostname = getattr(agent, "hostname", None) if agent is not None else None
+    if not hostname:
+        log.info("resource_snapshot from agent %s has no hostname; not recorded", agent_id)
+        return None
+
+    with db.engine.begin() as conn:
+        node_id = capacity_guard.resolve_node_id(conn, hostname)
+        if node_id is None:
+            log.info("resource_snapshot from agent %s: no node named %s", agent_id, hostname)
+            return None
+        capacity_guard.record_snapshot(conn, node_id, snap, datetime.now(timezone.utc))
+    return None
 
 
 # ============================================================================

@@ -54,12 +54,21 @@ class TestLoadClusterStatePg:
         with the right free-capacity fields, not a truncated/empty result.
         """
         import app.api.migration as migration_mod
+        from datetime import datetime, timezone
+
+        from app import capacity_guard
 
         monkeypatch.setattr(migration_mod, "get_db", lambda: pg_db)
 
-        _seed_node(pg_db, name="node-a", hardware_json={"cpu_free_pct": 80.0})
-        _seed_node(pg_db, name="node-b", hardware_json={"cpu_free_pct": 40.0})
-        _seed_node(pg_db, name="node-c", hardware_json={"cpu_free_pct": 10.0})
+        # Free CPU comes from the host snapshot (100 - usage_pct), not hardware_json.
+        now = datetime.now(timezone.utc)
+        for name, usage in (("node-a", 20.0), ("node-b", 60.0), ("node-c", 90.0)):
+            node_id = _seed_node(pg_db, name=name)
+            body = _healthy_snapshot_body(now, usage)
+            with pg_db.engine.begin() as conn:
+                capacity_guard.record_snapshot(
+                    conn, node_id, capacity_guard.parse_snapshot(body), now
+                )
 
         state = await migration_mod._load_cluster_state("test-cluster")
 
@@ -68,6 +77,23 @@ class TestLoadClusterStatePg:
         # NodeSnapshot carries no name field -- assert on the set of
         # per-node free-capacity values (order-independent) instead.
         assert {round(n.cpu_free_pct, 1) for n in state.nodes} == {80.0, 40.0, 10.0}
+        assert all(n.telemetry_fresh for n in state.nodes)
+
+
+def _healthy_snapshot_body(now: Any, usage_pct: float) -> dict[str, Any]:
+    """Return a valid gough.host_resources.v1 body with the given CPU usage."""
+    gib = 1024**3
+    return {
+        "schema": "gough.host_resources.v1",
+        "collected_at": now.isoformat(),
+        "cpu": {"logical_cores": 16, "usage_pct": usage_pct, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+        "memory": {"total_bytes": 64 * gib, "available_bytes": 40 * gib},
+        "pressure": None,
+        "storage_pools": [{"name": "default", "driver": "dir", "total_bytes": 1000 * gib, "used_bytes": 100 * gib}],
+        "host_root_fs": {"total_bytes": 100 * gib, "free_bytes": 60 * gib},
+        "committed": {"cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0}, "instances": 0, "instances_without_limits": 0},
+        "errors": [],
+    }
 
     async def test_counts_in_flight_migrations(
         self, pg_db: Any, monkeypatch: pytest.MonkeyPatch

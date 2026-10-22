@@ -353,6 +353,30 @@ def app(monkeypatch):
     return quart_app
 
 
+#: Biome test modules that assert on tag/hardware eligibility, not on the capacity guard.
+_CAPACITY_GUARD_STUBBED_MODULES = ("test_biomes",)
+
+
+@pytest.fixture(autouse=True)
+def _capacity_guard_passthrough_for_biome_eligibility(request, monkeypatch):
+    """Stub the capacity guard to pass in biome eligibility tests with no snapshot.
+
+    These modules assert tag and hardware_json eligibility. The guard itself is
+    covered in tests/test_capacity_guard.py against a real DB, so the stub is scoped
+    to these modules only.
+    """
+    module_name = request.module.__name__.rsplit(".", 1)[-1]
+    if not module_name.startswith(_CAPACITY_GUARD_STUBBED_MODULES):
+        return
+    from app import capacity_guard
+
+    monkeypatch.setattr(
+        capacity_guard,
+        "check_fit_for_db",
+        lambda *_a, **_k: capacity_guard.FitResult(True, (), (), {}, {}, {}),
+    )
+
+
 @pytest.fixture()
 def dal_with_eggs(dal):
     """Alias for dal_with_biomes for backward-compat.

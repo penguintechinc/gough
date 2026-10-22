@@ -133,11 +133,54 @@ def dal(db_url, monkeypatch):
     monkeypatch.setattr(disks_mod, "get_db", _get_db)
     monkeypatch.setattr(sweeper_mod, "get_db", _get_db)
 
+    # Capacity guard tables: the guard reads them through db.engine, so every
+    # DAL-backed test DB needs them alongside nodes (the migration creates them in prod).
+    from app.models_m1 import CapacityReservation, NodeResourceSnapshot
+    from app.models_sqlalchemy import Base
+
+    Base.metadata.create_all(
+        db.engine, tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__]
+    )
+
     yield db
     try:
         db.close()
     except Exception:
         pass
+
+
+@pytest.fixture()
+def seed_fresh_snapshot(dal):
+    """Return a callable that writes a healthy, fresh host snapshot for a node id.
+
+    Needed wherever the capacity guard or migration headroom runs: both fail
+    closed without a fresh snapshot.
+    """
+    from datetime import datetime, timezone
+
+    from app import capacity_guard
+
+    def _seed(node_id: int) -> None:
+        now = datetime.now(timezone.utc)
+        body = {
+            "schema": "gough.host_resources.v1",
+            "collected_at": now.isoformat(),
+            "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+            "memory": {"total_bytes": 64 * 1024**3, "available_bytes": 40 * 1024**3},
+            "pressure": None,
+            "storage_pools": [{"name": "default", "driver": "dir", "total_bytes": 1000 * 1024**3, "used_bytes": 100 * 1024**3}],
+            "host_root_fs": {"total_bytes": 100 * 1024**3, "free_bytes": 60 * 1024**3},
+            "committed": {
+                "cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0},
+                "instances": 0, "instances_without_limits": 0,
+            },
+            "errors": [],
+        }
+        snap = capacity_guard.parse_snapshot(body)
+        with dal.engine.begin() as conn:
+            capacity_guard.record_snapshot(conn, node_id, snap, now)
+
+    return _seed
 
 
 @pytest.fixture()

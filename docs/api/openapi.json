@@ -29522,6 +29522,227 @@
         ]
       }
     },
+    "/api/v1/nodes/api/v1/nodes/{node_id}/capacity": {
+      "get": {
+        "summary": "Return the node's capacity guard view: capacity, reserve, committed, pending,",
+        "description": "allocatable, pressure and snapshot age. Read-only; never places work.",
+        "tags": [
+          "nodes"
+        ],
+        "operationId": "nodes_get_node_capacity_get",
+        "parameters": [
+          {
+            "name": "node_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SuccessEnvelope"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request payload failed validation. (code=invalid_request)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_request": {
+                    "summary": "invalid_request",
+                    "value": {
+                      "status": "error",
+                      "error": "Request payload failed validation.",
+                      "code": "invalid_request"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid credential. (code=unauthenticated)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "unauthenticated": {
+                    "summary": "unauthenticated",
+                    "value": {
+                      "status": "error",
+                      "error": "Missing or invalid credential.",
+                      "code": "unauthenticated"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden_scope": {
+                    "summary": "forbidden_scope",
+                    "value": {
+                      "status": "error",
+                      "error": "Token scopes do not satisfy endpoint requirements.",
+                      "code": "forbidden_scope"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Target resource does not exist. (code=not_found)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "not_found": {
+                    "summary": "not_found",
+                    "value": {
+                      "status": "error",
+                      "error": "Target resource does not exist.",
+                      "code": "not_found"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resource state conflicts with the request. (code=conflict)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "conflict": {
+                    "summary": "conflict",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource state conflicts with the request.",
+                      "code": "conflict"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "423": {
+            "description": "Resource is locked by another in-flight operation. (code=locked)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "locked": {
+                    "summary": "locked",
+                    "value": {
+                      "status": "error",
+                      "error": "Resource is locked by another in-flight operation.",
+                      "code": "locked"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Caller has exceeded the rate-limit budget. (code=rate_limited)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "summary": "rate_limited",
+                    "value": {
+                      "status": "error",
+                      "error": "Caller has exceeded the rate-limit budget.",
+                      "code": "rate_limited"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Unhandled server error; see audit log for trace. (code=internal_error)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "internal_error": {
+                    "summary": "internal_error",
+                    "value": {
+                      "status": "error",
+                      "error": "Unhandled server error; see audit log for trace.",
+                      "code": "internal_error"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "dependency_unavailable": {
+                    "summary": "dependency_unavailable",
+                    "value": {
+                      "status": "error",
+                      "error": "Vault/SPIRE/NATS/LXD dependency is unreachable.",
+                      "code": "dependency_unavailable"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          },
+          {
+            "mutualTLS": []
+          }
+        ]
+      }
+    },
     "/api/v1/nodes/api/v1/nodes/{node_id}/cloud-init": {
       "get": {
         "summary": "Return rendered cloud-init user-data for a node.",

@@ -24,6 +24,15 @@ from .base import (
 
 log = logging.getLogger(__name__)
 
+
+class ResourceLimitsRequiredError(CloudError):
+    """Raised when an LXD instance request omits CPU, memory, or root disk limits.
+
+    Mapped to HTTP 400 by the clouds API. Limits are never defaulted silently,
+    because an unbounded instance is invisible to the capacity guard.
+    """
+
+
 # LXD state to MachineState mapping
 LXD_STATE_MAP: dict[str, MachineState] = {
     "Running": MachineState.RUNNING,
@@ -410,13 +419,19 @@ class LXDCloud(BaseCloud):
             if spec.cloud_init:
                 config["user.user-data"] = spec.cloud_init
 
-            # Parse size for resource limits (format: "cpu/memory")
-            if spec.size:
-                parts = spec.size.split("/")
-                if len(parts) >= 1 and parts[0]:
-                    config["limits.cpu"] = parts[0]
-                if len(parts) >= 2 and parts[1]:
-                    config["limits.memory"] = parts[1]
+            # Limits are mandatory (format: "cpu/memory" + storage_gb). An instance
+            # without them is unaccounted by the capacity guard, so refuse instead
+            # of defaulting silently.
+            parts = (spec.size or "").split("/")
+            cpu_limit = parts[0].strip() if parts else ""
+            mem_limit = parts[1].strip() if len(parts) > 1 else ""
+            if not cpu_limit or not mem_limit or spec.storage_gb <= 0:
+                raise ResourceLimitsRequiredError(
+                    "resource limits required: size must be 'cpu/memory' and storage_gb > 0"
+                )
+            config["limits.cpu"] = cpu_limit
+            config["limits.memory"] = mem_limit
+            config["limits.memory.enforce"] = "hard"
 
             # Add SSH keys via cloud-init if no cloud-init provided
             if spec.ssh_keys and not spec.cloud_init:

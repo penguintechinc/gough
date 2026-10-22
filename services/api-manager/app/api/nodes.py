@@ -867,6 +867,28 @@ async def get_node(node_id: int):
     return envelope_success({"node": _serialize_node(node)})
 
 
+@nodes_bp.route("/<int:node_id>/capacity", methods=["GET"])
+@auth_required
+async def get_node_capacity(node_id: int):
+    """Return the node's capacity guard view: capacity, reserve, committed, pending,
+    allocatable, pressure and snapshot age. Read-only; never places work."""
+    from .. import capacity_guard
+
+    db = get_db()
+
+    def _fetch_node() -> Any:
+        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+
+    node = await run_db(_fetch_node)
+    if not node:
+        return err_not_found(f"Node {node_id} not found")
+    if not _is_cross_tenant() and _g(node, "tenant_id", "__default__") != _current_tenant_id():
+        return err_not_found(f"Node {node_id} not found")
+
+    view = await run_db(lambda: capacity_guard.get_capacity_view(db.engine, node_id))
+    return envelope_success({"capacity": view.to_dict()})
+
+
 # ---------------------------------------------------------------------------
 # PATCH /api/v1/nodes/{id} — JSON Merge Patch (RFC 7396)
 # ---------------------------------------------------------------------------
