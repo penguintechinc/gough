@@ -87,10 +87,11 @@ def parse_size(text, label):
     return int(match.group(1)) * UNIT_BYTES[match.group(2)]
 
 
-def resolve_resources(manifest, resolved):
-    """Fill cpu/memory/root-disk parameters from the manifest, enforce minimums, and return effective limits.
+def resolve_resources(manifest, resolved, allowed_pools=None):
+    """Fill cpu/memory/root-disk parameters from the manifest, enforce minimums and the pool allowlist, return limits.
 
-    Mutates resolved so params.env carries the effective values. Hub admission relies on these limits being present.
+    allowed_pools is trusted caller input (hub/installer config, never tenant params). None permits only the
+    manifest default pool; a list permits exactly those pools. Mutates resolved so params.env carries effective values.
     """
     res = manifest["resources"]
     if not isinstance(res, dict):
@@ -125,6 +126,9 @@ def resolve_resources(manifest, resolved):
         raise RenderError(f"parameter root_disk_size must be >= {disk_min}")
     if not isinstance(pool, str) or not pool:
         raise RenderError("parameter storage_pool must be a non-empty string")
+    permitted = [pool_default] if allowed_pools is None else list(allowed_pools)
+    if pool not in permitted:
+        raise RenderError(f"storage_pool {pool!r} is not permitted for this deployment (allowed: {', '.join(permitted)})")
     return {
         "limits.cpu": str(cpu),
         "limits.memory": memory,
@@ -262,11 +266,14 @@ def report_checks(resolved):
 CROSS_CHECKS = (report_checks,)
 
 
-def render_biome(biome_dir, supplied):
-    """Render user-data, network-config and profile.json for one biome instance."""
+def render_biome(biome_dir, supplied, allowed_pools=None):
+    """Render user-data, network-config and profile.json for one biome instance.
+
+    allowed_pools comes from the trusted caller (hub or installer), never from tenant-supplied parameters.
+    """
     manifest = load_manifest(biome_dir)
     resolved = resolve_params(manifest, supplied)
-    limits = resolve_resources(manifest, resolved)
+    limits = resolve_resources(manifest, resolved, allowed_pools)
     for check in CROSS_CHECKS:
         check(resolved)
     values = {name: stringify(value) for name, value in resolved.items()}
@@ -290,14 +297,17 @@ def main(argv=None):
     parser.add_argument("--biome", required=True, help="biome directory, e.g. biomes/k8s-worker")
     parser.add_argument("--params", required=True, help="JSON parameter file, or - for stdin")
     parser.add_argument("--out", required=True, help="output directory (created if missing)")
+    parser.add_argument("--allowed-pools", default=None,
+                        help="trusted comma-separated storage pools; omitted permits only the manifest default pool")
     args = parser.parse_args(argv)
+    allowed = None if args.allowed_pools is None else [p for p in args.allowed_pools.split(",") if p]
     try:
         if args.params == "-":
             raw = sys.stdin.read()
         else:
             with open(args.params, encoding="utf-8") as fh:
                 raw = fh.read()
-        outputs = render_biome(args.biome, json.loads(raw))
+        outputs = render_biome(args.biome, json.loads(raw), allowed)
     except (RenderError, json.JSONDecodeError, OSError) as exc:
         print(f"render failed: {exc}", file=sys.stderr)
         return 1

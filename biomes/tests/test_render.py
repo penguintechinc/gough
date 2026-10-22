@@ -434,7 +434,8 @@ class ResourceTests(unittest.TestCase):
 
     def test_root_device_fields_exact(self):
         """The root device is a disk on / with the supplied pool and size and no other keys."""
-        devices = self.instance(CTL_DIR, controller_params(storage_pool="fast", root_disk_size="30GiB"))["devices"]
+        out = render.render_biome(CTL_DIR, controller_params(storage_pool="fast", root_disk_size="30GiB"), ["fast"])
+        devices = json.loads(out["instance.json"])["devices"]
         self.assertEqual(devices["root"], {"type": "disk", "path": "/", "pool": "fast", "size": "30GiB"})
         self.assertEqual(self.profile(CTL_DIR, controller_params())["devices"]["eth0"]["parent"], "br0")
 
@@ -515,6 +516,33 @@ class ResourceTests(unittest.TestCase):
         large = render.render_biome(WRK_DIR, worker_params(instance_name="w-2", hostname="w-2", cpu_cores=16))
         self.assertEqual(small["profile.json"], large["profile.json"])
         self.assertNotEqual(small["instance.json"], large["instance.json"])
+
+    def test_disallowed_pool_rejected(self):
+        """A storage_pool outside the trusted allowlist fails loudly."""
+        with self.assertRaisesRegex(render.RenderError, "'fast' is not permitted"):
+            render.render_biome(CTL_DIR, controller_params(storage_pool="fast"), ["default", "ssd"])
+
+    def test_allowlisted_pool_accepted(self):
+        """A pool named in the trusted allowlist renders into the root device."""
+        out = render.render_biome(WRK_DIR, worker_params(storage_pool="ssd"), ["default", "ssd"])
+        self.assertEqual(json.loads(out["instance.json"])["devices"]["root"]["pool"], "ssd")
+
+    def test_default_pool_only_without_allowlist(self):
+        """With no allowlist only the manifest default pool is permitted; any other pool is refused."""
+        out = render.render_biome(WRK_DIR, worker_params(storage_pool="default"))
+        self.assertEqual(json.loads(out["instance.json"])["devices"]["root"]["pool"], "default")
+        with self.assertRaisesRegex(render.RenderError, "'ssd' is not permitted"):
+            render.render_biome(WRK_DIR, worker_params(storage_pool="ssd"))
+
+    def test_default_pool_must_be_on_explicit_allowlist(self):
+        """When an allowlist is given, the default pool is only used if it is itself allowlisted."""
+        with self.assertRaisesRegex(render.RenderError, "'default' is not permitted"):
+            render.render_biome(WRK_DIR, worker_params(), ["ssd"])
+
+    def test_tenant_params_cannot_supply_allowlist(self):
+        """allowed_pools is not a tenant parameter; smuggling it through params is an unknown-parameter failure."""
+        with self.assertRaisesRegex(render.RenderError, "unknown parameters: allowed_pools"):
+            render.render_biome(WRK_DIR, worker_params(allowed_pools=["ssd"]))
 
     def test_resource_params_declared_in_manifests(self):
         """Both manifests declare the four resource parameters and a resources block."""
