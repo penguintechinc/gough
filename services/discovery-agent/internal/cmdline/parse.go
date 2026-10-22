@@ -23,6 +23,10 @@ type Params struct {
 	Primary string
 	// MAC is the primary NIC MAC address from gough_mac= (e.g. "aa:bb:cc:dd:ee:ff").
 	MAC string
+	// BMC is the optional BMC address from gough_bmc= (IP or host). Empty means no BMC probe.
+	BMC string
+	// BMCSHA256 is the optional leaf-certificate pin from gough_bmc_sha256=.
+	BMCSHA256 string
 }
 
 // Parse reads /proc/cmdline and extracts Gough-specific kernel parameters.
@@ -47,6 +51,10 @@ func ParseString(cmdline string) (Params, error) {
 			p.Primary = strings.TrimPrefix(field, "gough_primary=")
 		case strings.HasPrefix(field, "gough_mac="):
 			p.MAC = strings.TrimPrefix(field, "gough_mac=")
+		case strings.HasPrefix(field, "gough_bmc_sha256="):
+			p.BMCSHA256 = strings.TrimPrefix(field, "gough_bmc_sha256=")
+		case strings.HasPrefix(field, "gough_bmc="):
+			p.BMC = strings.TrimPrefix(field, "gough_bmc=")
 		}
 	}
 

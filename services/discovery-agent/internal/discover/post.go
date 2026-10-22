@@ -49,6 +49,13 @@ type Request struct {
 	NumaJSON json.RawMessage `json:"numa,omitempty"`
 	// AcceleratorJSON is the serialised accelerator probe.
 	AcceleratorJSON json.RawMessage `json:"accelerators,omitempty"`
+	// BMCTLSStatus is the BMC certificate verification outcome: "ok",
+	// "bmc_tls_unverified", "bmc_cert_mismatch", "bmc_unreachable", or
+	// "bmc_not_configured". Empty when the payload predates BMC probing.
+	BMCTLSStatus string `json:"bmc_tls_status,omitempty"`
+	// BMCCertSHA256 is the observed BMC leaf-certificate SHA-256 (lowercase hex);
+	// empty when no connection was made.
+	BMCCertSHA256 string `json:"bmc_cert_sha256,omitempty"`
 }
 
 // Response is the JSON body returned by POST /api/v1/nodes/discover on success.

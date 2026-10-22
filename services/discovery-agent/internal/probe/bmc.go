@@ -48,6 +48,24 @@ type BMCTrust struct {
 	CertSHA256 string
 }
 
+// Validate checks the trust configuration without touching the network: the pin
+// must be a well-formed SHA-256 and the CA bundle, if set, must load. A failure
+// here is a configuration error and should stop the agent rather than be reported as
+// an unreachable BMC.
+func (t BMCTrust) Validate() error {
+	if t.CertSHA256 != "" {
+		if _, err := normalizePin(t.CertSHA256); err != nil {
+			return err
+		}
+	}
+	if t.CAFile != "" {
+		if _, err := loadCAPool(t.CAFile); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // BMCResult is the outcome of a BMC TLS probe.
 type BMCResult struct {
 	// Status is one of the BMCStatus* constants.

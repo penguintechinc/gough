@@ -112,11 +112,10 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("smart preflight: %w", err)
 	}
 
-	// 7. Build discover request.
-	hostname, _ := os.Hostname()
-	req, err := buildDiscoverRequest(params.MAC, hostname, hw, hwTags)
+	// 7. Build discover request, including the BMC TLS probe result.
+	req, err := buildPayload(ctx, params, hw, hwTags)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return err
 	}
 
 	// 9. POST /api/v1/nodes/discover with exponential backoff on transient
