@@ -251,10 +251,6 @@ def app_with_auth(dal, monkeypatch):
     Returns the app instance (not test_client), allowing fixture to call
     app.test_client() multiple times if needed.
     """
-    # Patch get_db to return the test DAL FIRST, before any imports
-    import app.models as models_mod
-    monkeypatch.setattr(models_mod, "get_db", lambda: dal)
-
     # Stub auth decorators
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
@@ -262,15 +258,25 @@ def app_with_auth(dal, monkeypatch):
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
-    # Reload biomes blueprint to pick up stubbed decorators and patched get_db
+    # Reload blueprint modules BEFORE patching app.models.get_db. A reload
+    # re-executes `from ..models import get_db`; if the patch were already in
+    # place, the reloaded module would capture this test's DAL lambda and
+    # monkeypatch would later restore that stale lambda permanently (leaking
+    # one test's schema into every later test). Regression: cookie-auth tests
+    # failed only when run after the biomes tests.
     import app.api.biomes as biomes_mod
     import app.api.nodes as nodes_mod
 
     biomes_mod = importlib.reload(biomes_mod)
     nodes_mod = importlib.reload(nodes_mod)
 
-    # Patch get_db for nodes module too
+    import app.models as models_mod
+    monkeypatch.setattr(models_mod, "get_db", lambda: dal)
+
+    # Patch get_db for nodes and biomes modules explicitly (their from-import
+    # binding is the real accessor, which has no request context here).
     monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
+    monkeypatch.setattr(biomes_mod, "get_db", lambda: dal)
 
     app = Quart(__name__)
     app.config["TESTING"] = True
