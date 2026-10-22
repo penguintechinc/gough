@@ -299,6 +299,18 @@ async def replace_primary():
     Body: {old_node_id, new_node_id, reason}
     Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).
     """
+    body = await request.get_json() or {}
+    if not body.get("old_node_id") or not body.get("new_node_id"):
+        return jsonify({
+            "status": "error",
+            "error": {"code": "validation_failed",
+                "message": "old_node_id and new_node_id are required"},
+        }), 422
+    if not body.get("reason"):
+        return jsonify({
+            "status": "error",
+            "error": {"code": "validation_failed", "message": "reason is required"},
+        }), 422
     return await _control_plane_gate()
 
 
@@ -315,6 +327,19 @@ async def force_recover_quorum():
     Body: {surviving_node_id, reason, typed_cluster_name_confirmation}
     Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).
     """
+    body = await request.get_json() or {}
+    if not body.get("surviving_node_id") or not body.get("reason"):
+        return jsonify({
+            "status": "error",
+            "error": {"code": "validation_failed",
+                "message": "surviving_node_id and reason are required"},
+        }), 422
+    if body.get("typed_cluster_name_confirmation") != _cluster_id():
+        return jsonify({
+            "status": "error",
+            "error": {"code": "validation_failed",
+                "message": f"Cluster name confirmation mismatch (expected {_cluster_id()})"},
+        }), 422
     return await _control_plane_gate()
 
 

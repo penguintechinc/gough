@@ -20648,7 +20648,7 @@ paths:
 
         Body: {surviving_node_id, reason, typed_cluster_name_confirmation}
 
-        Returns: 200 on success, 504 on timeout, 422 on validation failure.'
+        Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).'
       tags:
       - primary
       operationId: primary_force_recover_quorum_post
@@ -20928,7 +20928,7 @@ paths:
 
         Body: {old_node_id, new_node_id, reason}
 
-        Returns: 200 on success, 504 on timeout, 409 on quorum loss.'
+        Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).'
       tags:
       - primary
       operationId: primary_replace_primary_post
@@ -22715,7 +22715,8 @@ paths:
         \ is presented as ``?ticket=`` on ``/ws/shell``. Requires the\n``gough.shell.attach`` scope (enforced\
         \ by SCOPE_POLICY), session ownership\n(or admin) and shell access to the session's resource.\n\
         \nReturns:\n    200: Ticket issued (``ShellTicketResponse``)\n    403: Not owner/admin or no shell\
-        \ access\n    404: Session not found\n    409: Session already ended"
+        \ access\n    404: Session not found\n    409: Session already ended\n    503: Ticket store (Redis/Valkey)\
+        \ unavailable -- fails closed"
       tags:
       - shell
       operationId: shell_issue_ticket_post

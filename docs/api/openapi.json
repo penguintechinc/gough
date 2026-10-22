@@ -31732,7 +31732,7 @@
     "/api/v1/primary/force-recover": {
       "post": {
         "summary": "Break-glass quorum recovery: snapshot surviving node, restore, re-add dead members.",
-        "description": "Requires typed cluster-name confirmation + superadmin scope + MFA.\n\nBody: {surviving_node_id, reason, typed_cluster_name_confirmation}\nReturns: 200 on success, 504 on timeout, 422 on validation failure.",
+        "description": "Requires typed cluster-name confirmation + superadmin scope + MFA.\n\nBody: {surviving_node_id, reason, typed_cluster_name_confirmation}\nReturns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).",
         "tags": [
           "primary"
         ],
@@ -32152,7 +32152,7 @@
     "/api/v1/primary/replace": {
       "post": {
         "summary": "Replace a lost primary node.",
-        "description": "Validates quorum, drains old node, mints join token, waits for new node etcd health.\n\nBody: {old_node_id, new_node_id, reason}\nReturns: 200 on success, 504 on timeout, 409 on quorum loss.",
+        "description": "Validates quorum, drains old node, mints join token, waits for new node etcd health.\n\nBody: {old_node_id, new_node_id, reason}\nReturns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).",
         "tags": [
           "primary"
         ],
@@ -34922,7 +34922,7 @@
     "/api/v1/shell/sessions/{session_id}/ticket": {
       "post": {
         "summary": "Mint a single-use 60s WebSocket ticket for a shell session.",
-        "description": "The ticket is bound to the authenticated user, their tenant and the\nsession, and is presented as ``?ticket=`` on ``/ws/shell``. Requires the\n``gough.shell.attach`` scope (enforced by SCOPE_POLICY), session ownership\n(or admin) and shell access to the session's resource.\n\nReturns:\n    200: Ticket issued (``ShellTicketResponse``)\n    403: Not owner/admin or no shell access\n    404: Session not found\n    409: Session already ended",
+        "description": "The ticket is bound to the authenticated user, their tenant and the\nsession, and is presented as ``?ticket=`` on ``/ws/shell``. Requires the\n``gough.shell.attach`` scope (enforced by SCOPE_POLICY), session ownership\n(or admin) and shell access to the session's resource.\n\nReturns:\n    200: Ticket issued (``ShellTicketResponse``)\n    403: Not owner/admin or no shell access\n    404: Session not found\n    409: Session already ended\n    503: Ticket store (Redis/Valkey) unavailable -- fails closed",
         "tags": [
           "shell"
         ],
