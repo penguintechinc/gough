@@ -169,9 +169,16 @@ class SSHCertificateAuthority:
         public_key: str,
         principals: List[str],
         validity_seconds: int,
-        key_id: str
+        key_id: str,
+        host_ids: Optional[List[str]] = None,
+        source_address: Optional[str] = None,
+        force_command: Optional[str] = None,
     ) -> str:
         """Sign user SSH public key using ssh-keygen.
+
+        Access agents only honour a certificate carrying ``host:<agent_id>`` for their
+        own id (fail closed), so callers MUST pass ``host_ids``; ``source_address`` and
+        ``force_command`` become the matching critical options.
 
         Args:
             public_key: User's SSH public key in OpenSSH format
@@ -194,6 +201,10 @@ class SSHCertificateAuthority:
 
         if not principals:
             raise ValueError("At least one principal is required")
+
+        if any(p.startswith("host:") for p in principals):
+            raise ValueError("host: principals are reserved; pass host_ids instead")
+        principals = [*principals, *(f"host:{h}" for h in (host_ids or []))]
 
         current_app.logger.info(
             f"Signing SSH key for principals {principals}, "
@@ -224,6 +235,8 @@ class SSHCertificateAuthority:
                 "-I", key_id,
                 "-n", principals_str,
                 "-V", f"+{validity_seconds}s",
+                *(["-O", f"source-address={source_address}"] if source_address else []),
+                *(["-O", f"force-command={force_command}"] if force_command else []),
                 "-z", str(int(datetime.utcnow().timestamp())),
                 str(user_key_path)
             ]

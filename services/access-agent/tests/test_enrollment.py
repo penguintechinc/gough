@@ -189,30 +189,22 @@ def test_enroll_maps_auth_and_conflict_statuses(
 
 
 def test_enroll_server_error_with_json_body_is_reported(tmp_path: Path) -> None:
-    """A 5xx with a JSON error message surfaces that message."""
-    enr = make_enrollment(tmp_path, lambda req: httpx.Response(500, json={"error": "db down"}))
+    """A 5xx with a JSON error message surfaces that message (after retries are spent)."""
+    enr = make_enrollment(
+        tmp_path,
+        lambda req: httpx.Response(500, json={"error": "db down"}),
+        enroll_max_attempts=1,
+    )
     with pytest.raises(EnrollmentError, match="Enrollment failed: db down"):
         enr.enroll()
-
-
-def test_enroll_server_error_is_attempted_exactly_once(tmp_path: Path) -> None:
-    """Current behaviour: a 5xx is not retried by enrollment (no backoff loop exists)."""
-    attempts: list[int] = []
-
-    def handler(req: httpx.Request) -> httpx.Response:
-        attempts.append(1)
-        return httpx.Response(503, json={"error": "busy"})
-
-    enr = make_enrollment(tmp_path, handler)
-    with pytest.raises(EnrollmentError):
-        enr.enroll()
-    assert len(attempts) == 1
 
 
 def test_enroll_non_json_error_body_still_raises_enrollment_error(tmp_path: Path) -> None:
     """A proxy HTML error page must become EnrollmentError, not a raw JSON decode failure."""
     enr = make_enrollment(
-        tmp_path, lambda req: httpx.Response(502, text="<html>Bad Gateway</html>")
+        tmp_path,
+        lambda req: httpx.Response(502, text="<html>Bad Gateway</html>"),
+        enroll_max_attempts=1,
     )
     with pytest.raises(EnrollmentError, match="Enrollment failed"):
         enr.enroll()
@@ -224,7 +216,7 @@ def test_enroll_network_error_is_wrapped(tmp_path: Path) -> None:
     def handler(req: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=req)
 
-    enr = make_enrollment(tmp_path, handler)
+    enr = make_enrollment(tmp_path, handler, enroll_max_attempts=1)
     with pytest.raises(EnrollmentError, match="Network error during enrollment"):
         enr.enroll()
 
