@@ -1,0 +1,56 @@
+# gough biome manifest: kubeadm control plane with Cilium 1.20.1 (kube-proxy replacement).
+# Every artifact comes from an operator mirror; see docs/biomes.md for the airgap list.
+name: k8s-controller
+version: 1.0.0
+description: kubeadm control plane plus Cilium 1.20.1 (kube-proxy replacement), airgap-capable.
+lxd:
+  instance_type: container
+  image: "{{ image_alias }}"
+  profile_name: gough-k8s-controller
+  config:
+    security.nesting: true
+    security.privileged: true
+    linux.kernel_modules: ip_tables,ip6_tables,nf_nat,overlay,br_netfilter
+    raw.lxc: |
+      lxc.apparmor.profile=unconfined
+      lxc.cap.drop=
+      lxc.cgroup.devices.allow=a
+      lxc.mount.auto=proc:rw sys:rw cgroup:rw
+  devices:
+    eth0:
+      type: nic
+      nictype: bridged
+      parent: "{{ bridge }}"
+      name: eth0
+parameters:
+  - {name: hostname, type: string, required: true, pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', description: "Guest hostname and Kubernetes node name. Per instance; never assumed fixed."}
+  - {name: instance_name, type: string, required: true, pattern: '^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', description: "LXD instance name. Per instance, so a worker and controller can share a hypervisor."}
+  - {name: static_ip, type: string, required: true, pattern: '^(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}$', description: "Static IPv4 CIDR for eth0, e.g. 192.168.8.41/24."}
+  - {name: gateway, type: string, required: true, pattern: '^(?:\d{1,3}\.){3}\d{1,3}$', description: "Default gateway IPv4. No default; supplied by the operator."}
+  - {name: dns_servers, type: string, required: true, pattern: '^(?:\d{1,3}\.){3}\d{1,3}(?:,(?:\d{1,3}\.){3}\d{1,3})*$', description: "Comma-separated DNS server IPv4 list."}
+  - {name: apiserver_advertise_address, type: string, required: true, pattern: '^(?:\d{1,3}\.){3}\d{1,3}$', description: "IPv4 the kube-apiserver binds and advertises (this instance's address)."}
+  - {name: control_plane_endpoint, type: string, required: true, pattern: '^[a-z0-9.-]+:\d{1,5}$', description: "host:port written into kubeadm as the control-plane endpoint and used as Cilium k8sServiceHost. Must be an address reachable from every node (controller IP or an operator-provided LB/VIP)."}
+  - {name: bridge, type: string, default: br0, pattern: '^[A-Za-z0-9_.-]+$', description: "Host bridge the NIC attaches to."}
+  - {name: image_alias, type: string, default: "ubuntu/26.04", pattern: '^[A-Za-z0-9._/-]+$', description: "LXD image alias or fingerprint."}
+  - {name: allow_privileged, type: bool, default: false, description: "Explicit opt-in for security.privileged and the unconfined AppArmor raw.lxc. Renders fail without true."}
+  - {name: apt_mirror, type: string, required: true, pattern: 'https?://\S+', description: "Ubuntu archive mirror base URL (deb822 URIs)."}
+  - {name: k8s_apt_repo, type: string, required: true, pattern: 'https?://\S+', description: "Kubernetes apt repo for the minor line, e.g. <mirror>/core:/stable:/v1.35/deb/."}
+  - {name: k8s_apt_key_url, type: string, required: true, pattern: 'https?://\S+', description: "URL of the armored Kubernetes apt signing key on the mirror."}
+  - {name: k8s_apt_key_sha256, type: string, required: true, pattern: '^[0-9a-f]{64}$', description: "sha256 of the armored key file."}
+  - {name: k8s_version, type: string, default: "1.35.9", pattern: '^\d+\.\d+\.\d+$', description: "Expected kubeadm version; bootstrap fails if the installed binary differs."}
+  - {name: k8s_package_version, type: string, default: "1.35.9-1.1", pattern: '^[0-9][A-Za-z0-9.+~:-]*$', description: "Exact apt version for kubelet, kubeadm, kubectl. Verify against the mirror before release."}
+  - {name: containerd_package_version, type: string, required: true, pattern: '^[0-9][A-Za-z0-9.+~:-]*$', description: "Exact Ubuntu archive apt version for containerd (no default; must be read from the mirror)."}
+  - {name: registry_mirror, type: string, required: true, pattern: 'https?://\S+', description: "Pull-through/mirror registry URL. Must serve upstream repository paths (registry.k8s.io/..., quay.io/cilium/...)."}
+  - {name: mirrored_registries, type: string, default: "docker.io,quay.io,registry.k8s.io,ghcr.io", pattern: '^[a-z0-9.-]+(?:,[a-z0-9.-]+)*$', description: "Upstream registries routed through registry_mirror by containerd hosts.toml."}
+  - {name: internal_ca_url, type: string, default: "", pattern: '^(?:https?://\S+)?$', description: "Optional PEM CA for a private mirror TLS chain. Empty skips."}
+  - {name: internal_ca_sha256, type: string, default: "", pattern: '^(?:[0-9a-f]{64})?$', description: "sha256 of internal_ca_url content. Required when internal_ca_url is set."}
+  - {name: pod_cidr, type: string, default: "10.244.0.0/16", pattern: '^(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}$', description: "Pod CIDR. Avoid 192.168.0.0/16 (overlaps common LANs)."}
+  - {name: service_cidr, type: string, default: "10.96.0.0/12", pattern: '^(?:\d{1,3}\.){3}\d{1,3}/\d{1,2}$', description: "Service CIDR."}
+  - {name: chart_mirror_url, type: string, required: true, pattern: 'https?://\S+', description: "Base URL of the Helm chart file mirror; chart fetched as <base>/cilium-<cilium_version>.tgz."}
+  - {name: cilium_version, type: string, default: "1.20.1", pattern: '^\d+\.\d+\.\d+$', description: "Cilium chart and image version. 1.20.1 is the version verified in the runbook."}
+  - {name: cilium_chart_sha256, type: string, required: true, pattern: '^[0-9a-f]{64}$', description: "sha256 of the Cilium chart tgz."}
+  - {name: cilium_cli_url, type: string, required: true, pattern: 'https?://\S+', description: "URL of the pinned cilium-cli linux-amd64 tarball on the mirror."}
+  - {name: cilium_cli_sha256, type: string, required: true, pattern: '^[0-9a-f]{64}$', description: "sha256 of the cilium-cli tarball."}
+  - {name: join_token_ttl, type: string, default: "2h", pattern: '^\d+[smh]$', description: "TTL for the bootstrap join token minted for workers."}
+  - {name: report_url, type: string, required: true, pattern: 'https?://\S+', description: "Hub endpoint receiving join material (see docs/biomes.md hub contract)."}
+  - {name: report_bootstrap_token, type: string, required: true, secret: true, pattern: '^[A-Za-z0-9._~+/=-]{16,}$', description: "One-time bearer token authorising the join-material report. Secret; never logged."}
