@@ -191,7 +191,9 @@ build-production: ## Build - Build for production with optimizations
 
 # Docker Commands
 # penguin-libs is a sibling repo; resolved relative to repo root. Override: make docker-build PENGUIN_LIBS_DIR=/abs/path
-PENGUIN_LIBS_DIR ?= ../penguin-libs
+# Main checkout = parent of the shared .git dir, so worktrees resolve the same sibling as the main checkout.
+MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
+PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
 NPMRC_PATH ?= $(HOME)/.npmrc
 DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
 PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
