@@ -66,6 +66,9 @@ class AgentConfig:
             capabilities=os.getenv(
                 "GOUGH_CAPABILITIES", "ssh"
             ).split(","),
+            token_file=os.getenv(
+                "GOUGH_TOKEN_FILE", "/var/lib/gough-agent/tokens.json"
+            ),
         )
 
     @classmethod
