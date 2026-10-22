@@ -54,6 +54,8 @@ worker-ipxe:
     pullPolicy: IfNotPresent
 
 # Tetragon TracingPolicyNamespaced exec allowlists (mandatory baseline).
+# Assumes Tetragon >= 1.1: policies hook security_bprm_creds_for_exec (LSM; covers execve + execveat)
+# and match the resolved linux_binprm path. memfd-backed exec (/memfd:) is always denied.
 # Each workload may exec only the binaries listed; anything else is SIGKILLed.
 # Requires the Tetragon CRDs; when disabled nothing is rendered.
 # Allowlists were derived from image entrypoints and probe commands - validate on a
