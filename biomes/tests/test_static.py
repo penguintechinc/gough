@@ -208,5 +208,44 @@ class ShellcheckFailureShapeTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
 
 
+class RegistryMirrorBehaviourTests(unittest.TestCase):
+    """Runs the real write_registry_mirrors function under bash to check the hosts.toml it writes."""
+
+    def write_hosts(self, fallback):
+        """Execute write_registry_mirrors with the given fallback flag and return {registry: hosts.toml text}."""
+        bash = tool_or_fail("bash")
+        body = function_body(read(script_path("k8s-controller")), "write_registry_mirrors")
+        with tempfile.TemporaryDirectory() as tmp:
+            body = body.replace("/etc/containerd/certs.d", os.path.join(tmp, "certs.d"))
+            script = "set -euo pipefail\nwrite_registry_mirrors() {\n" + body + "}\nwrite_registry_mirrors\n"
+            env = {
+                "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+                "GOUGH_MIRRORED_REGISTRIES": "docker.io,quay.io",
+                "GOUGH_REGISTRY_MIRROR": "https://mirror.example.internal:5000",
+                "GOUGH_ALLOW_REGISTRY_FALLBACK": "true" if fallback else "false",
+            }
+            result = subprocess.run([bash, "-c", script], env=env, capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            out = {}
+            for reg in ("docker.io", "quay.io"):
+                with open(os.path.join(tmp, "certs.d", reg, "hosts.toml"), encoding="utf-8") as fh:
+                    out[reg] = fh.read()
+            return out
+
+    def test_mirror_only_by_default(self):
+        """Default hosts.toml has the mirror host and no upstream server line or public registry."""
+        hosts = self.write_hosts(fallback=False)
+        for reg, text in hosts.items():
+            self.assertIn('[host."https://mirror.example.internal:5000"]', text, reg)
+            self.assertNotIn("server =", text, reg)
+            self.assertNotIn("registry-1.docker.io", text, reg)
+
+    def test_fallback_adds_upstream_only_when_opted_in(self):
+        """With allow_registry_fallback the public upstream appears as the last-resort server."""
+        hosts = self.write_hosts(fallback=True)
+        self.assertIn('server = "https://registry-1.docker.io"', hosts["docker.io"])
+        self.assertIn('server = "https://quay.io"', hosts["quay.io"])
+
+
 if __name__ == "__main__":
     unittest.main()

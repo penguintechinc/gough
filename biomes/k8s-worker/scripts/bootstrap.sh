@@ -108,6 +108,8 @@ prep_packages() {
 }
 
 # Write a containerd hosts.toml per upstream registry so every pull goes through the mirror.
+# Mirror-only by default: no upstream server line, so airgapped nodes never dial the public registry.
+# allow_registry_fallback=true adds the public upstream as a last-resort server.
 write_registry_mirrors() {
   local reg upstream dir
   local -a regs
@@ -117,12 +119,12 @@ write_registry_mirrors() {
     [[ "$reg" == "docker.io" ]] && upstream="registry-1.docker.io"
     dir="/etc/containerd/certs.d/${reg}"
     install -d -m 0755 "$dir"
-    cat > "${dir}/hosts.toml" <<TOML
-server = "https://${upstream}"
-
-[host."${GOUGH_REGISTRY_MIRROR}"]
-  capabilities = ["pull", "resolve"]
-TOML
+    {
+      if [[ "$GOUGH_ALLOW_REGISTRY_FALLBACK" == "true" ]]; then
+        printf 'server = "https://%s"\n\n' "$upstream"
+      fi
+      printf '[host."%s"]\n  capabilities = ["pull", "resolve"]\n' "$GOUGH_REGISTRY_MIRROR"
+    } > "${dir}/hosts.toml"
   done
 }
 
@@ -200,7 +202,8 @@ require_params() {
 # Join the cluster using a config file so the bootstrap token never appears in process arguments.
 worker_join() {
   if [[ -f /etc/kubernetes/kubelet.conf ]]; then
-    log "node already joined; not re-joining"
+    systemctl is-active --quiet kubelet || die "node already joined but kubelet is not active; inspect kubelet logs (no re-join with a stale token)"
+    log "node already joined and kubelet active; not re-joining"
     return 0
   fi
   [[ "$GOUGH_JOIN_TOKEN" =~ ^[a-z0-9]{6}\.[a-z0-9]{16}$ ]] || die "join token has invalid format"
@@ -236,7 +239,10 @@ evictionHard:
   memory.available: "500Mi"
   nodefs.available: "10%"
 YAML
-  kubeadm join --config "$JOIN_CONFIG"
+  if ! kubeadm join --config "$JOIN_CONFIG"; then
+    rm -f "$JOIN_CONFIG"
+    die "kubeadm join failed. If the join token expired (join_token_ttl), request a fresh join token from the hub and rerun"
+  fi
   rm -f "$JOIN_CONFIG"
 }
 

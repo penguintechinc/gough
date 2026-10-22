@@ -65,6 +65,8 @@ Set by the gough orchestrator for this release. Change them only through the coo
 | Hubble off | `cilium_hubble: false` | Optional observability (runbook). |
 | Cilium 1.20.1 | `cilium_version: 1.20.1` | Verified in the runbook. Gough follow-up: the hub catalog still pins 1.19.1 and must be updated to match. |
 
+> **Warning:** Unverified path: `kube_proxy_replacement=true` (Cilium KPR, `socketLB`, `hostServices`, `nodePort`, `bpf.masquerade`) is NOT verified in LXC. Only the default kube-proxy path (`ipam.mode=kubernetes`, kube-proxy kept) is runbook-verified. Do not enable KPR in production until `cilium connectivity test` passes on a live LXC cluster.
+
 ## Resources
 
 Every instance carries explicit LXD limits and a root disk. The renderer emits them into `instance.json`, a per-instance document the installer pipes to `lxc launch`. `profile.json` never carries them: profiles are shared by every instance of a biome, so a per-instance limit there would resize all of them on the next `ensure_profile`.
@@ -145,6 +147,11 @@ Parameters land in `/opt/gough/biome/params.env` (mode 0600) as `GOUGH_<NAME>=<s
 
 ## Airgap: artifacts and sources
 
+- Registries: containerd hosts.toml is mirror-only by default. No upstream server line is written, so nodes never dial public registries. `allow_registry_fallback=true` adds the public upstream as a last resort; leave it false in airgap.
+- Cilium images: pinned to `<registry_mirror host>/cilium/{cilium,operator-generic,hubble-relay}` by digest (Cilium 1.20.1). The mirror must serve those upstream paths. No quay.io name appears in the bootstrap scripts.
+- `dns_servers`: whitespace around entries is stripped; each entry must be a valid IPv4 address.
+- Join rerun: an already-joined node (`kubelet.conf` present) with an active kubelet is skipped. A present but inactive kubelet fails loudly. A failed `kubeadm join` (for example an expired `join_token_ttl`) fails loudly and asks for a fresh join token from the hub.
+
 Nothing is fetched from github.com, raw.githubusercontent.com, helm.cilium.io or pkgs.k8s.io unless that is the configured mirror.
 
 | Artifact | Used by | Source (mirror) | Pin |
@@ -197,6 +204,7 @@ The same join material also persists in `/var/lib/gough/biome/join.env` (mode 06
 ### Hub mode
 
 ## Hub contract (must be implemented by gough)
+
 
 - Instances without limits are rejected. The hub refuses to create an instance unless its rendered profile has `limits.cpu`, `limits.memory` and a root device with `size`.
 - Capacity admission uses the rendered `limits.cpu` and `limits.memory` values against the hypervisor's remaining capacity.

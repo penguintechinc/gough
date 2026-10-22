@@ -108,6 +108,8 @@ prep_packages() {
 }
 
 # Write a containerd hosts.toml per upstream registry so every pull goes through the mirror.
+# Mirror-only by default: no upstream server line, so airgapped nodes never dial the public registry.
+# allow_registry_fallback=true adds the public upstream as a last-resort server.
 write_registry_mirrors() {
   local reg upstream dir
   local -a regs
@@ -117,12 +119,12 @@ write_registry_mirrors() {
     [[ "$reg" == "docker.io" ]] && upstream="registry-1.docker.io"
     dir="/etc/containerd/certs.d/${reg}"
     install -d -m 0755 "$dir"
-    cat > "${dir}/hosts.toml" <<TOML
-server = "https://${upstream}"
-
-[host."${GOUGH_REGISTRY_MIRROR}"]
-  capabilities = ["pull", "resolve"]
-TOML
+    {
+      if [[ "$GOUGH_ALLOW_REGISTRY_FALLBACK" == "true" ]]; then
+        printf 'server = "https://%s"\n\n' "$upstream"
+      fi
+      printf '[host."%s"]\n  capabilities = ["pull", "resolve"]\n' "$GOUGH_REGISTRY_MIRROR"
+    } > "${dir}/hosts.toml"
   done
 }
 
@@ -289,12 +291,18 @@ controller_cilium() {
   local kpr="$GOUGH_KUBE_PROXY_REPLACEMENT"
   local hubble="$GOUGH_CILIUM_HUBBLE"
   local gateway="$GOUGH_CILIUM_GATEWAY_API"
+  # Images come only from the operator mirror; digests pin the Cilium 1.20.1 release.
+  local mirror_host="${GOUGH_REGISTRY_MIRROR#*://}"
+  mirror_host="${mirror_host%/}"
+  local CILIUM_IMAGE_DIGEST="sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
+  local CILIUM_OPERATOR_DIGEST="sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf"
+  local CILIUM_HUBBLE_RELAY_DIGEST="sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4"
   rm -rf "$work"
   install -d -m 0700 "$work"
   fetch_verified "$GOUGH_CHART_MIRROR_URL/cilium-${GOUGH_CILIUM_VERSION}.tgz" "$GOUGH_CILIUM_CHART_SHA256" "$work/chart.tgz"
   tar -xzf "$work/chart.tgz" -C "$work" --no-same-owner
   fetch_verified "$GOUGH_CILIUM_CLI_URL" "$GOUGH_CILIUM_CLI_SHA256" "$work/cilium-cli.tgz"
-  tar -xzf "$work/cilium-cli.tgz" -C /usr/local/bin cilium
+  tar -xzf "$work/cilium-cli.tgz" -C /usr/local/bin --no-same-owner cilium
   [[ -n "$GOUGH_CILIUM_CRDS_URL" && -n "$GOUGH_CILIUM_CRDS_SHA256" ]] \
     || die "cilium_crds_url and cilium_crds_sha256 are required"
   fetch_verified "$GOUGH_CILIUM_CRDS_URL" "$GOUGH_CILIUM_CRDS_SHA256" "$work/cilium-crds.yaml"
@@ -328,6 +336,15 @@ controller_cilium() {
     --set "hubble.enabled=${hubble}"
     --set "hubble.relay.enabled=${hubble}"
     --set "gatewayAPI.enabled=${gateway}"
+    --set "image.repository=${mirror_host}/cilium/cilium"
+    --set "image.digest=${CILIUM_IMAGE_DIGEST}"
+    --set image.useDigest=true
+    --set "operator.image.repository=${mirror_host}/cilium/operator-generic"
+    --set "operator.image.digest=${CILIUM_OPERATOR_DIGEST}"
+    --set operator.image.useDigest=true
+    --set "hubble.relay.image.repository=${mirror_host}/cilium/hubble-relay"
+    --set "hubble.relay.image.digest=${CILIUM_HUBBLE_RELAY_DIGEST}"
+    --set hubble.relay.image.useDigest=true
   )
   cilium install --chart-directory "$work/cilium" "${sets[@]}"
   cilium status --wait --wait-duration 15m

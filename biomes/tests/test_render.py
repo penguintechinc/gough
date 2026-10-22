@@ -553,6 +553,54 @@ class ResourceTests(unittest.TestCase):
             self.assertEqual(set(manifest["resources"]), {"cpu_cores", "memory", "root_disk"}, biome)
 
 
+class HardeningTests(unittest.TestCase):
+    """Airgap DNS handling, mirror-only registries, and output file modes."""
+
+    def test_dns_entries_are_stripped_and_validated(self):
+        """Whitespace around DNS entries is removed; the netplan list carries clean addresses only."""
+        out = render.render_biome(CTL_DIR, controller_params(dns_servers="192.168.8.1, 192.168.8.2 "))
+        self.assertIn('"192.168.8.1", "192.168.8.2"', out["network-config"])
+        self.assertNotIn('" 192', out["network-config"])
+
+    def test_dns_non_ipv4_and_empty_entries_rejected(self):
+        """A non-IPv4 entry or an empty entry is refused before any output is written."""
+        with self.assertRaisesRegex(render.RenderError, "not a valid IPv4|does not match"):
+            render.render_biome(WRK_DIR, worker_params(dns_servers="999.1.1.1"))
+        with self.assertRaises(render.RenderError):
+            render.render_biome(WRK_DIR, worker_params(dns_servers="192.168.8.1,,192.168.8.2"))
+
+    def test_registry_fallback_defaults_off(self):
+        """allow_registry_fallback reaches params.env as false unless an operator opts in."""
+        self.assertIn("GOUGH_ALLOW_REGISTRY_FALLBACK=false", params_env_of(render.render_biome(CTL_DIR, controller_params())))
+        self.assertIn("GOUGH_ALLOW_REGISTRY_FALLBACK=true", params_env_of(render.render_biome(
+            CTL_DIR, controller_params(allow_registry_fallback=True))))
+
+    def test_bootstrap_scripts_have_no_literal_public_registry(self):
+        """No bootstrap script names quay.io or a public registry host literally; images come from the mirror."""
+        for biome in (CTL_DIR, WRK_DIR):
+            with open(os.path.join(biome, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
+                script = fh.read()
+            self.assertNotIn("quay.io", script, biome)
+        with open(os.path.join(CTL_DIR, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
+            controller = fh.read()
+        self.assertIn('--set "image.repository=${mirror_host}/cilium/cilium"', controller)
+        self.assertIn('--set "operator.image.repository=${mirror_host}/cilium/operator-generic"', controller)
+
+    def test_output_mode_enforced_on_reused_directory(self):
+        """Rendering into a directory with pre-existing 0644 files leaves every output 0600."""
+        with tempfile.TemporaryDirectory() as tmp:
+            params_path = os.path.join(tmp, "p.json")
+            with open(params_path, "w", encoding="utf-8") as fh:
+                json.dump(worker_params(), fh)
+            out = os.path.join(tmp, "out")
+            os.makedirs(out)
+            with open(os.path.join(out, "user-data"), "w", encoding="utf-8") as fh:
+                fh.write("old")
+            os.chmod(os.path.join(out, "user-data"), 0o644)
+            self.assertEqual(render.main(["--biome", WRK_DIR, "--params", params_path, "--out", out]), 0)
+            self.assertEqual(os.stat(os.path.join(out, "user-data")).st_mode & 0o777, 0o600)
+
+
 class KubeletReservationTests(unittest.TestCase):
     """Kubelets inside the biome reserve resources and evict before the LXD hard limit is reached."""
 

@@ -7,6 +7,7 @@ placeholders, and privileged profiles without explicit allow_privileged opt-in.
 """
 import argparse
 import base64
+import ipaddress
 import json
 import os
 import re
@@ -191,6 +192,19 @@ def _b64(data):
     return base64.b64encode(data).decode("ascii")
 
 
+def dns_server_list(text):
+    """Split, strip and validate a comma-separated IPv4 DNS list; empty or non-IPv4 entries fail loudly."""
+    items = [item.strip() for item in text.split(",")]
+    for item in items:
+        if not item:
+            raise RenderError("dns_servers contains an empty entry")
+        try:
+            ipaddress.IPv4Address(item)
+        except ValueError as exc:
+            raise RenderError(f"dns_servers entry {item!r} is not a valid IPv4 address") from exc
+    return items
+
+
 def derived_values(biome_dir, resolved):
     """Compute template values derived from the parameters and the biome's bootstrap script."""
     env_lines = [
@@ -202,7 +216,7 @@ def derived_values(biome_dir, resolved):
         script = fh.read()
     derived = {"params_env_b64": _b64(env_text.encode("utf-8")), "bootstrap_b64": _b64(script)}
     if "dns_servers" in resolved:
-        ips = resolved["dns_servers"].split(",")
+        ips = dns_server_list(resolved["dns_servers"])
         derived["dns_yaml_list"] = ", ".join(f'"{ip}"' for ip in ips)
     return derived
 
@@ -314,6 +328,7 @@ def main(argv=None):
     os.makedirs(args.out, exist_ok=True)
     for name, text in outputs.items():
         fd = os.open(os.path.join(args.out, name), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        os.fchmod(fd, 0o600)  # O_CREAT ignores mode for pre-existing files; enforce 0600 on reused output dirs
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
     return 0
