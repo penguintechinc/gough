@@ -1,8 +1,8 @@
 # Alpha: local MicroK8s (context local-alpha). Images are local builds imported into MicroK8s.
 namespace: gough
 
-global:
-  imageTag: alpha-local
+# Image registry and tag are NOT set here: scripts/deploy-alpha.sh passes
+# global.imageRegistry and global.imageTag from the Makefile (ALPHA_IMAGE_REGISTRY/PREFIX/TAG).
 
 api-manager:
   # Pinned to 1: shell sessions are process-local (see https://github.com/penguintechinc/gough/issues/43).

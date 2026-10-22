@@ -24,6 +24,18 @@ Create a default fully qualified app name.
 {{/*
 Create chart name and version as used by the chart label.
 */}}
+{{/*
+Image ref. global.imageRegistry (umbrella) replaces the repository's registry+org, keeping the
+service name; global.imageTag fills the tag when image.tag is empty.
+*/}}
+{{- define "webui.image" -}}
+{{- $repo := .Values.image.repository -}}
+{{- $reg := dig "global" "imageRegistry" "" .Values.AsMap -}}
+{{- if $reg -}}{{- $repo = printf "%s/%s" $reg (last (splitList "/" .Values.image.repository)) -}}{{- end -}}
+{{- $tag := .Values.image.tag | default (dig "global" "imageTag" "" .Values.AsMap) | default .Chart.AppVersion -}}
+{{- printf "%s:%s" $repo $tag -}}
+{{- end }}
+
 {{- define "webui.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 63 | trimSuffix "-" }}
 {{- end }}

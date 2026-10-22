@@ -6,6 +6,9 @@ global:
   # Image tag for every gough service (ghcr.io/penguintechinc/gough/<svc>:<tag>).
   # REQUIRED: set per env in the env file or via --set global.imageTag=<tag>.
   imageTag: ""
+  # Replaces the registry+org of every service image (e.g. localhost/gough for alpha).
+  # Empty = subchart repository defaults (ghcr.io/penguintechinc/gough/<svc>) for beta/gamma/prod.
+  imageRegistry: ""
   # LXD cluster primary used by api-manager's cluster-join endpoint. Empty apiUrl = endpoint returns 503.
   # Must be https://. Client cert Secret must hold tls.crt and tls.key (mounted read-only at /etc/gough/lxd).
   lxd:

@@ -34,7 +34,7 @@ spec:
       - name: worker-ipxe
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default (dig "global" "imageTag" "" .Values.AsMap) | default .Chart.AppVersion }}"
+        image: "{{ include "worker-ipxe.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
           {{- range .Values.service.ports }}

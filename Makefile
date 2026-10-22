@@ -195,6 +195,13 @@ build-production: ## Build - Build for production with optimizations
 MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
 PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
 NPMRC_PATH ?= $(HOME)/.npmrc
+# Single source of truth for local alpha image names. Local-only: no registry prefix,
+# never pushed. Exported so deploy-alpha.sh imports exactly these references.
+# Resolved by containerd as docker.io/<prefix>/<svc>:<tag>, which the chart renders via global.imageRegistry.
+ALPHA_IMAGE_REGISTRY ?= localhost
+ALPHA_IMAGE_PREFIX ?= gough
+ALPHA_TAG ?= alpha-local
+export ALPHA_IMAGE_REGISTRY ALPHA_IMAGE_PREFIX ALPHA_TAG
 DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
 PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
 
@@ -206,7 +213,7 @@ docker-build: ## Docker - Build all service images locally (alpha); fails on fir
 	  case " $(PENGUIN_LIBS_SERVICES) " in *" $$svc "*) extra="--build-context penguin-libs=$(abspath $(PENGUIN_LIBS_DIR))";; esac; \
 	  if [ "$$svc" = "webui" ] && [ -f "$(NPMRC_PATH)" ]; then extra="$$extra --secret id=npmrc,src=$(NPMRC_PATH)"; fi; \
 	  echo "--> $$svc"; \
-	  docker build $$extra -t gough-$$svc:alpha services/$$svc || exit 1; \
+	  docker build $$extra -t $(ALPHA_IMAGE_REGISTRY)/$(ALPHA_IMAGE_PREFIX)/$$svc:$(ALPHA_TAG) services/$$svc || exit 1; \
 	done
 
 docker-push: ## Docker - Push Docker images to registry

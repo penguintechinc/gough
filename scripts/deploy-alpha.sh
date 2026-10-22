@@ -15,8 +15,13 @@ readonly NAMESPACE="gough"
 readonly RELEASE="gough"
 readonly CHART_DIR="k8s/helm/gough"
 readonly VALUES_FILE="k8s/helm/gough/alpha.yml"
-readonly IMAGE_REGISTRY="ghcr.io/penguintechinc/gough"
-readonly IMAGE_TAG="alpha-local"
+# Image names come ONLY from the Makefile (exported). Local-only: never pushed.
+# localhost/ is kept verbatim by docker, ctr and the kubelet (no docker.io normalization).
+: "${ALPHA_IMAGE_REGISTRY:?ALPHA_IMAGE_REGISTRY not set - run via make deploy-alpha}"
+: "${ALPHA_IMAGE_PREFIX:?ALPHA_IMAGE_PREFIX not set - run via make deploy-alpha}"
+: "${ALPHA_TAG:?ALPHA_TAG not set - run via make deploy-alpha}"
+readonly IMAGE_REPO_BASE="$ALPHA_IMAGE_REGISTRY/$ALPHA_IMAGE_PREFIX"
+readonly IMAGE_TAG="$ALPHA_TAG"
 readonly SERVICES=(api-manager webui worker-ipxe)
 
 CLEAN=false
@@ -54,8 +59,8 @@ preflight() {
     grep -qx "$KUBE_CONTEXT" <<<"$contexts" \
         || die "kube context '$KUBE_CONTEXT' does not exist"
     for svc in "${SERVICES[@]}"; do
-        docker image inspect "$IMAGE_REGISTRY/$svc:$IMAGE_TAG" >/dev/null \
-            || die "image missing: $IMAGE_REGISTRY/$svc:$IMAGE_TAG (build it first; this script does not build)"
+        docker image inspect "$IMAGE_REPO_BASE/$svc:$IMAGE_TAG" >/dev/null \
+            || die "image missing: $IMAGE_REPO_BASE/$svc:$IMAGE_TAG (run make docker-build first; this script does not build)"
     done
     log "preflight: helm, kubectl, docker present; context '$KUBE_CONTEXT' exists; ${#SERVICES[@]} images found"
 }
@@ -67,8 +72,8 @@ import_images() {
     fi
     require_tool microk8s
     for svc in "${SERVICES[@]}"; do
-        log "import: $IMAGE_REGISTRY/$svc:$IMAGE_TAG"
-        docker save "$IMAGE_REGISTRY/$svc:$IMAGE_TAG" | microk8s ctr image import -
+        log "import: $IMAGE_REPO_BASE/$svc:$IMAGE_TAG"
+        docker save "$IMAGE_REPO_BASE/$svc:$IMAGE_TAG" | microk8s ctr image import -
     done
 }
 
@@ -87,6 +92,8 @@ helm_deploy() {
     helm dependency update "$CHART_DIR"
     helm upgrade --install "$RELEASE" "$CHART_DIR" \
         -f "$VALUES_FILE" \
+        --set-string "global.imageRegistry=$IMAGE_REPO_BASE" \
+        --set-string "global.imageTag=$IMAGE_TAG" \
         -n "$NAMESPACE" \
         --create-namespace \
         --kube-context "$KUBE_CONTEXT" \
