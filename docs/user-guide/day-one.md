@@ -1,6 +1,6 @@
 # Day One: First 30 Minutes to Cluster Ready
 
-**Goal:** Bootstrap a single-primary cluster on a fresh Debian 12 VM, PXE-boot one sim node, and deploy the `k8s-primary` biome to a working Kubernetes cluster.
+**Goal:** Bootstrap a single-primary cluster on a fresh Debian 12 VM, PXE-boot one sim node, and deploy the `k8s-controller` biome to a working Kubernetes cluster.
 
 **Prerequisite Knowledge:**
 - Basic Linux command line
@@ -131,20 +131,20 @@ kubectl get nodes
 
 ---
 
-## Step 3: Deploy the k8s-primary Biome (5 minutes)
+## Step 3: Deploy the k8s-controller Biome (5 minutes)
 
 ### 3.1 Check Available Biomes
 ```bash
 # List built-in biomes
 gough biome list
 # Should show:
-#   k8s-primary (bootstrap k8s control plane)
+#   k8s-controller (bootstrap k8s control plane)
 #   k8s-worker (join k8s cluster)
 #   nest-agent (distributed storage)
 #   (others...)
 
 # Check biome details
-gough biome inspect --biome-id=k8s-primary
+gough biome inspect --biome-id=k8s-controller
 # Shows requirements, dependencies, Phase-2 duration estimate
 ```
 
@@ -153,15 +153,15 @@ gough biome inspect --biome-id=k8s-primary
 # WebUI: Deployments tab
 
 # Click "New Deployment"
-#   - Select biome: k8s-primary
+#   - Select biome: k8s-controller
 #   - Select nodes: node-1 (primary)
 #   - Confirm resource allocation (CPU, memory, disk)
 
 # Or via CLI:
-gough biome deploy --biome-id=k8s-primary --node-id=node-1
+gough biome deploy --biome-id=k8s-controller --node-id=node-1
 
 # Monitor deployment
-kubectl -n gough get pods -l biome=k8s-primary -w
+kubectl -n gough get pods -l biome=k8s-controller -w
 # Should transition from pending → init → running
 
 # Check deployment logs
@@ -312,7 +312,7 @@ gough cluster status --detailed
 - [ ] Gough cluster initialized and primary node ready
 - [ ] First worker node PXE-booted and provisioned
 - [ ] Worker node shows Ready in `kubectl get nodes`
-- [ ] k8s-primary biome deployed successfully
+- [ ] k8s-controller biome deployed successfully
 - [ ] Kubernetes API is responsive (`kubectl cluster-info`)
 - [ ] System pods (coredns, kube-proxy) are running
 - [ ] Audit trail verified intact

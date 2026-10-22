@@ -69,7 +69,7 @@ def _seed_biome(dal_db: Any, **overrides: Any) -> int:
         tenant_id="test-tenant",
         name=f"biome-{uuid.uuid4().hex[:8]}",
         version="1.0.0",
-        biome_kind="k8s-primary",
+        biome_kind="k8s-controller",
         phase="phase_1_initial",
         workload_type="lxc",
         emits_joiner_secrets=False,
@@ -167,7 +167,7 @@ def test_cluster_id() -> str:
 
 @pytest.fixture
 def test_assignment(pg_db: Any) -> int:
-    """Ready assignment for a k8s-primary biome that emits joiner secrets."""
+    """Ready assignment for a k8s-controller biome that emits joiner secrets."""
     node_id = _seed_node(pg_db)
     biome_id = _seed_biome(pg_db, emits_joiner_secrets=True, joiner_emit_spec=_K8S_EMIT_SPEC)
     return _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
@@ -211,7 +211,7 @@ class TestJoinerSecretEmitterEmit:
             .first()
         )
         assert stored is not None
-        assert stored.biome_kind == "k8s-primary"
+        assert stored.biome_kind == "k8s-controller"
         assert stored.extractor_name == "kubeadm_join_token"
         assert stored.scope == "cluster"
         assert len(bytes(stored.ciphertext)) > 0

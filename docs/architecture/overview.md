@@ -10,7 +10,7 @@ Gough is a two-phase LXD + Kubernetes provisioning platform that:
 
 1. **Phase 1 (Discovery):** PXE-boots new hardware, inventories CPU/RAM/disks/NICs, detects SMART warnings, validates BMC certificates, collects hardware tags
 2. **Phase 2 (Deployment):** Cloud-init configures networking, installs LXD, joins existing cluster, deploys user-selected Biomes (cloud-init-based workloads)
-3. **Orchestration:** Manages Biomes (k8s-primary, k8s-worker, nest-agent, vault-leader, etc.) across LXD containers + Kubernetes, with live migration, capacity forecasting, and multi-cluster DR
+3. **Orchestration:** Manages Biomes (k8s-controller, k8s-worker, nest-agent, vault-leader, etc.) across LXD containers + Kubernetes, with live migration, capacity forecasting, and multi-cluster DR
 
 ---
 
@@ -50,7 +50,7 @@ Gough is a two-phase LXD + Kubernetes provisioning platform that:
     │                                         │
     │  ┌─────────────────────────────────┐   │
     │  │ Host Node (LXD + kubelet)       │   │
-    │  │ ├─ Container: k8s-primary       │   │
+    │  │ ├─ Container: k8s-controller       │   │
     │  │ ├─ Container: k8s-worker        │   │
     │  │ ├─ Container: nest-agent        │   │
     │  │ └─ (user-defined biomes)          │   │

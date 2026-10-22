@@ -278,7 +278,7 @@ class TestEmit:
         self, monkeypatch: pytest.MonkeyPatch, pg_db: Any, mock_vault_client: Any
     ) -> None:
         node_id = _seed_node(pg_db)
-        biome_id = _seed_biome(pg_db, biome_kind="k8s-primary", emits_joiner_secrets=True)
+        biome_id = _seed_biome(pg_db, biome_kind="k8s-controller", emits_joiner_secrets=True)
         _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id, status="ready")
 
         material = Mock()
@@ -289,7 +289,7 @@ class TestEmit:
         provider = Mock(return_value=material)
 
         app = _make_app(monkeypatch, db=pg_db, vault_client=mock_vault_client, material_provider=provider)
-        request = Mock(node_id=str(node_id), rotation_class="k8s-primary", key_version=1)
+        request = Mock(node_id=str(node_id), rotation_class="k8s-controller", key_version=1)
         context = FakeGrpcContext()
 
         async with app.app_context():
@@ -316,7 +316,7 @@ class TestEmit:
             pg_db, biome_kind="sidecar", emits_joiner_secrets=False
         )
         emitting_id = _seed_biome(
-            pg_db, biome_kind="k8s-primary", emits_joiner_secrets=True
+            pg_db, biome_kind="k8s-controller", emits_joiner_secrets=True
         )
         # Non-emitting assignment inserted (and thus higher id) AFTER the
         # emitting one, so a naive "most recent ready row" pick would
@@ -332,7 +332,7 @@ class TestEmit:
         provider = Mock(return_value=material)
 
         app = _make_app(monkeypatch, db=pg_db, vault_client=mock_vault_client, material_provider=provider)
-        request = Mock(node_id=str(node_id), rotation_class="k8s-primary", key_version=1)
+        request = Mock(node_id=str(node_id), rotation_class="k8s-controller", key_version=1)
         context = FakeGrpcContext()
 
         async with app.app_context():
@@ -374,7 +374,7 @@ class TestEmit:
         node_id = _seed_node(pg_db)
         provider = Mock()
         app = _make_app(monkeypatch, db=pg_db, vault_client=mock_vault_client, material_provider=provider)
-        request = Mock(node_id=str(node_id), rotation_class="k8s-primary", key_version=1)
+        request = Mock(node_id=str(node_id), rotation_class="k8s-controller", key_version=1)
         context = FakeGrpcContext()
 
         async with app.app_context():

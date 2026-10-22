@@ -227,6 +227,9 @@ async def create_app(config_class: type = Config) -> Quart:
     from .api.clusters import clusters_bp
     from .api.primary import primary_bp
     from .api.vault import vault_bp
+    from .api.lxd_cluster import lxd_bp
+    from .api.biome_cache import biome_cache_bp
+    from .api.install import install_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(users_bp, url_prefix="/api/v1/users")
@@ -252,6 +255,12 @@ async def create_app(config_class: type = Config) -> Quart:
     app.register_blueprint(clusters_bp, url_prefix="/api/v1/clusters")
     app.register_blueprint(primary_bp, url_prefix="/api/v1/primary")
     app.register_blueprint(vault_bp, url_prefix="/api/v1/vault")
+    # LXD join tokens + bootstrap enrollment seed (lxd_bp owns its /api/v1/lxd prefix
+    # and a before_app_serving hook that seeds GOUGH_BOOTSTRAP_TOKEN once).
+    app.register_blueprint(lxd_bp)
+    # Biome bundle cache (blueprint owns /api/v1/biomes/cache) and public installer.
+    app.register_blueprint(biome_cache_bp)
+    app.register_blueprint(install_bp)
 
     # Latency timer must be the first before_request hook so auth/limiter
     # short-circuits (which return early) still have a start timestamp.

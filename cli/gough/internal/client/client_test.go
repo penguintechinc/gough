@@ -694,7 +694,7 @@ func TestDevSeed(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	_, err := c.DevSeed(ctx, "k8s-primary,nest-agent")
+	_, err := c.DevSeed(ctx, "k8s-controller,nest-agent")
 	if err != nil {
 		t.Fatalf("DevSeed: %v", err)
 	}
@@ -880,7 +880,7 @@ func TestPromoteBiome(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.PromoteBiome(ctx, "k8s-primary", "1.2.0")
+	resp, err := c.PromoteBiome(ctx, "k8s-controller", "1.2.0")
 	if err != nil {
 		t.Fatalf("PromoteBiome: %v", err)
 	}
@@ -899,7 +899,7 @@ func TestRollbackBiome(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.RollbackBiome(ctx, "k8s-primary")
+	resp, err := c.RollbackBiome(ctx, "k8s-controller")
 	if err != nil {
 		t.Fatalf("RollbackBiome: %v", err)
 	}
@@ -918,7 +918,7 @@ func TestDiffBiomes(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.DiffBiomes(ctx, "k8s-primary", "1.0.0", "1.1.0")
+	resp, err := c.DiffBiomes(ctx, "k8s-controller", "1.0.0", "1.1.0")
 	if err != nil {
 		t.Fatalf("DiffBiomes: %v", err)
 	}
@@ -937,7 +937,7 @@ func TestReSignBiome(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.ReSignBiome(ctx, "k8s-primary", "1.2.0")
+	resp, err := c.ReSignBiome(ctx, "k8s-controller", "1.2.0")
 	if err != nil {
 		t.Fatalf("ReSignBiome: %v", err)
 	}
@@ -956,7 +956,7 @@ func TestUpgradeBiome(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.UpgradeBiome(ctx, "k8s-primary", "1.3.0")
+	resp, err := c.UpgradeBiome(ctx, "k8s-controller", "1.3.0")
 	if err != nil {
 		t.Fatalf("UpgradeBiome: %v", err)
 	}
@@ -1053,7 +1053,7 @@ func TestRotateJoinerSecrets(t *testing.T) {
 	c := newTestClient(srv)
 	ctx := context.Background()
 
-	resp, err := c.RotateJoinerSecrets(ctx, "k8s-primary")
+	resp, err := c.RotateJoinerSecrets(ctx, "k8s-controller")
 	if err != nil {
 		t.Fatalf("RotateJoinerSecrets: %v", err)
 	}
@@ -1341,7 +1341,7 @@ func TestListAuditEvents(t *testing.T) {
 			Timestamp: "2026-01-01T00:00:00Z",
 			Actor:     "user-123",
 			Action:    "CreateBiome",
-			Resource:  "biome:k8s-primary",
+			Resource:  "biome:k8s-controller",
 			TenantID:  "tenant-123",
 		},
 	}

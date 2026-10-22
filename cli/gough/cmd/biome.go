@@ -497,7 +497,7 @@ func biomeDeployCmd() *cobra.Command {
 		Short: "Deploy a biome to a node",
 		Long: `Deploy a biome to a node.
 
-For k8s-primary biome, control-plane frontend options are available:
+For k8s-controller biome, control-plane frontend options are available:
   --frontend-mode: kube-vip (default), external, or none
   --frontend-endpoint: Required for kube-vip and external modes
   --frontend-interface: kube-vip mode only; default is primary NIC

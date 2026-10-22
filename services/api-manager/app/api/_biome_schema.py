@@ -10,6 +10,8 @@ from typing import Annotated, Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from ..catalog import canonical_biome_name
+
 
 BiomeKind = Literal[
     "infrastructure",
@@ -110,6 +112,12 @@ class BiomeCreate(BaseModel):
 
     name: Annotated[str, Field(min_length=1, max_length=255)]
     display_name: Annotated[str, Field(min_length=1, max_length=255)]
+
+    @field_validator("name")
+    @classmethod
+    def _canonical_name(cls, value: str) -> str:
+        """Map deprecated built-in names (k8s-primary) to their canonical form."""
+        return canonical_biome_name(value)
     description: Optional[str] = None
     biome_type: Literal["snap", "cloud_init", "lxd_container", "lxd_vm"]
     version: Annotated[str, Field(min_length=1, max_length=64)]

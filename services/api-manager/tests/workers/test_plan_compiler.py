@@ -557,7 +557,7 @@ class TestJoinerSecretOptionalSoftDep:
         egg_node = _EggNode(
             egg_id=1, egg_name="optional-consumer", phase="post_deploy",
             consumes_joiner_secrets_from=[
-                {"egg_kind": "k8s-primary", "extractor_name": "some_token",
+                {"egg_kind": "k8s-controller", "extractor_name": "some_token",
                  "scope": "cluster", "mode": "soft"}
             ],
         )
@@ -691,7 +691,7 @@ class TestPlanCompilerValidate:
     """validate() collects all errors without raising."""
 
     def test_validate_returns_empty_for_valid_plan(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         node_data = fixture["node"]
         plan_req = _build_plan_request(fixture)
@@ -730,7 +730,7 @@ class TestPlanCompilerValidate:
 
 class TestSingleNodeK8sPrimary:
     def test_compile_succeeds(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -746,7 +746,7 @@ class TestSingleNodeK8sPrimary:
         assert "plan_id" in result.phase2_ipxe_script
 
     def test_compile_produces_valid_cloud_init(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -756,7 +756,7 @@ class TestSingleNodeK8sPrimary:
         assert "kubeadm init" in decoded
 
     def test_compile_disk_script_has_device(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
         result = compiler.compile(fixture["node"]["id"], plan_req)
@@ -960,7 +960,7 @@ class TestJoinerSecretRevoked:
         js_err = next(
             e for e in exc_info.value.errors if e.code == "joiner_secret_unavailable"
         )
-        assert js_err.details.get("egg_kind") == "k8s-primary"
+        assert js_err.details.get("egg_kind") == "k8s-controller"
         assert js_err.details.get("extractor") == "kubeadm_join_token"
 
 
@@ -1169,7 +1169,7 @@ class TestVRAMScheduling:
 
 class TestNodeNotFound:
     def test_missing_node_raises_plan_compilation_error(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1183,7 +1183,7 @@ class TestNodeNotFound:
 
 class TestLuksTierDispatch:
     def test_dev_tier_selected_when_no_tpm(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1192,7 +1192,7 @@ class TestLuksTierDispatch:
 
     def test_tpm2_tier_compiles_successfully(self) -> None:
         """Node with tpm:2.0 tag → tier=tpm2 → successful compilation."""
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         # Patch node to include tpm:2.0
         fixture = json.loads(json.dumps(fixture))
         fixture["node"]["hardware_tags"].append("tpm:2.0")
@@ -1206,7 +1206,7 @@ class TestLuksTierDispatch:
 
 class TestIPXEScriptContents:
     def test_ipxe_script_has_mac_and_plan_id(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1217,7 +1217,7 @@ class TestIPXEScriptContents:
         assert result.plan_id in result.phase2_ipxe_script
 
     def test_ipxe_starts_with_ipxe_shebang(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1227,7 +1227,7 @@ class TestIPXEScriptContents:
 
 class TestPlanIdUniqueness:
     def test_two_compiles_produce_different_plan_ids(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1238,7 +1238,7 @@ class TestPlanIdUniqueness:
 
 class TestLXDTokenMinted:
     def test_lxd_mint_join_token_called(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         plan_req = _build_plan_request(fixture)
 
@@ -1475,7 +1475,7 @@ class TestValidateLoadErrors:
     """Cover validate() early-return path when biomes cannot be loaded."""
 
     def test_validate_returns_early_on_egg_not_found(self) -> None:
-        fixture = _load_fixture("single_node_k8s_primary.json")
+        fixture = _load_fixture("single_node_k8s_controller.json")
         compiler, _ = _make_compiler(fixture)
         from collections import namedtuple
 
@@ -1563,7 +1563,7 @@ class TestLoadEggsStringConsumesJoiner:
                     "requires_hardware_tags": [], "prefers_hardware_tags": [], "forbids_hardware_tags": [],
                     "dependencies": [],
                     # String-form consume spec (egg_kind shorthand)
-                    "consumes_joiner_secrets_from": ["k8s-primary"],
+                    "consumes_joiner_secrets_from": ["k8s-controller"],
                     "emits_joiner_secrets": False,
                     "cloud_init": {},
                     "storage_requirements_json": {},
@@ -1574,7 +1574,7 @@ class TestLoadEggsStringConsumesJoiner:
                 {
                     "id": str(uuid.uuid4()),
                     "cluster_id": "test-cluster",
-                    "egg_kind": "k8s-primary",
+                    "egg_kind": "k8s-controller",
                     "extractor_name": "",
                     "scope": "cluster",
                     "revoked_at": None,

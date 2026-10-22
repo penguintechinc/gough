@@ -1,12 +1,12 @@
 # Plan 3 — Orchestration (Phase 3)
 
 ## Goal
-Deploy biomes (workload templates) onto provisioned nodes. Built-in catalog (k8s-primary, k8s-worker, nest-agent, longhorn-agent) can be deployed immediately; custom biomes authoring is supported with cosign signature verification. Aki can author and sign a new biome in <30 minutes; Mara can deploy k8s primary + 3 workers in <20 minutes.
+Deploy biomes (workload templates) onto provisioned nodes. Built-in catalog (k8s-controller, k8s-worker, nest-agent, longhorn-agent) can be deployed immediately; custom biomes authoring is supported with cosign signature verification. Aki can author and sign a new biome in <30 minutes; Mara can deploy k8s primary + 3 workers in <20 minutes.
 
 ## Scope
-- [x] Kubernetes control plane bootstrap (k8s-primary biome)
+- [x] Kubernetes control plane bootstrap (k8s-controller biome)
 - [x] Kubernetes worker join (k8s-worker biome)
-- [x] Built-in biome catalog (4 biomes: k8s-primary, k8s-worker, nest-agent, longhorn-agent)
+- [x] Built-in biome catalog (4 biomes: k8s-controller, k8s-worker, nest-agent, longhorn-agent)
 - [x] Custom biome authoring and publishing (git repos; registry in M2)
 - [x] cosign signature verification on biome image references
 
@@ -60,7 +60,7 @@ CREATE INDEX idx_deployments_egg_node ON deployments(biome_id, node_id);
 - `gough.cluster.quorum_loss` (CRITICAL) — k8s control plane lost majority (during primary deployment)
 
 ## Acceptance Criteria
-1. Mara deploys k8s-primary to node-1, k8s-worker to nodes 2-4; cluster is operational within 20 min
+1. Mara deploys k8s-controller to node-1, k8s-worker to nodes 2-4; cluster is operational within 20 min
 2. Aki authors custom biome (e.g., monitoring agent), signs with cosign, publishes to git repo
 3. Operator verifies biome signature: `gough biome verify myegg:v1.0.0`; deployment blocked if signature invalid in production
 4. Operator can view deployment progress: `gough deployment list`, `gough deployment logs <id>`

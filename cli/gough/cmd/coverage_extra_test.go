@@ -203,7 +203,7 @@ func TestDevSeed_WithMultipleBiomes(t *testing.T) {
 	})))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"dev", "seed", "--biomes", "k8s-primary,nest-agent,tobogganing"})
+	rootCmd.SetArgs([]string{"dev", "seed", "--biomes", "k8s-controller,nest-agent,tobogganing"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 	if err := rootCmd.Execute(); err != nil {
@@ -263,7 +263,7 @@ func TestBiomeUpgrade_ToVersion(t *testing.T) {
 	})))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "--to", "1.28.5"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "--to", "1.28.5"})
 	var outBuf bytes.Buffer
 	rootCmd.SetOut(&outBuf)
 	if err := rootCmd.Execute(); err != nil {

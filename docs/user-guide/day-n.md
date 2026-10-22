@@ -140,7 +140,7 @@ nano k8s/biomes/seed/my-app/lxd-profile.yaml
 gough biome validate --biome-id=my-app
 
 # Test locally
-gough dev seed --biomes my-app,k8s-primary
+gough dev seed --biomes my-app,k8s-controller
 
 # Publish to registry
 gough biome publish --biome-id=my-app

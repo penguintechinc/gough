@@ -46,13 +46,13 @@ def app_client(app_with_auth):
 @pytest.fixture()
 def sample_eggs(dal_with_eggs):
     """Same 5-biome catalog as ``tests/api/test_biomes.py`` (module-local; not
-    shared via conftest). Index 0 = k8s-primary (``k8s``, no registry_url by
+    shared via conftest). Index 0 = k8s-controller (``k8s``, no registry_url by
     default), index 4 = app-workload (``user_workload`` -- no cluster.admin
     scope or approval_token required for upgrade).
     """
     biomes = []
     specs = [
-        {"name": "k8s-primary", "biome_kind": "k8s", "phase": "phase2_initial", "workload_type": "lxc"},
+        {"name": "k8s-controller", "biome_kind": "k8s", "phase": "phase2_initial", "workload_type": "lxc"},
         {"name": "nest-agent", "biome_kind": "storage", "phase": "post_deploy", "workload_type": "lxc"},
         {"name": "prometheus", "biome_kind": "monitoring", "phase": "post_deploy", "workload_type": "lxc"},
         {"name": "vault-leader", "biome_kind": "infrastructure", "phase": "post_deploy", "workload_type": "vm"},
@@ -178,7 +178,7 @@ class TestSignBiomeFlagOn:
         calls = _cosign_subprocess_double(monkeypatch)
         biome_id = sample_eggs[0][0]
         dal_with_eggs(dal_with_eggs.biomes.id == biome_id).update(
-            registry_url="ghcr.io/penguintechinc/gough/k8s-primary:v1.0.0"
+            registry_url="ghcr.io/penguintechinc/gough/k8s-controller:v1.0.0"
         )
         dal_with_eggs.commit()
 
@@ -211,7 +211,7 @@ class TestSignBiomeFlagOn:
         _cosign_subprocess_double(monkeypatch, fail_sign=True)
         biome_id = sample_eggs[0][0]
         dal_with_eggs(dal_with_eggs.biomes.id == biome_id).update(
-            registry_url="ghcr.io/penguintechinc/gough/k8s-primary:v1.0.0"
+            registry_url="ghcr.io/penguintechinc/gough/k8s-controller:v1.0.0"
         )
         dal_with_eggs.commit()
 

@@ -23,6 +23,7 @@ import json
 import os
 import re
 import secrets
+import shlex
 import time
 import uuid
 from collections import deque
@@ -31,6 +32,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 from pydantic import BaseModel, Field, model_validator
+
+from ..catalog import CILIUM_VERSION, canonical_biome_name
+from ..mirrors import MirrorConfig, MirrorConfigError, load_mirror_config
 
 
 # ---------------------------------------------------------------------------
@@ -417,19 +421,63 @@ def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes,
 # ---------------------------------------------------------------------------
 
 
+def _fetch_verified_cmd(url: str, sha256: str, dest: str) -> str:
+    """Return a shell step that downloads ``url`` to ``dest`` and fails unless sha256 matches.
+
+    Verify-before-apply: the artifact is only applied after this step succeeds.
+    Inputs are validated upstream (https-only, no quotes/spaces) and shell-quoted here.
+    """
+    q_url = shlex.quote(url)
+    q_dest = shlex.quote(dest)
+    return (
+        f"mkdir -p {shlex.quote(os.path.dirname(dest))} && "
+        f"curl -fsSL --proto '=https' --tlsv1.2 -o {q_dest} {q_url} && "
+        f"echo {shlex.quote(sha256 + '  ' + dest)} | sha256sum -c - || exit 1"
+    )
+
+
+def _render_registry_mirror_files(mirrors: MirrorConfig) -> tuple[list[dict[str, Any]], list[str]]:
+    """Render containerd hosts.toml files routing each upstream registry through the mirror.
+
+    Returns (write_files, runcmds). The runcmd fails loudly if containerd does not
+    read ``/etc/containerd/certs.d``, so pulls can never silently go upstream.
+    """
+    write_files: list[dict[str, Any]] = []
+    for registry in mirrors.mirrored_registries:
+        upstream = "registry-1.docker.io" if registry == "docker.io" else registry
+        write_files.append({
+            "path": f"/etc/containerd/certs.d/{registry}/hosts.toml",
+            "content": (
+                f'server = "https://{upstream}"\n\n'
+                f'[host."{mirrors.registry_mirror}"]\n'
+                '  capabilities = ["pull", "resolve"]\n'
+            ),
+            "permissions": "0644",
+        })
+    runcmds = [
+        "# Fail loudly unless containerd reads per-registry mirror config",
+        "grep -q 'config_path = \"/etc/containerd/certs.d\"' /etc/containerd/config.toml "
+        "|| (echo 'FATAL: containerd config_path for certs.d is not set' && exit 1)",
+    ]
+    return (write_files, runcmds)
+
+
 def _render_cni_install(
     cni_mode: str,
     cni_params: dict[str, Any],
     endpoint: str | None,
+    mirror_config: MirrorConfig | None = None,
 ) -> tuple[list[dict[str, Any]], list[str], list[PlanValidationError]]:
     """Render CNI install (Cilium) or skip if mode=none.
 
     Returns (write_files, runcmds, errors).
 
-    On bootstrap with cni=cilium:
+    On bootstrap with cni=cilium (airgap: every artifact from an operator mirror,
+    sha256-verified before use; no public upstream host access):
       - Write cilium-values.yaml with templated k8sServiceHost
-      - Pre-apply all 14 Cilium CRDs from pinned version URL
-      - Helm install with pinned chart version and digests
+      - Write containerd hosts.toml routing upstream registries through the mirror
+      - Fetch the Cilium CRD bundle and Gateway API CRDs, verify sha256, then apply
+      - Helm install from the verified chart tarball
       - Wait for operator Ready + DaemonSet rolled out
       - Verify critical CRDs present (ciliumenvoyconfigs, ciliumclusterwideenvoyconfigs)
 
@@ -466,7 +514,29 @@ def _render_cni_install(
         )
         return (write_files, runcmds, errors)
 
-    version = cni_params.get("version", "1.19.1")
+    version = str(cni_params.get("version", CILIUM_VERSION))
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        errors.append(
+            PlanValidationError(
+                code="cloud_init_validation_error",
+                message=f"Invalid Cilium version {version!r}; expected MAJOR.MINOR.PATCH",
+                details={"cilium_version": version},
+            )
+        )
+        return (write_files, runcmds, errors)
+
+    try:
+        mirrors = mirror_config or load_mirror_config()
+    except MirrorConfigError as exc:
+        errors.append(
+            PlanValidationError(
+                code="cloud_init_validation_error",
+                message=f"airgap mirror configuration invalid: {exc}",
+                details={},
+            )
+        )
+        return (write_files, runcmds, errors)
+
     service_host = endpoint.split(":")[0]
 
     # Generate cilium-values.yaml with templated service host
@@ -514,52 +584,38 @@ def _render_cni_install(
         "permissions": "0644",
     })
 
-    # All 14 Cilium CRDs for v1.19.1
-    crds = [
-        "ciliumcidrgroups",
-        "ciliumclusterwideenvoyconfigs",
-        "ciliumclusterwideexternalworkloads",
-        "ciliumclusterwidenetworkpolicies",
-        "ciliumendpoints",
-        "ciliumendpointslices",
-        "ciliumenvoyconfigs",
-        "ciliumexternalworkloads",
-        "ciliumidentities",
-        "ciliumloadbalancerippools",
-        "ciliumnetworkpolicies",
-        "ciliumnodeconfigs",
-        "ciliumnodes",
-        "ciliumpodippools",
-    ]
+    # Airgap: route every upstream registry through the operator mirror.
+    registry_files, registry_cmds = _render_registry_mirror_files(mirrors)
+    write_files.extend(registry_files)
+    runcmds.extend(registry_cmds)
 
-    crd_base_url = f"https://raw.githubusercontent.com/cilium/cilium/v{version}/install/kubernetes/helm/cilium/crds"
+    # Airgap: every artifact comes from an operator mirror and is sha256-verified
+    # before it is applied. Nothing is fetched from upstream hosts.
+    crd_bundle_path = "/var/lib/gough/airgap/cilium-crds.yaml"
+    gateway_crd_path = "/var/lib/gough/airgap/gateway-api-crds.yaml"
+    chart_path = f"/var/lib/gough/airgap/cilium-{version}.tgz"
 
-    # Pre-apply Gateway API CRDs v1.0.0 (serves both v1 and v1alpha2 for TLSRoute) — before Cilium CRDs
-    runcmds.append("# Pre-apply Gateway API CRDs at v1.0.0 (Cilium 1.19.1 requires TLSRoute v1alpha2)")
+    # Gateway API CRDs first: gatewayAPI is enabled in the values, so TLSRoute must be served.
+    runcmds.append("# Fetch + verify Gateway API CRDs from the mirror (gatewayAPI is enabled)")
     runcmds.append(
-        "kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/standard-install.yaml || true"
+        _fetch_verified_cmd(mirrors.gateway_api_crds_url, mirrors.gateway_api_crds_sha256, gateway_crd_path)
     )
-    runcmds.append(
-        "kubectl apply -f https://github.com/kubernetes-sigs/gateway-api/releases/download/v1.0.0/experimental-install.yaml || true"
-    )
+    runcmds.append(f"kubectl apply -f {shlex.quote(gateway_crd_path)} || exit 1")
     runcmds.append(
         "kubectl get crd tlsroutes.gateway.networking.k8s.io -o jsonpath='{.spec.versions[?(@.name==\"v1alpha2\")].served}' | grep -q true "
         "|| (echo 'FATAL: TLSRoute v1alpha2 not served — Cilium operator will crash' && exit 1)"
     )
 
-    # Pre-apply CRDs (before operator starts) — prevent operator stuck-on-CRDs deadlock
-    runcmds.append("# Pre-apply Cilium CRDs to prevent operator stuck-on-CRDs deadlock")
-    for crd in crds:
-        crd_url = f"{crd_base_url}/{crd}.yaml"
-        runcmds.append(
-            f"kubectl apply -f {crd_url} || (echo 'CRD {crd} apply failed' && exit 1)"
-        )
+    # Pre-apply the Cilium CRD bundle (single verified file) before the operator starts.
+    runcmds.append("# Fetch + verify + pre-apply Cilium CRD bundle (prevents operator stuck-on-CRDs deadlock)")
+    runcmds.append(_fetch_verified_cmd(mirrors.cilium_crds_url, mirrors.cilium_crds_sha256, crd_bundle_path))
+    runcmds.append(f"kubectl apply -f {shlex.quote(crd_bundle_path)} || exit 1")
 
-    # Helm repo + install (idempotent: install -> helm upgrade --install)
-    runcmds.append("helm repo add cilium https://helm.cilium.io/ --force-update")
+    # Chart from the mirror, verified, installed from the local tarball (no helm repo).
+    runcmds.append("# Fetch + verify Cilium chart from the mirror, then helm install from the local tarball")
+    runcmds.append(_fetch_verified_cmd(mirrors.cilium_chart_url(version), mirrors.cilium_chart_sha256, chart_path))
     runcmds.append(
-        f"helm install cilium cilium/cilium "
-        f"--version {version} "
+        f"helm install cilium {shlex.quote(chart_path)} "
         f"--namespace kube-system --create-namespace "
         f"-f /etc/gough/cilium-values.yaml "
         f"--wait --timeout 10m"
@@ -637,11 +693,11 @@ def _render_control_plane_frontend(
     runcmds: list[str] = []
     joiner_secrets: list[dict[str, Any]] = []
 
-    if biome_name != "k8s-primary":
+    if biome_name != "k8s-controller":
         errors.append(
             PlanValidationError(
                 code="cloud_init_validation_error",
-                message=f"control_plane_frontend params only valid on k8s-primary biome, not {biome_name!r}",
+                message=f"control_plane_frontend params only valid on k8s-controller biome, not {biome_name!r}",
                 details={"biome": biome_name},
             )
         )
@@ -858,14 +914,14 @@ spec:
         # Emit joiner secrets (placeholder extraction; real impl uses kubeadm hooks)
         joiner_secrets.append({
             "cluster_id": cluster_id,
-            "egg_kind": "k8s-primary",
+            "egg_kind": "k8s-controller",
             "extractor_name": "control_plane_endpoint",
             "scope": "cluster",
             "value": endpoint,
         })
         joiner_secrets.append({
             "cluster_id": cluster_id,
-            "egg_kind": "k8s-primary",
+            "egg_kind": "k8s-controller",
             "extractor_name": "kubeadm_certificate_key",
             "scope": "cluster",
             "value": f"<cert-key-from-init>",  # Real impl extracts from kubeadm
@@ -929,7 +985,7 @@ def _validate_frontend_params(
     if not params:
         return errors
 
-    if biome_name != "k8s-primary":
+    if biome_name != "k8s-controller":
         return errors
 
     mode = params.get("mode", "kube-vip")
@@ -1731,6 +1787,9 @@ class PlanCompiler:
             row_dict = row.as_dict()
             eid = row_dict["id"]
             found_ids.add(eid)
+            # Rows stored before the k8s-controller rename still carry the legacy name.
+            if isinstance(row_dict.get("name"), str):
+                row_dict["name"] = canonical_biome_name(row_dict["name"])
 
             # Parse JSON fields
             def _j(col: str, default: Any = None) -> Any:

@@ -10,8 +10,8 @@ Tests all 9 scenarios from Phase 1 verification:
 5. mode=external, join → no manifest, join command with consumed secrets
 6. VIP outside baseline CIDR → validation error
 7. Unknown mode → validation error
-8. kube-vip on non-k8s-primary → validation error
-9. 3-node deploy, all with k8s-primary → first bootstrap, others join, same VIP
+8. kube-vip on non-k8s-controller → validation error
+9. 3-node deploy, all with k8s-controller → first bootstrap, others join, same VIP
 
 All tests use real Pydantic models and validation logic per testing-python.md.
 """
@@ -19,6 +19,24 @@ All tests use real Pydantic models and validation logic per testing-python.md.
 from __future__ import annotations
 
 import pytest
+
+AIRGAP_MIRROR_ENV = {
+    "GOUGH_CHART_MIRROR_URL": "https://mirror.airgap.test/charts",
+    "GOUGH_CILIUM_CHART_SHA256": "a" * 64,
+    "GOUGH_CILIUM_CRDS_URL": "https://mirror.airgap.test/cilium/cilium-crds-v1.20.1.yaml",
+    "GOUGH_CILIUM_CRDS_SHA256": "b" * 64,
+    "GOUGH_GATEWAY_API_CRDS_URL": "https://mirror.airgap.test/gateway/standard-install.yaml",
+    "GOUGH_GATEWAY_API_CRDS_SHA256": "c" * 64,
+    "GOUGH_REGISTRY_MIRROR": "https://registry.airgap.test:5000",
+}
+
+
+@pytest.fixture(autouse=True)
+def _airgap_mirrors(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provide operator mirror settings so cilium renders run in airgap mode."""
+    for key, value in AIRGAP_MIRROR_ENV.items():
+        monkeypatch.setenv(key, value)
+
 
 from app.workers.plan_compiler import (
     PlanValidationError,
@@ -40,7 +58,7 @@ def test_mode_none_bootstrap() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
@@ -69,14 +87,14 @@ def test_mode_kube_vip_bootstrap() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
     )
 
     assert len(errors) == 0, f"Expected no errors, got {errors}"
-    assert len(write_files) == 4, "Should render kube-vip manifest + cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
+    assert len(write_files) == 8, "Should render kube-vip manifest + cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
 
     # Check kube-vip manifest
     kube_vip_file = next((wf for wf in write_files if "kube-vip" in wf["path"]), None)
@@ -115,21 +133,21 @@ def test_mode_kube_vip_join() -> None:
         {
             "id": "secret-1",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_join_token",
             "scope": "cluster",
         },
         {
             "id": "secret-2",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_ca_hash",
             "scope": "cluster",
         },
         {
             "id": "secret-3",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_certificate_key",
             "scope": "cluster",
         },
@@ -137,7 +155,7 @@ def test_mode_kube_vip_join() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-2",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
@@ -170,14 +188,14 @@ def test_mode_external_bootstrap() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
     )
 
     assert len(errors) == 0, f"Expected no errors, got {errors}"
-    assert len(write_files) == 3, "mode=external should write cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
+    assert len(write_files) == 7, "mode=external should write cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
 
     cilium_file = next((wf for wf in write_files if "cilium-values" in wf["path"]), None)
     assert cilium_file is not None
@@ -204,21 +222,21 @@ def test_mode_external_join() -> None:
         {
             "id": "secret-1",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_join_token",
             "scope": "cluster",
         },
         {
             "id": "secret-2",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_ca_hash",
             "scope": "cluster",
         },
         {
             "id": "secret-3",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_certificate_key",
             "scope": "cluster",
         },
@@ -226,7 +244,7 @@ def test_mode_external_join() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-2",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
@@ -252,7 +270,7 @@ def test_kube_vip_missing_endpoint() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -276,7 +294,7 @@ def test_unknown_mode() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -287,7 +305,7 @@ def test_unknown_mode() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Test: kube-vip on non-k8s-primary biome
+# Test: kube-vip on non-k8s-controller biome
 # ---------------------------------------------------------------------------
 
 
@@ -306,8 +324,8 @@ def test_kube_vip_on_worker_biome() -> None:
         joiner_secrets_existing=[],
     )
 
-    assert len(errors) > 0, "Should reject frontend params on non-k8s-primary biome"
-    assert any("k8s-primary" in e.message for e in errors)
+    assert len(errors) > 0, "Should reject frontend params on non-k8s-controller biome"
+    assert any("k8s-controller" in e.message for e in errors)
 
 
 # ---------------------------------------------------------------------------
@@ -323,7 +341,7 @@ def test_validate_frontend_params_unknown_mode() -> None:
 
     errors = _validate_frontend_params(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_count=3,
     )
 
@@ -344,7 +362,7 @@ def test_validate_frontend_params_external_missing_endpoint() -> None:
 
     errors = _validate_frontend_params(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_count=3,
     )
 
@@ -368,7 +386,7 @@ def test_join_missing_secrets() -> None:
         {
             "id": "secret-1",
             "cluster_id": "test-cluster",
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_join_token",
             "scope": "cluster",
         },
@@ -376,7 +394,7 @@ def test_join_missing_secrets() -> None:
 
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-2",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
@@ -404,14 +422,14 @@ def test_3node_ha_kube_vip_scenario() -> None:
     # Node 1: Bootstrap (no prior secrets)
     write_files_1, runcmds_1, joiner_secrets_1, errors_1 = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id=cluster_id,
         joiner_secrets_existing=[],
     )
 
     assert len(errors_1) == 0, f"Bootstrap should succeed, got {errors_1}"
-    assert len(write_files_1) == 4, "Bootstrap should render kube-vip manifest + cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
+    assert len(write_files_1) == 8, "Bootstrap should render kube-vip manifest + cilium-values.yaml + CiliumLoadBalancerIPPool + watchdog CronJob"
 
     # Check kube-vip manifest
     kube_vip_file = next((wf for wf in write_files_1 if "kube-vip" in wf["path"]), None)
@@ -425,21 +443,21 @@ def test_3node_ha_kube_vip_scenario() -> None:
         {
             "id": "secret-1",
             "cluster_id": cluster_id,
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_join_token",
             "scope": "cluster",
         },
         {
             "id": "secret-2",
             "cluster_id": cluster_id,
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_ca_hash",
             "scope": "cluster",
         },
         {
             "id": "secret-3",
             "cluster_id": cluster_id,
-            "biome_kind": "k8s-primary",
+            "biome_kind": "k8s-controller",
             "extractor_name": "kubeadm_certificate_key",
             "scope": "cluster",
         },
@@ -448,7 +466,7 @@ def test_3node_ha_kube_vip_scenario() -> None:
     # Node 2: Join (with prior secrets)
     write_files_2, runcmds_2, joiner_secrets_2, errors_2 = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-2",
         cluster_id=cluster_id,
         joiner_secrets_existing=joiner_secrets_for_join,
@@ -467,7 +485,7 @@ def test_3node_ha_kube_vip_scenario() -> None:
     # Node 3: Also joins with same secrets
     write_files_3, runcmds_3, joiner_secrets_3, errors_3 = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-3",
         cluster_id=cluster_id,
         joiner_secrets_existing=joiner_secrets_for_join,
@@ -498,11 +516,11 @@ def test_kube_vip_bootstrap_installs_cilium() -> None:
         "mode": "kube-vip",
         "endpoint": "10.2.0.10:6443",
         "cni": "cilium",
-        "cni_params": {"version": "1.19.1"},
+        "cni_params": {"version": "1.20.1"},
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -517,16 +535,17 @@ def test_kube_vip_bootstrap_installs_cilium() -> None:
     assert "10.2.0.10" in values_files[0]["content"]  # templated VIP
 
     # Check critical CRD pre-apply (dal2-beta deadlock prevention)
-    assert any("ciliumenvoyconfigs.yaml" in cmd for cmd in runcmds), \
-        "Should pre-apply ciliumenvoyconfigs CRD"
-    assert any("ciliumclusterwideenvoyconfigs.yaml" in cmd for cmd in runcmds), \
-        "Should pre-apply ciliumclusterwideenvoyconfigs CRD (dal2-beta fix)"
+    # Airgap: the CRD bundle is fetched from the mirror, sha256-verified, then applied.
+    assert any("cilium-crds.yaml" in cmd and "sha256sum -c" in cmd for cmd in runcmds), \
+        "Should fetch and verify the Cilium CRD bundle before applying"
+    assert any(cmd.startswith("kubectl apply -f") and "cilium-crds.yaml" in cmd for cmd in runcmds), \
+        "Should pre-apply the Cilium CRD bundle (dal2-beta fix)"
 
-    # Check helm install
-    assert any("helm install cilium" in cmd for cmd in runcmds), \
-        "Should install Cilium via helm"
-    assert any("--version 1.19.1" in cmd for cmd in runcmds), \
-        "Should pin Cilium chart version to 1.19.1"
+    # Check helm install from the verified chart tarball (no helm repo)
+    assert any("helm install cilium" in cmd and "cilium-1.20.1.tgz" in cmd for cmd in runcmds), \
+        "Should install Cilium via helm from the verified 1.20.1 chart tarball"
+    assert not any("helm repo add" in cmd for cmd in runcmds), \
+        "Airgap installs must not add upstream helm repositories"
 
     # Check readiness waits
     assert any("cilium-operator" in cmd and "wait" in cmd for cmd in runcmds), \
@@ -548,7 +567,7 @@ def test_kube_vip_bootstrap_skips_kube_proxy() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -577,7 +596,7 @@ def test_kube_vip_join_waits_for_local_cilium() -> None:
     ]
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-2",
         cluster_id="test-cluster",
         joiner_secrets_existing=joiner_secrets_existing,
@@ -597,11 +616,11 @@ def test_external_bootstrap_installs_cilium() -> None:
         "mode": "external",
         "endpoint": "api.example.com:6443",
         "cni": "cilium",
-        "cni_params": {"version": "1.19.1"},
+        "cni_params": {"version": "1.20.1"},
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -610,7 +629,7 @@ def test_external_bootstrap_installs_cilium() -> None:
     assert len(errors) == 0
     assert any("helm install cilium" in cmd for cmd in runcmds), \
         "External mode should also install Cilium"
-    assert any("ciliumenvoyconfigs.yaml" in cmd for cmd in runcmds), \
+    assert any("cilium-crds.yaml" in cmd for cmd in runcmds), \
         "External mode should pre-apply Cilium CRDs"
 
 
@@ -622,7 +641,7 @@ def test_cni_none_skips_cilium() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -645,7 +664,7 @@ def test_cni_unknown_value_rejected() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -669,7 +688,7 @@ def test_cilium_install_has_real_digests() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -691,7 +710,7 @@ def test_cilium_install_includes_lb_ipam() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -719,7 +738,7 @@ def test_cilium_install_applies_gateway_api_crds_before_cilium_crds() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -730,9 +749,9 @@ def test_cilium_install_applies_gateway_api_crds_before_cilium_crds() -> None:
     gw_api_idx = None
     cilium_crd_idx = None
     for i, cmd in enumerate(runcmds):
-        if "gateway-api" in cmd and "standard-install.yaml" in cmd:
+        if cmd.startswith("kubectl apply") and "gateway-api-crds.yaml" in cmd:
             gw_api_idx = i
-        if "cilium/cilium/crds" in cmd or "Pre-apply Cilium CRDs" in cmd:
+        if cmd.startswith("kubectl apply") and "cilium-crds.yaml" in cmd:
             cilium_crd_idx = i
 
     assert gw_api_idx is not None, "Gateway API CRD apply must be present"
@@ -748,7 +767,7 @@ def test_tlsroute_v1alpha2_check_present() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -768,7 +787,7 @@ def test_watchdog_cronjob_installed() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],
@@ -797,7 +816,7 @@ def test_lb_pool_cidr_param() -> None:
     }
     write_files, runcmds, joiner_secrets, errors = _render_control_plane_frontend(
         params=params,
-        biome_name="k8s-primary",
+        biome_name="k8s-controller",
         node_name="cp-1",
         cluster_id="test-cluster",
         joiner_secrets_existing=[],

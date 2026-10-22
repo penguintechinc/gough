@@ -13,8 +13,10 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
+    UniqueConstraint,
     create_engine,
     false as sa_false,
 )
@@ -804,6 +806,43 @@ class BootstrapTokenSeed(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     token_hash = Column(String(64), unique=True, nullable=False)
     seeded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+# =============================================================================
+# Hub biome bundle cache (verified biomes releases served to instances)
+# =============================================================================
+
+class BiomeBundleImport(Base):
+    """One verified biomes release; written only after sha256 (and cosign, if configured) pass."""
+
+    __tablename__ = "biome_bundle_imports"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    public_id = Column(String(36), unique=True, nullable=False)
+    version = Column(String(64), unique=True, nullable=False)
+    source_sha256 = Column(String(64), nullable=False)
+    source_url = Column(Text, nullable=False)
+    signature_status = Column(Integer, nullable=False)  # 0=not required, 1=verified
+    file_count = Column(Integer, nullable=False)
+    imported_by = Column(String(255), nullable=False)
+    imported_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class BiomeBundleFile(Base):
+    """One verified file from a biomes release, keyed by (import, biome, path)."""
+
+    __tablename__ = "biome_bundle_files"
+    __table_args__ = (
+        UniqueConstraint("import_id", "biome", "path", name="uq_bundle_file_path"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    import_id = Column(Integer, ForeignKey("biome_bundle_imports.id"), nullable=False, index=True)
+    biome = Column(String(64), nullable=False)
+    path = Column(String(512), nullable=False)
+    sha256 = Column(String(64), nullable=False)
+    size_bytes = Column(Integer, nullable=False)
+    content = Column(LargeBinary, nullable=False)
 
 
 def convert_pydal_to_sqlalchemy_uri(db_uri: str) -> str:
