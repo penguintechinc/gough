@@ -14,6 +14,7 @@ from prometheus_client import Counter, Histogram
 from typing import Optional
 
 from worker.config import WorkerConfig
+from worker.observations import ObservedClients
 
 logger = structlog.get_logger()
 
@@ -57,8 +58,9 @@ class DHCPProxyServer:
     DHCP_BOOT_FILE = 67
     DHCP_END = 255
 
-    def __init__(self, config: WorkerConfig):
+    def __init__(self, config: WorkerConfig, observed: ObservedClients | None = None):
         self.config = config
+        self.observed = observed
         self.running = False
         self.transport: Optional[asyncio.DatagramTransport] = None
         # Strong references keep in-flight handler tasks alive until they finish
@@ -248,6 +250,8 @@ class DHCPProxyServer:
             return
 
         msg_type_code = msg_type[0]
+        if self.observed is not None:
+            self.observed.record(packet["mac"].replace(":", ""), addr[0])
 
         if msg_type_code == self.DHCP_DISCOVER:
             logger.info(

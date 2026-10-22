@@ -133,7 +133,7 @@ async def test_discovery_token_only_allows_discovery_stage_and_short_ttl(fake_re
         resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
         script = await resp.get_data(as_text=True)
     token = script.split("set boot_token ")[1].split("\n")[0]
-    key = f"gough:boot-token:{MAC}"
+    key = f"gough:boot-token:{MAC}:{CLIENT_IP}"
     assert fake_redis.ttls[key] == 600
     assert json.loads(fake_redis.data[key])["stages"] == ["discovery"]
     with respx.mock(assert_all_called=False) as router:
@@ -169,16 +169,95 @@ async def test_malformed_token_does_not_consume_rate_budget(fake_redis: FakeRedi
 
 
 @pytest.mark.asyncio
-async def test_per_mac_rate_limit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Hammering one MAC (even from varying IPs) is limited by the per-MAC bucket."""
-    monkeypatch.setattr(http_mod, "BOOT_EVENT_MAC_RATE_LIMIT", 2)
+async def test_other_ip_mint_does_not_affect_legit_token() -> None:
+    """An attacker minting for the same MAC from another IP leaves the real machine's token valid."""
     server = _server()
-    codes = []
-    for i in range(4):
-        r = await _post(server, _event(), "a" * 43, scope_base={"client": (f"10.2.2.{i}", 1)})
-        codes.append(r.status_code)
+    legit = await server.token_store.issue(MAC, CLIENT_IP)
+    await server.token_store.issue(MAC, "10.6.6.6")
+    with respx.mock(assert_all_called=False) as router:
+        router.post(UPSTREAM).mock(return_value=httpx.Response(201))
+        resp = await _post(server, _event(), legit)
 
-    assert codes == [401, 401, 429, 429]
+    assert resp.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_other_ip_failures_do_not_block_legit_redemption(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Junk from other IPs exhausts only their own (MAC, IP) budgets; the legit token still redeems."""
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_FAIL_LIMIT", 2)
+    server = _server()
+    legit = await server.token_store.issue(MAC, CLIENT_IP)
+    for i in range(6):
+        await _post(server, _event(), "a" * 43, scope_base={"client": (f"10.2.2.{i % 2}", 1)})
+    with respx.mock(assert_all_called=False) as router:
+        router.post(UPSTREAM).mock(return_value=httpx.Response(201))
+        resp = await _post(server, _event(), legit)
+
+    assert resp.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_failure_budget_is_per_mac_and_ip_and_valid_token_still_works_under_own_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Failures from one (MAC, IP) are limited with 429; a different MAC from the same IP is not."""
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_FAIL_LIMIT", 3)
+    server = _server()
+    codes = [(await _post(server, _event(), "a" * 43)).status_code for _ in range(5)]
+    other_mac = await _post(server, _event(mac=OTHER_MAC), "a" * 43)
+
+    assert codes == [401, 401, 401, 429, 429]
+    assert other_mac.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_successful_redemptions_charge_no_budget(fake_redis: FakeRedis) -> None:
+    """Valid tokens never touch a rate counter."""
+    server = _server()
+    with respx.mock:
+        respx.post(UPSTREAM).mock(return_value=httpx.Response(201))
+        for _ in range(15):
+            token = await server.token_store.issue(MAC, CLIENT_IP)
+            assert (await _post(server, _event(), token)).status_code == 202
+
+    assert fake_redis.counters == {}
+
+
+@pytest.mark.asyncio
+async def test_live_token_cap_per_mac_is_enforced_with_429() -> None:
+    """A MAC may hold 4 live tokens across IPs; the 5th IP is refused (429) and evicts nobody."""
+    server = _server()
+    ips = [f"10.3.3.{i}" for i in range(4)]
+    for ip in ips:
+        await server.token_store.issue(MAC, ip)
+    with respx.mock:
+        respx.get(f"{API}/api/v1/internal/boot-script/{MAC}").mock(return_value=httpx.Response(404))
+        refused = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base={"client": ("10.3.3.99", 1)})
+        same_ip = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base={"client": (ips[0], 1)})
+
+    assert refused.status_code == 429
+    assert same_ip.status_code == 200  # an existing IP may re-mint (overwrites only itself)
+
+
+@pytest.mark.asyncio
+async def test_dhcp_observation_mismatch_is_counted_but_not_fatal() -> None:
+    """If ProxyDHCP saw another IP for this MAC, the mint still succeeds and the mismatch metric increments."""
+    from worker.observations import ObservedClients
+    from worker.services.ipxe_handler import OBSERVATION_MISMATCH
+
+    observed = ObservedClients()
+    observed.record(MAC, "10.8.8.8")
+    server = _server()
+    server.ipxe_handler.observed = observed
+    before = OBSERVATION_MISMATCH._value.get()
+    with respx.mock:
+        respx.get(f"{API}/api/v1/internal/boot-script/{MAC}").mock(return_value=httpx.Response(404))
+        resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
+        matching = observed.record(MAC, CLIENT_IP)
+        await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
+
+    assert resp.status_code == 200 and matching is None
+    assert OBSERVATION_MISMATCH._value.get() == before + 1  # second fetch matched, no increment
 
 
 @pytest.mark.asyncio
@@ -395,19 +474,6 @@ async def test_logs_only_stage_and_machine_id(capsys: pytest.CaptureFixture[str]
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_per_source_ip(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Well-formed-token requests beyond the per-IP limit get 429; hub never contacted."""
-    monkeypatch.setattr(http_mod, "BOOT_EVENT_RATE_LIMIT", 3)
-    server = _server()
-    with respx.mock(assert_all_called=False) as router:
-        route = router.post(UPSTREAM).mock(return_value=httpx.Response(201))
-        codes = [(await _post(server, _event(), "a" * 43)).status_code for _ in range(5)]
-
-    assert codes == [401, 401, 401, 429, 429]
-    assert route.call_count == 0
-
-
-@pytest.mark.asyncio
 async def test_store_outage_fails_closed_with_503(fake_redis: FakeRedis) -> None:
     """If the shared store is down the endpoint refuses (503) rather than skipping the check."""
     server = _server()
@@ -435,12 +501,12 @@ async def test_ipxe_script_embeds_token_stored_only_as_hash(fake_redis: FakeRedi
     token = script.split("set boot_token ")[1].split("\n")[0]
     assert len(token) >= 43
     digest = hashlib.sha256(token.encode()).hexdigest()
-    assert list(fake_redis.data) == [f"gough:boot-token:{MAC}"]
+    assert list(fake_redis.data) == [f"gough:boot-token:{MAC}:{CLIENT_IP}"]
     assert token not in json.dumps(fake_redis.data)
     assert json.loads(next(iter(fake_redis.data.values())))["machine"] == MAC
-    assert fake_redis.ttls[f"gough:boot-token:{MAC}"] == 30 * 60
-    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}"])["ip"] == CLIENT_IP
-    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}"])["hash"] == digest
+    assert fake_redis.ttls[f"gough:boot-token:{MAC}:{CLIENT_IP}"] == 30 * 60
+    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}:{CLIENT_IP}"])["ip"] == CLIENT_IP
+    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}:{CLIENT_IP}"])["hash"] == digest
 
 
 @pytest.mark.asyncio

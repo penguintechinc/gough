@@ -17,6 +17,7 @@ from worker.heartbeat import HeartbeatManager
 from worker.services.tftp_server import TFTPServer
 from worker.services.http_server import HTTPBootServer
 from worker.services.dhcp_proxy import DHCPProxyServer
+from worker.observations import ObservedClients
 from worker.services.dhcp_server import DHCPFullServer
 
 logger = get_logger(__name__)
@@ -29,6 +30,7 @@ class WorkerIPXE:
         self.config = config
         self.enrollment = EnrollmentManager(config)
         self.heartbeat = HeartbeatManager(config, self.enrollment)
+        self.observed = ObservedClients()
 
         # Services
         self.tftp_server: TFTPServer = None
@@ -68,14 +70,14 @@ class WorkerIPXE:
             logger.info("tftp_server_started", port=self.config.tftp_port)
 
         # Start HTTP boot server
-        self.http_server = HTTPBootServer(self.config, self.enrollment)
+        self.http_server = HTTPBootServer(self.config, self.enrollment, observed=self.observed)
         http_task = asyncio.create_task(self.http_server.start())
         self.tasks.append(http_task)
         logger.info("http_boot_server_started", port=self.config.http_port)
 
         # Start DHCP service based on mode
         if self.config.dhcp_mode == "proxy":
-            self.dhcp_server = DHCPProxyServer(self.config)
+            self.dhcp_server = DHCPProxyServer(self.config, self.observed)
             dhcp_task = asyncio.create_task(self.dhcp_server.start())
             self.tasks.append(dhcp_task)
             logger.info("dhcp_proxy_server_started")

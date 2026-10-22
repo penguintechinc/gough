@@ -16,6 +16,7 @@ class FakeRedis:
         self.data: dict[str, str] = {}
         self.counters: dict[str, int] = {}
         self.ttls: dict[str, int] = {}
+        self.zsets: dict[str, dict[str, float]] = {}
         self.fail = False
 
     def _check(self) -> None:
@@ -34,6 +35,8 @@ class FakeRedis:
     async def get(self, name: str) -> str | None:
         """Fetch a key."""
         self._check()
+        if name in self.counters:
+            return str(self.counters[name])
         return self.data.get(name)
 
     async def delete(self, name: str) -> int:
@@ -46,6 +49,32 @@ class FakeRedis:
         self._check()
         self.counters[name] = self.counters.get(name, 0) + 1
         return self.counters[name]
+
+    async def zadd(self, name: str, mapping: dict[str, float]) -> int:
+        """Add members to a sorted set."""
+        self._check()
+        self.zsets.setdefault(name, {}).update(mapping)
+        return len(mapping)
+
+    async def zrem(self, name: str, *members: str) -> int:
+        """Remove members from a sorted set."""
+        self._check()
+        z = self.zsets.get(name, {})
+        return sum(1 for m in members if z.pop(m, None) is not None)
+
+    async def zcard(self, name: str) -> int:
+        """Sorted-set size."""
+        self._check()
+        return len(self.zsets.get(name, {}))
+
+    async def zremrangebyscore(self, name: str, low: float, high: float) -> int:
+        """Drop members with low <= score <= high."""
+        self._check()
+        z = self.zsets.get(name, {})
+        gone = [m for m, sc in z.items() if low <= sc <= high]
+        for m in gone:
+            del z[m]
+        return len(gone)
 
     async def expire(self, name: str, time: int) -> bool:
         """Record a TTL."""

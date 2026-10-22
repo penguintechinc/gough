@@ -69,7 +69,7 @@ def _install_fakes(
         class Factory:
             """Constructed in place of the real service; instances are FakeService."""
 
-            def __new__(cls, config: WorkerConfig, *args: object) -> FakeService:  # type: ignore[misc]
+            def __new__(cls, config: WorkerConfig, *args: object, **kwargs: object) -> FakeService:  # type: ignore[misc]
                 """Record construction and return a FakeService for this name."""
                 events.append(f"{name}.init")
                 return FakeService(name, events, failures.get(name))
@@ -262,7 +262,7 @@ async def test_service_exiting_normally_is_also_reported(monkeypatch: pytest.Mon
             """Return straight away, as a broken serve loop would."""
             self.events.append(f"{self.name}.start")
 
-    monkeypatch.setattr(main_mod, "HTTPBootServer", lambda cfg, enr: QuietHTTP("http", events))
+    monkeypatch.setattr(main_mod, "HTTPBootServer", lambda cfg, enr, **kw: QuietHTTP("http", events))
 
     with pytest.raises(RuntimeError, match="service task exited unexpectedly"):
         await worker.run()

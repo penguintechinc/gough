@@ -19,7 +19,7 @@ async def test_issue_stores_hash_only_keyed_by_mac_with_ttl(token_store: BootTok
 
     (key, value), = fake_redis.data.items()
     record = json.loads(value)
-    assert key == f"gough:boot-token:{MAC}"
+    assert key == f"gough:boot-token:{MAC}:{IP}"
     assert token not in key and token not in value
     assert fake_redis.ttls[key] == 1800
     assert record["ip"] == IP and record["machine"] == MAC and record["stages"] is None
@@ -75,7 +75,7 @@ async def test_failed_attempts_do_not_burn_the_token(token_store: BootTokenStore
     token = await token_store.issue(MAC, IP, stages=frozenset({"discovery"}))
 
     assert await token_store.redeem("x" * 43, MAC, IP, "discovery") is False
-    assert await token_store.redeem(token, MAC, "10.9.9.9", "discovery") is False
+    assert await token_store.redeem(token, MAC, "10.9.9.9", "discovery") is False  # no record for that IP
     assert await token_store.redeem(token, "112233445566", IP, "discovery") is False
     assert await token_store.redeem(token, MAC, IP, "installing") is False
     assert await token_store.redeem(token, MAC, IP, "discovery") is True
@@ -86,7 +86,7 @@ async def test_custom_ttl_is_applied(token_store: BootTokenStore, fake_redis: Fa
     """A shorter TTL (discovery) is used for both the key expiry and the stored deadline."""
     await token_store.issue(MAC, IP, ttl_seconds=600)
 
-    key = f"gough:boot-token:{MAC}"
+    key = f"gough:boot-token:{MAC}:{IP}"
     assert fake_redis.ttls[key] == 600
     assert json.loads(fake_redis.data[key])["exp"] <= int(time.time()) + 600
 
@@ -119,7 +119,7 @@ async def test_redeem_unknown_machine_fails(token_store: BootTokenStore) -> None
 )
 async def test_corrupt_record_is_refused(token_store: BootTokenStore, fake_redis: FakeRedis, raw: str) -> None:
     """Garbage in the store never validates."""
-    fake_redis.data[f"gough:boot-token:{MAC}"] = raw
+    fake_redis.data[f"gough:boot-token:{MAC}:{IP}"] = raw
 
     assert await token_store.redeem("t" * 43, MAC, IP, "installing") is False
 
@@ -161,3 +161,59 @@ async def test_delete_failure_after_successful_check_raises(token_store: BootTok
 
     with pytest.raises(StoreUnavailableError):
         await token_store.redeem(token, MAC, IP, "installing")
+
+
+@pytest.mark.asyncio
+async def test_other_ip_mint_never_touches_existing_token(token_store: BootTokenStore) -> None:
+    """Tokens are keyed (MAC, IP): minting from IP B leaves IP A's token valid."""
+    a = await token_store.issue(MAC, "10.1.1.1")
+    b = await token_store.issue(MAC, "10.2.2.2")
+
+    assert await token_store.redeem(a, MAC, "10.1.1.1", "installing") is True
+    assert await token_store.redeem(b, MAC, "10.2.2.2", "installing") is True
+
+
+@pytest.mark.asyncio
+async def test_cap_refuses_new_ip_without_evicting_and_frees_on_redeem(token_store: BootTokenStore) -> None:
+    """The 5th distinct IP is refused; redeeming (or expiry) frees a slot; same-IP re-mint is allowed."""
+    from worker.boot_tokens import TokenCapError
+
+    tokens = {f"10.0.0.{i}": await token_store.issue(MAC, f"10.0.0.{i}") for i in range(4)}
+
+    with pytest.raises(TokenCapError):
+        await token_store.issue(MAC, "10.0.0.50")
+    await token_store.issue(MAC, "10.0.0.0")  # overwrite own slot: fine
+    assert await token_store.redeem(tokens["10.0.0.1"], MAC, "10.0.0.1", "x") is True
+    assert await token_store.issue(MAC, "10.0.0.50")
+    assert await token_store.redeem(tokens["10.0.0.2"], MAC, "10.0.0.2", "x") is True
+
+
+@pytest.mark.asyncio
+async def test_expired_slots_do_not_count_toward_cap(token_store: BootTokenStore, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Live-set entries past their expiry are pruned before the cap check."""
+    for i in range(4):
+        await token_store.issue(MAC, f"10.0.0.{i}", ttl_seconds=10)
+    real = time.time
+    monkeypatch.setattr("worker.boot_tokens.time.time", lambda: real() + 60)
+
+    assert await token_store.issue(MAC, "10.0.0.77")
+
+
+@pytest.mark.asyncio
+async def test_failure_accounting_is_read_only_until_charged(token_store: BootTokenStore) -> None:
+    """is_limited never charges; record_failure does; the limit is inclusive of the Nth failure."""
+    assert await token_store.is_limited("k", 2) is False
+    assert await token_store.is_limited("k", 2) is False
+    await token_store.record_failure("k", 60)
+    assert await token_store.is_limited("k", 2) is False
+    await token_store.record_failure("k", 60)
+    assert await token_store.is_limited("k", 2) is True
+
+
+@pytest.mark.asyncio
+async def test_is_limited_outage_raises(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """A store failure while reading the budget is surfaced so callers fail closed."""
+    fake_redis.fail = True
+
+    with pytest.raises(StoreUnavailableError):
+        await token_store.is_limited("k", 1)

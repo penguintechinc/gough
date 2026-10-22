@@ -8,12 +8,19 @@ import re
 
 import structlog
 import httpx
+from prometheus_client import Counter
 
-from worker.boot_tokens import DISCOVERY_TOKEN_TTL_SECONDS, BootTokenStore
+from worker.boot_tokens import DISCOVERY_TOKEN_TTL_SECONDS, BootTokenStore, TokenCapError
+from worker.observations import ObservedClients
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 
 logger = structlog.get_logger()
+
+OBSERVATION_MISMATCH = Counter(
+    "worker_ipxe_boot_token_ip_mismatch_total",
+    "Boot tokens minted for an IP other than the one ProxyDHCP last saw for that MAC",
+)
 
 # Canonical 12-hex-digit MAC (after normalisation) and machine IDs (UUID-shaped).
 _MAC_RE = re.compile(r"^[0-9a-f]{12}$")
@@ -36,10 +43,12 @@ class IPXEHandler:
         config: WorkerConfig,
         enrollment: EnrollmentManager,
         token_store: BootTokenStore | None = None,
+        observed: ObservedClients | None = None,
     ):
         self.config = config
         self.enrollment = enrollment
         self.token_store = token_store
+        self.observed = observed
 
     async def _embed_boot_token(
         self, script: str, mac: str, source_ip: str | None, discovery: bool
@@ -56,6 +65,11 @@ class IPXEHandler:
             return script
         if not source_ip:
             raise ValueError("cannot bind boot token: client address unknown")
+        seen_ip = self.observed.lookup(mac) if self.observed is not None else None
+        if seen_ip is not None and seen_ip != source_ip:
+            # Soft signal only: ProxyDHCP may not see the client's final address
+            logger.warning("boot_token_ip_differs_from_dhcp_observation")
+            OBSERVATION_MISMATCH.inc()
         token = await self.token_store.issue(
             mac,
             source_ip,
@@ -120,6 +134,8 @@ class IPXEHandler:
                     )
                     return self._generate_error_script("API request failed")
 
+        except TokenCapError:
+            raise
         except httpx.ConnectError:
             logger.error("api_manager_unreachable", mac=mac_normalized)
             return self._generate_error_script("API manager unreachable")

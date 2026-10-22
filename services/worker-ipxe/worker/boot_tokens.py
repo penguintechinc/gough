@@ -3,6 +3,10 @@
 State lives in Redis/Valkey (REDIS_URL) so every worker-ipxe replica sees the same
 tokens and counters; an in-process store would let a token minted by one replica be
 rejected (or replayed) on another. Only the SHA-256 of a token is ever stored.
+
+Tokens are keyed by (MAC, client IP): a mint from one IP can never replace or affect
+another IP's token, and only FAILED redemptions are rate-limited (per MAC+IP), so a
+valid token always redeems no matter what other clients do.
 """
 
 import hashlib
@@ -13,17 +17,28 @@ import time
 from typing import Protocol
 
 import structlog
+from prometheus_client import Counter
 
 logger = structlog.get_logger()
 
 TOKEN_TTL_SECONDS = 30 * 60
 DISCOVERY_TOKEN_TTL_SECONDS = 10 * 60
-_KEY_PREFIX = "gough:boot-token:"  # keyed by MAC: one live token per machine
+MAX_LIVE_TOKENS_PER_MAC = 4
+_KEY_PREFIX = "gough:boot-token:"  # + "{mac}:{ip}"
+_LIVE_PREFIX = "gough:boot-token-live:"  # sorted set per MAC: ip -> expiry
 _RATE_PREFIX = "gough:boot-rate:"
+
+TOKEN_CAP_REFUSED = Counter(
+    "worker_ipxe_boot_token_cap_refused_total", "Boot token mints refused: per-MAC live-token cap reached"
+)
 
 
 class StoreUnavailableError(RuntimeError):
     """The shared state store could not be reached; callers must fail closed."""
+
+
+class TokenCapError(RuntimeError):
+    """A MAC already has the maximum number of live tokens (across IPs); the mint is refused."""
 
 
 class RedisLike(Protocol):
@@ -44,6 +59,18 @@ class RedisLike(Protocol):
     async def expire(self, name: str, time: int) -> object:
         """Set a key TTL."""
 
+    async def zadd(self, name: str, mapping: dict[str, float]) -> object:
+        """Add members to a sorted set."""
+
+    async def zrem(self, name: str, *members: str) -> object:
+        """Remove members from a sorted set."""
+
+    async def zcard(self, name: str) -> int:
+        """Sorted-set size."""
+
+    async def zremrangebyscore(self, name: str, low: float, high: float) -> object:
+        """Remove sorted-set members by score range."""
+
 
 def _digest(token: str) -> str:
     """SHA-256 hex digest of a token (the only form that is stored)."""
@@ -53,10 +80,16 @@ def _digest(token: str) -> str:
 class BootTokenStore:
     """Issues, redeems and rate-limits boot tokens over a shared Redis client."""
 
-    def __init__(self, client: RedisLike, ttl_seconds: int = TOKEN_TTL_SECONDS) -> None:
-        """Wrap a Redis client; ttl_seconds bounds how long a minted token stays valid."""
+    def __init__(
+        self,
+        client: RedisLike,
+        ttl_seconds: int = TOKEN_TTL_SECONDS,
+        max_live_per_mac: int = MAX_LIVE_TOKENS_PER_MAC,
+    ) -> None:
+        """Wrap a Redis client; ttl_seconds is the default token lifetime."""
         self._client = client
         self._ttl = ttl_seconds
+        self._cap = max_live_per_mac
 
     async def issue(
         self,
@@ -65,37 +98,48 @@ class BootTokenStore:
         ttl_seconds: int | None = None,
         stages: frozenset[str] | None = None,
     ) -> str:
-        """Mint the one live token for `machine` (normalised MAC), bound to `source_ip`.
+        """Mint the live token for (`machine`, `source_ip`); only its SHA-256 is stored.
 
-        The record is keyed by MAC, so minting overwrites any previous token for that
-        machine (one live token per MAC). Only the token's SHA-256 is stored, with the
-        bound IP, expiry and allowed stages (None = every stage).
+        Minting again from the same IP overwrites that IP's token only. A different IP
+        gets its own token, up to `max_live_per_mac` live tokens per MAC; beyond that the
+        mint is refused (TokenCapError) rather than evicting anyone else's token.
         """
         ttl = ttl_seconds or self._ttl
-        token = secrets.token_urlsafe(32)
-        record = json.dumps(
-            {
-                "machine": machine,
-                "hash": _digest(token),
-                "ip": source_ip,
-                "exp": int(time.time()) + ttl,
-                "stages": sorted(stages) if stages is not None else None,
-            }
-        )
+        now = int(time.time())
+        key = f"{_KEY_PREFIX}{machine}:{source_ip}"
+        live_key = _LIVE_PREFIX + machine
         try:
-            await self._client.set(_KEY_PREFIX + machine, record, ex=ttl)
+            await self._client.zremrangebyscore(live_key, 0, now)
+            if not await self._client.get(key) and await self._client.zcard(live_key) >= self._cap:
+                TOKEN_CAP_REFUSED.inc()
+                logger.warning("boot_token_cap_reached", cap=self._cap)
+                raise TokenCapError("too many live boot tokens for this machine")
+            token = secrets.token_urlsafe(32)
+            record = json.dumps(
+                {
+                    "machine": machine,
+                    "hash": _digest(token),
+                    "ip": source_ip,
+                    "exp": now + ttl,
+                    "stages": sorted(stages) if stages is not None else None,
+                }
+            )
+            await self._client.set(key, record, ex=ttl)
+            await self._client.zadd(live_key, {source_ip: now + ttl})
+            await self._client.expire(live_key, self._ttl)
+        except TokenCapError:
+            raise
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
         return token
 
     async def redeem(self, token: str, machine: str, source_ip: str, stage: str) -> bool:
-        """Consume the token for `machine`; True only if hash, IP, expiry and stage all match.
+        """Consume the (machine, ip) token; True only if hash, expiry and stage all match.
 
-        A failed attempt does not burn the live token (otherwise anyone could lock a
-        machine out by guessing). Single use is atomic: DEL reports how many keys it
-        removed, so of two concurrent valid redemptions exactly one sees 1.
+        A failed attempt does not burn the live token. Single use is atomic: DEL reports
+        how many keys it removed, so of two concurrent valid redemptions exactly one wins.
         """
-        key = _KEY_PREFIX + machine
+        key = f"{_KEY_PREFIX}{machine}:{source_ip}"
         try:
             raw = await self._client.get(key)
         except Exception as exc:
@@ -124,7 +168,10 @@ class BootTokenStore:
         if not valid:
             return False
         try:
-            return bool(await self._client.delete(key))
+            removed = bool(await self._client.delete(key))
+            if removed:
+                await self._client.zrem(_LIVE_PREFIX + machine, source_ip)
+            return removed
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
 
@@ -138,6 +185,18 @@ class BootTokenStore:
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
         return count <= limit
+
+    async def is_limited(self, source: str, limit: int) -> bool:
+        """True if `source` has already used up `limit` charges in its window (read-only)."""
+        try:
+            raw = await self._client.get(_RATE_PREFIX + source)
+        except Exception as exc:
+            raise StoreUnavailableError("boot token store unavailable") from exc
+        return bool(raw) and int(str(raw)) >= limit
+
+    async def record_failure(self, source: str, window_seconds: int) -> None:
+        """Charge one failure to `source`'s window (starts the window on the first one)."""
+        await self.allow(source, 0, window_seconds)
 
 
 def create_token_store(redis_url: str) -> BootTokenStore:

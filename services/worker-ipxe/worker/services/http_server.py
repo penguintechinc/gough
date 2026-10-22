@@ -20,7 +20,8 @@ from hypercorn.asyncio import serve
 import httpcore
 import httpx
 
-from worker.boot_tokens import BootTokenStore, StoreUnavailableError, create_token_store
+from worker.boot_tokens import BootTokenStore, StoreUnavailableError, TokenCapError, create_token_store
+from worker.observations import ObservedClients
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 from worker.services.ipxe_handler import _MACHINE_ID_RE, IPXEHandler, _normalize_mac
@@ -34,9 +35,8 @@ DEFAULT_IMAGE_CHUNK_SIZE = 1024 * 1024  # 1 MiB
 
 # /boot-event hardening: body cap, per-source-IP rate limit, strict field allowlist.
 BOOT_EVENT_MAX_BYTES = 4096
-BOOT_EVENT_RATE_LIMIT = 30
+BOOT_EVENT_FAIL_LIMIT = 10  # failed redemptions per (MAC, IP) per window
 BOOT_EVENT_RATE_WINDOW_S = 60
-BOOT_EVENT_MAC_RATE_LIMIT = 10
 IPXE_RATE_LIMIT = 60
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43,128}")
 BOOT_EVENT_STAGES = frozenset(
@@ -440,6 +440,7 @@ class HTTPBootServer:
         config: WorkerConfig,
         enrollment: EnrollmentManager,
         token_store: BootTokenStore | None = None,
+        observed: ObservedClients | None = None,
     ):
         self.config = config
         self.enrollment = enrollment
@@ -451,7 +452,7 @@ class HTTPBootServer:
             token_store = create_token_store(config.redis_url)
         self.token_store = token_store
         self.trusted_proxies = tuple(ipaddress.ip_network(c) for c in config.trusted_proxies)
-        self.ipxe_handler = IPXEHandler(config, enrollment, token_store)
+        self.ipxe_handler = IPXEHandler(config, enrollment, token_store, observed)
         self.image_chunk_size = _load_image_chunk_size()
         self.server_task = None
 
@@ -488,6 +489,8 @@ class HTTPBootServer:
             try:
                 script = await self.ipxe_handler.generate_script(mac, client_ip)
                 return Response(script, mimetype="text/plain")
+            except TokenCapError:
+                return Response("#!ipxe\necho Too many boot requests for this machine\nshell\n", mimetype="text/plain", status=429)
             except Exception as e:
                 logger.error("ipxe_script_generation_error", mac=mac, error=str(e))
                 return Response(
@@ -606,23 +609,19 @@ class HTTPBootServer:
                 return jsonify({"status": "unauthorized"}), 401
 
             try:
-                if not await self.token_store.allow(
-                    f"event-ip:{client_ip}", BOOT_EVENT_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
-                ):
-                    logger.warning("boot_event_rate_limited", client_ip=client_ip)
-                    return jsonify({"status": "error"}), 429
-
                 event, error = _parse_boot_event(await request.get_json(silent=True))
                 if event is None:
                     return jsonify({"status": "error", "message": error}), 400
 
-                if not await self.token_store.allow(
-                    f"event-mac:{event.mac}", BOOT_EVENT_MAC_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
-                ):
-                    logger.warning("boot_event_mac_rate_limited")
+                # Failures are budgeted per (MAC, IP) only: other clients' junk can never
+                # exhaust this machine's budget, and a valid token is never rate-limited.
+                bucket = f"event-fail:{event.mac}:{client_ip}"
+                if await self.token_store.is_limited(bucket, BOOT_EVENT_FAIL_LIMIT):
+                    logger.warning("boot_event_failure_limit", client_ip=client_ip)
                     return jsonify({"status": "error"}), 429
 
                 if not await self.token_store.redeem(token, event.mac, client_ip, event.stage):
+                    await self.token_store.record_failure(bucket, BOOT_EVENT_RATE_WINDOW_S)
                     logger.warning("boot_event_token_rejected", client_ip=client_ip)
                     return jsonify({"status": "unauthorized"}), 401
             except StoreUnavailableError:
