@@ -614,24 +614,21 @@ class HTTPBootServer:
                 if event is None:
                     return jsonify({"status": "error", "message": error}), 400
 
-                # Charge-then-refund keeps the budget atomic (INCR decides, no
-                # check-then-act window): every attempt is charged up front and a
-                # successful redemption gives both charges back, so only FAILURES
-                # consume budget. Budgets: fine (MAC, IP) plus coarse per-IP.
-                pair = f"event-fail:{event.mac}:{client_ip}"
-                coarse = f"event-fail-ip:{client_ip}"
-                if not await self.token_store.allow(pair, BOOT_EVENT_FAIL_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
-                    logger.warning("boot_event_failure_limit", client_ip=client_ip)
-                    return jsonify({"status": "error"}), 429
-                if not await self.token_store.allow(coarse, BOOT_EVENT_IP_FAIL_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
-                    logger.warning("boot_event_ip_failure_limit", client_ip=client_ip)
-                    return jsonify({"status": "error"}), 429
-
+                # Redeem first: a valid token is never blocked by any budget. Only a
+                # FAILED redemption is charged (atomically) to the per-(MAC, IP) and the
+                # coarse per-IP counters; over either limit the answer becomes 429.
                 if not await self.token_store.redeem(token, event.mac, client_ip, event.stage):
+                    within = await self.token_store.charge_failure(
+                        f"event-fail:{event.mac}:{client_ip}",
+                        f"event-fail-ip:{client_ip}",
+                        BOOT_EVENT_FAIL_LIMIT,
+                        BOOT_EVENT_IP_FAIL_LIMIT,
+                        BOOT_EVENT_RATE_WINDOW_S,
+                    )
                     logger.warning("boot_event_token_rejected", client_ip=client_ip)
+                    if not within:
+                        return jsonify({"status": "error"}), 429
                     return jsonify({"status": "unauthorized"}), 401
-                await self.token_store.refund(pair)
-                await self.token_store.refund(coarse)
             except StoreUnavailableError:
                 logger.error("boot_event_store_unavailable")
                 return jsonify({"status": "error"}), 503

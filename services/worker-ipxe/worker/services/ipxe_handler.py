@@ -65,8 +65,8 @@ class IPXEHandler:
             return script
         if not source_ip:
             raise ValueError("cannot bind boot token: client address unknown")
-        seen_ip = self.observed.lookup(mac) if self.observed is not None else None
-        if seen_ip is not None and seen_ip != source_ip:
+        seen_ips = self.observed.lookup(mac) if self.observed is not None else set()
+        if seen_ips and source_ip not in seen_ips:
             # Soft signal only: ProxyDHCP may not see the client's final address
             logger.warning("boot_token_ip_differs_from_dhcp_observation")
             OBSERVATION_MISMATCH.inc()
@@ -75,7 +75,6 @@ class IPXEHandler:
             source_ip,
             ttl_seconds=DISCOVERY_TOKEN_TTL_SECONDS if discovery else None,
             stages=frozenset({"discovery"}) if discovery else None,
-            observed=seen_ip == source_ip,
         )
         line = f"set boot_token {token}\n"
         if script.startswith("#!ipxe"):

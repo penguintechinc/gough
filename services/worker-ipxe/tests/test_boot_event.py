@@ -211,8 +211,8 @@ async def test_failure_budget_is_per_mac_and_ip_and_valid_token_still_works_unde
 
 
 @pytest.mark.asyncio
-async def test_successful_redemptions_charge_no_budget(fake_redis: FakeRedis) -> None:
-    """Valid tokens never touch a rate counter."""
+async def test_successful_redemptions_charge_nothing(fake_redis: FakeRedis) -> None:
+    """Valid tokens never touch a rate counter (no charge, hence no refund path)."""
     server = _server()
     with respx.mock:
         respx.post(UPSTREAM).mock(return_value=httpx.Response(201))
@@ -220,7 +220,39 @@ async def test_successful_redemptions_charge_no_budget(fake_redis: FakeRedis) ->
             token = await server.token_store.issue(MAC, CLIENT_IP)
             assert (await _post(server, _event(), token)).status_code == 202
 
-    assert [int(await fake_redis.get(k)) for k in await fake_redis.rate_keys()] == [0, 0]
+    assert await fake_redis.rate_keys() == []
+
+
+@pytest.mark.asyncio
+async def test_valid_token_redeems_even_when_failure_budgets_are_exhausted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """After the per-IP and per-pair failure budgets are blown (429s), a valid token still works."""
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_FAIL_LIMIT", 2)
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_IP_FAIL_LIMIT", 2)
+    server = _server()
+    for _ in range(4):
+        await _post(server, _event(), "a" * 43)
+    assert (await _post(server, _event(), "a" * 43)).status_code == 429
+    token = await server.token_store.issue(MAC, CLIENT_IP)
+    with respx.mock:
+        respx.post(UPSTREAM).mock(return_value=httpx.Response(201))
+        resp = await _post(server, _event(), token)
+
+    assert resp.status_code == 202
+
+
+@pytest.mark.asyncio
+async def test_failure_counters_always_have_a_ttl(fake_redis: FakeRedis) -> None:
+    """Every failure counter carries a TTL (INCR and EXPIRE are one script)."""
+    server = _server()
+    for _ in range(3):
+        await _post(server, _event(), "a" * 43)
+
+    keys = await fake_redis.rate_keys()
+    assert len(keys) == 2
+    for key in keys:
+        assert 0 < await fake_redis.ttl(key) <= 60
 
 
 @pytest.mark.asyncio
@@ -250,24 +282,24 @@ async def test_concurrent_failures_cannot_overshoot_budget(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_ip_mac_limit_and_observed_admission_over_http() -> None:
-    """/ipxe: a 4th distinct MAC from one IP is 429; one ProxyDHCP observed for that IP is admitted."""
+async def test_ip_mac_limit_over_http_and_spoofed_observation_grants_nothing() -> None:
+    """/ipxe: a 4th distinct MAC from one IP is 429 even if ProxyDHCP "observed" that IP for it."""
     from worker.observations import ObservedClients
 
     server = _server()
     observed = ObservedClients()
     server.ipxe_handler.observed = observed
-    observed.record("0000000000ff", CLIENT_IP)
+    observed.record("0000000000ff", CLIENT_IP)  # attacker-spoofable hint
     macs = [f"0000000000{i:02d}" for i in range(4)]
     with respx.mock:
         for m in [*macs, "0000000000ff"]:
             respx.get(f"{API}/api/v1/internal/boot-script/{m}").mock(return_value=httpx.Response(404))
         client = server.app.test_client()
         codes = [(await client.get(f"/ipxe/{m}.ipxe", scope_base=CLIENT)).status_code for m in macs]
-        seen = await client.get("/ipxe/0000000000ff.ipxe", scope_base=CLIENT)
+        spoofed = await client.get("/ipxe/0000000000ff.ipxe", scope_base=CLIENT)
 
     assert codes == [200, 200, 200, 429]
-    assert seen.status_code == 200
+    assert spoofed.status_code == 429
 
 
 @pytest.mark.asyncio
@@ -288,7 +320,7 @@ async def test_live_token_cap_per_mac_is_enforced_with_429() -> None:
 
 @pytest.mark.asyncio
 async def test_dhcp_observation_mismatch_is_counted_but_not_fatal() -> None:
-    """If ProxyDHCP saw another IP for this MAC, the mint still succeeds and the mismatch metric increments."""
+    """A mint for an IP ProxyDHCP did not see for this MAC still succeeds; the mismatch metric ticks once."""
     from worker.observations import ObservedClients
     from worker.services.ipxe_handler import OBSERVATION_MISMATCH
 
@@ -300,11 +332,11 @@ async def test_dhcp_observation_mismatch_is_counted_but_not_fatal() -> None:
     with respx.mock:
         respx.get(f"{API}/api/v1/internal/boot-script/{MAC}").mock(return_value=httpx.Response(404))
         resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
-        matching = observed.record(MAC, CLIENT_IP)
+        observed.record(MAC, CLIENT_IP)
         await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
 
-    assert resp.status_code == 200 and matching is None
-    assert OBSERVATION_MISMATCH._value.get() == before + 1  # second fetch matched, no increment
+    assert resp.status_code == 200
+    assert OBSERVATION_MISMATCH._value.get() == before + 1  # second fetch matched an observation
 
 
 @pytest.mark.asyncio

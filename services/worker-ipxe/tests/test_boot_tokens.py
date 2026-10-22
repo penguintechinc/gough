@@ -202,21 +202,22 @@ async def test_expired_slots_do_not_count_toward_cap(token_store: BootTokenStore
 
 
 @pytest.mark.asyncio
-async def test_refund_gives_back_a_charge(token_store: BootTokenStore) -> None:
-    """allow() charges, refund() returns the charge; outage is surfaced."""
-    assert await token_store.allow("k", 1, 60) is True
-    await token_store.refund("k")
-    assert await token_store.allow("k", 1, 60) is True
-    assert await token_store.allow("k", 1, 60) is False
+async def test_charge_failure_is_atomic_and_always_has_ttl(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """Both counters are charged together, report False past either limit, and always carry a TTL."""
+    results = [await token_store.charge_failure("p", "i", 2, 5, 60) for _ in range(3)]
+
+    assert results == [True, True, False]
+    for key in ("gough:boot-rate:p", "gough:boot-rate:i"):
+        assert 0 < await fake_redis.ttl(key) <= 60
 
 
 @pytest.mark.asyncio
-async def test_refund_outage_raises(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
-    """A store failure while refunding is surfaced so callers fail closed."""
+async def test_charge_failure_outage_raises(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """A store failure while charging is surfaced so callers fail closed."""
     fake_redis.fail = True
 
     with pytest.raises(StoreUnavailableError):
-        await token_store.refund("k")
+        await token_store.charge_failure("p", "i", 1, 1, 60)
 
 
 @pytest.mark.asyncio
@@ -233,34 +234,26 @@ async def test_ip_may_mint_for_only_three_distinct_macs(token_store: BootTokenSt
 
 
 @pytest.mark.asyncio
-async def test_observed_ip_bypasses_per_ip_limit(token_store: BootTokenStore) -> None:
-    """A mint for an IP ProxyDHCP observed for that MAC is admitted even past the per-IP MAC limit."""
-    for i in range(3):
-        await token_store.issue(f"00000000000{i}", IP)
+async def test_full_cap_refuses_and_never_evicts(token_store: BootTokenStore) -> None:
+    """With the cap full a new IP is refused; every existing token stays valid (no eviction path)."""
+    from worker.boot_tokens import TokenCapError
 
-    assert await token_store.issue("000000000009", IP, observed=True)
+    tokens = {f"10.0.0.{i}": await token_store.issue(MAC, f"10.0.0.{i}") for i in range(4)}
+    with pytest.raises(TokenCapError):
+        await token_store.issue(MAC, "10.0.0.50")
+
+    for ip, token in tokens.items():
+        assert await token_store.redeem(token, MAC, ip, "x") is True
 
 
 @pytest.mark.asyncio
-async def test_observed_mint_evicts_oldest_non_observed_slot_when_full(token_store: BootTokenStore) -> None:
-    """With the cap full, an observed IP evicts the oldest non-observed slot; observed slots are never evicted."""
-    from worker.boot_tokens import TokenCapError
+async def test_bookkeeping_keys_always_expire_at_max_ttl(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """Zsets keep the full token TTL even after a short-lived (discovery) mint; none lacks a TTL."""
+    await token_store.issue(MAC, IP)
+    await token_store.issue(MAC, "10.2.2.2", ttl_seconds=60)
 
-    first = await token_store.issue(MAC, "10.0.0.1", ttl_seconds=100)
-    for i in (2, 3):
-        await token_store.issue(MAC, f"10.0.0.{i}", ttl_seconds=200 + i)
-    keep = await token_store.issue(MAC, "10.0.0.4", ttl_seconds=900, observed=True)
-
-    real = await token_store.issue(MAC, "10.0.0.50", observed=True)  # evicts 10.0.0.1 (soonest expiry)
-
-    assert await token_store.redeem(first, MAC, "10.0.0.1", "x") is False
-    assert await token_store.redeem(real, MAC, "10.0.0.50", "x") is True
-    assert await token_store.redeem(keep, MAC, "10.0.0.4", "x") is True
-    # all remaining slots observed -> nothing evictable
-    full = BootTokenStore(token_store._client, max_live_per_mac=1)
-    await full.issue("aaaaaaaaaaaa", "10.1.0.1", observed=True)
-    with pytest.raises(TokenCapError):
-        await full.issue("aaaaaaaaaaaa", "10.1.0.2", observed=True)
+    for key in (f"gough:boot-token-live:{MAC}", f"gough:boot-ip-macs:{IP}", "gough:boot-ip-macs:10.2.2.2"):
+        assert await fake_redis.ttl(key) == 1800
 
 
 @pytest.mark.asyncio
