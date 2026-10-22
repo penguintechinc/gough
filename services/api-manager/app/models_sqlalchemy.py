@@ -16,6 +16,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    false as sa_false,
 )
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
@@ -708,6 +709,7 @@ class EnrollmentKey(Base):
     created_by = Column(Integer, ForeignKey("auth_user.id"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     is_used = Column(Boolean, default=False)
+    revoked = Column(Boolean, default=False, nullable=False, server_default=sa_false())
     used_by_agent = Column(Integer, ForeignKey("access_agents.id"))
     metadata_json = Column('metadata', Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -768,6 +770,40 @@ class SystemLog(Base):
     job_id = Column(Integer, ForeignKey("deployment_jobs.id"))
     user_id = Column(Integer, ForeignKey("auth_user.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
+
+
+# =============================================================================
+# LXD cluster join issuance and bootstrap tombstones
+# =============================================================================
+
+class LxdJoinTokenIssuance(Base):
+    """One row per LXD cluster join token grant; never deleted, expiry enforced by time."""
+
+    __tablename__ = "lxd_join_token_issuances"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    agent_id = Column(String(255), nullable=False, index=True)
+    member_name = Column(String(255), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False)
+    status = Column(Integer, nullable=False, default=0)  # 0=issued, 1=failed
+    issued_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    # "live" mirrors of agent/member/key, set only while ISSUED and NULL once FAILED.
+    # Unique columns allow many NULLs on both SQLite and PostgreSQL, so they act as
+    # partial unique indexes: at most one live grant per agent, member, and key.
+    agent_live = Column(String(255), unique=True, nullable=True)
+    member_live = Column(String(255), unique=True, nullable=True)
+    key_live = Column(String(255), unique=True, nullable=True)
+
+
+class BootstrapTokenSeed(Base):
+    """Tombstone recording that a bootstrap token was seeded; never deleted, keyed by SHA-256 hash."""
+
+    __tablename__ = "bootstrap_token_seeds"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    token_hash = Column(String(64), unique=True, nullable=False)
+    seeded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 def convert_pydal_to_sqlalchemy_uri(db_uri: str) -> str:

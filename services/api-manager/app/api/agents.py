@@ -195,7 +195,8 @@ async def revoke_enrollment_key(key_id: int):
         if not key:
             return "not_found", None
         try:
-            db(db.enrollment_keys.id == key_id).delete()
+            # Soft-delete: keep the row so a revoked key can never be re-seeded or re-used.
+            db(db.enrollment_keys.id == key_id).update(revoked=True)
             db.commit()
             return "ok", None
         except Exception as e:
@@ -263,6 +264,9 @@ async def enroll_agent():
     if not key_record:
         return jsonify({"error": "Invalid enrollment key"}), 401
 
+    if key_record.revoked:
+        return jsonify({"error": "Enrollment key revoked"}), 401
+
     if key_record.is_used:
         return jsonify({"error": "Enrollment key already used"}), 409
 
@@ -300,6 +304,7 @@ async def enroll_agent():
             claimed = db(
                 (db.enrollment_keys.id == key_record.id)
                 & (db.enrollment_keys.is_used == False)  # noqa: E712 -- DAL idiom
+                & (db.enrollment_keys.revoked == False)  # noqa: E712 -- DAL idiom
             ).update(is_used=True)
             if not claimed:
                 db.commit()
