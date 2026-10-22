@@ -134,8 +134,8 @@ async def test_discovery_token_only_allows_discovery_stage_and_short_ttl(fake_re
         script = await resp.get_data(as_text=True)
     token = script.split("set boot_token ")[1].split("\n")[0]
     key = f"gough:boot-token:{MAC}:{CLIENT_IP}"
-    assert fake_redis.ttls[key] == 600
-    assert json.loads(fake_redis.data[key])["stages"] == ["discovery"]
+    assert await fake_redis.ttl(key) == 600
+    assert json.loads(await fake_redis.get(key))["stages"] == ["discovery"]
     with respx.mock(assert_all_called=False) as router:
         route = router.post(UPSTREAM).mock(return_value=httpx.Response(201))
         denied = await _post(server, _event(stage="installing"), token)
@@ -150,12 +150,12 @@ async def test_missing_client_address_is_rejected_without_shared_bucket(fake_red
     """A request with no usable remote address gets 400 and touches no rate-limit bucket."""
     server = _server()
     token = await server.token_store.issue(MAC, CLIENT_IP)
-    fake_redis.counters.clear()
+    await fake_redis.flushall()
 
     resp = await _post(server, _event(), token, scope_base={"client": None})
 
     assert resp.status_code == 400
-    assert fake_redis.counters == {}
+    assert await fake_redis.rate_keys() == []
 
 
 @pytest.mark.asyncio
@@ -165,7 +165,7 @@ async def test_malformed_token_does_not_consume_rate_budget(fake_redis: FakeRedi
     for _ in range(50):
         assert (await _post(server, _event(), "junk")).status_code == 401
 
-    assert fake_redis.counters == {}
+    assert await fake_redis.rate_keys() == []
 
 
 @pytest.mark.asyncio
@@ -220,7 +220,54 @@ async def test_successful_redemptions_charge_no_budget(fake_redis: FakeRedis) ->
             token = await server.token_store.issue(MAC, CLIENT_IP)
             assert (await _post(server, _event(), token)).status_code == 202
 
-    assert fake_redis.counters == {}
+    assert [int(await fake_redis.get(k)) for k in await fake_redis.rate_keys()] == [0, 0]
+
+
+@pytest.mark.asyncio
+async def test_coarse_per_ip_failure_budget_across_macs(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Failures spread over many MACs from one IP still hit the coarse per-IP budget (429)."""
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_IP_FAIL_LIMIT", 3)
+    server = _server()
+    codes = [
+        (await _post(server, _event(mac=f"0000000000{i:02d}"), "a" * 43)).status_code for i in range(5)
+    ]
+    other_ip = await _post(server, _event(), "a" * 43, scope_base={"client": ("10.4.4.4", 1)})
+
+    assert codes == [401, 401, 401, 429, 429]
+    assert other_ip.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_concurrent_failures_cannot_overshoot_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """30 simultaneous bad attempts yield exactly BOOT_EVENT_FAIL_LIMIT 401s (INCR decides atomically)."""
+    import asyncio
+
+    monkeypatch.setattr(http_mod, "BOOT_EVENT_FAIL_LIMIT", 5)
+    server = _server()
+    codes = await asyncio.gather(*(_post(server, _event(), "a" * 43) for _ in range(30)))
+
+    assert sorted(r.status_code for r in codes).count(401) == 5
+
+
+@pytest.mark.asyncio
+async def test_ip_mac_limit_and_observed_admission_over_http() -> None:
+    """/ipxe: a 4th distinct MAC from one IP is 429; one ProxyDHCP observed for that IP is admitted."""
+    from worker.observations import ObservedClients
+
+    server = _server()
+    observed = ObservedClients()
+    server.ipxe_handler.observed = observed
+    observed.record("0000000000ff", CLIENT_IP)
+    macs = [f"0000000000{i:02d}" for i in range(4)]
+    with respx.mock:
+        for m in [*macs, "0000000000ff"]:
+            respx.get(f"{API}/api/v1/internal/boot-script/{m}").mock(return_value=httpx.Response(404))
+        client = server.app.test_client()
+        codes = [(await client.get(f"/ipxe/{m}.ipxe", scope_base=CLIENT)).status_code for m in macs]
+        seen = await client.get("/ipxe/0000000000ff.ipxe", scope_base=CLIENT)
+
+    assert codes == [200, 200, 200, 429]
+    assert seen.status_code == 200
 
 
 @pytest.mark.asyncio
@@ -501,12 +548,14 @@ async def test_ipxe_script_embeds_token_stored_only_as_hash(fake_redis: FakeRedi
     token = script.split("set boot_token ")[1].split("\n")[0]
     assert len(token) >= 43
     digest = hashlib.sha256(token.encode()).hexdigest()
-    assert list(fake_redis.data) == [f"gough:boot-token:{MAC}:{CLIENT_IP}"]
-    assert token not in json.dumps(fake_redis.data)
-    assert json.loads(next(iter(fake_redis.data.values())))["machine"] == MAC
-    assert fake_redis.ttls[f"gough:boot-token:{MAC}:{CLIENT_IP}"] == 30 * 60
-    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}:{CLIENT_IP}"])["ip"] == CLIENT_IP
-    assert json.loads(fake_redis.data[f"gough:boot-token:{MAC}:{CLIENT_IP}"])["hash"] == digest
+    stored = await fake_redis.tokens()
+    key = f"gough:boot-token:{MAC}:{CLIENT_IP}"
+    assert list(stored) == [key]
+    assert token not in json.dumps(stored)
+    assert json.loads(stored[key])["machine"] == MAC
+    assert await fake_redis.ttl(key) == 30 * 60
+    assert json.loads(stored[key])["ip"] == CLIENT_IP
+    assert json.loads(stored[key])["hash"] == digest
 
 
 @pytest.mark.asyncio

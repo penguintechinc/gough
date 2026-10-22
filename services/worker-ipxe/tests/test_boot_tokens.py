@@ -1,5 +1,6 @@
 """BootTokenStore: MAC-keyed single live token, IP/stage binding, expiry, atomic single use, outages."""
 
+import asyncio
 import json
 import time
 
@@ -17,11 +18,11 @@ async def test_issue_stores_hash_only_keyed_by_mac_with_ttl(token_store: BootTok
     """The raw token is never stored; the key is the MAC; the record binds IP, expiry and stages."""
     token = await token_store.issue(MAC, IP)
 
-    (key, value), = fake_redis.data.items()
+    (key, value), = (await fake_redis.tokens()).items()
     record = json.loads(value)
     assert key == f"gough:boot-token:{MAC}:{IP}"
     assert token not in key and token not in value
-    assert fake_redis.ttls[key] == 1800
+    assert await fake_redis.ttl(key) == 1800
     assert record["ip"] == IP and record["machine"] == MAC and record["stages"] is None
 
 
@@ -40,7 +41,7 @@ async def test_reissue_overwrites_previous_token(token_store: BootTokenStore, fa
     old = await token_store.issue(MAC, IP)
     new = await token_store.issue(MAC, IP)
 
-    assert len(fake_redis.data) == 1
+    assert len(await fake_redis.tokens()) == 1
     assert await token_store.redeem(old, MAC, IP, "installing") is False
     assert await token_store.redeem(new, MAC, IP, "installing") is True
 
@@ -59,9 +60,10 @@ async def test_lost_delete_race_is_not_a_success(token_store: BootTokenStore, fa
     """If another replica already consumed the key (DEL removes 0), this redemption fails."""
     token = await token_store.issue(MAC, IP)
 
-    async def already_gone(name: str) -> int:
+    async def already_gone(*names: str) -> int:
+        name = names[0]
         """Simulate the other replica winning the DEL."""
-        fake_redis.data.pop(name, None)
+        await fake_redis.execute_command("DEL", name)
         return 0
 
     fake_redis.delete = already_gone  # type: ignore[method-assign]
@@ -87,8 +89,8 @@ async def test_custom_ttl_is_applied(token_store: BootTokenStore, fake_redis: Fa
     await token_store.issue(MAC, IP, ttl_seconds=600)
 
     key = f"gough:boot-token:{MAC}:{IP}"
-    assert fake_redis.ttls[key] == 600
-    assert json.loads(fake_redis.data[key])["exp"] <= int(time.time()) + 600
+    assert await fake_redis.ttl(key) == 600
+    assert json.loads(await fake_redis.get(key))["exp"] <= int(time.time()) + 600
 
 
 @pytest.mark.asyncio
@@ -119,7 +121,7 @@ async def test_redeem_unknown_machine_fails(token_store: BootTokenStore) -> None
 )
 async def test_corrupt_record_is_refused(token_store: BootTokenStore, fake_redis: FakeRedis, raw: str) -> None:
     """Garbage in the store never validates."""
-    fake_redis.data[f"gough:boot-token:{MAC}:{IP}"] = raw
+    await fake_redis.set(f"gough:boot-token:{MAC}:{IP}", raw)
 
     assert await token_store.redeem("t" * 43, MAC, IP, "installing") is False
 
@@ -131,7 +133,7 @@ async def test_rate_window_counts_and_sets_expiry_once(token_store: BootTokenSto
 
     assert results == [True, True, False]
     assert await token_store.allow("ip:2.2.2.2", 2, 60) is True
-    assert fake_redis.ttls["gough:boot-rate:ip:1.1.1.1"] == 60
+    assert await fake_redis.ttl("gough:boot-rate:ip:1.1.1.1") == 60
 
 
 @pytest.mark.asyncio
@@ -153,7 +155,7 @@ async def test_delete_failure_after_successful_check_raises(token_store: BootTok
     """If the store dies between the check and the DEL, the caller sees an outage, not a success."""
     token = await token_store.issue(MAC, IP)
 
-    async def broken(name: str) -> int:
+    async def broken(*names: str) -> int:
         """Fail the DEL."""
         raise ConnectionError("gone")
 
@@ -200,20 +202,97 @@ async def test_expired_slots_do_not_count_toward_cap(token_store: BootTokenStore
 
 
 @pytest.mark.asyncio
-async def test_failure_accounting_is_read_only_until_charged(token_store: BootTokenStore) -> None:
-    """is_limited never charges; record_failure does; the limit is inclusive of the Nth failure."""
-    assert await token_store.is_limited("k", 2) is False
-    assert await token_store.is_limited("k", 2) is False
-    await token_store.record_failure("k", 60)
-    assert await token_store.is_limited("k", 2) is False
-    await token_store.record_failure("k", 60)
-    assert await token_store.is_limited("k", 2) is True
+async def test_refund_gives_back_a_charge(token_store: BootTokenStore) -> None:
+    """allow() charges, refund() returns the charge; outage is surfaced."""
+    assert await token_store.allow("k", 1, 60) is True
+    await token_store.refund("k")
+    assert await token_store.allow("k", 1, 60) is True
+    assert await token_store.allow("k", 1, 60) is False
 
 
 @pytest.mark.asyncio
-async def test_is_limited_outage_raises(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
-    """A store failure while reading the budget is surfaced so callers fail closed."""
+async def test_refund_outage_raises(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """A store failure while refunding is surfaced so callers fail closed."""
     fake_redis.fail = True
 
     with pytest.raises(StoreUnavailableError):
-        await token_store.is_limited("k", 1)
+        await token_store.refund("k")
+
+
+@pytest.mark.asyncio
+async def test_ip_may_mint_for_only_three_distinct_macs(token_store: BootTokenStore) -> None:
+    """One source IP cannot squat slots for more than 3 MACs; re-minting a known MAC is fine."""
+    from worker.boot_tokens import IPMintLimitError
+
+    for i in range(3):
+        await token_store.issue(f"00000000000{i}", IP)
+    with pytest.raises(IPMintLimitError):
+        await token_store.issue("000000000009", IP)
+    assert await token_store.issue("000000000000", IP)  # already counted
+    assert await token_store.issue("000000000009", "10.9.9.9")  # other IPs unaffected
+
+
+@pytest.mark.asyncio
+async def test_observed_ip_bypasses_per_ip_limit(token_store: BootTokenStore) -> None:
+    """A mint for an IP ProxyDHCP observed for that MAC is admitted even past the per-IP MAC limit."""
+    for i in range(3):
+        await token_store.issue(f"00000000000{i}", IP)
+
+    assert await token_store.issue("000000000009", IP, observed=True)
+
+
+@pytest.mark.asyncio
+async def test_observed_mint_evicts_oldest_non_observed_slot_when_full(token_store: BootTokenStore) -> None:
+    """With the cap full, an observed IP evicts the oldest non-observed slot; observed slots are never evicted."""
+    from worker.boot_tokens import TokenCapError
+
+    first = await token_store.issue(MAC, "10.0.0.1", ttl_seconds=100)
+    for i in (2, 3):
+        await token_store.issue(MAC, f"10.0.0.{i}", ttl_seconds=200 + i)
+    keep = await token_store.issue(MAC, "10.0.0.4", ttl_seconds=900, observed=True)
+
+    real = await token_store.issue(MAC, "10.0.0.50", observed=True)  # evicts 10.0.0.1 (soonest expiry)
+
+    assert await token_store.redeem(first, MAC, "10.0.0.1", "x") is False
+    assert await token_store.redeem(real, MAC, "10.0.0.50", "x") is True
+    assert await token_store.redeem(keep, MAC, "10.0.0.4", "x") is True
+    # all remaining slots observed -> nothing evictable
+    full = BootTokenStore(token_store._client, max_live_per_mac=1)
+    await full.issue("aaaaaaaaaaaa", "10.1.0.1", observed=True)
+    with pytest.raises(TokenCapError):
+        await full.issue("aaaaaaaaaaaa", "10.1.0.2", observed=True)
+
+
+@pytest.mark.asyncio
+async def test_concurrent_mints_never_exceed_cap(token_store: BootTokenStore, fake_redis: FakeRedis) -> None:
+    """40 simultaneous mints from distinct IPs for one MAC yield exactly `cap` live tokens (Lua is atomic)."""
+    from worker.boot_tokens import TokenCapError
+
+    async def mint(i: int) -> bool:
+        """Try one mint; True if admitted."""
+        try:
+            await token_store.issue(MAC, f"10.5.{i // 250}.{i % 250}")
+        except TokenCapError:
+            return False
+        return True
+
+    results = await asyncio.gather(*(mint(i) for i in range(40)))
+
+    assert sum(results) == 4
+    assert len(await fake_redis.tokens()) == 4
+
+
+@pytest.mark.asyncio
+async def test_concurrent_mints_never_exceed_per_ip_mac_limit(token_store: BootTokenStore) -> None:
+    """20 simultaneous mints from one IP for distinct MACs admit exactly 3."""
+    from worker.boot_tokens import TokenCapError
+
+    async def mint(i: int) -> bool:
+        """Try one mint; True if admitted."""
+        try:
+            await token_store.issue(f"0000000000{i:02d}", IP)
+        except TokenCapError:
+            return False
+        return True
+
+    assert sum(await asyncio.gather(*(mint(i) for i in range(20)))) == 3

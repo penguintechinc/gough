@@ -75,6 +75,7 @@ class IPXEHandler:
             source_ip,
             ttl_seconds=DISCOVERY_TOKEN_TTL_SECONDS if discovery else None,
             stages=frozenset({"discovery"}) if discovery else None,
+            observed=seen_ip == source_ip,
         )
         line = f"set boot_token {token}\n"
         if script.startswith("#!ipxe"):

@@ -36,6 +36,7 @@ DEFAULT_IMAGE_CHUNK_SIZE = 1024 * 1024  # 1 MiB
 # /boot-event hardening: body cap, per-source-IP rate limit, strict field allowlist.
 BOOT_EVENT_MAX_BYTES = 4096
 BOOT_EVENT_FAIL_LIMIT = 10  # failed redemptions per (MAC, IP) per window
+BOOT_EVENT_IP_FAIL_LIMIT = 30  # coarse failed-redemption budget per source IP
 BOOT_EVENT_RATE_WINDOW_S = 60
 IPXE_RATE_LIMIT = 60
 _TOKEN_RE = re.compile(r"[A-Za-z0-9_-]{43,128}")
@@ -613,17 +614,24 @@ class HTTPBootServer:
                 if event is None:
                     return jsonify({"status": "error", "message": error}), 400
 
-                # Failures are budgeted per (MAC, IP) only: other clients' junk can never
-                # exhaust this machine's budget, and a valid token is never rate-limited.
-                bucket = f"event-fail:{event.mac}:{client_ip}"
-                if await self.token_store.is_limited(bucket, BOOT_EVENT_FAIL_LIMIT):
+                # Charge-then-refund keeps the budget atomic (INCR decides, no
+                # check-then-act window): every attempt is charged up front and a
+                # successful redemption gives both charges back, so only FAILURES
+                # consume budget. Budgets: fine (MAC, IP) plus coarse per-IP.
+                pair = f"event-fail:{event.mac}:{client_ip}"
+                coarse = f"event-fail-ip:{client_ip}"
+                if not await self.token_store.allow(pair, BOOT_EVENT_FAIL_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
                     logger.warning("boot_event_failure_limit", client_ip=client_ip)
+                    return jsonify({"status": "error"}), 429
+                if not await self.token_store.allow(coarse, BOOT_EVENT_IP_FAIL_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
+                    logger.warning("boot_event_ip_failure_limit", client_ip=client_ip)
                     return jsonify({"status": "error"}), 429
 
                 if not await self.token_store.redeem(token, event.mac, client_ip, event.stage):
-                    await self.token_store.record_failure(bucket, BOOT_EVENT_RATE_WINDOW_S)
                     logger.warning("boot_event_token_rejected", client_ip=client_ip)
                     return jsonify({"status": "unauthorized"}), 401
+                await self.token_store.refund(pair)
+                await self.token_store.refund(coarse)
             except StoreUnavailableError:
                 logger.error("boot_event_store_unavailable")
                 return jsonify({"status": "error"}), 503

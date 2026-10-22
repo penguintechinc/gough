@@ -24,9 +24,12 @@ logger = structlog.get_logger()
 TOKEN_TTL_SECONDS = 30 * 60
 DISCOVERY_TOKEN_TTL_SECONDS = 10 * 60
 MAX_LIVE_TOKENS_PER_MAC = 4
+MAX_MACS_PER_IP = 3
 _KEY_PREFIX = "gough:boot-token:"  # + "{mac}:{ip}"
 _LIVE_PREFIX = "gough:boot-token-live:"  # sorted set per MAC: ip -> expiry
 _RATE_PREFIX = "gough:boot-rate:"
+_IPMACS_PREFIX = "gough:boot-ip-macs:"  # per source IP: distinct MACs minted for
+_OBS_PREFIX = "gough:boot-token-obs:"  # per MAC: slots admitted on a ProxyDHCP observation
 
 TOKEN_CAP_REFUSED = Counter(
     "worker_ipxe_boot_token_cap_refused_total", "Boot token mints refused: per-MAC live-token cap reached"
@@ -41,35 +44,73 @@ class TokenCapError(RuntimeError):
     """A MAC already has the maximum number of live tokens (across IPs); the mint is refused."""
 
 
-class RedisLike(Protocol):
-    """Subset of redis.asyncio.Redis used here (lets tests inject a fake)."""
+class IPMintLimitError(TokenCapError):
+    """One source IP already minted tokens for the maximum number of distinct MACs."""
 
-    async def set(self, name: str, value: str, ex: int | None = ...) -> object:
-        """Store a string value with optional TTL."""
+
+class RedisLike(Protocol):
+    """Subset of redis.asyncio.Redis used here (lets tests inject fakeredis)."""
+
+    async def eval(self, script: str, numkeys: int, *keys_and_args: str | int) -> object:
+        """Run a Lua script atomically."""
 
     async def get(self, name: str) -> object:
         """Fetch a key."""
 
-    async def delete(self, name: str) -> int:
-        """Delete a key, returning how many were removed."""
+    async def delete(self, *names: str) -> int:
+        """Delete keys, returning how many were removed."""
 
     async def incr(self, name: str) -> int:
         """Increment a counter."""
 
+    async def decr(self, name: str) -> int:
+        """Decrement a counter."""
+
     async def expire(self, name: str, time: int) -> object:
         """Set a key TTL."""
-
-    async def zadd(self, name: str, mapping: dict[str, float]) -> object:
-        """Add members to a sorted set."""
 
     async def zrem(self, name: str, *members: str) -> object:
         """Remove members from a sorted set."""
 
-    async def zcard(self, name: str) -> int:
-        """Sorted-set size."""
+    async def hdel(self, name: str, *members: str) -> object:
+        """Remove hash fields."""
 
-    async def zremrangebyscore(self, name: str, low: float, high: float) -> object:
-        """Remove sorted-set members by score range."""
+
+# Atomic mint: prune, per-IP distinct-MAC limit, per-MAC cap (with observed-IP eviction)
+# and the insert all happen in one script, so concurrent mints cannot overshoot either
+# limit. KEYS: token, live zset (ip->expiry), ip->macs zset, observed-slot hash.
+# ARGV: now, ttl, cap, max_macs, observed(0/1), record, ip, mac, token key prefix.
+# Returns 1 ok, -1 MAC cap reached, -2 per-IP MAC limit reached.
+_MINT_LUA = """
+local now = tonumber(ARGV[1]); local ttl = tonumber(ARGV[2])
+local cap = tonumber(ARGV[3]); local max_macs = tonumber(ARGV[4])
+local observed = ARGV[5] == '1'
+local ip = ARGV[7]; local mac = ARGV[8]
+redis.call('ZREMRANGEBYSCORE', KEYS[2], 0, now)
+redis.call('ZREMRANGEBYSCORE', KEYS[3], 0, now)
+if redis.call('EXISTS', KEYS[1]) == 0 then
+  if not observed and not redis.call('ZSCORE', KEYS[3], mac)
+     and redis.call('ZCARD', KEYS[3]) >= max_macs then
+    return -2
+  end
+  if redis.call('ZCARD', KEYS[2]) >= cap then
+    if not observed then return -1 end
+    local victim = nil
+    for _, m in ipairs(redis.call('ZRANGE', KEYS[2], 0, -1)) do
+      if redis.call('HEXISTS', KEYS[4], m) == 0 then victim = m; break end
+    end
+    if not victim then return -1 end
+    redis.call('DEL', ARGV[9] .. mac .. ':' .. victim)
+    redis.call('ZREM', KEYS[2], victim)
+  end
+end
+redis.call('SET', KEYS[1], ARGV[6], 'EX', ttl)
+redis.call('ZADD', KEYS[2], now + ttl, ip)
+redis.call('ZADD', KEYS[3], now + ttl, mac)
+if observed then redis.call('HSET', KEYS[4], ip, '1') else redis.call('HDEL', KEYS[4], ip) end
+for i = 2, 4 do redis.call('EXPIRE', KEYS[i], ttl) end
+return 1
+"""
 
 
 def _digest(token: str) -> str:
@@ -97,40 +138,51 @@ class BootTokenStore:
         source_ip: str,
         ttl_seconds: int | None = None,
         stages: frozenset[str] | None = None,
+        observed: bool = False,
+        max_macs_per_ip: int = MAX_MACS_PER_IP,
     ) -> str:
         """Mint the live token for (`machine`, `source_ip`); only its SHA-256 is stored.
 
-        Minting again from the same IP overwrites that IP's token only. A different IP
-        gets its own token, up to `max_live_per_mac` live tokens per MAC; beyond that the
-        mint is refused (TokenCapError) rather than evicting anyone else's token.
+        Same-IP re-mint overwrites only that IP's token. A new IP is refused
+        (TokenCapError) once the MAC holds `max_live_per_mac` tokens, and an IP that has
+        already minted for `max_macs_per_ip` distinct MACs is refused (IPMintLimitError)
+        so one host cannot squat other machines' slots. `observed` (ProxyDHCP saw this
+        IP for this MAC) bypasses the per-IP limit and may evict the oldest
+        non-observed slot when the cap is full. All checks and the insert are one Lua
+        script (atomic across replicas).
         """
         ttl = ttl_seconds or self._ttl
         now = int(time.time())
-        key = f"{_KEY_PREFIX}{machine}:{source_ip}"
-        live_key = _LIVE_PREFIX + machine
+        token = secrets.token_urlsafe(32)
+        record = json.dumps(
+            {
+                "machine": machine,
+                "hash": _digest(token),
+                "ip": source_ip,
+                "exp": now + ttl,
+                "stages": sorted(stages) if stages is not None else None,
+            }
+        )
         try:
-            await self._client.zremrangebyscore(live_key, 0, now)
-            if not await self._client.get(key) and await self._client.zcard(live_key) >= self._cap:
-                TOKEN_CAP_REFUSED.inc()
-                logger.warning("boot_token_cap_reached", cap=self._cap)
-                raise TokenCapError("too many live boot tokens for this machine")
-            token = secrets.token_urlsafe(32)
-            record = json.dumps(
-                {
-                    "machine": machine,
-                    "hash": _digest(token),
-                    "ip": source_ip,
-                    "exp": now + ttl,
-                    "stages": sorted(stages) if stages is not None else None,
-                }
+            result = int(
+                await self._client.eval(  # type: ignore[arg-type]
+                    _MINT_LUA, 4,
+                    f"{_KEY_PREFIX}{machine}:{source_ip}", _LIVE_PREFIX + machine,
+                    _IPMACS_PREFIX + source_ip, _OBS_PREFIX + machine,
+                    now, ttl, self._cap, max_macs_per_ip, 1 if observed else 0,
+                    record, source_ip, machine, _KEY_PREFIX,
+                )
             )
-            await self._client.set(key, record, ex=ttl)
-            await self._client.zadd(live_key, {source_ip: now + ttl})
-            await self._client.expire(live_key, self._ttl)
-        except TokenCapError:
-            raise
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
+        if result == -2:
+            TOKEN_CAP_REFUSED.inc()
+            logger.warning("boot_token_ip_mac_limit", limit=max_macs_per_ip)
+            raise IPMintLimitError("this address has requested tokens for too many machines")
+        if result == -1:
+            TOKEN_CAP_REFUSED.inc()
+            logger.warning("boot_token_cap_reached", cap=self._cap)
+            raise TokenCapError("too many live boot tokens for this machine")
         return token
 
     async def redeem(self, token: str, machine: str, source_ip: str, stage: str) -> bool:
@@ -171,6 +223,7 @@ class BootTokenStore:
             removed = bool(await self._client.delete(key))
             if removed:
                 await self._client.zrem(_LIVE_PREFIX + machine, source_ip)
+                await self._client.hdel(_OBS_PREFIX + machine, source_ip)
             return removed
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
@@ -186,17 +239,12 @@ class BootTokenStore:
             raise StoreUnavailableError("boot token store unavailable") from exc
         return count <= limit
 
-    async def is_limited(self, source: str, limit: int) -> bool:
-        """True if `source` has already used up `limit` charges in its window (read-only)."""
+    async def refund(self, source: str) -> None:
+        """Give back one charge on `source` (a successful redemption is not a failure)."""
         try:
-            raw = await self._client.get(_RATE_PREFIX + source)
+            await self._client.decr(_RATE_PREFIX + source)
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc
-        return bool(raw) and int(str(raw)) >= limit
-
-    async def record_failure(self, source: str, window_seconds: int) -> None:
-        """Charge one failure to `source`'s window (starts the window on the first one)."""
-        await self.allow(source, 0, window_seconds)
 
 
 def create_token_store(redis_url: str) -> BootTokenStore:

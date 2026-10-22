@@ -1,5 +1,6 @@
 """Shared fixtures: in-memory Redis double, token store, and a deterministic storage resolver."""
 
+import fakeredis.aioredis
 import pytest
 
 from worker.boot_tokens import BootTokenStore
@@ -8,85 +9,30 @@ from worker.services import http_server as http_mod
 PUBLIC_IP = "93.184.216.34"
 
 
-class FakeRedis:
-    """Async stand-in for the redis.asyncio commands BootTokenStore uses (single-process test double)."""
+class FakeRedis(fakeredis.aioredis.FakeRedis):
+    """fakeredis (real Lua support) with an outage switch and small inspection helpers."""
 
-    def __init__(self) -> None:
-        """Start empty; `fail` makes every command raise ConnectionError."""
-        self.data: dict[str, str] = {}
-        self.counters: dict[str, int] = {}
-        self.ttls: dict[str, int] = {}
-        self.zsets: dict[str, dict[str, float]] = {}
-        self.fail = False
+    fail = False
 
-    def _check(self) -> None:
-        """Raise when the double is told the store is down."""
+    async def execute_command(self, *args: object, **options: object) -> object:
+        """Raise ConnectionError while `fail` is set, else run the command."""
         if self.fail:
             raise ConnectionError("redis down")
+        return await super().execute_command(*args, **options)
 
-    async def set(self, name: str, value: str, ex: int | None = None) -> bool:
-        """Store a value and remember its TTL."""
-        self._check()
-        self.data[name] = value
-        if ex is not None:
-            self.ttls[name] = ex
-        return True
+    async def tokens(self) -> dict[str, str]:
+        """All stored token records keyed by redis key."""
+        return {k: await self.get(k) for k in await self.keys("gough:boot-token:*:*")}
 
-    async def get(self, name: str) -> str | None:
-        """Fetch a key."""
-        self._check()
-        if name in self.counters:
-            return str(self.counters[name])
-        return self.data.get(name)
-
-    async def delete(self, name: str) -> int:
-        """Delete a key; returns how many were removed (0 or 1)."""
-        self._check()
-        return 1 if self.data.pop(name, None) is not None else 0
-
-    async def incr(self, name: str) -> int:
-        """Increment a counter."""
-        self._check()
-        self.counters[name] = self.counters.get(name, 0) + 1
-        return self.counters[name]
-
-    async def zadd(self, name: str, mapping: dict[str, float]) -> int:
-        """Add members to a sorted set."""
-        self._check()
-        self.zsets.setdefault(name, {}).update(mapping)
-        return len(mapping)
-
-    async def zrem(self, name: str, *members: str) -> int:
-        """Remove members from a sorted set."""
-        self._check()
-        z = self.zsets.get(name, {})
-        return sum(1 for m in members if z.pop(m, None) is not None)
-
-    async def zcard(self, name: str) -> int:
-        """Sorted-set size."""
-        self._check()
-        return len(self.zsets.get(name, {}))
-
-    async def zremrangebyscore(self, name: str, low: float, high: float) -> int:
-        """Drop members with low <= score <= high."""
-        self._check()
-        z = self.zsets.get(name, {})
-        gone = [m for m, sc in z.items() if low <= sc <= high]
-        for m in gone:
-            del z[m]
-        return len(gone)
-
-    async def expire(self, name: str, time: int) -> bool:
-        """Record a TTL."""
-        self._check()
-        self.ttls[name] = time
-        return True
+    async def rate_keys(self) -> list[str]:
+        """All rate-limit counter keys."""
+        return list(await self.keys("gough:boot-rate:*"))
 
 
 @pytest.fixture
 def fake_redis() -> FakeRedis:
     """A fresh in-memory Redis double."""
-    return FakeRedis()
+    return FakeRedis(decode_responses=True)
 
 
 @pytest.fixture
