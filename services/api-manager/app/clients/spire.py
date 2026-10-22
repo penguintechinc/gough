@@ -16,6 +16,8 @@ except ImportError:
 
 from pydantic import BaseModel, Field
 
+from app.safe_names import validate_spiffe_id
+
 logger = logging.getLogger(__name__)
 
 
@@ -188,6 +190,14 @@ class SpireClient:
         Raises:
             SpireRegistrationFailed: If registration failed.
         """
+        try:
+            validate_spiffe_id(entry.spiffe_id, field="spiffe_id")
+            validate_spiffe_id(entry.parent_id, field="parent_id")
+            for sel_type, sel_val in entry.selectors.items():
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", sel_type) or "\n" in sel_val:
+                    raise ValueError(f"invalid selector type {sel_type!r}")
+        except ValueError as e:
+            raise SpireRegistrationFailed(str(e)) from e
         cmd = [
             "spire-server",
             "entry",
@@ -209,6 +219,9 @@ class SpireClient:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=False
             )
+        except FileNotFoundError as e:
+            logger.error(f"spire-server binary not found: {e}")
+            raise SpireRegistrationFailed(f"spire-server binary not found: {e}") from e
         except subprocess.TimeoutExpired as e:
             logger.error(f"spire-server timeout: {e}")
             raise SpireRegistrationFailed(f"Registration timeout: {e}") from e
@@ -249,6 +262,10 @@ class SpireClient:
             SpireJoinTokenFailed: If generation, parsing, or the
                 subprocess call itself failed.
         """
+        try:
+            validate_spiffe_id(spiffe_id, field="spiffe_id")
+        except ValueError as e:
+            raise SpireJoinTokenFailed(str(e)) from e
         cmd = [
             "spire-server",
             "token",
@@ -269,6 +286,9 @@ class SpireClient:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=False
             )
+        except FileNotFoundError as e:
+            logger.error(f"spire-server binary not found: {e}")
+            raise SpireJoinTokenFailed(f"spire-server binary not found: {e}") from e
         except subprocess.TimeoutExpired as e:
             logger.error(f"spire-server timeout: {e}")
             raise SpireJoinTokenFailed(f"Join token generation timeout: {e}") from e
@@ -314,12 +334,19 @@ class SpireClient:
             "json",
         ]
         if parent_id:
+            try:
+                validate_spiffe_id(parent_id, field="parent_id")
+            except ValueError as e:
+                raise SpireError(str(e)) from e
             cmd.extend(["-parentID", parent_id])
 
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True, timeout=30, check=False
             )
+        except FileNotFoundError as e:
+            logger.error(f"spire-server binary not found: {e}")
+            raise SpireError(f"spire-server binary not found: {e}") from e
         except subprocess.TimeoutExpired as e:
             logger.error(f"spire-server timeout: {e}")
             raise SpireError(f"List registrations timeout: {e}") from e

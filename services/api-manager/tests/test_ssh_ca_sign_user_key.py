@@ -118,7 +118,12 @@ def sign_client(monkeypatch):
 
     monkeypatch.setattr(api, "run_db", _inline)
     monkeypatch.setattr(api, "check_shell_access", lambda *a: True)
-    monkeypatch.setattr(api, "resolve_agent_id", lambda *a: state["agent"])
+    def _resolve(*_a):
+        if state["agent"] is None:
+            raise api.AgentResolutionError(404, "No active access agent for this resource")
+        return state["agent"]
+
+    monkeypatch.setattr(api, "resolve_agent_id", _resolve)
     monkeypatch.setattr(api, "allowed_login_principals", lambda *a: state["allowed"])
     monkeypatch.setattr(api, "user_is_admin", lambda uid: state["admin"])
     monkeypatch.setattr(api, "get_audit_logger", lambda: None)

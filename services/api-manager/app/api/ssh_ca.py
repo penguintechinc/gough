@@ -36,22 +36,60 @@ ssh_ca_bp = Blueprint("ssh_ca", __name__, url_prefix="/api/v1/ssh-ca")
 MAX_API_CERT_VALIDITY_SECONDS = 900
 
 
-def resolve_agent_id(resource_type: str, resource_id: str) -> str | None:
-    """Server-side resource -> access-agent lookup (blocking DB call).
+class AgentResolutionError(Exception):
+    """Resource could not be bound to exactly one authorized access agent."""
 
-    The ``host:<agent_id>`` principal is derived from this authorized lookup
-    only (agent whose ``agent_id`` or ``hostname`` is the resource), never from
-    request input. Returns None when no active agent matches (fail closed).
+    def __init__(self, status: int, message: str) -> None:
+        """Record the HTTP status and client-safe message."""
+        super().__init__(message)
+        self.status = status
+        self.message = message
+
+
+#: Only hypervisor/host nodes may receive host-scoped (``host:<agent_id>``) certs.
+HOST_CERT_RESOURCE_TYPES = frozenset({"node"})
+
+
+def resolve_agent_id(
+    resource_type: str,
+    resource_id: str,
+    tenant_id: str | None,
+    is_super_admin: bool = False,
+) -> str:
+    """Server-side node -> access-agent resolution (blocking DB call).
+
+    The ``host:<agent_id>`` principal derives only from the authoritative
+    server-side link ``access_agents.node_id`` (agent-reported hostnames are
+    spoofable and never consulted). The node must belong to ``tenant_id``
+    unless the caller is super-admin, and exactly one active agent must be
+    linked. Fails closed with :class:`AgentResolutionError`.
+
+    NOTE: ``access_agents.node_id`` is added by feature/hub-capacity-guard;
+    merge that branch before this one.
     """
+    if resource_type not in HOST_CERT_RESOURCE_TYPES:
+        raise AgentResolutionError(403, "Host certificates are only issued for nodes")
+    try:
+        node_pk = int(resource_id)
+    except (TypeError, ValueError):
+        raise AgentResolutionError(404, "No active access agent for this resource") from None
+    if not tenant_id and not is_super_admin:
+        raise AgentResolutionError(403, "Tenant required")
     db = get_db()
-    row = db(
+    node = db(db.nodes.id == node_pk).select().first()
+    if node is None or (not is_super_admin and node.tenant_id != tenant_id):
+        # Same answer for missing and cross-tenant: no existence oracle.
+        raise AgentResolutionError(404, "No active access agent for this resource")
+    rows = db(
         (db.access_agents.status == "active")
-        & (
-            (db.access_agents.agent_id == resource_id)
-            | (db.access_agents.hostname == resource_id)
-        )
-    ).select().first()
-    return row.agent_id if row else None
+        & (db.access_agents.node_id == node_pk)
+    ).select()
+    rows = list(rows)
+    if not rows:
+        raise AgentResolutionError(404, "No active access agent for this resource")
+    if len(rows) > 1:
+        raise AgentResolutionError(409, "Ambiguous access agent for this resource")
+    return str(rows[0].agent_id)
 
 
 def allowed_login_principals(
@@ -301,13 +339,25 @@ async def sign_certificate():
             return jsonify({"error": str(exc)}), 400
         validity_seconds = min(validity_seconds, MAX_API_CERT_VALIDITY_SECONDS)
 
+        resolve_status: dict[str, int] = {}
+
         def _authorize() -> tuple[str | None, str | None, bool]:
             """Return (agent_id, error, is_admin) for the authorized resource."""
             if not check_shell_access(current_user["id"], resource_type, resource_id):
                 return None, "User does not have shell access to this resource", False
-            agent_id = resolve_agent_id(resource_type, resource_id)
-            if not agent_id:
-                return None, "No active access agent for this resource", False
+            tc = g.get("tenant_context")
+            principal = g.get("principal", None)
+            super_admin = bool(getattr(tc, "cross_tenant", False)) or (
+                principal is not None
+                and "gough.cluster.superadmin" in getattr(principal, "scopes", ())
+            )
+            try:
+                agent_id = resolve_agent_id(
+                    resource_type, resource_id, getattr(tc, "tenant_id", None), super_admin
+                )
+            except AgentResolutionError as exc:
+                resolve_status["code"] = exc.status
+                return None, exc.message, False
             allowed = allowed_login_principals(
                 current_user["id"], resource_type, resource_id
             )
@@ -317,7 +367,7 @@ async def sign_certificate():
 
         agent_id, auth_err, is_admin = await run_db(_authorize)
         if auth_err:
-            status = 404 if "agent" in auth_err else 403
+            status = resolve_status.get("code", 403)
             return jsonify({"error": auth_err}), status
 
         # allow-root is a separate, explicit grant: root login requested AND

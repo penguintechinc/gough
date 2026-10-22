@@ -5,8 +5,11 @@ authenticated REST call mints a short-lived opaque ticket that the WS upgrade
 presents as ``?ticket=``. Only the SHA-256 of the ticket is stored; consuming
 it is atomic and one-shot, so a replayed ticket is always refused.
 
-Backed by Redis/Valkey (``REDIS_URL``) when reachable, else an in-process store
-(correct for this single-process service; not shared across replicas).
+Backed exclusively by Redis/Valkey (``REDIS_URL``). There is deliberately NO
+in-process fallback: it would silently break across replicas and hide an
+outage. With Redis unavailable every operation raises
+:class:`TicketStoreUnavailable` (surfaced as HTTP 503) and the
+``gough_shell_ticket_store_up`` gauge is 0.
 """
 
 from __future__ import annotations
@@ -17,11 +20,17 @@ import json
 import logging
 import os
 import secrets
-import threading
-import time
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+
+from .metrics import shell_ticket_store_up
 
 log = logging.getLogger(__name__)
+
+
+class TicketStoreUnavailable(RuntimeError):
+    """Raised when the Redis/Valkey ticket backend is missing or unreachable."""
 
 TICKET_TTL_SECONDS = 60
 ATTACH_TTL_SECONDS = 12 * 3600
@@ -47,11 +56,13 @@ class ShellTicketStore:
     """Mint/consume tickets and arbitrate single attachment per session."""
 
     def __init__(self, redis_url: str | None = None) -> None:
-        """Create the store; connect to Redis if ``redis_url`` is usable."""
-        self._lock = threading.Lock()
-        self._mem: dict[str, tuple[float, str]] = {}
-        self._attached: dict[str, float] = {}
-        self._redis = None
+        """Create the store; connect to Redis if ``redis_url`` is usable.
+
+        Never falls back to memory: on failure the store stays unavailable,
+        logs at ERROR and sets the availability gauge to 0.
+        """
+        self._redis: Any = None
+        self._connect_error: str = "REDIS_URL not configured"
         if redis_url:
             try:
                 import redis
@@ -59,8 +70,30 @@ class ShellTicketStore:
                 client = redis.from_url(redis_url)
                 client.ping()
                 self._redis = client
-            except Exception as exc:  # noqa: BLE001 -- fall back, never crash
-                log.warning("Shell ticket store: Redis unavailable (%s); in-memory", exc)
+            except Exception as exc:  # noqa: BLE001 -- recorded, surfaced as 503
+                self._connect_error = f"{type(exc).__name__}: {exc}"
+        if self._redis is None:
+            log.error("Shell ticket store unavailable (%s); failing closed", self._connect_error)
+            shell_ticket_store_up.set(0)
+        else:
+            shell_ticket_store_up.set(1)
+
+    def _require(self) -> Any:
+        """Return the Redis client or raise :class:`TicketStoreUnavailable`."""
+        if self._redis is None:
+            shell_ticket_store_up.set(0)
+            raise TicketStoreUnavailable(self._connect_error)
+        return self._redis
+
+    def _guard(self, fn: Callable[[Any], Any]) -> Any:
+        """Run ``fn(redis)``, mapping backend errors to TicketStoreUnavailable."""
+        client = self._require()
+        try:
+            return fn(client)
+        except Exception as exc:  # noqa: BLE001
+            log.error("Shell ticket store Redis error: %s", exc)
+            shell_ticket_store_up.set(0)
+            raise TicketStoreUnavailable(str(exc)) from exc
 
     def _mint_sync(self, claims: TicketClaims) -> str:
         ticket = secrets.token_urlsafe(32)
@@ -68,24 +101,12 @@ class ShellTicketStore:
         payload = json.dumps(
             {"u": claims.user_id, "s": claims.session_id, "t": claims.tenant}
         )
-        if self._redis is not None:
-            self._redis.set(_TICKET_PREFIX + key, payload, ex=TICKET_TTL_SECONDS)
-        else:
-            with self._lock:
-                now = time.monotonic()
-                self._mem = {k: v for k, v in self._mem.items() if v[0] > now}
-                self._mem[key] = (now + TICKET_TTL_SECONDS, payload)
+        self._guard(lambda r: r.set(_TICKET_PREFIX + key, payload, ex=TICKET_TTL_SECONDS))
         return ticket
 
     def _consume_sync(self, ticket: str) -> TicketClaims | None:
         key = hash_ticket(ticket)
-        raw: str | bytes | None
-        if self._redis is not None:
-            raw = self._redis.getdel(_TICKET_PREFIX + key)
-        else:
-            with self._lock:
-                entry = self._mem.pop(key, None)
-            raw = entry[1] if entry and entry[0] > time.monotonic() else None
+        raw = self._guard(lambda r: r.getdel(_TICKET_PREFIX + key))
         if raw is None:
             return None
         try:
@@ -95,25 +116,16 @@ class ShellTicketStore:
             return None
 
     def _attach_sync(self, session_id: str) -> bool:
-        if self._redis is not None:
-            return bool(
-                self._redis.set(
+        return bool(
+            self._guard(
+                lambda r: r.set(
                     _ATTACH_PREFIX + session_id, "1", nx=True, ex=ATTACH_TTL_SECONDS
                 )
             )
-        with self._lock:
-            now = time.monotonic()
-            if self._attached.get(session_id, 0) > now:
-                return False
-            self._attached[session_id] = now + ATTACH_TTL_SECONDS
-            return True
+        )
 
     def _release_sync(self, session_id: str) -> None:
-        if self._redis is not None:
-            self._redis.delete(_ATTACH_PREFIX + session_id)
-        else:
-            with self._lock:
-                self._attached.pop(session_id, None)
+        self._guard(lambda r: r.delete(_ATTACH_PREFIX + session_id))
 
     async def mint(self, claims: TicketClaims) -> str:
         """Mint a ticket bound to ``claims``; valid once, for 60 seconds."""

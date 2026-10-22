@@ -95,6 +95,11 @@ api_error_total: Counter = Counter(
     ["method", "endpoint", "status_code"],
 )
 
+shell_ticket_store_up: Gauge = Gauge(
+    "gough_shell_ticket_store_up",
+    "1 if the Redis/Valkey shell-ticket backend is reachable, 0 if failing closed",
+)
+
 provisioning_queue_depth: Gauge = Gauge(
     "gough_provisioning_queue_depth",
     "Number of pending node provisioning tasks in the queue",

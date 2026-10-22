@@ -38,6 +38,7 @@ from ..middleware import (
     maintainer_or_admin_required,
 )
 from ..models import get_db
+from ..safe_names import validate_rfc1123_name
 from ._biome_schema import BiomeCreate, BiomeSignRequest, BiomeUpgradeRequest
 from ._helpers import (
     EligibilityResult,
@@ -1638,7 +1639,6 @@ async def _deploy_and_health_check(
     test mocks ``_deploy_and_health_check`` away entirely.
     """
     import asyncio
-    import subprocess
 
     import aiohttp
 
@@ -1678,30 +1678,25 @@ async def _deploy_and_health_check(
 
             node_hostname = node_row.name if hasattr(node_row, "name") else f"node-{node_id}"
 
-            # Determine deploy strategy based on biome_kind
+            # Determine deploy strategy based on biome_kind. Names come from
+            # the DB; validate strictly before they reach any backend.
+            validate_rfc1123_name(str(biome.name), field="biome.name")
+            validate_rfc1123_name(str(node_hostname), field="node_hostname")
             if biome_kind == "k8s":
-                # Use kubectl rollout for Kubernetes biomes
-                cmd = [
-                    "kubectl",
-                    "rollout",
-                    "restart",
-                    f"deployment/{biome.name}",
-                    "-n",
-                    "default",
-                ]
-                await asyncio.to_thread(subprocess.run, cmd, check=True, timeout=30)
-            else:
-                # Use lxc move --live for LXC/container biomes
-                container_name = f"{biome.name}-{node_id}"
-                cmd = [
-                    "lxc",
-                    "move",
-                    container_name,
-                    "--target",
-                    node_hostname,
-                    "--live",
-                ]
-                await asyncio.to_thread(subprocess.run, cmd, check=True, timeout=30)
+                # The hub image ships no kubectl and has no credentialed
+                # Kubernetes client: fail loudly instead of shelling out.
+                log.error(
+                    "upgrade.node.not_implemented_k8s_rollout",
+                    extra={"biome_id": biome_id, "run_id": run_id},
+                )
+                return False
+            # LXC/container biomes: live-migrate via the LXD REST API
+            # (clients/lxd_extra), not by shelling out to ``lxc``.
+            container_name = f"{biome.name}-{node_id}"
+            validate_rfc1123_name(container_name, field="container_name")
+            from ..clients.lxd_extra import live_migrate
+
+            await asyncio.to_thread(live_migrate, container_name, node_hostname)
 
             log.info(
                 "upgrade.node.deploy_completed",

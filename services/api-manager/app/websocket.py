@@ -34,7 +34,7 @@ from .audit import get_audit_logger
 from .db.run_db import run_db
 from .licensing import feature_enabled
 from .models import get_db
-from .shell_tickets import get_ticket_store
+from .shell_tickets import TicketStoreUnavailable, get_ticket_store
 
 log = logging.getLogger(__name__)
 
@@ -214,7 +214,12 @@ def init_websocket(app: Quart) -> None:
             await websocket.close(CLOSE_DISABLED, "shell disabled")
             return
 
-        claims = await get_ticket_store().consume(ticket) if ticket else None
+        try:
+            claims = await get_ticket_store().consume(ticket) if ticket else None
+        except TicketStoreUnavailable:
+            log.error("shell.ws.ticket_store_unavailable", exc_info=True)
+            await websocket.close(CLOSE_UNAVAILABLE, "ticket store unavailable")
+            return
         if claims is None or not claims.tenant or claims.session_id != session_id:
             _audit_pre_auth_deny(source, "bad ticket", session_id)
             await websocket.close(CLOSE_POLICY, "authentication required")
@@ -231,7 +236,13 @@ def init_websocket(app: Quart) -> None:
             return
 
         store = get_ticket_store()
-        if not await store.try_attach(session_id):
+        try:
+            attached = await store.try_attach(session_id)
+        except TicketStoreUnavailable:
+            log.error("shell.ws.ticket_store_unavailable", exc_info=True)
+            await websocket.close(CLOSE_UNAVAILABLE, "ticket store unavailable")
+            return
+        if not attached:
             _audit_attach(session_id, claims.user_id, "deny", "already attached")
             await websocket.close(CLOSE_CONFLICT, "session already attached")
             return
@@ -249,6 +260,9 @@ def init_websocket(app: Quart) -> None:
             _audit_attach(session_id, claims.user_id, "attach", "ok")
             await run_session(transport)
         finally:
-            await store.release(session_id)
+            try:
+                await store.release(session_id)
+            except TicketStoreUnavailable:
+                log.error("shell.ws.release_failed", exc_info=True)
 
     log.info("Authenticated shell WebSocket registered")

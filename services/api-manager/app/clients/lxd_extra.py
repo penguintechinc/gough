@@ -41,6 +41,7 @@ import requests
 from pydantic import BaseModel, Field
 
 from app.clients.vault import VaultClient, VaultError
+from app.safe_names import validate_rfc1123_name
 
 logger = logging.getLogger(__name__)
 
@@ -448,6 +449,11 @@ def live_migrate(
     """
     if not instance_name or not target_member:
         raise LXDConfigError("instance_name and target_member are required")
+    try:
+        validate_rfc1123_name(instance_name, field="instance_name")
+        validate_rfc1123_name(target_member, field="target_member")
+    except ValueError as exc:
+        raise LXDConfigError(str(exc)) from exc
     cluster_id = cluster_id or os.environ.get("LXD_CLUSTER_ID", "")
     if not cluster_id:
         raise LXDConfigError(

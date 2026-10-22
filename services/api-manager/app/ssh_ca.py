@@ -218,6 +218,8 @@ class SSHCertificateAuthority:
             *([ALLOW_ROOT_PRINCIPAL] if allow_root else []),
         ]
 
+        if not re.fullmatch(r"[A-Za-z0-9_.:@=+/-]{1,256}", key_id or ""):
+            raise ValueError("invalid key_id")
         current_app.logger.info(
             f"Signing SSH key for principals {principals}, "
             f"validity {validity_seconds}s, key_id {key_id}"
@@ -268,6 +270,8 @@ class SSHCertificateAuthority:
                     f"ssh-keygen failed: {e.stderr}"
                 )
                 raise RuntimeError(f"Failed to sign SSH key: {e.stderr}")
+            except FileNotFoundError as e:
+                raise RuntimeError(f"ssh-keygen binary not found: {e}") from e
             except subprocess.TimeoutExpired:
                 raise RuntimeError("SSH key signing timed out")
 

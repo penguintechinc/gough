@@ -9,7 +9,7 @@ from quart import Quart, g
 
 import app.api.shell as shell
 import app.middleware as mw
-from app.shell_tickets import ShellTicketStore, set_ticket_store
+from app.shell_tickets import ShellTicketStore, TicketClaims, set_ticket_store
 
 
 @pytest.fixture()
@@ -18,7 +18,8 @@ def ctx(monkeypatch):
     state = {"sess": SimpleNamespace(user_id=1, ended_at=None, resource_type="vm",
                                      resource_id="r"),
              "admin": False, "access": True}
-    store = ShellTicketStore(None)
+    from tests.fake_redis import make_store
+    store = make_store()
     set_ticket_store(store)
 
     async def _inline(fn):
@@ -85,3 +86,24 @@ async def test_missing_and_ended_session(ctx):
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 409
     state["sess"] = None
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_mint_503_without_redis(ctx):
+    """regression: ticket store must fail closed, never fall back to memory."""
+    c, _state, _store = ctx
+    set_ticket_store(ShellTicketStore(None))
+    r = await c.post("/api/v1/shell/sessions/s1/ticket")
+    assert r.status_code == 503
+
+
+def test_store_without_redis_raises_and_gauge_zero():
+    from app.metrics import shell_ticket_store_up
+    from app.shell_tickets import TicketStoreUnavailable
+
+    store = ShellTicketStore("redis://127.0.0.1:1/0")
+    assert shell_ticket_store_up._value.get() == 0
+    with pytest.raises(TicketStoreUnavailable):
+        store._mint_sync(TicketClaims(1, "s", "t"))
+    with pytest.raises(TicketStoreUnavailable):
+        store._attach_sync("s")

@@ -37,7 +37,8 @@ def _no_spawn(monkeypatch):
 def store():
     """Fresh in-memory ticket store (also resets the pre-auth audit budget)."""
     ws_mod._pre_auth_hits.clear()
-    s = ShellTicketStore(None)
+    from tests.fake_redis import make_store
+    s = make_store()
     set_ticket_store(s)
     yield s
     set_ticket_store(None)
@@ -142,9 +143,10 @@ async def test_kill_switch_denies(client, store, monkeypatch):
 @pytest.mark.asyncio
 async def test_ticket_expiry_and_hashing(store):
     t = await _ticket(store)
-    assert t not in store._mem  # only the hash is stored
-    key = next(iter(store._mem))
-    store._mem[key] = (0.0, store._mem[key][1])
+    data = store._redis.data
+    assert all(t not in k for k in data)  # only the hash is stored
+    key = next(iter(data))
+    data[key] = (0.0, data[key][1])
     assert await store.consume(t) is None
 
 

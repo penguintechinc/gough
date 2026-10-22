@@ -53,6 +53,33 @@ log = logging.getLogger(__name__)
 #: (contrast FLAG_MULTI_CLOUD, which gates all of app.api.clouds).
 FLAG_ANYCAST_FRONTEND = "gough.anycast-frontend"
 
+#: Gates the destructive control-plane replace / force-recover operations.
+#: Default OFF. Even when ON they return 501: the hub image carries neither
+#: kubectl nor etcdctl and has no credentialed Kubernetes client, so the
+#: operations are not implemented -- they must fail loudly, never pretend.
+FLAG_CONTROL_PLANE_REPLACE = "gough.control-plane-replace"
+
+
+async def _control_plane_gate() -> Any:
+    """Return a 404/501 response tuple for unimplemented control-plane ops.
+
+    Flag OFF -> 404 ``feature_disabled``; flag ON -> 501
+    ``not_implemented_control_plane_replace``. Never returns success.
+    """
+    if not await feature_enabled(FLAG_CONTROL_PLANE_REPLACE):
+        return jsonify({
+            "status": "error",
+            "error": {"code": "feature_disabled",
+                "message": f"{FLAG_CONTROL_PLANE_REPLACE} is not enabled"},
+        }), 404
+    log.error("primary.not_implemented_control_plane_replace")
+    return jsonify({
+        "status": "error",
+        "error": {"code": "not_implemented_control_plane_replace",
+            "message": "control-plane replace/recover requires kubectl/etcdctl "
+                       "which the hub does not ship; not implemented"},
+    }), 501
+
 
 @dataclass(slots=True)
 class JoinResult:
@@ -270,140 +297,10 @@ async def replace_primary():
     Validates quorum, drains old node, mints join token, waits for new node etcd health.
 
     Body: {old_node_id, new_node_id, reason}
-    Returns: 200 on success, 504 on timeout, 409 on quorum loss.
+    Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).
     """
-    cluster_id = _cluster_id()
-    request_id = _request_id()
-    body = await request.get_json() or {}
+    return await _control_plane_gate()
 
-    old_node_id = body.get("old_node_id")
-    new_node_id = body.get("new_node_id")
-    reason = body.get("reason")
-
-    if not old_node_id or not new_node_id:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "old_node_id and new_node_id are required"},
-        }), 422
-
-    if not reason:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "reason is required"},
-        }), 422
-
-    db = get_db()
-    etcd_host = current_app.config.get("ETCD_HOST", "localhost")
-    etcd_port = current_app.config.get("ETCD_PORT", 2379)
-    timeout_seconds = 300
-
-    try:
-        import aetcd  # deferred — module import shouldn't hard-require this
-        async with aetcd.Client(host=etcd_host, port=etcd_port) as etcd_client:
-
-            # Check quorum before starting
-            if not await _check_etcd_quorum(etcd_client):
-                return jsonify({
-                    "status": "error",
-                    "error": {"code": "quorum_loss",
-                        "message": "etcd quorum is unhealthy"},
-                }), 409
-
-            # Cordon and evict pods from old node (mocked kubectl)
-            log.info(f"Cordoning node {old_node_id}")
-            await asyncio.to_thread(
-                lambda: __import__("subprocess").run(
-                    ["kubectl", "cordon", str(old_node_id)],
-                    check=False, capture_output=True
-                )
-            )
-
-            # Remove etcd member for old node
-            try:
-                members = [m async for m in etcd_client.members()]
-                for m in members:
-                    if m.name == str(old_node_id):
-                        await etcd_client.remove_member(m.id)
-                        log.info(f"Removed etcd member {old_node_id}")
-                        break
-            except Exception as e:
-                log.error(f"Failed to remove etcd member: {e}")
-
-            # Get joiner secrets to pass to new node
-            secrets = await _get_joiner_secrets(db, cluster_id)
-            endpoint = current_app.config.get("CONTROL_PLANE_ENDPOINT", "")
-
-            # Emit audit event. Regression: gh-22. AuditLogger.log() issues
-            # its own synchronous db.system_logs.insert()+commit() -- off
-            # the event loop via run_db() instead of blocking the request
-            # coroutine inline.
-            audit = current_app.extensions.get("audit")
-            if audit and isinstance(audit, AuditLogger):
-                await run_db(
-                    lambda: audit.log(
-                        AuditEventType.RESOURCE_UPDATE,
-                        f"Primary node replacement: {old_node_id} -> {new_node_id}",
-                        resource_type="primary.node",
-                        resource_id=str(new_node_id),
-                        details={"old_node_id": old_node_id, "reason": reason},
-                    )
-                )
-
-            # Wait for new node etcd member to join (poll for 5 min)
-            start = asyncio.get_event_loop().time()
-            while asyncio.get_event_loop().time() - start < timeout_seconds:
-                try:
-                    members = [m async for m in etcd_client.members()]
-                    if any(m.name == str(new_node_id) for m in members):
-                        log.info(f"Node {new_node_id} joined etcd cluster")
-                        return jsonify({
-                            "status": "success",
-                            "data": {
-                                "cluster_id": cluster_id,
-                                "old_node_id": old_node_id,
-                                "new_node_id": new_node_id,
-                                "duration_seconds": asyncio.get_event_loop().time() - start,
-                            },
-                        }), 200
-                except Exception:
-                    pass
-                await asyncio.sleep(5)
-
-            return jsonify({
-                "status": "error",
-                "error": {"code": "timeout",
-                    "message": f"New node {new_node_id} failed to join etcd within {timeout_seconds}s"},
-            }), 504
-
-    except Exception as e:
-        log.error(f"Primary replace failed: {e}")
-        return jsonify({
-            "status": "error",
-            "error": {"code": "internal_error",
-                "message": str(e)},
-        }), 500
-
-
-async def _etcd_snapshot_restore(
-    surviving_node_id: str,
-    snapshot_path: str
-) -> Optional[str]:
-    """Snapshot and restore etcd to single-member cluster. Return restored config or None."""
-    try:
-        import subprocess
-        # etcdctl snapshot restore with single-member config
-        result = await asyncio.to_thread(
-            subprocess.run,
-            ["etcdctl", "snapshot", "restore", snapshot_path,
-             "--name", "recovered", "--initial-cluster", "recovered=http://localhost:2380"],
-            check=True, capture_output=True, text=True
-        )
-        return f"/var/lib/etcd-recovered"
-    except Exception as e:
-        log.error(f"etcd snapshot restore failed: {e}")
-        return None
 
 
 @primary_bp.route("/force-recover", methods=["POST"])
@@ -416,109 +313,10 @@ async def force_recover_quorum():
     Requires typed cluster-name confirmation + superadmin scope + MFA.
 
     Body: {surviving_node_id, reason, typed_cluster_name_confirmation}
-    Returns: 200 on success, 504 on timeout, 422 on validation failure.
+    Returns: 404 flag off, 501 not implemented (hub has no kubectl/etcdctl).
     """
-    cluster_id = _cluster_id()
-    request_id = _request_id()
-    body = await request.get_json() or {}
+    return await _control_plane_gate()
 
-    surviving_node_id = body.get("surviving_node_id")
-    reason = body.get("reason")
-    confirmation = body.get("typed_cluster_name_confirmation")
-
-    if not surviving_node_id or not reason:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "surviving_node_id and reason are required"},
-        }), 422
-
-    # Typed confirmation guard (hard requirement for break-glass)
-    if confirmation != cluster_id:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": f"Cluster name confirmation mismatch (expected {cluster_id})"},
-        }), 422
-
-    log.warning(f"Force-recover quorum initiated: surviving={surviving_node_id} reason={reason}")
-
-    etcd_host = current_app.config.get("ETCD_HOST", "localhost")
-    etcd_port = current_app.config.get("ETCD_PORT", 2379)
-    timeout_seconds = 300
-
-    try:
-        # Snapshot from surviving node via etcdctl or SSH
-        snapshot_path = f"/tmp/etcd-snapshot-{uuid.uuid4().hex[:8]}.db"
-        await asyncio.to_thread(
-            lambda: __import__("subprocess").run(
-                ["etcdctl", "--endpoints", f"{etcd_host}:{etcd_port}",
-                 "snapshot", "save", snapshot_path],
-                check=True, capture_output=True
-            )
-        )
-
-        # Restore to single-member cluster
-        restored_dir = await _etcd_snapshot_restore(surviving_node_id, snapshot_path)
-        if not restored_dir:
-            return jsonify({
-                "status": "error",
-                "error": {"code": "snapshot_restore_failed",
-                    "message": "Failed to restore etcd snapshot"},
-            }), 500
-
-        # Emit audit event (high severity for break-glass). Regression:
-        # gh-22. Off the event loop via run_db() instead of blocking the
-        # request coroutine inline.
-        audit = current_app.extensions.get("audit")
-        if audit and isinstance(audit, AuditLogger):
-            await run_db(
-                lambda: audit.log(
-                    AuditEventType.SYSTEM_CONFIG_CHANGE,
-                    f"Break-glass quorum recovery on surviving node {surviving_node_id}",
-                    resource_type="primary.etcd",
-                    resource_id=cluster_id,
-                    details={"surviving_node_id": surviving_node_id, "reason": reason},
-                )
-            )
-
-        # Wait for cluster stabilization
-        start = asyncio.get_event_loop().time()
-        import aetcd  # deferred — module import shouldn't hard-require this
-        async with aetcd.Client(host=etcd_host, port=etcd_port) as etcd_client:
-            while asyncio.get_event_loop().time() - start < timeout_seconds:
-                try:
-                    status = await etcd_client.status()
-                    # aetcd's Status.leader is the leader Member (or None) --
-                    # not an int ID like etcd3's -- so `is not None` replaces
-                    # the old `> 0` check. See gh-22.
-                    if status.leader is not None:
-                        log.info("etcd cluster recovered")
-                        return jsonify({
-                            "status": "success",
-                            "data": {
-                                "cluster_id": cluster_id,
-                                "surviving_node_id": surviving_node_id,
-                                "duration_seconds": asyncio.get_event_loop().time() - start,
-                            },
-                        }), 200
-                except Exception:
-                    pass
-                await asyncio.sleep(5)
-
-        return jsonify({
-            "status": "error",
-            "error": {"code": "timeout",
-                "message": f"Cluster failed to stabilize within {timeout_seconds}s"},
-        }), 504
-
-    except Exception as e:
-        log.error(f"Force-recover failed: {e}")
-        return jsonify({
-            "status": "error",
-            "error": {"code": "internal_error",
-                "message": str(e)},
-        }), 500
 
 
 async def _update_endpoint_on_nodes(

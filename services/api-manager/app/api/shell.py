@@ -18,7 +18,12 @@ from ..middleware import auth_required, get_current_user, user_has_role
 from ..audit import get_audit_logger
 from ..db.run_db import run_db
 from ..models import get_db
-from ..shell_tickets import TICKET_TTL_SECONDS, TicketClaims, get_ticket_store
+from ..shell_tickets import (
+    TICKET_TTL_SECONDS,
+    TicketClaims,
+    TicketStoreUnavailable,
+    get_ticket_store,
+)
 
 log = logging.getLogger(__name__)
 
@@ -418,6 +423,7 @@ async def issue_ticket(session_id: str):
         403: Not owner/admin or no shell access
         404: Session not found
         409: Session already ended
+        503: Ticket store (Redis/Valkey) unavailable -- fails closed
     """
     current_user = get_current_user()
     tc = g.get("tenant_context")
@@ -445,9 +451,15 @@ async def issue_ticket(session_id: str):
     if sess is None:
         return jsonify({"error": err}), status
 
-    ticket = await get_ticket_store().mint(
-        TicketClaims(user_id=current_user["id"], session_id=session_id, tenant=str(tenant))
-    )
+    try:
+        ticket = await get_ticket_store().mint(
+            TicketClaims(
+                user_id=current_user["id"], session_id=session_id, tenant=str(tenant)
+            )
+        )
+    except TicketStoreUnavailable:
+        log.error("shell.ticket_mint_failed: ticket store unavailable", exc_info=True)
+        return jsonify({"error": "Shell ticket store unavailable"}), 503
     audit_logger = get_audit_logger()
     if audit_logger:
         audit_logger.log_shell_ticket_issued(session_id, current_user["id"])
