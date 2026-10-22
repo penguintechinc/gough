@@ -6,12 +6,18 @@ then switches to JWT tokens for ongoing authentication.
 
 import json
 import logging
-from datetime import datetime
+import os
+import random
+import secrets
+import time
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Callable, Optional, Tuple
 
 import httpx
 
+from . import __version__
 from .config import AgentConfig
 
 log = logging.getLogger(__name__)
@@ -20,6 +26,57 @@ log = logging.getLogger(__name__)
 class EnrollmentError(Exception):
     """Raised when agent enrollment fails."""
     pass
+
+
+def _error_message(response: httpx.Response) -> str:
+    """Extract a human-readable error from a non-success response.
+
+    Falls back to the raw body (or a generic message) when the body is not a JSON object,
+    e.g. a proxy HTML error page, so the caller always gets an EnrollmentError.
+
+    Args:
+        response: The failed HTTP response.
+
+    Returns:
+        Error text suitable for inclusion in an EnrollmentError message.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:200] or "Unknown error"
+    if isinstance(body, dict):
+        return str(body.get("error", "Unknown error"))
+    return "Unknown error"
+
+
+# Statuses worth retrying: transient server-side failures and explicit throttling.
+# Every other 4xx (notably 401/403/409) is a definitive answer and is never retried.
+RETRYABLE_STATUSES = frozenset({429, 500, 502, 503, 504})
+
+
+def parse_retry_after(value: Optional[str]) -> Optional[float]:
+    """Parse a ``Retry-After`` header (delta-seconds or HTTP-date).
+
+    Args:
+        value: Raw header value, or None.
+
+    Returns:
+        Seconds to wait (>= 0), or None when absent/unparseable.
+    """
+    if not value:
+        return None
+    value = value.strip()
+    try:
+        return max(0.0, float(value))
+    except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 class AgentEnrollment:
@@ -33,6 +90,10 @@ class AgentEnrollment:
         """
         self.config = config
         self._http_client: Optional[httpx.Client] = None
+        # Injectable for tests; jitter is not security-sensitive.
+        self._sleep: Callable[[float], None] = time.sleep
+        self._monotonic: Callable[[], float] = time.monotonic
+        self._uniform: Callable[[float, float], float] = random.uniform  # noqa: S311
 
     @property
     def http_client(self) -> httpx.Client:
@@ -106,13 +167,75 @@ class AgentEnrollment:
             "saved_at": datetime.utcnow().isoformat(),
         }
 
-        with open(token_path, "w") as f:
-            json.dump(tokens, f, indent=2)
-
-        # Secure file permissions
-        token_path.chmod(0o600)
+        # Write a fresh sibling file created 0600 with O_EXCL (never world-readable, never
+        # a partial file at the final path), then atomically rename over the target.
+        tmp_path = token_path.with_name(f".{token_path.name}.{secrets.token_hex(8)}.tmp")
+        fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                json.dump(tokens, f, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, token_path)
+        except BaseException:
+            tmp_path.unlink(missing_ok=True)
+            raise
 
         log.info(f"Saved tokens to {token_path}")
+
+    def _post_with_retry(self, path: str, **kwargs: Any) -> httpx.Response:
+        """POST with bounded exponential backoff and full jitter.
+
+        Retries network errors and 429/500/502/503/504 only; any other status is returned
+        immediately. ``Retry-After`` (429/503) is honoured as a minimum delay. Attempts and
+        total elapsed time are both bounded by the config.
+
+        Args:
+            path: Request path relative to the management server.
+            **kwargs: Passed to ``httpx.Client.post``.
+
+        Returns:
+            The last response (success, non-retryable, or retries exhausted).
+
+        Raises:
+            httpx.RequestError: If the final attempt still fails at the transport level.
+        """
+        cfg = self.config
+        attempts = max(1, cfg.enroll_max_attempts)
+        deadline = self._monotonic() + max(0.0, cfg.enroll_max_total_s)
+        attempt = 0
+        while True:
+            attempt += 1
+            retry_after: Optional[float] = None
+            last: Optional[httpx.Response] = None
+            try:
+                response = self.http_client.post(path, **kwargs)
+            except httpx.RequestError as e:
+                if attempt >= attempts:
+                    raise
+                reason = type(e).__name__
+            else:
+                if response.status_code not in RETRYABLE_STATUSES or attempt >= attempts:
+                    return response
+                last = response
+                last = response
+                reason = f"HTTP {response.status_code}"
+                if response.status_code in (429, 503):
+                    retry_after = parse_retry_after(response.headers.get("Retry-After"))
+
+            ceiling = min(cfg.enroll_max_delay_s, cfg.enroll_base_delay_s * (2 ** (attempt - 1)))
+            delay = self._uniform(0.0, ceiling)
+            if retry_after is not None:
+                delay = max(delay, retry_after)
+            if self._monotonic() + delay > deadline:
+                log.warning(f"Enrollment retry budget exhausted after {attempt} attempt(s)")
+                if last is not None:
+                    return last
+                raise httpx.ConnectError(f"retry budget exhausted ({reason})")
+            log.warning(
+                f"Enrollment attempt {attempt}/{attempts} failed ({reason}); retrying in {delay:.1f}s"
+            )
+            self._sleep(delay)
 
     def enroll(self) -> Tuple[str, str, str]:
         """Enroll agent with management server.
@@ -135,7 +258,7 @@ class AgentEnrollment:
         )
 
         try:
-            response = self.http_client.post(
+            response = self._post_with_retry(
                 "/api/v1/agents/enroll",
                 headers={
                     "X-Enrollment-Key": self.config.enrollment_key,
@@ -144,7 +267,7 @@ class AgentEnrollment:
                 json={
                     "hostname": self.config.hostname,
                     "ip_address": self._get_primary_ip(),
-                    "agent_version": "1.0.0",
+                    "agent_version": __version__,
                     "capabilities": self.config.capabilities,
                 },
             )
@@ -156,8 +279,7 @@ class AgentEnrollment:
                 raise EnrollmentError("Enrollment key already used")
 
             if response.status_code != 201:
-                error_msg = response.json().get("error", "Unknown error")
-                raise EnrollmentError(f"Enrollment failed: {error_msg}")
+                raise EnrollmentError(f"Enrollment failed: {_error_message(response)}")
 
             data = response.json()
 
@@ -220,8 +342,7 @@ class AgentEnrollment:
                 raise EnrollmentError("Refresh token expired or revoked")
 
             if response.status_code != 200:
-                error_msg = response.json().get("error", "Unknown error")
-                raise EnrollmentError(f"Token refresh failed: {error_msg}")
+                raise EnrollmentError(f"Token refresh failed: {_error_message(response)}")
 
             data = response.json()
 

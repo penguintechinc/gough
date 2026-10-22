@@ -11,7 +11,7 @@ aiodns==3.1.0
 aiofiles==23.2.0
 
 # TFTP server
-py3tftp==0.1.4
+py3tftp==1.3.0
 
 # DNS/DHCP libraries
 dnslib==0.9.23
@@ -24,7 +24,7 @@ redfish==3.2.0
 prometheus-client==0.20.0
 
 # Structured logging
-structlog==24.5.0
+structlog==26.1.0
 
 # Environment configuration
 python-decouple==3.8
@@ -42,7 +42,7 @@ apscheduler==3.10.4
 netifaces==0.11.0
 
 # Penguin shared libraries (published packages)
-penguin-libs==0.2.0
+penguin-libs==0.3.0
 penguin-licensing==0.1.0
 penguin-aaa==0.1.0
-penguin-utils==0.2.0
+penguin-utils==0.3.0

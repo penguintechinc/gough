@@ -14,6 +14,7 @@ import psutil
 
 from .auth import AgentAuth
 from .config import AgentConfig
+from .host_resources import collect_host_resources
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +120,10 @@ class HeartbeatService:
 
             # Collect system metrics
             resource_usage = self._get_resource_usage()
+            snapshot = await collect_host_resources(
+                timeout_s=self.config.snapshot_timeout_s,
+                lxd_socket=self.config.lxd_socket,
+            )
 
             response = await self.http_client.post(
                 "/api/v1/agents/heartbeat",
@@ -128,6 +133,7 @@ class HeartbeatService:
                     "status": "active",
                     "active_sessions": self._active_sessions,
                     "resource_usage": resource_usage,
+                    "resource_snapshot": snapshot.to_dict(),
                     "timestamp": datetime.utcnow().isoformat(),
                 },
             )

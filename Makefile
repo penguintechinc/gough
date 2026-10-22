@@ -190,9 +190,24 @@ build-production: ## Build - Build for production with optimizations
 	@docker compose build api-manager webui worker-ipxe access-agent
 
 # Docker Commands
-docker-build: ## Docker - Build all Docker images
+# penguin-libs is a sibling repo; resolved relative to repo root. Override: make docker-build PENGUIN_LIBS_DIR=/abs/path
+# Main checkout = parent of the shared .git dir, so worktrees resolve the same sibling as the main checkout.
+MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
+PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
+NPMRC_PATH ?= $(HOME)/.npmrc
+DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
+PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
+
+docker-build: ## Docker - Build all service images locally (alpha); fails on first error
 	@echo "$(BLUE)Building Docker images...$(RESET)"
-	@docker compose build
+	@test -d "$(PENGUIN_LIBS_DIR)" || { echo "penguin-libs not found at $(PENGUIN_LIBS_DIR)"; exit 1; }
+	@for svc in $(DOCKER_BUILD_SERVICES); do \
+	  extra=""; \
+	  case " $(PENGUIN_LIBS_SERVICES) " in *" $$svc "*) extra="--build-context penguin-libs=$(abspath $(PENGUIN_LIBS_DIR))";; esac; \
+	  if [ "$$svc" = "webui" ] && [ -f "$(NPMRC_PATH)" ]; then extra="$$extra --secret id=npmrc,src=$(NPMRC_PATH)"; fi; \
+	  echo "--> $$svc"; \
+	  docker build $$extra -t gough-$$svc:alpha services/$$svc || exit 1; \
+	done
 
 docker-push: ## Docker - Push Docker images to registry
 	@echo "$(BLUE)Pushing Docker images...$(RESET)"
