@@ -1,15 +1,11 @@
 name: gough-agent release
 
+# Release publish attaches signed artifacts to the release. Manual dispatch
+# builds and uploads a workflow artifact only; it never touches a release.
 on:
   release:
     types: [published]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: "Existing release tag to attach artifacts to (empty = build artifact only)"
-        required: false
-        type: string
-        default: ""
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -22,10 +18,11 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Checkout
+      - name: Checkout (release tag or dispatched ref)
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          ref: ${{ github.event_name == 'release' && format('refs/tags/{0}', github.event.release.tag_name) || github.ref }}
 
       - name: Set up Python 3.13
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
@@ -67,17 +64,18 @@ jobs:
           retention-days: 30
 
   attach:
-    name: Attach artifacts to GitHub release
+    name: Attest and attach artifacts to release
     needs: build
+    if: github.event_name == 'release'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # Only attach when a release tag is known: release event or explicit dispatch input.
-    if: github.event_name == 'release' || inputs.release_tag != ''
     permissions:
-      contents: write
+      contents: write     # upload release assets
+      id-token: write     # Sigstore OIDC for provenance
+      attestations: write # store provenance attestation
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
     steps:
       - name: Download artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -85,10 +83,22 @@ jobs:
           name: gough-agent-dist
           path: dist
 
-      - name: Upload to release
+      - name: Verify SHA256SUMS
         run: |
           set -euo pipefail
-          count="$(ls -1 dist/gough_agent-* | wc -l)"
+          cd dist
+          count="$(sha256sum --check SHA256SUMS | grep -c ': OK$')"
           test "${count}" -ge 2
-          gh release upload "${RELEASE_TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          echo "verified ${count} artifacts"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-path: "dist/gough_agent-*"
+
+      - name: Upload to release (no overwrite)
+        run: |
+          set -euo pipefail
+          count="$(ls -1 dist/gough_agent-* dist/SHA256SUMS | wc -l)"
+          gh release upload "${RELEASE_TAG}" dist/gough_agent-* dist/SHA256SUMS --repo "${GITHUB_REPOSITORY}"
           echo "attached ${count} files to ${RELEASE_TAG}"
