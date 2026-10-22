@@ -93,37 +93,50 @@ def _upstream_error_response(upstream_status: int) -> Response:
     return Response("Upstream storage error", status=502)
 
 
-class _StreamedImageBody(ResponseBody):
-    """Quart body that streams storage chunks and always releases the storage stream.
+class ImageStorageError(Exception):
+    """Raised inside a streamed body when storage fails after the 200 was committed."""
 
-    __aexit__ closes the stream even if iteration never started (disconnect before
-    send, HEAD, or a failure after construction), which a generator finally cannot cover.
+
+class _LazyImageBody(ResponseBody):
+    """Quart body that opens the storage GET only on first iteration.
+
+    An unstarted body holds no connection: __aiter__ opens the stream inside the same
+    try/finally that closes it, so open and close cannot diverge. __aexit__ closes any
+    stream as belt-and-braces; close is idempotent.
     """
 
-    def __init__(self, stream: _StorageStream, chunk_size: int) -> None:
-        """Bind the owned storage stream and the chunk size used for reads."""
-        self.stream = stream
+    def __init__(self, presigned_url: str, chunk_size: int) -> None:
+        """Store the presigned URL and chunk size; acquires no resources."""
+        self.presigned_url = presigned_url
         self.chunk_size = chunk_size
+        self.stream: _StorageStream | None = None
 
-    async def __aenter__(self) -> "_StreamedImageBody":
+    async def __aenter__(self) -> "_LazyImageBody":
         """Enter the body context; no resources are acquired here."""
         return self
 
     async def __aexit__(self, exc_type: object, exc_value: object, tb: object) -> None:
-        """Release the storage stream on every exit path, including cancellation."""
-        await self.stream.close()
+        """Release any opened storage stream on every exit path."""
+        if self.stream is not None:
+            await self.stream.close()
 
     def __aiter__(self) -> AsyncIterator[bytes]:
-        """Return the chunk generator over the upstream body."""
+        """Return the chunk generator, which performs the lazy GET."""
         return self._chunks()
 
     async def _chunks(self) -> AsyncIterator[bytes]:
-        """Yield upstream bytes in fixed-size chunks, closing the stream on completion."""
+        """Open the storage GET, yield bounded chunks, and close in one try/finally."""
         try:
+            self.stream = await _open_storage_stream(self.presigned_url)
+            if not self.stream.upstream.is_success:
+                # 200 already committed by the HEAD preflight: abort instead of sending an empty body
+                logger.error("image_storage_get_failed", upstream_status=self.stream.upstream.status_code)
+                raise ImageStorageError(f"storage GET returned {self.stream.upstream.status_code}")
             async for chunk in self.stream.upstream.aiter_bytes(self.chunk_size):
                 yield chunk
         finally:
-            await self.stream.close()
+            if self.stream is not None:
+                await self.stream.close()
 
 
 def _validate_image_path(image_path: str) -> tuple[bool, str]:
@@ -291,31 +304,17 @@ class HTTPBootServer:
                             )
                             return Response("Invalid presigned URL", status=400)
 
+                        preflight = await self._preflight_image(presigned_url, image_path)
+                        if isinstance(preflight, Response):
+                            return preflight
+                        out_headers = _outbound_image_headers(preflight)
                         if request.method == "HEAD":
-                            return await self._head_image(presigned_url, image_path)
-
-                        # Stream image from storage in bounded chunks (never buffer whole image)
-                        stream = await _open_storage_stream(presigned_url)
-                        if not stream.upstream.is_success:
-                            status = stream.upstream.status_code
-                            await stream.close()
-                            logger.error(
-                                "image_storage_fetch_failed",
-                                path=image_path,
-                                upstream_status=status,
-                            )
-                            return _upstream_error_response(status)
-
-                        try:
-                            response = Response(
-                                _StreamedImageBody(stream, self.image_chunk_size),
-                                mimetype="application/octet-stream",
-                                headers=_outbound_image_headers(stream.upstream),
-                            )
-                        except BaseException:
-                            await stream.close()
-                            raise
-                        return response
+                            return Response(b"", mimetype="application/octet-stream", headers=out_headers)
+                        return Response(
+                            _LazyImageBody(presigned_url, self.image_chunk_size),
+                            mimetype="application/octet-stream",
+                            headers=out_headers,
+                        )
                     else:
                         logger.error("image_url_fetch_failed", status=response.status_code)
                         return Response("Image not found", status=404)
@@ -348,8 +347,8 @@ class HTTPBootServer:
                 logger.error("boot_event_forward_error", error=str(e))
                 return jsonify({"status": "error", "message": str(e)}), 500
 
-    async def _head_image(self, presigned_url: str, image_path: str) -> Response:
-        """Answer HEAD with storage metadata only; never opens a streamed GET."""
+    async def _preflight_image(self, presigned_url: str, image_path: str) -> httpx.Response | Response:
+        """Storage HEAD pre-flight: returns headers or an error Response. Never opens a GET."""
         async with httpx.AsyncClient(timeout=_storage_timeout()) as client:
             upstream = await client.head(presigned_url)
         if not upstream.is_success:
@@ -359,7 +358,7 @@ class HTTPBootServer:
                 upstream_status=upstream.status_code,
             )
             return _upstream_error_response(upstream.status_code)
-        return Response(b"", mimetype="application/octet-stream", headers=_outbound_image_headers(upstream))
+        return upstream
 
     async def start(self):
         """Start HTTP server."""

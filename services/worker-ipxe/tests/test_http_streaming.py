@@ -17,8 +17,8 @@ from worker.services.http_server import (
     STORAGE_CONNECT_TIMEOUT_S,
     STORAGE_READ_TIMEOUT_S,
     HTTPBootServer,
+    _LazyImageBody,
     _StorageStream,
-    _StreamedImageBody,
     _outbound_image_headers,
 )
 
@@ -55,8 +55,8 @@ def _make_handler(
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == API_HOST:
             return httpx.Response(200, json={"url": STORAGE_URL})
-        if body is None:
-            return httpx.Response(storage_status)
+        if body is None or request.method == "HEAD":
+            return httpx.Response(storage_status, headers=extra_headers)
         return httpx.Response(storage_status, stream=body, headers=extra_headers)
 
     return handler
@@ -115,49 +115,92 @@ def _stream_for(upstream: CountingUpstream) -> _StorageStream:
     return _StorageStream(client=client, upstream=httpx.Response(200, stream=upstream))
 
 
+def _spy_open(monkeypatch: pytest.MonkeyPatch, upstream: CountingUpstream) -> list[_StorageStream]:
+    """Replace the lazy GET opener with one that records each opened stream."""
+    opened: list[_StorageStream] = []
+
+    async def fake_open(presigned_url: str) -> _StorageStream:
+        """Return a stream over the given upstream and record it."""
+        stream = _stream_for(upstream)
+        opened.append(stream)
+        return stream
+
+    monkeypatch.setattr(http_server, "_open_storage_stream", fake_open)
+    return opened
+
+
 @pytest.mark.asyncio
-async def test_iter_image_chunks_closes_upstream_on_disconnect() -> None:
-    """Closing the chunk iterator early (client disconnect) closes upstream and client."""
+async def test_no_get_opened_before_body_iterated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unstarted body opens no storage GET, so it holds no connection.
+
+    Regression for the residual Quart gap: a body entered and exited without iteration
+    (client gone before send) must never have connected to storage.
+    """
+    upstream = CountingUpstream(total_chunks=10, chunk=b"q" * 8)
+    opened = _spy_open(monkeypatch, upstream)
+
+    body = _LazyImageBody(STORAGE_URL, chunk_size=8)
+    async with body:
+        pass
+
+    assert opened == []
+    assert body.stream is None
+
+
+@pytest.mark.asyncio
+async def test_lazy_body_opens_on_iteration_and_closes_on_completion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """First iteration opens the GET; completion closes upstream and client."""
+    upstream = CountingUpstream(total_chunks=4, chunk=b"w" * 8)
+    opened = _spy_open(monkeypatch, upstream)
+    body = _LazyImageBody(STORAGE_URL, chunk_size=8)
+
+    total = b""
+    async with body:
+        async for chunk in body:
+            total += chunk
+
+    assert len(opened) == 1
+    assert total == b"w" * 32
+    assert upstream.closed is True
+    assert opened[0].client.is_closed is True
+
+
+@pytest.mark.asyncio
+async def test_lazy_body_disconnect_mid_stream_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Closing the chunk iterator early closes upstream and client."""
     upstream = CountingUpstream(total_chunks=50, chunk=b"y" * 16)
-    stream = _stream_for(upstream)
-    body = _StreamedImageBody(stream, chunk_size=16)
+    opened = _spy_open(monkeypatch, upstream)
+    body = _LazyImageBody(STORAGE_URL, chunk_size=16)
 
     chunks = body.__aiter__()
     assert await chunks.__anext__() == b"y" * 16
     await chunks.aclose()
 
     assert upstream.closed is True
-    assert stream.client.is_closed is True
+    assert opened[0].client.is_closed is True
 
 
 @pytest.mark.asyncio
-async def test_iter_image_chunks_is_lazy_and_bounded() -> None:
-    """Chunks are pulled from upstream on demand, never the whole body up front."""
-    upstream = CountingUpstream(total_chunks=1000, chunk=b"x" * 1024)
-    body = _StreamedImageBody(_stream_for(upstream), chunk_size=1024)
+async def test_lazy_body_non_2xx_get_aborts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A storage GET failing after the 200 was committed aborts the body and closes."""
+    upstream = CountingUpstream(total_chunks=3, chunk=b"e")
 
-    chunks = body.__aiter__()
-    first = await chunks.__anext__()
-    assert len(first) == 1024
-    assert upstream.yielded <= 2
-    await chunks.aclose()
+    async def fake_open(presigned_url: str) -> _StorageStream:
+        """Return a stream whose GET status is 500."""
+        client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
+        return _StorageStream(client=client, upstream=httpx.Response(500, stream=upstream))
 
+    monkeypatch.setattr(http_server, "_open_storage_stream", fake_open)
+    body = _LazyImageBody(STORAGE_URL, chunk_size=1)
 
-@pytest.mark.asyncio
-async def test_unstarted_body_still_closes_upstream_and_client() -> None:
-    """A body that is entered and exited without iterating still releases the storage stream.
+    with pytest.raises(http_server.ImageStorageError):
+        async for _ in body:
+            pass
 
-    Regression: a generator finally never runs if iteration never started; the body's
-    __aexit__ must close the stream regardless.
-    """
-    upstream = CountingUpstream(total_chunks=10, chunk=b"q" * 8)
-    stream = _stream_for(upstream)
-
-    async with _StreamedImageBody(stream, chunk_size=8):
-        pass  # never iterated: client disconnected before send
-
+    assert upstream.yielded == 0
     assert upstream.closed is True
-    assert stream.client.is_closed is True
 
 
 @pytest.mark.asyncio
@@ -174,11 +217,13 @@ async def test_storage_stream_close_is_idempotent() -> None:
 
 
 @pytest.mark.asyncio
-async def test_body_close_then_generator_finally_is_double_close_safe() -> None:
-    """Body __aexit__ followed by the generator finally must not double-close."""
+async def test_body_exit_then_iterator_close_is_double_close_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Body __aexit__ followed by the iterator aclose must not double-close."""
     upstream = CountingUpstream(total_chunks=5, chunk=b"b" * 4)
-    stream = _stream_for(upstream)
-    body = _StreamedImageBody(stream, chunk_size=4)
+    _spy_open(monkeypatch, upstream)
+    body = _LazyImageBody(STORAGE_URL, chunk_size=4)
 
     chunks = body.__aiter__()
     await chunks.__anext__()
@@ -189,23 +234,24 @@ async def test_body_close_then_generator_finally_is_double_close_safe() -> None:
 
 
 @pytest.mark.asyncio
-async def test_response_construction_failure_closes_stream(monkeypatch: pytest.MonkeyPatch) -> None:
-    """If building the streamed body fails, the upstream stream and client are closed."""
+async def test_response_construction_failure_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
+    """If building the streamed body fails, the request returns 500 and no GET is opened."""
     upstream = CountingUpstream(total_chunks=10, chunk=b"c" * 1024)
     captured: list[dict] = []
     _patch_clients(monkeypatch, _make_handler(200, upstream, {}), captured)
     server = _make_server(monkeypatch)
+    opened = _spy_open(monkeypatch, upstream)
 
     def boom(*args: object, **kwargs: object) -> None:
         """Simulate a failure while constructing the streamed body."""
         raise RuntimeError("body construction failed")
 
-    monkeypatch.setattr(http_server, "_StreamedImageBody", boom)
+    monkeypatch.setattr(http_server, "_LazyImageBody", boom)
 
     resp = await server.app.test_client().get("/images/boot/broken.iso")
 
     assert resp.status_code == 500
-    assert upstream.closed is True
+    assert opened == []
 
 
 @pytest.mark.asyncio
@@ -215,13 +261,11 @@ async def test_head_never_opens_storage_get(monkeypatch: pytest.MonkeyPatch) -> 
     methods_seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        """Record the storage method and answer HEAD/GET for the boot image."""
+        """Record the storage method and answer HEAD for the boot image."""
         if request.url.host == API_HOST:
             return httpx.Response(200, json={"url": STORAGE_URL})
         methods_seen.append(request.method)
-        if request.method == "HEAD":
-            return httpx.Response(200, headers={"content-length": "1024000"})
-        return httpx.Response(200, stream=upstream)
+        return httpx.Response(200, headers={"content-length": "1024000"})
 
     captured: list[dict] = []
     _patch_clients(monkeypatch, handler, captured)
@@ -230,9 +274,60 @@ async def test_head_never_opens_storage_get(monkeypatch: pytest.MonkeyPatch) -> 
     resp = await server.app.test_client().open("/images/boot/ubuntu.iso", method="HEAD")
 
     assert resp.status_code == 200
-    assert "GET" not in methods_seen
     assert methods_seen == ["HEAD"]
     assert upstream.yielded == 0
+
+
+@pytest.mark.asyncio
+async def test_get_preflights_with_head_then_streams_get(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET does one storage HEAD pre-flight, and the GET happens only during body streaming."""
+    upstream = CountingUpstream(total_chunks=3, chunk=b"g" * 1024)
+    methods_seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Record storage methods; HEAD returns length, GET streams the body."""
+        if request.url.host == API_HOST:
+            return httpx.Response(200, json={"url": STORAGE_URL})
+        methods_seen.append(request.method)
+        if request.method == "HEAD":
+            return httpx.Response(200, headers={"content-length": "3072"})
+        return httpx.Response(200, stream=upstream)
+
+    captured: list[dict] = []
+    _patch_clients(monkeypatch, handler, captured)
+    server = _make_server(monkeypatch, chunk_size=1024)
+
+    resp = await server.app.test_client().get("/images/boot/ubuntu.iso")
+
+    assert resp.status_code == 200
+    assert methods_seen == ["HEAD", "GET"]
+    assert len(await resp.get_data()) == 3072
+    assert upstream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_head_without_content_length_omits_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When storage HEAD carries no Content-Length, the client response omits it."""
+    upstream = CountingUpstream(total_chunks=1, chunk=b"n")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Serve HEAD without a length header and GET with a body."""
+        if request.url.host == API_HOST:
+            return httpx.Response(200, json={"url": STORAGE_URL})
+        if request.method == "HEAD":
+            return httpx.Response(200)
+        return httpx.Response(200, stream=upstream)
+
+    captured: list[dict] = []
+    _patch_clients(monkeypatch, handler, captured)
+    server = _make_server(monkeypatch)
+
+    resp = await server.app.test_client().open("/images/boot/nolen.iso", method="HEAD")
+
+    # Quart fills an empty body's length with 0; the storage-provided length is never forwarded
+    assert resp.status_code == 200
+    assert resp.headers.get("Content-Length", "0") == "0"
+    assert _outbound_image_headers(httpx.Response(200)).get("Content-Length") is None
 
 
 @pytest.mark.asyncio
@@ -283,8 +378,8 @@ async def test_storage_client_receives_split_timeout(monkeypatch: pytest.MonkeyP
 
     timeouts = [kw["timeout"] for kw in captured if isinstance(kw.get("timeout"), httpx.Timeout)]
     storage = [t for t in timeouts if t.read == STORAGE_READ_TIMEOUT_S]
-    assert len(storage) == 1
-    assert storage[0].connect == STORAGE_CONNECT_TIMEOUT_S
+    assert len(storage) >= 1  # HEAD pre-flight and lazy GET both use the storage timeout
+    assert all(t.connect == STORAGE_CONNECT_TIMEOUT_S for t in storage)
 
 
 def test_chunk_size_default_and_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
