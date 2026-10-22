@@ -86,6 +86,9 @@ PAM_SERVICE = "gough-agent"
 PAM_FALLBACK_SERVICE = "sshd"
 PAM_SUCCESS = 0
 PAM_CONV_ERR = 19
+PAM_TTY = 3
+PAM_RHOST = 4
+PAM_RUSER = 8
 
 
 class _PamMessage(ctypes.Structure):
@@ -133,7 +136,7 @@ def pam_service_name() -> str:
     return PAM_FALLBACK_SERVICE
 
 
-def account_permitted(username: str) -> bool:
+def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str] = None) -> bool:
     """Run PAM account management (``pam_acct_mgmt``) for ``username``.
 
     Covers locked, expired, time/host-restricted and NSS/LDAP/SSSD accounts. Anything
@@ -143,10 +146,15 @@ def account_permitted(username: str) -> bool:
 
     Args:
         username: Resolved local account name.
+        peer_ip: Connecting peer address, set as PAM_RHOST (None fails closed).
+        ruser: Optional remote identity (cert key id), set as PAM_RUSER.
 
     Returns:
         True only when PAM returns PAM_SUCCESS.
     """
+    if not peer_ip:
+        log.error("Unknown peer address, PAM check failing closed")
+        return False
     try:
         libpam = _load_libpam()
         start = libpam.pam_start
@@ -158,6 +166,9 @@ def account_permitted(username: str) -> bool:
         acct = libpam.pam_acct_mgmt
         acct.argtypes = [ctypes.c_void_p, ctypes.c_int]
         acct.restype = ctypes.c_int
+        set_item = libpam.pam_set_item
+        set_item.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
+        set_item.restype = ctypes.c_int
         end = libpam.pam_end
         end.argtypes = [ctypes.c_void_p, ctypes.c_int]
         end.restype = ctypes.c_int
@@ -174,6 +185,14 @@ def account_permitted(username: str) -> bool:
         return False
     rc = PAM_CONV_ERR
     try:
+        items = [(PAM_RHOST, peer_ip), (PAM_TTY, "ssh")]
+        if ruser:
+            items.append((PAM_RUSER, ruser))
+        for item_type, value in items:
+            item_rc = set_item(handle, item_type, value.encode())
+            if item_rc != PAM_SUCCESS:
+                log.error(f"pam_set_item({item_type}) failed rc={item_rc}, failing closed")
+                return False
         rc = acct(handle, 0)
     finally:
         end(handle, rc)
@@ -352,7 +371,8 @@ class SSHServerInterface(ServerInterface):
         if problem:
             log.warning(f"Rejecting login for {username!r}: {problem}")
             return False
-        if not account_permitted(username):
+        peer = self.client_addr[0] if self.client_addr else None
+        if not account_permitted(username, peer, info.key_id):
             return False
         if pw.pw_uid == 0 and ALLOW_ROOT_PRINCIPAL not in info.principals:
             log.warning("Root login requires the allow-root principal")

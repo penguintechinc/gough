@@ -216,6 +216,13 @@ class _FakePam:
         self.pam_start = lambda *a: self._start(*a)
         self.pam_acct_mgmt = lambda *a: self._acct(*a)
         self.pam_end = lambda *a: self._end(*a)
+        self.pam_set_item = lambda *a: self._set(*a)
+        self.items: dict[int, bytes] = {}
+        self.set_rc = 0
+
+    def _set(self, handle: Any, item: int, value: bytes) -> int:
+        self.items[item] = value
+        return self.set_rc
 
     def _start(self, svc: bytes, user: bytes, conv: Any, handle: Any) -> int:
         self.service, self.user = svc, user
@@ -237,7 +244,7 @@ def test_account_permitted_maps_pam_codes(monkeypatch: pytest.MonkeyPatch, rc: i
     """Only PAM_SUCCESS permits; expired / authtok-required / denied reject; handle is ended."""
     fake = _FakePam(acct_rc=rc)
     monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
-    assert rssh.account_permitted("alice") is ok
+    assert rssh.account_permitted("alice", "10.1.2.3") is ok
     assert fake.user == b"alice" and fake.ended == 1
 
 
@@ -248,13 +255,13 @@ def test_account_permitted_fails_closed_when_libpam_missing(monkeypatch: pytest.
         raise OSError("no libpam")
 
     monkeypatch.setattr(rssh, "_load_libpam", boom)
-    assert rssh.account_permitted("alice") is False
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
 
 
 def test_account_permitted_fails_closed_on_pam_start_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """pam_start failure rejects."""
     monkeypatch.setattr(rssh, "_load_libpam", lambda: _FakePam(start_rc=4))
-    assert rssh.account_permitted("alice") is False
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
 
 
 def test_pam_service_falls_back_to_sshd(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -273,7 +280,7 @@ def test_no_prompt_conv_refuses_prompts() -> None:
 @pytest.mark.skipif(os.geteuid() != 0, reason="real PAM call needs root")
 def test_real_pam_call_for_current_user() -> None:
     """A real libpam round trip returns a bool without crashing."""
-    assert isinstance(rssh.account_permitted(CURRENT_USER), bool)
+    assert isinstance(rssh.account_permitted(CURRENT_USER, "127.0.0.1"), bool)
 
 
 def test_real_libpam_loader_is_ctypes_cdll() -> None:
@@ -316,3 +323,31 @@ def test_empty_pw_shell_falls_back_to_bin_sh(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(rssh.threading, "Thread", lambda **k: MagicMock())
     srv._start_shell(session, CURRENT_USER)
     assert calls == [["/bin/sh", "-c", "id"]]
+
+
+def test_pam_context_items_are_set_before_acct_mgmt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PAM_RHOST, PAM_TTY (and PAM_RUSER) are set so host-based PAM rules can apply."""
+    fake = _FakePam()
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
+    assert rssh.account_permitted("alice", "10.1.2.3", "key-1") is True
+    assert fake.items == {rssh.PAM_RHOST: b"10.1.2.3", rssh.PAM_TTY: b"ssh", rssh.PAM_RUSER: b"key-1"}
+    fake2 = _FakePam()
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake2)
+    rssh.account_permitted("alice", "10.1.2.3")
+    assert rssh.PAM_RUSER not in fake2.items
+
+
+def test_pam_set_item_failure_fails_closed_and_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing pam_set_item rejects and still calls pam_end."""
+    fake = _FakePam()
+    fake.set_rc = 7
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
+    assert fake.ended == 1
+
+
+@pytest.mark.parametrize("peer", [None, ""])
+def test_pam_unknown_peer_fails_closed(monkeypatch: pytest.MonkeyPatch, peer: str | None) -> None:
+    """No peer address means no PAM context: reject without calling PAM."""
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: pytest.fail("must not load"))
+    assert rssh.account_permitted("alice", peer) is False
