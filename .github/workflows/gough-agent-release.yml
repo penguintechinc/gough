@@ -1,0 +1,94 @@
+name: gough-agent release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "Existing release tag to attach artifacts to (empty = build artifact only)"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build gough-agent wheel and sdist
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.13"
+
+      - name: Build wheel and sdist
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check "build==1.6.1"
+          python3 -m build services/access-agent --outdir "${RUNNER_TEMP}/dist"
+
+      - name: Verify wheel installs and runs in a clean venv
+        run: |
+          set -euo pipefail
+          python3 -m venv "${RUNNER_TEMP}/smoke"
+          "${RUNNER_TEMP}/smoke/bin/python3" -m pip install --disable-pip-version-check \
+            "${RUNNER_TEMP}"/dist/gough_agent-*.whl
+          built="$("${RUNNER_TEMP}/smoke/bin/gough-agent" --version)"
+          test -n "${built}"
+          echo "installed gough-agent ${built}"
+
+      - name: Generate SHA256SUMS
+        run: |
+          set -euo pipefail
+          cd "${RUNNER_TEMP}/dist"
+          count="$(ls -1 gough_agent-* | wc -l)"
+          test "${count}" -ge 2
+          sha256sum gough_agent-* > SHA256SUMS
+          echo "examined ${count} artifacts"
+          cat SHA256SUMS
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: gough-agent-dist
+          path: ${{ runner.temp }}/dist/
+          if-no-files-found: error
+          retention-days: 30
+
+  attach:
+    name: Attach artifacts to GitHub release
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Only attach when a release tag is known: release event or explicit dispatch input.
+    if: github.event_name == 'release' || inputs.release_tag != ''
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event_name == 'release' && github.event.release.tag_name || inputs.release_tag }}
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: gough-agent-dist
+          path: dist
+
+      - name: Upload to release
+        run: |
+          set -euo pipefail
+          count="$(ls -1 dist/gough_agent-* | wc -l)"
+          test "${count}" -ge 2
+          gh release upload "${RELEASE_TAG}" dist/* --repo "${GITHUB_REPOSITORY}" --clobber
+          echo "attached ${count} files to ${RELEASE_TAG}"
