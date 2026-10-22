@@ -10,6 +10,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,12 +19,8 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
-	"unsafe"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -48,14 +45,14 @@ const (
 	probeTimeout = 5 * time.Minute
 )
 
-// readRawCmdline reads /proc/cmdline and returns the raw string for memory zeroing.
-// Actual parsing is delegated to the cmdline package.
-func readRawCmdline() (string, error) {
+// readRawCmdline reads /proc/cmdline into a mutable buffer so it can be zeroed
+// after parsing. Actual parsing is delegated to the cmdline package.
+func readRawCmdline() ([]byte, error) {
 	raw, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
-		return "", fmt.Errorf("read /proc/cmdline: %w", err)
+		return nil, fmt.Errorf("read /proc/cmdline: %w", err)
 	}
-	return strings.TrimSpace(string(raw)), nil
+	return bytes.TrimSpace(raw), nil
 }
 
 func main() {
@@ -93,8 +90,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("JWT validation: %w", err)
 	}
 
-	// 3. Zero the raw cmdline buffer from our copy (best-effort).
-	zeroString(rawCmdline)
+	// 3. Zero the raw cmdline buffer (best-effort; the parsed token string is not wiped).
+	zeroBytes(rawCmdline)
 	runtime.GC()
 
 	slog.Info("cmdline parsed", "primary", params.Primary, "mac", params.MAC)
@@ -226,27 +223,13 @@ func validateToken(tokenStr, caPEMPath string) error {
 	return err
 }
 
-// zeroString overwrites the memory backing s with zeroes using the
-// string-to-bytes reinterpretation trick that is safe per the Go unsafe rules:
-// we copy the string header, extract the data pointer, and overwrite via the
-// resulting []byte.  unix.Madvise is used to advise the kernel to discard the
-// backing pages.  This is best-effort — the GC may have already moved the data.
-func zeroString(s string) {
-	if len(s) == 0 {
-		return
-	}
-	// Convert string to []byte without allocation by aliasing the header.
-	// unsafe.StringData is the correct Go 1.20+ way to get the backing pointer.
-	ptr := unsafe.StringData(s)
-	b := unsafe.Slice(ptr, len(s))
-
-	// Advise the kernel to discard the pages (best-effort).
-	_ = unix.Madvise(b, unix.MADV_DONTNEED)
-
-	// Overwrite with zeros.
-	for i := range b {
-		b[i] = 0
-	}
+// zeroBytes overwrites b with zeros. It is used on the raw kernel cmdline
+// buffer, which is kept as []byte from the moment it is read so it is mutable.
+// runtime.KeepAlive keeps the stores from being eliminated as dead. This is
+// best-effort: the parsed Params hold immutable string copies that cannot be wiped.
+func zeroBytes(b []byte) {
+	clear(b)
+	runtime.KeepAlive(b)
 }
 
 // collectProbes runs all hardware probes against the real host tools.

@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,30 +90,31 @@ func TestReadRawCmdline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("readRawCmdline: %v", err)
 	}
-	if strings.HasSuffix(raw, "\n") {
+	if len(raw) > 0 && raw[len(raw)-1] == '\n' {
 		t.Errorf("result not trimmed: %q", raw)
 	}
-	if raw == "" {
+	if len(raw) == 0 {
 		t.Error("expected non-empty cmdline on a running kernel")
 	}
 }
 
-// TestZeroString verifies the best-effort wipe overwrites runtime-allocated bytes and tolerates empty input.
-func TestZeroString(t *testing.T) {
+// TestZeroBytes verifies the cmdline buffer is wiped in place and empty input is a no-op.
+func TestZeroBytes(t *testing.T) {
 	tests := []struct {
 		name string
-		in   func() string
+		in   []byte
 	}{
-		{name: "empty is a no-op", in: func() string { return "" }},
-		{name: "runtime string is zeroed", in: func() string { return strings.Repeat("s3cr3t-token-", 8) }},
+		{name: "nil is a no-op", in: nil},
+		{name: "empty is a no-op", in: []byte{}},
+		{name: "token bytes are zeroed", in: []byte("gough_token=s3cr3t-token gough_mac=aa:bb")},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			s := tc.in()
-			zeroString(s)
-			for i := 0; i < len(s); i++ {
-				if s[i] != 0 {
-					t.Fatalf("byte %d = %#x after zeroString, want 0", i, s[i])
+			b := tc.in
+			zeroBytes(b)
+			for i := range b {
+				if b[i] != 0 {
+					t.Fatalf("byte %d = %#x after zeroBytes, want 0", i, b[i])
 				}
 			}
 		})
@@ -251,7 +253,7 @@ func TestRunFailsBeforeNetworkWithoutCmdline(t *testing.T) {
 	if err != nil {
 		t.Skipf("no cmdline: %v", err)
 	}
-	if strings.Contains(raw, "gough_token=") {
+	if bytes.Contains(raw, []byte("gough_token=")) {
 		t.Skip("host cmdline carries gough_ parameters; run() would proceed")
 	}
 	err = run(context.Background())
