@@ -7,6 +7,10 @@ Supports IPMI, Redfish, and Wake-on-LAN for remote power control.
 import asyncio
 import structlog
 import subprocess
+import os
+import ssl
+import socket
+import hashlib
 from typing import Optional, Literal
 from dataclasses import dataclass
 
@@ -24,6 +28,75 @@ class BMCCredentials:
     username: str
     password: str
     power_type: str  # ipmi, redfish, wol
+    cert_fingerprint: Optional[str] = None  # SHA-256 fingerprint for cert pinning
+
+
+def _get_bmc_cert_fingerprint(host: str, port: int = 443, timeout: float = 10.0) -> str:
+    """Fetch BMC certificate SHA-256 fingerprint via raw TLS connection."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout) as raw:
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+            with ctx.wrap_socket(raw, server_hostname=host) as tls:
+                der = tls.getpeercert(binary_form=True)
+    except OSError as exc:
+        raise RuntimeError(f"TLS handshake failed for {host}:{port}: {exc}") from exc
+
+    if not der:
+        raise RuntimeError(f"No peer certificate from {host}:{port}")
+
+    return hashlib.sha256(der).hexdigest().upper()
+
+
+def _normalize_fingerprint(fp: str) -> str:
+    """Normalize fingerprint to uppercase colon-separated form."""
+    cleaned = fp.replace(":", "").replace(" ", "").strip().upper()
+    if len(cleaned) != 64:
+        raise ValueError(f"Invalid SHA-256 fingerprint length: {len(cleaned)}")
+    return ":".join(cleaned[i : i + 2] for i in range(0, len(cleaned), 2))
+
+
+def _verify_bmc_cert(host: str, expected_fingerprint: Optional[str], port: int = 443, timeout: float = 10.0) -> bool:
+    """Verify BMC certificate fingerprint.
+
+    If expected_fingerprint is set, verifies it matches the live cert.
+    If not set, checks BMC_ALLOW_INSECURE_TLS env var (must be explicitly enabled).
+
+    Returns True if verification passes.
+    Raises RuntimeError if verification fails or insecure mode not explicitly enabled.
+    """
+    # No pin configured: fail closed BEFORE any network I/O unless insecure mode is
+    # explicitly enabled. This avoids connecting to (and trusting) an unpinned BMC.
+    if not expected_fingerprint:
+        if os.getenv("BMC_ALLOW_INSECURE_TLS", "").lower() not in ("true", "1", "yes"):
+            raise RuntimeError(
+                f"BMC {host}:{port} has no certificate pin configured and "
+                "BMC_ALLOW_INSECURE_TLS is not enabled. Set BMC_ALLOW_INSECURE_TLS=true "
+                "to allow unverified TLS connections (NOT RECOMMENDED)."
+            )
+        logger.warning(
+            "bmc_insecure_tls_enabled",
+            host=host,
+            port=port,
+            message="TLS verification disabled for BMC; set cert_fingerprint to pin certificate",
+        )
+        return True
+
+    # Pin configured: fetch the live cert and require an exact fingerprint match.
+    try:
+        expected_normalized = _normalize_fingerprint(expected_fingerprint)
+    except ValueError as e:
+        raise RuntimeError(f"Invalid stored fingerprint format: {e}") from e
+
+    live_fp = _get_bmc_cert_fingerprint(host, port, timeout)
+    live_normalized = _normalize_fingerprint(live_fp)
+    if live_normalized != expected_normalized:
+        raise RuntimeError(
+            f"BMC cert fingerprint mismatch for {host}:{port}: "
+            f"expected={expected_normalized} live={live_normalized}"
+        )
+    return True
 
 
 class PowerManager:
@@ -142,7 +215,7 @@ class PowerManager:
         credentials: BMCCredentials,
         action: PowerAction,
     ) -> tuple[bool, str]:
-        """Execute Redfish power control via REST API."""
+        """Execute Redfish power control via REST API with certificate verification."""
         import httpx
 
         # Map actions to Redfish reset types
@@ -158,6 +231,13 @@ class PowerManager:
             if action == "status":
                 return await self._redfish_get_status(credentials)
             return False, f"Invalid Redfish action: {action}"
+
+        # Verify BMC certificate
+        try:
+            _verify_bmc_cert(credentials.address, credentials.cert_fingerprint)
+        except RuntimeError as e:
+            logger.error("bmc_cert_verification_failed", address=credentials.address, error=str(e))
+            return False, f"Certificate verification failed: {e}"
 
         # Redfish API endpoint
         redfish_url = f"https://{credentials.address}/redfish/v1/Systems/1/Actions/ComputerSystem.Reset"
@@ -208,8 +288,15 @@ class PowerManager:
         self,
         credentials: BMCCredentials,
     ) -> tuple[bool, str]:
-        """Get power status via Redfish."""
+        """Get power status via Redfish with certificate verification."""
         import httpx
+
+        # Verify BMC certificate
+        try:
+            _verify_bmc_cert(credentials.address, credentials.cert_fingerprint)
+        except RuntimeError as e:
+            logger.error("bmc_cert_verification_failed", address=credentials.address, error=str(e))
+            return False, f"Certificate verification failed: {e}"
 
         redfish_url = f"https://{credentials.address}/redfish/v1/Systems/1"
 

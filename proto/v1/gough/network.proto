@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+enum NetworkBaseline {
+  NETWORK_BASELINE_UNSPECIFIED = 0;
+  NETWORK_BASELINE_NATIVE      = 1;
+  NETWORK_BASELINE_HYBRID      = 2;
+  NETWORK_BASELINE_FULL_VIRTUAL = 3;
+}
+
+service Network {
+  rpc BaselineConfigure(BaselineConfigureRequest) returns (BaselineConfigureResponse);
+  rpc ProviderMigrate(ProviderMigrateRequest) returns (ProviderMigrateResponse);
+  rpc FallbackControl(FallbackControlRequest) returns (FallbackControlResponse);
+  rpc Status(NetworkStatusRequest) returns (NetworkStatusResponse);
+}
+
+message BaselineConfigureRequest {
+  string          node_id  = 1;
+  NetworkBaseline baseline = 2;
+  string          bridge   = 3;
+  uint32          mtu      = 4;
+}
+
+message BaselineConfigureResponse {
+  bool   applied     = 1;
+  string node_id     = 2;
+  string message     = 3;
+}
+
+message ProviderMigrateRequest {
+  string          node_id      = 1;
+  NetworkBaseline from_baseline = 2;
+  NetworkBaseline to_baseline   = 3;
+}
+
+message ProviderMigrateResponse {
+  bool   migrated = 1;
+  string message  = 2;
+}
+
+message FallbackControlRequest {
+  string node_id  = 1;
+  bool   enabled  = 2;
+}
+
+message FallbackControlResponse {
+  bool   active  = 1;
+  string node_id = 2;
+}
+
+message NetworkStatusRequest {
+  string node_id = 1;
+}
+
+message NetworkStatusResponse {
+  string          node_id  = 1;
+  NetworkBaseline baseline = 2;
+  string          bridge   = 3;
+  uint32          mtu      = 4;
+  bool            fallback_active = 5;
+}

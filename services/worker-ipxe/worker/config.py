@@ -42,7 +42,7 @@ class WorkerConfig:
     storage_access_key: Optional[str] = None
     storage_secret_key: Optional[str] = None
     storage_bucket_boot: str = "boot-images"
-    storage_bucket_eggs: str = "eggs"
+    storage_bucket_biomes: str = "biomes"
     storage_use_ssl: bool = False
 
     # Worker behavior
@@ -102,7 +102,7 @@ class WorkerConfig:
         storage_access_key = config("STORAGE_ACCESS_KEY", default=None)
         storage_secret_key = config("STORAGE_SECRET_KEY", default=None)
         storage_bucket_boot = config("STORAGE_BUCKET_BOOT_IMAGES", default="boot-images")
-        storage_bucket_eggs = config("STORAGE_BUCKET_EGGS", default="eggs")
+        storage_bucket_biomes = config("STORAGE_BUCKET_BIOMES", default="biomes")
         storage_use_ssl = config("STORAGE_USE_SSL", default=False, cast=bool)
 
         # Worker behavior
@@ -137,7 +137,7 @@ class WorkerConfig:
             storage_access_key=storage_access_key,
             storage_secret_key=storage_secret_key,
             storage_bucket_boot=storage_bucket_boot,
-            storage_bucket_eggs=storage_bucket_eggs,
+            storage_bucket_biomes=storage_bucket_biomes,
             storage_use_ssl=storage_use_ssl,
             heartbeat_interval=heartbeat_interval,
             enrollment_retry_interval=enrollment_retry_interval,

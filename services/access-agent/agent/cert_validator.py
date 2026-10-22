@@ -3,6 +3,7 @@
 Validates SSH certificates signed by the Gough SSH CA.
 """
 
+import base64
 import logging
 import subprocess
 import tempfile
@@ -10,6 +11,9 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
+
+import paramiko
+from paramiko.message import Message
 
 log = logging.getLogger(__name__)
 
@@ -59,9 +63,12 @@ class CertificateValidator:
         if self._ca_key_file and self._ca_key_file.exists():
             return self._ca_key_file
 
-        # Write CA key to temp file
-        self._ca_key_file = Path(tempfile.mktemp(suffix="_ca.pub"))
-        self._ca_key_file.write_text(self.ca_public_key)
+        # Write CA key to temp file (using NamedTemporaryFile for security)
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix="_ca.pub", delete=False
+        ) as f:
+            f.write(self.ca_public_key)
+            self._ca_key_file = Path(f.name)
         return self._ca_key_file
 
     def validate_certificate(
@@ -230,55 +237,97 @@ class CertificateValidator:
             cert_type=cert_type,
         )
 
+    @staticmethod
+    def _load_pubkey_from_blob(blob: bytes) -> paramiko.PKey:
+        """Build a paramiko public key from a raw SSH public-key blob.
+
+        Used to reconstruct the certificate's signing-CA key so its signature
+        over the certificate body can be cryptographically verified.
+        """
+        key_type = Message(blob).get_text()
+        if key_type == "ssh-rsa":
+            return paramiko.RSAKey(msg=Message(blob))
+        if key_type == "ssh-ed25519":
+            return paramiko.Ed25519Key(msg=Message(blob))
+        if key_type.startswith("ecdsa-sha2-"):
+            return paramiko.ECDSAKey(msg=Message(blob))
+        raise CertificateValidationError(f"Unsupported CA key type: {key_type}")
+
     def _verify_signature(self, certificate: str) -> None:
-        """Verify certificate was signed by CA.
+        """Cryptographically verify the certificate's CA signature.
+
+        Sound verification requires BOTH: (a) the certificate's embedded CA
+        signature validates over the signed body using the embedded signing
+        key, AND (b) that signing key is byte-identical to the configured
+        trusted CA. Checking the signing-CA fingerprint alone is insufficient —
+        an attacker can embed the trusted CA's public key while signing with a
+        different key, and ``ssh-keygen -L`` does not verify the signature.
+        Fails closed on any parse/verify/mismatch error.
 
         Args:
-            certificate: SSH certificate
+            certificate: SSH certificate in OpenSSH format ("<type> <b64> [comment]").
 
         Raises:
-            CertificateValidationError: If signature verification fails
+            CertificateValidationError: If the signature is invalid or was not
+                produced by the configured trusted CA.
         """
-        ca_key_file = self._ensure_ca_key_file()
-
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix="-cert.pub", delete=False
-        ) as f:
-            f.write(certificate)
-            cert_path = f.name
-
         try:
-            # Create known_hosts format TrustedUserCAKeys line
-            # ssh-keygen -s verifies the signature
-            result = subprocess.run(
-                ["ssh-keygen", "-Lf", cert_path],
-                capture_output=True,
-                text=True,
-                timeout=10,
+            parts = certificate.split()
+            if len(parts) < 2:
+                raise CertificateValidationError("Malformed certificate: missing key blob")
+            cert_blob = base64.b64decode(parts[1])
+
+            m = Message(cert_blob)
+            cert_type = m.get_text()
+            m.get_string()  # nonce
+            if cert_type.startswith("ssh-rsa-cert"):
+                m.get_mpint()  # e
+                m.get_mpint()  # n
+            elif cert_type.startswith("ssh-ed25519-cert"):
+                m.get_string()  # public key
+            elif cert_type.startswith("ecdsa-sha2-") and "-cert-" in cert_type:
+                m.get_string()  # curve
+                m.get_string()  # ec_point
+            else:
+                raise CertificateValidationError(f"Unsupported certificate type: {cert_type}")
+            m.get_int64()   # serial
+            m.get_int()     # type
+            m.get_string()  # key id
+            m.get_string()  # valid principals
+            m.get_int64()   # valid after
+            m.get_int64()   # valid before
+            m.get_string()  # critical options
+            m.get_string()  # extensions
+            m.get_string()  # reserved
+            signing_key_blob = m.get_string()  # CA public key
+            signature_blob = m.get_string()    # CA signature (final field)
+
+            # The CA signs everything up to (but not including) the signature field.
+            signed_data = cert_blob[: -(4 + len(signature_blob))]
+
+            # (a) The signature must validate against the embedded signing key.
+            ca_key = self._load_pubkey_from_blob(signing_key_blob)
+            if not ca_key.verify_ssh_sig(signed_data, Message(signature_blob)):
+                raise CertificateValidationError(
+                    "Certificate signature is not valid for its signing key"
+                )
+
+            # (b) The signing key must be the configured trusted CA.
+            trusted_ca_blob = base64.b64decode(self.ca_public_key.split()[1])
+            if signing_key_blob != trusted_ca_blob:
+                raise CertificateValidationError(
+                    "Certificate was not signed by the configured trusted CA"
+                )
+
+            log.info("Certificate signature cryptographically verified against trusted CA")
+
+        except CertificateValidationError:
+            raise
+        except Exception as e:  # noqa: BLE001 - fail closed on any parse/verify error
+            raise CertificateValidationError(
+                f"Certificate signature verification failed: {e}"
             )
 
-            if result.returncode != 0:
-                raise CertificateValidationError(
-                    "Certificate signature verification failed"
-                )
-
-            # Additional verification: check signing CA matches
-            if self.ca_public_key:
-                # Extract CA fingerprint
-                ca_result = subprocess.run(
-                    ["ssh-keygen", "-lf", str(ca_key_file)],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                )
-
-                if ca_result.returncode != 0:
-                    log.warning("Could not extract CA fingerprint for verification")
-
-        except subprocess.TimeoutExpired:
-            raise CertificateValidationError("Signature verification timed out")
-        finally:
-            Path(cert_path).unlink(missing_ok=True)
 
     def cleanup(self) -> None:
         """Clean up temporary files."""

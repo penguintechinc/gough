@@ -16,8 +16,6 @@ from unittest.mock import Mock, patch
 
 import pytest
 import redis
-from pydal import DAL
-from py4web import HTTP
 
 # Test configuration
 TEST_CONFIG = {
@@ -56,21 +54,32 @@ def temp_dir():
 
 
 @pytest.fixture(scope='function')
-def mock_database():
-    """Create an in-memory test database with all tables."""
-    db = DAL('sqlite:///:memory:', migrate=True, lazy_tables=True)
-    
-    # Import and define all tables
-    from gough.containers.management_server.py4web_app.models import define_tables
-    define_tables(db)
-    
-    # Commit any pending changes
-    db.commit()
-    
-    yield db
-    
-    # Cleanup
-    db.close()
+def mock_database(tmp_path):
+    """Create an in-memory test database with all tables via penguin-dal."""
+    import sys
+    import importlib.util
+    try:
+        from penguin_dal import DB
+
+        # Load models_sqlalchemy using spec to avoid naming conflicts
+        spec = importlib.util.spec_from_file_location(
+            "models_sqlalchemy",
+            "/home/penguin/code/gough/services/api-manager/app/models_sqlalchemy.py"
+        )
+        models_sa = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(models_sa)
+
+        db_path = str(tmp_path / "mock_test.db")
+        db_uri = f"sqlite:///{db_path}"
+        models_sa.create_all_tables(db_uri)
+        db = DB(db_uri, pool_size=2)
+        yield db
+        db.close()
+    except Exception as e:
+        print(f"Failed to create mock_database: {e}")
+        import traceback
+        traceback.print_exc()
+        yield None
 
 
 @pytest.fixture(scope='function')
@@ -137,23 +146,20 @@ def sample_package_config():
 @pytest.fixture(scope='function')
 def mock_redis():
     """Create a mock Redis client for testing."""
-    mock_redis = Mock(spec=redis.Redis)
-    mock_redis.get.return_value = None
-    mock_redis.set.return_value = True
-    mock_redis.delete.return_value = 1
-    mock_redis.exists.return_value = False
-    mock_redis.expire.return_value = True
-    
-    with patch('gough.containers.management_server.py4web_app.lib.redis_client.get_redis_client') as mock_get_redis:
-        mock_get_redis.return_value = mock_redis
-        yield mock_redis
+    mock_client = Mock(spec=redis.Redis)
+    mock_client.get.return_value = None
+    mock_client.set.return_value = True
+    mock_client.delete.return_value = 1
+    mock_client.exists.return_value = False
+    mock_client.expire.return_value = True
+    yield mock_client
 
 
 @pytest.fixture(scope='function')
 def mock_maas_client():
     """Create a mock MaaS API client for testing."""
     mock_client = Mock()
-    
+
     # Mock successful responses
     mock_client.get_machines.return_value = [
         {
@@ -173,22 +179,20 @@ def mock_maas_client():
             }
         }
     ]
-    
+
     mock_client.commission_machine.return_value = {'system_id': 'test-machine-01'}
     mock_client.deploy_machine.return_value = {'system_id': 'test-machine-01'}
     mock_client.release_machine.return_value = {'system_id': 'test-machine-01'}
     mock_client.get_machine_status.return_value = 'Ready'
-    
-    with patch('gough.containers.management_server.py4web_app.lib.maas_api.MaasAPIClient') as mock_maas:
-        mock_maas.return_value = mock_client
-        yield mock_client
+
+    yield mock_client
 
 
 @pytest.fixture(scope='function')
 def mock_fleet_client():
     """Create a mock FleetDM client for testing."""
     mock_client = Mock()
-    
+
     # Mock successful responses
     mock_client.get_hosts.return_value = [
         {
@@ -201,11 +205,11 @@ def mock_fleet_client():
             'status': 'online'
         }
     ]
-    
+
     mock_client.enroll_host.return_value = {'host_id': 1}
     mock_client.run_query.return_value = {'campaign_id': 123}
     mock_client.get_query_results.return_value = []
-    
+
     with patch('gough.containers.management_server.py4web_app.modules.fleet_client.FleetClient') as mock_fleet:
         mock_fleet.return_value = mock_client
         yield mock_client
@@ -215,7 +219,7 @@ def mock_fleet_client():
 def mock_ansible_runner():
     """Create a mock Ansible runner for testing."""
     mock_runner = Mock()
-    
+
     # Mock successful playbook execution
     mock_runner.run.return_value = Mock(
         status='successful',
@@ -230,7 +234,7 @@ def mock_ansible_runner():
             }
         }
     )
-    
+
     with patch('gough.containers.management_server.py4web_app.lib.tasks.deployment.ansible_runner') as mock_ansible:
         mock_ansible.run.return_value = mock_runner
         yield mock_runner
@@ -249,10 +253,10 @@ def auth_headers():
 def api_client():
     """Create a test client for API testing."""
     from gough.containers.management_server.py4web_app import create_app
-    
+
     app = create_app(TEST_CONFIG)
     app.config['TESTING'] = True
-    
+
     with app.test_client() as client:
         with app.app_context():
             yield client
@@ -291,17 +295,17 @@ def fleet_query_data():
 
 class MockResponse:
     """Mock HTTP response for testing."""
-    
+
     def __init__(self, json_data: Dict, status_code: int = 200, headers: Dict = None):
         self.json_data = json_data
         self.status_code = status_code
         self.headers = headers or {}
         self.text = json.dumps(json_data)
         self.content = self.text.encode()
-    
+
     def json(self):
         return self.json_data
-    
+
     def raise_for_status(self):
         if self.status_code >= 400:
             raise Exception(f"HTTP {self.status_code}")
@@ -314,13 +318,13 @@ def mock_requests():
          patch('requests.post') as mock_post, \
          patch('requests.put') as mock_put, \
          patch('requests.delete') as mock_delete:
-        
+
         # Default successful responses
         mock_get.return_value = MockResponse({'status': 'success'})
         mock_post.return_value = MockResponse({'status': 'success'}, 201)
         mock_put.return_value = MockResponse({'status': 'success'})
         mock_delete.return_value = MockResponse({'status': 'success'}, 204)
-        
+
         yield {
             'get': mock_get,
             'post': mock_post,
@@ -346,7 +350,7 @@ def performance_config():
 def cleanup_after_test(mock_redis):
     """Cleanup after each test."""
     yield
-    
+
     # Clear Redis mock
     mock_redis.reset_mock()
 
@@ -364,14 +368,14 @@ def pytest_collection_modifyitems(config, items):
     for item in items:
         # Add markers based on test file location
         test_path = str(item.fspath)
-        
+
         if '/unit/' in test_path:
             item.add_marker(pytest.mark.unit)
         elif '/integration/' in test_path:
             item.add_marker(pytest.mark.integration)
         elif '/performance/' in test_path:
             item.add_marker(pytest.mark.performance)
-        
+
         # Add specific component markers
         if '/management_server/' in test_path:
             if '/controllers/' in test_path:

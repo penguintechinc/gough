@@ -1,0 +1,72 @@
+{
+  "device": {
+    "name": "/dev/sda",
+    "info_name": "/dev/sda",
+    "type": "scsi",
+    "protocol": "SCSI"
+  },
+  "model_family": "Seagate Exos X18",
+  "model_name": "ST16000NM001G-2KK103",
+  "serial_number": "ZL2GR123",
+  "firmware_version": "SN04",
+  "user_capacity": {
+    "blocks": 31251759104,
+    "bytes": 16000900661248
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "ata_smart_attributes": {
+    "table": [
+      {
+        "id": 1,
+        "name": "Raw_Read_Error_Rate",
+        "value": 114,
+        "worst": 99,
+        "thresh": 6,
+        "when_failed": "",
+        "flags": {
+          "auto_keep": false,
+          "error_rate": true,
+          "event_count": false,
+          "performance": false,
+          "prefailure": true,
+          "updated_online": true,
+          "value": 15
+        },
+        "raw": {
+          "value": 187898504,
+          "string": "187898504"
+        }
+      },
+      {
+        "id": 194,
+        "name": "Temperature_Celsius",
+        "value": 38,
+        "worst": 46,
+        "thresh": 0,
+        "when_failed": "",
+        "flags": {
+          "auto_keep": false,
+          "error_rate": false,
+          "event_count": false,
+          "performance": false,
+          "prefailure": false,
+          "updated_online": true,
+          "value": 34
+        },
+        "raw": {
+          "value": 38,
+          "string": "38 (0 20 0 0 0)"
+        }
+      }
+    ]
+  },
+  "power_on_time": {
+    "hours": 12543
+  },
+  "power_cycle_count": 34,
+  "temperature": {
+    "current": 38
+  }
+}

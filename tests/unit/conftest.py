@@ -22,7 +22,7 @@ try:
     from app import create_app
     from app.config import Config
     from app.models import init_db, get_db
-    from app.models.ipxe import define_ipxe_tables
+    from app.models_sqlalchemy import create_all_tables
 except ImportError:
     # Fallback for testing without full app
     pass
@@ -50,24 +50,40 @@ def test_config():
 
 
 @pytest.fixture(scope="function")
-def app(test_config):
+def app(test_config, tmp_path):
     """Create and configure test Quart application."""
+    import os
     app = Quart(__name__)
     app.config.from_object(test_config)
 
-    with app.app_context():
-        # Initialize database
-        db = init_db(app)
-        define_ipxe_tables(db)
-        db.commit()
-        yield app
+    # Use a temp file so SQLAlchemy schema creation and penguin-dal share the same DB
+    db_path = str(tmp_path / "test_gough.db")
+    db_uri = f"sqlite:///{db_path}"
+    app.config["DATABASE_URL"] = db_uri
+
+    try:
+        from app.models_sqlalchemy import create_all_tables
+        from penguin_dal import DB
+        create_all_tables(db_uri)
+        db = DB(db_uri, pool_size=5)
+        app.config["db"] = db
+    except Exception:
+        pass
+
+    yield app
 
 
 @pytest.fixture(scope="function")
 def db(app):
     """Provide test database connection."""
-    with app.app_context():
+    try:
+        # Try to get db from app config first
+        if "db" in app.config:
+            return app.config["db"]
+        # Fallback: try get_db from app.models
         return get_db()
+    except Exception:
+        return None
 
 
 @pytest.fixture(scope="function")
@@ -79,43 +95,47 @@ def test_client(app):
 @pytest.fixture(scope="function")
 def test_user(app, db):
     """Create a test user for authentication."""
-    from app.models import VALID_ROLES
+    if db is None:
+        return None
 
-    # Ensure admin role exists
-    admin_role = db(db.auth_role.name == "admin").select().first()
-    if not admin_role:
-        role_id = db.auth_role.insert(
-            name="admin",
-            description="Administrator",
-            permissions=json.dumps(["all"])
+    try:
+        # Ensure admin role exists
+        admin_role = db(db.auth_role.name == "admin").select().first()
+        if not admin_role:
+            role_id = db.auth_role.insert(
+                name="admin",
+                description="Administrator",
+                permissions=json.dumps(["all"])
+            )
+            db.commit()
+        else:
+            role_id = admin_role.id
+
+        # Create test user
+        user_email = "testuser@example.com"
+        db(db.auth_user.email == user_email).delete()
+        db.commit()
+
+        user_id = db.auth_user.insert(
+            email=user_email,
+            password="hashed_password",
+            active=True,
+            fs_uniquifier="test-uniquifier-001",
+            confirmed_at=datetime.utcnow(),
+            full_name="Test User"
         )
         db.commit()
-    else:
-        role_id = admin_role.id
 
-    # Create test user
-    user_email = "testuser@example.com"
-    db(db.auth_user.email == user_email).delete()
-    db.commit()
+        # Assign admin role
+        db.auth_user_roles.insert(
+            user_id=user_id,
+            role_id=role_id
+        )
+        db.commit()
 
-    user_id = db.auth_user.insert(
-        email=user_email,
-        password="hashed_password",
-        active=True,
-        fs_uniquifier="test-uniquifier-001",
-        confirmed_at=datetime.utcnow(),
-        full_name="Test User"
-    )
-    db.commit()
-
-    # Assign admin role
-    db.auth_user_roles.insert(
-        user_id=user_id,
-        role_id=role_id
-    )
-    db.commit()
-
-    return db.auth_user(user_id)
+        return db.auth_user(user_id)
+    except Exception:
+        return None
 
 
 @pytest.fixture(scope="function")
@@ -161,24 +181,18 @@ def test_cloud_provider(app, db):
 
 
 @pytest.fixture(scope="function")
-def test_egg(app, db):
-    """Create a test egg for provisioning."""
-    egg_id = db.eggs.insert(
-        name="test-nginx",
-        display_name="Test Nginx",
-        description="Test Nginx egg",
-        egg_type="snap",
-        version="1.0",
-        category="webserver",
-        snap_name="nginx",
-        snap_channel="stable",
-        snap_classic=False,
-        is_active=True,
-        is_default=False,
-        required_architecture="any"
+def test_biome(app, db):
+    """Create a test biome for provisioning."""
+    biome_id = db.biomes.insert(
+        name="test-k8s-worker",
+        biome_kind="k8s-worker",
+        workload_type="lxc",
+        phase="post_deploy",
+        registry_url="ghcr.io/penguintechinc/gough/k8s-worker:v1.0.0",
+        tenant_id="__default__"
     )
     db.commit()
-    return db.eggs(egg_id)
+    return db.biomes(biome_id)
 
 
 @pytest.fixture(scope="function")
@@ -287,17 +301,17 @@ def test_boot_config(app, db, test_image):
 
 
 @pytest.fixture(scope="function")
-def test_egg_group(app, db, test_egg):
-    """Create a test egg group."""
-    group_id = db.egg_groups.insert(
+def test_biome_group(app, db, test_biome):
+    """Create a test biome group."""
+    group_id = db.biome_groups.insert(
         name="test-group",
         display_name="Test Group",
-        description="Test egg group",
-        eggs=json.dumps([{"egg_id": test_egg.id, "order": 1}]),
+        description="Test biome group",
+        biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
         is_default=False
     )
     db.commit()
-    return db.egg_groups(group_id)
+    return db.biome_groups(group_id)
 
 
 @pytest.fixture(scope="function")

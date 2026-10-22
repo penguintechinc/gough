@@ -1,9 +1,9 @@
-replicaCount: 3
+replicaCount: 1
 
 image:
-  repository: project-template/webui
+  repository: ghcr.io/penguintechinc/gough/webui
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
 
 imagePullSecrets: []
 nameOverride: ""
@@ -45,17 +45,24 @@ ingress:
           pathType: Prefix
   tls: []
 
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
 resources:
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 250m
+    memory: 256Mi
   requests:
-    cpu: 75m
+    cpu: 100m
     memory: 128Mi
 
 autoscaling:
-  enabled: true
-  minReplicas: 3
+  enabled: false
+  minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
@@ -99,7 +106,7 @@ env:
 
 livenessProbe:
   httpGet:
-    path: /health
+    path: /healthz
     port: 3000
   initialDelaySeconds: 30
   periodSeconds: 10
@@ -108,7 +115,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /health
+    path: /healthz
     port: 3000
   initialDelaySeconds: 10
   periodSeconds: 5
@@ -120,7 +127,7 @@ volumeMounts: []
 volumes: []
 
 configMapData:
-  api-url: "http://flask-backend"
+  api-url: "http://api-manager:8080"
   api-version: "v1"
   theme: "gold"
   license-server-url: "https://license.penguintech.io"

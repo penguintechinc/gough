@@ -1,0 +1,160 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/penguintechinc/gough/access-agent
+  pullPolicy: IfNotPresent
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 2222
+  targetPort: 2222
+  annotations: {}
+
+# access-agent has no HTTP surface (rssh protocol only) - ingress/httproute stay
+# disabled in every environment; templates kept for chart-structure parity.
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: access-agent.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+env:
+  - name: GOUGH_MANAGEMENT_SERVER
+    valueFrom:
+      configMapKeyRef:
+        name: access-agent-config
+        key: management-server-url
+  - name: GOUGH_ENROLLMENT_KEY
+    valueFrom:
+      secretKeyRef:
+        name: access-agent-secret
+        key: enrollment-key
+  - name: GOUGH_RSSH_HOST
+    value: "0.0.0.0"
+  - name: GOUGH_RSSH_PORT
+    value: "2222"
+  - name: GOUGH_HEARTBEAT_INTERVAL
+    valueFrom:
+      configMapKeyRef:
+        name: access-agent-config
+        key: heartbeat-interval
+  - name: GOUGH_VERIFY_SSL
+    valueFrom:
+      configMapKeyRef:
+        name: access-agent-config
+        key: verify-ssl
+  - name: GOUGH_LOG_LEVEL
+    valueFrom:
+      configMapKeyRef:
+        name: access-agent-config
+        key: log-level
+  - name: GOUGH_CAPABILITIES
+    valueFrom:
+      configMapKeyRef:
+        name: access-agent-config
+        key: capabilities
+  - name: SPIRE_AGENT_SOCKET
+    value: "unix:///run/spire/agent.sock"
+
+# access-agent has no HTTP health endpoint - probes use a raw TCP dial against
+# the rssh listener, matching the Dockerfile's native HEALTHCHECK.
+livenessProbe:
+  tcpSocket:
+    port: rssh
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  tcpSocket:
+    port: rssh
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+# readOnlyRootFilesystem requires writable mounts for the paths the agent
+# actually writes to (tokens, SSH CA pubkey/host key, logs).
+volumeMounts:
+  - name: agent-state
+    mountPath: /var/lib/gough-agent
+  - name: agent-logs
+    mountPath: /var/log/gough-agent
+
+volumes:
+  - name: agent-state
+    emptyDir: {}
+  - name: agent-logs
+    emptyDir: {}
+
+configMapData:
+  management-server-url: "https://gough.local"
+  heartbeat-interval: "30"
+  verify-ssl: "true"
+  log-level: "INFO"
+  capabilities: "ssh"
+
+# Secrets are NOT rendered by this chart. The Deployment references the Secret
+# named "<release>-access-agent-secret", which MUST be provisioned out-of-band by
+# Vault, the External Secrets Operator, or Sealed Secrets (see devops standards).
+# Required keys: enrollment-key.

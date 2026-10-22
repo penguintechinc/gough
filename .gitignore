@@ -205,3 +205,28 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Node.js / frontend
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Local SQLite / test databases
+*.db
+*.sqlite
+*.sqlite3
+test.db
+
+# Compiled Go binaries
+/cli/gough/gough
+/cli/gough/cmd/gough/gough
+
+# Coverage output
+*.out
+coverage/
+coverage-*.out
+
+# Git worktrees (parallel development)
+.worktrees/
+.superpowers/

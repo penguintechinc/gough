@@ -35,6 +35,7 @@ try:
     from azure.mgmt.compute.models import (
         DiskCreateOptionTypes,
         HardwareProfile,
+        ImageReference,
         LinuxConfiguration,
         ManagedDiskParameters,
         NetworkInterfaceReference,
@@ -46,10 +47,14 @@ try:
         StorageAccountTypes,
         StorageProfile,
         VirtualMachine,
-        VirtualMachineImageReference,
     )
     from azure.mgmt.network import NetworkManagementClient
-    from azure.mgmt.resource import ResourceManagementClient
+    # azure-mgmt-resource >=25 turned ``azure.mgmt.resource`` into a pure
+    # namespace package; ResourceManagementClient now lives one level down in
+    # ``.resources``. Importing it from the old top-level path raises
+    # ImportError("unknown location"), which this block would swallow into
+    # AZURE_AVAILABLE=False.
+    from azure.mgmt.resource.resources import ResourceManagementClient
     from azure.core.exceptions import (
         AzureError,
         ClientAuthenticationError,
@@ -619,7 +624,7 @@ class AzureCloud(BaseCloud):
         except Exception as e:
             raise CloudError(f"Unexpected error creating Azure VM: {e}")
 
-    def _parse_image_reference(self, image: str) -> VirtualMachineImageReference:
+    def _parse_image_reference(self, image: str) -> ImageReference:
         """Parse image string to Azure image reference.
 
         Supports formats:
@@ -631,7 +636,7 @@ class AzureCloud(BaseCloud):
             image: Image reference string
 
         Returns:
-            VirtualMachineImageReference object
+            ImageReference object
         """
         # Common image aliases
         IMAGE_ALIASES: dict[str, tuple[str, str, str, str]] = {
@@ -651,7 +656,7 @@ class AzureCloud(BaseCloud):
         # Check for alias
         if image.lower() in IMAGE_ALIASES:
             publisher, offer, sku, version = IMAGE_ALIASES[image.lower()]
-            return VirtualMachineImageReference(
+            return ImageReference(
                 publisher=publisher,
                 offer=offer,
                 sku=sku,
@@ -660,12 +665,12 @@ class AzureCloud(BaseCloud):
 
         # Check for full resource ID
         if image.startswith("/"):
-            return VirtualMachineImageReference(id=image)
+            return ImageReference(id=image)
 
         # Parse publisher/offer/sku[/version] format
         parts = image.split("/")
         if len(parts) >= 3:
-            return VirtualMachineImageReference(
+            return ImageReference(
                 publisher=parts[0],
                 offer=parts[1],
                 sku=parts[2],
@@ -673,7 +678,7 @@ class AzureCloud(BaseCloud):
             )
 
         # Default: treat as URN or ID
-        return VirtualMachineImageReference(id=image)
+        return ImageReference(id=image)
 
     def _create_network_interface(
         self,

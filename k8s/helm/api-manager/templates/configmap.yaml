@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "api-manager.fullname" . }}-config
+  labels:
+    {{- include "api-manager.labels" . | nindent 4 }}
+  namespace: {{ .Release.Namespace }}
+data:
+  {{- toYaml .Values.configMapData | nindent 2 }}

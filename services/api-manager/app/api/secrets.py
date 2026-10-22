@@ -285,7 +285,7 @@ async def list_secrets():
         200: List of secret paths
         500: Backend error
     """
-    path = (await request.args).get("path", "")
+    path = request.args.get("path", "")
 
     try:
         manager = await get_secrets_manager()

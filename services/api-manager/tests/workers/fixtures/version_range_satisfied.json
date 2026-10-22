@@ -1,0 +1,62 @@
+{
+  "description": "k8s-primary version 1.30 satisfies >= 1.29 constraint",
+  "node": {
+    "id": 60,
+    "name": "node-ver-60",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:60",
+    "hardware_tags": ["cpu:nested-virt-supported", "cpu:feature:avx2"],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440060",
+    "reason": "version range satisfied test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 1001}, {"egg_id": 1002}]
+  },
+  "eggs": [
+    {
+      "id": 1001,
+      "name": "k8s-primary",
+      "version": "1.30.2",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": true,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/k8s/init.conf", "content": "# k8s init"}],
+        "runcmd": ["kubeadm init"]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 1002,
+      "name": "k8s-worker",
+      "version": "1.30.2",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {"egg_id": 1001, "mode": "hard", "version_min": "1.29"}
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/k8s/worker.conf", "content": "# k8s worker"}],
+        "runcmd": ["kubeadm join"]
+      },
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": true,
+    "egg_order_first": 1001
+  }
+}

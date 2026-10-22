@@ -1,0 +1,26 @@
+[run]
+source = app
+parallel = true
+omit =
+    # gRPC server/runner — requires live gRPC infrastructure
+    app/grpc_server.py
+    app/grpc_runner.py
+    # Cloud provider drivers — require live cloud credentials (AWS/Azure/GCP/LXD/MAAS/Vultr)
+    app/clouds/aws.py
+    app/clouds/azure.py
+    app/clouds/gcp.py
+    app/clouds/lxd.py
+    app/clouds/maas.py
+    app/clouds/vultr.py
+    # Dead code: shadowed by their package directories (Python resolves package over module)
+    app/auth.py
+    app/models.py
+
+[report]
+exclude_lines =
+    # Standard coverage exclusions
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if TYPE_CHECKING:
+    @abstractmethod

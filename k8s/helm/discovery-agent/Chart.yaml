@@ -1,0 +1,23 @@
+apiVersion: v2
+name: discovery-agent
+description: >-
+  Gough Discovery Agent - Go/gRPC hardware inventory agent that runs inside
+  the PXE-booted initrd helper image on a managed bare-metal node, posts
+  discovery results to api-manager, then opens an outbound gRPC-mTLS control
+  tunnel. NOTE: this binary reads its configuration from the kernel command
+  line (/proc/cmdline) and does not listen on any port - it is not a typical
+  long-running in-cluster Service. This chart is provided for packaging/CI
+  consistency; confirm with the team whether an in-cluster Deployment of this
+  chart is actually required before using it.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - go
+  - grpc
+  - discovery
+  - bare-metal
+  - agent
+maintainers:
+  - name: Penguin Tech Inc
+    email: support@penguintech.io

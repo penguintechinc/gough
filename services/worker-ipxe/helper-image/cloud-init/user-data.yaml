@@ -1,0 +1,109 @@
+#cloud-config
+# Gough Phase 1 Discovery Helper cloud-init
+#
+# Runs on boot to execute hardware discovery and report inventory to api-manager
+# Entry point for /usr/local/bin/discovery-agent
+
+# Disable cloud-init's own datasource lookups (we provide explicit network config)
+datasource_list: ["None"]
+
+# System hostname (temporary, will be replaced with actual node name during planning)
+hostname: gough-helper
+
+# Set timezone for consistent logging
+timezone: UTC
+
+# Verbosity for debugging
+debug: false
+
+# Early boot: Ensure discovery-agent binary is available and executable
+write_files:
+  - path: /usr/local/bin/gough-discovery-agent-wrapper.sh
+    permissions: "0755"
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Wrapper script to handle discovery-agent execution with proper cleanup
+      set -x
+
+      # Log all output to both console and file for operator debugging
+      exec > >(tee -a /dev/ttyS0 /var/log/gough/discovery-agent.log)
+      exec 2>&1
+
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Gough Phase 1 Discovery Helper started"
+
+      # Verify discovery-agent is available
+      if [ ! -x /usr/local/bin/discovery-agent ]; then
+        echo "ERROR: discovery-agent binary not found or not executable" >&2
+        exit 1
+      fi
+
+      # Extract boot parameters from kernel command line
+      GOUGH_TOKEN=$(cat /proc/cmdline | grep -oP 'gough_token=\K[^ ]+' || echo "")
+      GOUGH_PRIMARY=$(cat /proc/cmdline | grep -oP 'gough_primary=\K[^ ]+' || echo "")
+
+      if [ -z "$GOUGH_TOKEN" ] || [ -z "$GOUGH_PRIMARY" ]; then
+        echo "ERROR: Missing gough_token or gough_primary kernel parameters" >&2
+        exit 1
+      fi
+
+      # Zeroize the token from /proc/cmdline by overwriting kernel buffer
+      # (kernel maintains the original; this is a best-effort user-space cleanup)
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting discovery-agent"
+
+      # Invoke discovery-agent with environment variables
+      # Token is passed via stdin to avoid shell history exposure
+      export GOUGH_DISCOVERY_PRIMARY="$GOUGH_PRIMARY"
+      echo "$GOUGH_TOKEN" | /usr/local/bin/discovery-agent \
+        --primary "$GOUGH_PRIMARY" \
+        --log-level debug \
+        --output /var/log/gough/discovery-result.json
+
+      AGENT_EXIT=$?
+      echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Discovery-agent exited with code: $AGENT_EXIT"
+
+      # On success, agent opens persistent gRPC tunnel; keep shell alive
+      if [ $AGENT_EXIT -eq 0 ]; then
+        echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Discovery complete. Agent running in background."
+        # Keep system alive indefinitely; operator can trigger Phase 2 via api-manager
+        sleep infinity
+      else
+        echo "ERROR: Discovery-agent failed with exit code $AGENT_EXIT" >&2
+        exit $AGENT_EXIT
+      fi
+
+# Boot hooks: Run discovery immediately after network is up
+runcmd:
+  - echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Cloud-init starting Gough discovery helper"
+  - /usr/local/bin/gough-discovery-agent-wrapper.sh
+
+# Disable certain cloud-init modules that are not needed in helper mode
+cloud_final_modules:
+  - scripts-vendor
+  - puppet
+  - chef
+  - salt-minion
+  - mcollective
+  - rightscale_userdata
+  - locale
+  - final-message
+  - power-state-change
+  - lxd
+  - apt-pipelining
+  - ubuntu-advantage
+  - landscape
+  - ubuntu-report
+  - motd
+  - ntp
+  - timezone
+  - ca-certs
+  - resolvconf
+  - ssh-import-id
+  - keyboard
+  - set-passwords
+  - grub-dpkg
+  - byobu
+
+# Output logging
+output:
+  all: "| tee -a /dev/ttyS0 /var/log/cloud-init-output.log"

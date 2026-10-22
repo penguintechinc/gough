@@ -1,0 +1,52 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Audit {
+  rpc AppendEvent(AppendEventRequest) returns (AppendEventResponse);
+  rpc Stream(StreamRequest) returns (stream StreamResponse);
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+  rpc ExportRange(ExportRangeRequest) returns (ExportRangeResponse);
+}
+
+message AppendEventRequest {
+  string event_data = 1;
+}
+
+message AppendEventResponse {
+  string event_id = 1;
+  int64 timestamp = 2;
+}
+
+message StreamRequest {
+  string filter = 1;
+  int64 start_offset = 2;
+}
+
+message StreamResponse {
+  string event_id = 1;
+  string event_payload = 2;
+  int64 timestamp = 3;
+}
+
+message VerifyRequest {
+  string event_id = 1;
+}
+
+message VerifyResponse {
+  bool verified = 1;
+  string verification_result = 2;
+}
+
+message ExportRangeRequest {
+  int64 start_time = 1;
+  int64 end_time = 2;
+  string format = 3;
+}
+
+message ExportRangeResponse {
+  bytes export_data = 1;
+  string export_id = 2;
+}

@@ -1,0 +1,256 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/penguintechinc/gough/api-manager
+  pullPolicy: IfNotPresent
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 5000
+  grpcPort: 50051
+  grpcTargetPort: 50051
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: api.example.com
+      paths:
+        - path: /api/v1
+          pathType: Prefix
+  tls: []
+
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+env:
+  - name: QUART_ENV
+    value: "production"
+  - name: QUART_PORT
+    value: "5000"
+  - name: SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: secret-key
+  - name: SECURITY_PASSWORD_SALT
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: password-salt
+  - name: DB_TYPE
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: db-type
+  - name: DB_HOST
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: db-host
+  - name: DB_PORT
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: db-port
+  - name: DB_NAME
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: db-name
+  - name: DB_USER
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: db-user
+  - name: DB_PASS
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: db-pass
+  - name: DB_POOL_SIZE
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: db-pool-size
+  - name: LICENSE_KEY
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: license-key
+  - name: LICENSE_SERVER_URL
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: license-server-url
+  - name: RELEASE_MODE
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: release-mode
+  - name: VAULT_ADDR
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: vault-addr
+  - name: SPIRE_AGENT_SOCKET
+    value: "unix:///run/spire/agent.sock"
+  - name: REDIS_URL
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: redis-url
+  # penguin-aaa ES256 OIDC token provider — gough is its own first-party
+  # issuer/verifier (see services/api-manager/app/config.py). OIDC_ISSUER
+  # MUST be the https URL of this environment's domain and is overridden
+  # per-environment; OIDC_AUDIENCE and the keystore mount path are stable
+  # across environments.
+  - name: OIDC_ISSUER
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: oidc-issuer
+  - name: OIDC_AUDIENCE
+    valueFrom:
+      configMapKeyRef:
+        name: api-manager-config
+        key: oidc-audience
+  - name: GOUGH_KEY_STORE_PATH
+    value: "/var/gough/keys/oidc_keys.json"
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: http
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: http
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+volumeMounts:
+  - name: oidc-keystore
+    mountPath: /var/gough/keys
+    readOnly: true
+
+volumes:
+  - name: oidc-keystore
+    secret:
+      secretName: api-manager-oidc-keystore
+      defaultMode: 0400
+      items:
+        - key: oidc_keys.json
+          path: oidc_keys.json
+
+configMapData:
+  db-type: "postgres"
+  db-host: "postgres"
+  db-port: "5432"
+  db-name: "gough_api"
+  db-pool-size: "5"
+  vault-addr: "http://vault:8200"
+  redis-url: "redis://redis:6379"
+  license-server-url: "https://license.penguintech.io"
+  release-mode: "false"
+  # Placeholder — MUST be overridden per environment (see values-alpha.yaml,
+  # values-beta.yaml; gamma/production values files do not exist yet for this
+  # chart, see chart README.md).
+  oidc-issuer: "https://api-manager.example.com"
+  oidc-audience: "gough-api"
+
+# Secrets are NOT rendered by this chart by default. The Deployment references
+# the Secret named "<release>-api-manager-secret", which MUST be provisioned
+# out-of-band by Vault, the External Secrets Operator, or Sealed Secrets (see
+# devops standards). Required keys: secret-key, password-salt, db-user,
+# db-pass, license-key.
+#
+# ES256 signing keystore (penguin-aaa FileKeyStore, mounted at
+# GOUGH_KEY_STORE_PATH above). ALL api-manager replicas share this SAME key
+# file — they issue AND validate their own tokens — so it must be a single
+# pre-provisioned Secret, never a per-pod generated key. See README.md in
+# this chart directory for the one-time ES256 keygen + rotation procedure.
+keystoreSecret:
+  # Never set true outside disposable local/dev installs. When true, renders
+  # a Secret from keystoreSecret.data below — which MUST stay a placeholder;
+  # never commit real key material to values files.
+  create: false
+  secretName: api-manager-oidc-keystore
+  dataKey: oidc_keys.json
+  data: {}
+  # data:
+  #   oidc_keys.json: '{"keys":[]}'   # placeholder only — see README.md
+
+# Optional External Secrets Operator stub — preferred over keystoreSecret.create
+# once ESO + a Vault-backed SecretStore/ClusterSecretStore are available in the
+# target cluster. Off by default everywhere; enable + configure per environment
+# when ESO is provisioned. See README.md.
+externalSecret:
+  enabled: false
+  secretStoreRef:
+    name: vault-backend
+    kind: ClusterSecretStore
+  refreshInterval: 1h
+  vaultPath: secret/data/gough/api-manager/oidc-keystore
+  vaultProperty: oidc_keys.json

@@ -10,7 +10,6 @@ from datetime import datetime
 from unittest.mock import Mock, patch, MagicMock
 
 import pytest
-from py4web import HTTP
 
 
 class TestAPIController:

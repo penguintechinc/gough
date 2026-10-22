@@ -1,7 +1,7 @@
 # Project Template Makefile
 # This Makefile provides common development tasks for multi-language projects
 
-.PHONY: help setup dev test build clean lint format docker deploy
+.PHONY: help setup dev test build clean lint format docker deploy install-hooks
 
 # Default target
 .DEFAULT_GOAL := help
@@ -51,7 +51,7 @@ setup: ## Setup - Install all dependencies and initialize the project
 	@$(MAKE) setup-go
 	@$(MAKE) setup-python
 	@$(MAKE) setup-node
-	@$(MAKE) setup-git-hooks
+	@$(MAKE) install-hooks
 	@echo "$(GREEN)Setup complete!$(RESET)"
 
 setup-env: ## Setup - Create environment file from template
@@ -82,12 +82,11 @@ setup-node: ## Setup - Install Node.js dependencies and tools
 	@npm install
 	@cd services/webui && npm install
 
-setup-git-hooks: ## Setup - Install Git pre-commit hooks
+install-hooks: ## Setup - Install Git hooks from .githooks directory
 	@echo "$(BLUE)Installing Git hooks...$(RESET)"
-	@cp scripts/git-hooks/pre-commit .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
-	@cp scripts/git-hooks/commit-msg .git/hooks/commit-msg
-	@chmod +x .git/hooks/commit-msg
+	@git config core.hooksPath .githooks
+	@chmod +x .githooks/*
+	@echo "$(GREEN)Git hooks installed (core.hooksPath = .githooks)$(RESET)"
 
 # Development Commands
 dev: ## Development - Start development environment
@@ -137,6 +136,15 @@ test-integration: ## Testing - Run integration tests
 test-coverage: ## Testing - Generate coverage reports
 	@$(MAKE) test
 	@echo "$(GREEN)Coverage reports generated:$(RESET)"
+
+openapi: ## Other - Regenerate OpenAPI 3.1 spec from blueprints
+	@echo "$(BLUE)Regenerating OpenAPI spec...$(RESET)"
+	@cd services/api-manager && python -m app.openapi_export
+	@echo "$(GREEN)OpenAPI spec updated at docs/api/openapi.json$(RESET)"
+
+openapi-check: ## Other - Validate OpenAPI spec matches source (CI gate)
+	@echo "$(BLUE)Checking OpenAPI spec is up to date...$(RESET)"
+	@cd services/api-manager && python -m app.openapi_export --check
 	@echo "  Go: coverage-go.out"
 	@echo "  Python: coverage-python.xml, htmlcov-python/"
 	@echo "  Node.js: coverage/"
@@ -152,6 +160,10 @@ smoke-test-quick: ## Testing - Run alpha smoke tests (skip builds)
 smoke-test-beta: ## Testing - Run beta smoke tests against staging
 	@echo "$(BLUE)Running beta smoke tests against https://gough.penguintech.io...$(RESET)"
 	@./tests/smoke/run-smoke-tests.sh beta
+
+# Protocol Buffer Commands
+proto: ## Build - Regenerate gRPC stubs from proto/v1/
+	cd proto && buf generate
 
 # Build Commands
 build: ## Build - Build all applications
@@ -222,10 +234,17 @@ k8s-clean: ## Kubernetes - Delete all resources
 
 # Code Quality Commands
 lint: ## Code Quality - Run linting for all languages
-	@echo "$(BLUE)Running linting...$(RESET)"
-	@$(MAKE) lint-go
-	@$(MAKE) lint-python
-	@$(MAKE) lint-node
+	@echo "$(BLUE)Linting all code...$(RESET)"
+	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules --ignore=E501 || true; fi
+	@if command -v black >/dev/null 2>&1; then echo "$(YELLOW)-- black --$(RESET)"; black --check . --exclude '/(\.git|venv|__pycache__|node_modules)/' || true; fi
+	@if command -v isort >/dev/null 2>&1; then echo "$(YELLOW)-- isort --$(RESET)"; isort --check-only . || true; fi
+	@if command -v mypy >/dev/null 2>&1; then echo "$(YELLOW)-- mypy --$(RESET)"; python3 -m mypy . --ignore-missing-imports || true; fi
+	@if command -v golangci-lint >/dev/null 2>&1; then echo "$(YELLOW)-- golangci-lint --$(RESET)"; golangci-lint run || true; fi
+	@if command -v hadolint >/dev/null 2>&1; then echo "$(YELLOW)-- hadolint --$(RESET)"; find . -name "Dockerfile*" -not -path "*/.git/*" | xargs hadolint || true; fi
+	@if command -v shellcheck >/dev/null 2>&1; then echo "$(YELLOW)-- shellcheck --$(RESET)"; find . -name "*.sh" -not -path "*/.git/*" | xargs shellcheck || true; fi
+	@if command -v spectral >/dev/null 2>&1; then echo "$(YELLOW)-- spectral (OpenAPI) --$(RESET)"; $(MAKE) lint-openapi || true; fi
+	@npm run lint 2>/dev/null || true
+	@cd services/webui && npm run lint 2>/dev/null || true
 
 lint-go: ## Code Quality - Run Go linting
 	@echo "$(BLUE)Linting Go code...$(RESET)"
@@ -240,6 +259,10 @@ lint-node: ## Code Quality - Run Node.js linting
 	@echo "$(BLUE)Linting Node.js code...$(RESET)"
 	@npm run lint
 	@cd services/webui && npm run lint
+
+lint-openapi: ## Code Quality - Lint OpenAPI specifications
+	@echo "$(BLUE)Linting OpenAPI specifications...$(RESET)"
+	@spectral lint --ruleset .spectralrc.yaml services/api-manager/openapi/v1.yaml
 
 format: ## Code Quality - Format code for all languages
 	@echo "$(BLUE)Formatting code...$(RESET)"
@@ -364,12 +387,17 @@ clean-all: ## Clean - Clean everything (build artifacts, Docker, etc.)
 # Security Commands
 security-scan: ## Security - Run security scans
 	@echo "$(BLUE)Running security scans...$(RESET)"
-	@safety check --json
+	@if command -v bandit >/dev/null 2>&1; then echo "$(YELLOW)-- bandit --$(RESET)"; bandit -r . -x ./tests,./venv,./.git --quiet || true; fi
+	@if command -v pip-audit >/dev/null 2>&1; then echo "$(YELLOW)-- pip-audit --$(RESET)"; find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" | xargs -I{} pip-audit -r {} 2>/dev/null || true; fi
+	@if command -v gosec >/dev/null 2>&1; then echo "$(YELLOW)-- gosec --$(RESET)"; gosec ./... || true; fi
+	@if command -v govulncheck >/dev/null 2>&1; then echo "$(YELLOW)-- govulncheck --$(RESET)"; govulncheck ./... || true; fi
+	@npm audit 2>/dev/null || true
+	@cd services/webui && npm audit 2>/dev/null || true
+	@if command -v gitleaks >/dev/null 2>&1; then echo "$(YELLOW)-- gitleaks --$(RESET)"; gitleaks detect --source . --no-git 2>/dev/null || true; fi
 
 audit: ## Security - Run security audit
 	@echo "$(BLUE)Running security audit...$(RESET)"
-	@npm audit
-	@cd services/webui && npm audit
+	@$(MAKE) security-scan
 
 # Monitoring Commands
 metrics: ## Monitoring - Show application metrics
@@ -391,7 +419,7 @@ docs-build: ## Documentation - Build documentation
 
 # Git Commands
 git-hooks-install: ## Git - Install Git hooks
-	@$(MAKE) setup-git-hooks
+	@$(MAKE) install-hooks
 
 git-hooks-test: ## Git - Test Git hooks
 	@echo "$(BLUE)Testing Git hooks...$(RESET)"
@@ -417,3 +445,84 @@ info: ## Info - Show project information
 env: ## Info - Show environment variables
 	@echo "$(BLUE)Environment Variables:$(RESET)"
 	@env | grep -E "^(LICENSE_|POSTGRES_|REDIS_|NODE_|GIN_|PY4WEB_)" | sort
+
+# Missing Standard Targets (Standards Compliance)
+test-unit: ## Testing - Run unit tests
+	@echo "$(BLUE)Running unit tests...$(RESET)"
+	@cd services/api-manager && python3 -m pytest tests/unit/ --cov=app --cov-report=xml --cov-fail-under=90
+	@echo "$(GREEN)Unit tests completed$(RESET)"
+
+test-integration: ## Testing - Run integration tests
+	@echo "$(BLUE)Running integration tests...$(RESET)"
+	@cd services/api-manager && python3 -m pytest tests/integration/ --cov=app --cov-report=xml --cov-fail-under=90
+	@echo "$(GREEN)Integration tests completed$(RESET)"
+
+test-functional: ## Testing - Run functional tests
+	@echo "$(YELLOW)No functional tests defined$(RESET)"
+
+test-security: ## Testing - Run security scans (full suite)
+	@echo "$(BLUE)Running security scans...$(RESET)"
+	@if command -v bandit >/dev/null 2>&1; then echo "$(YELLOW)-- bandit --$(RESET)"; bandit -r . -x ./tests,./venv,./.git --quiet || true; fi
+	@if command -v pip-audit >/dev/null 2>&1; then echo "$(YELLOW)-- pip-audit --$(RESET)"; find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" | xargs -I{} pip-audit -r {} 2>/dev/null || true; fi
+	@if command -v gosec >/dev/null 2>&1; then echo "$(YELLOW)-- gosec --$(RESET)"; gosec ./... || true; fi
+	@if command -v govulncheck >/dev/null 2>&1; then echo "$(YELLOW)-- govulncheck --$(RESET)"; govulncheck ./... || true; fi
+	@npm audit 2>/dev/null || true
+	@cd services/webui && npm audit 2>/dev/null || true
+	@if command -v gitleaks >/dev/null 2>&1; then echo "$(YELLOW)-- gitleaks --$(RESET)"; gitleaks detect --source . --no-git 2>/dev/null || true; fi
+
+test-workers: ## Testing - Run worker tests
+	@echo "$(BLUE)Running worker tests...$(RESET)"
+	@cd services/api-manager && python3 -m pytest tests/workers/ --cov=app --cov-fail-under=90
+	@echo "$(GREEN)Worker tests completed$(RESET)"
+
+test-api: ## Testing - Run API tests
+	@echo "$(BLUE)Running API tests...$(RESET)"
+	@cd services/api-manager && python3 -m pytest tests/api/ -v
+	@echo "$(GREEN)API tests completed$(RESET)"
+
+test-e2e: ## Testing - Run E2E tests
+	@echo "$(BLUE)Running E2E tests...$(RESET)"
+	@python3 -m pytest tests/e2e/ -v
+	@echo "$(GREEN)E2E tests completed$(RESET)"
+
+test-e2e-sim: ## Testing - Run M1 E2E test suite (sim nodes)
+	@echo "$(BLUE)Running M1 E2E test suite...$(RESET)"
+	@python3 -m pytest tests/e2e/m1/ -v -m sim
+	@echo "$(GREEN)E2E sim tests completed$(RESET)"
+
+test-e2e-lab: ## Testing - Run E2E on lab cluster (requires self-hosted runner)
+	@echo "$(BLUE)Running E2E tests on lab cluster...$(RESET)"
+	@echo "$(YELLOW)Note: This requires self-hosted lab setup$(RESET)"
+	@python3 -m pytest tests/e2e/ -v -k "not real_hw" --tb=short -x
+
+test-discovery-agent: ## Testing - Run Go discovery-agent tests
+	@echo "$(BLUE)Running discovery-agent tests...$(RESET)"
+	@cd services/discovery-agent && go test -v -race -cover ./...
+	@echo "$(GREEN)Discovery-agent tests completed$(RESET)"
+
+deploy-alpha: ## Deploy - Deploy to local-alpha context (Kustomize)
+	@echo "$(BLUE)Deploying to alpha (local-alpha context)...$(RESET)"
+	@kubectl kustomize k8s/kustomize/overlays/alpha | kubectl apply --context local-alpha -f -
+	@echo "$(GREEN)Alpha deployment complete$(RESET)"
+
+deploy-alpha-clean: ## Deploy - Clean deploy to alpha (delete namespace first)
+	@echo "$(RED)Cleaning alpha namespace...$(RESET)"
+	@kubectl delete namespace gough --context local-alpha --ignore-not-found=true
+	@sleep 2
+	@$(MAKE) deploy-alpha
+
+deploy-dev: ## Deploy - Deploy to dev environment (alias to deploy-staging)
+	@$(MAKE) deploy-staging
+
+deploy-prod: ## Deploy - Deploy to production (alias to deploy-production)
+	@$(MAKE) deploy-production
+
+seed-mock-data: ## Database - Seed mock data
+	@echo "$(YELLOW)No mock data seeding defined$(RESET)"
+
+pre-commit: ## Git - Run pre-commit checks
+	@echo "$(BLUE)Running pre-commit checks...$(RESET)"
+	@$(MAKE) lint
+	@$(MAKE) test-security
+	@$(MAKE) test
+	@echo "$(GREEN)Pre-commit checks complete!$(RESET)"

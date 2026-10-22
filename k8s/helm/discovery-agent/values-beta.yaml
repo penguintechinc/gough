@@ -1,0 +1,19 @@
+# Beta environment overrides (dal2 cluster)
+# See values.yaml NOTE - discovery-agent is not a typical in-cluster
+# workload; confirm intent before enabling this release in beta.
+namespace: gough
+replicaCount: 1
+image:
+  registry: ghcr.io/penguintechinc/gough
+  pullPolicy: Always
+imagePullSecrets:
+  - name: ghcr-pull-secret
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 125m
+    memory: 256Mi
+autoscaling:
+  enabled: false

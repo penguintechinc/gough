@@ -1,0 +1,58 @@
+# Gough Helper Image - Exact APT Package Versions (Ubuntu 24.04 LTS)
+#
+# Generated from: apt-cache madison <package> | head -1
+# Format: package=version
+# Used by Dockerfile: apt-get install -y --no-install-recommends pkg=version
+#
+# Refresh with: apt-cache madison smartmontools | head -1 etc.
+
+# Hardware inventory & monitoring tools
+smartmontools=7.4-1ubuntu1
+lshw=B.02.20.2-3ubuntu1
+nvme-cli=2.8.1-1ubuntu1
+lldpd=1.0.16-2ubuntu1
+ipmitool=1:1.8.18-9ubuntu1
+ethtool=1:6.1-1ubuntu1
+
+# Utilities
+jq=1.7.1-3ubuntu0.24.04.1
+openssl=3.0.13-0ubuntu3.1
+ca-certificates=20240203
+
+# System management
+dbus=1.14.10-1ubuntu4
+systemd=255.4-1ubuntu8.4
+
+# Firmware updates & utilities
+fwupd=2.0.0-1ubuntu1
+snapd=2.64.2+24.04ubuntu1
+
+# Networking (required by cloud-init + boot)
+isc-dhcp-client=4.4.3-1ubuntu3.1
+iputils-ping=3:20240117-1ubuntu1
+curl=8.5.0-2ubuntu10.1
+wget=1.21.4-1ubuntu4
+netcat-openbsd=1.219-1ubuntu1
+
+# Kernel modules & initramfs
+initramfs-tools=0.142ubuntu3
+linux-image-generic=6.8.0.31.33
+kmod=31+1ubuntu1
+
+# Storage & LUKS
+cryptsetup=2:2.6.1-1ubuntu1
+btrfs-progs=6.6.3-1ubuntu1
+e2fsprogs=1.47.0-2ubuntu1
+parted=3.6-2ubuntu1
+gdisk=1.0.10-2ubuntu1
+util-linux=2.39.3-13ubuntu3
+
+# Runtime dependencies for discovery-agent
+libssl3=3.0.13-0ubuntu3.1
+
+# Cloud-init
+cloud-init=24.1.7-1ubuntu1
+
+# LXD snap: pinned to channel 5.21/stable per Gough spec
+# Installed via: snap install lxd --channel=5.21/stable
+# snap versions are not tracked in apt

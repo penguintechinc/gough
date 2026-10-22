@@ -1,0 +1,59 @@
+{
+  "description": "phase1_helper egg depends on post_deploy egg — phase_dependency_violation",
+  "node": {
+    "id": 20,
+    "name": "node-phase-20",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:20",
+    "hardware_tags": [],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440020",
+    "reason": "phase violation test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 601}, {"egg_id": 602}]
+  },
+  "eggs": [
+    {
+      "id": 601,
+      "name": "helper-bootstrap",
+      "version": "1.0.0",
+      "phase": "phase1_helper",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [{"egg_id": 602, "mode": "hard"}],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 602,
+      "name": "k8s-init",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "phase_dependency_violation",
+        "details_contains_egg": "helper-bootstrap"
+      }
+    ]
+  }
+}

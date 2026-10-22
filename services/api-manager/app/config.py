@@ -52,6 +52,21 @@ class Config:
         days=int(os.getenv("JWT_REFRESH_TOKEN_DAYS", "7"))
     )
 
+    # OIDC token provider (penguin-aaa). Gough is its OWN first-party issuer:
+    # it mints ES256 access/id tokens with an OIDCProvider and validates its
+    # own tokens locally via a StaticKeyVerifier (public key exported from the
+    # keystore) -- no external JWKS/discovery endpoint. penguin-aaa forbids
+    # HS256 and requires the issuer to be an https URL even in dev.
+    OIDC_ISSUER = os.getenv("OIDC_ISSUER", "https://gough.localhost.local")
+    OIDC_AUDIENCE = os.getenv("OIDC_AUDIENCE", "gough-api")
+    OIDC_ALGORITHM = "ES256"
+    # File-backed ES256 keystore path (production; persists across restarts and
+    # is shared across replicas via a mounted secret). Dev/test use an
+    # in-memory keystore and ignore this.
+    GOUGH_KEY_STORE_PATH = os.getenv(
+        "GOUGH_KEY_STORE_PATH", "/var/gough/keys/oidc_keys.json"
+    )
+
     # Database - PyDAL compatible with multi-DB support
     DB_TYPE = os.getenv("DB_TYPE", "postgres")
     DB_HOST = os.getenv("DB_HOST", "localhost")
@@ -96,8 +111,13 @@ class Config:
     # Encryption key for DB-based secrets (Fernet)
     ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY", "")
 
-    # CORS
-    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "*")
+    # CORS. Fail-closed: no wildcard default. Unset means "no explicit
+    # operator choice"; app.create_app() resolves that to "*" only under
+    # DEBUG/TESTING and to "" (no cross-origin access) otherwise (regression:
+    # audit cors-wildcard 2026-09-22). An operator that explicitly sets
+    # CORS_ORIGINS=* in production is making their own informed choice, not
+    # hitting this default.
+    CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
     # Redis (for caching and sessions)
     REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
@@ -106,6 +126,14 @@ class Config:
     RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
     RATE_LIMIT_REDIS_URL = os.getenv("RATE_LIMIT_REDIS_URL", REDIS_URL)
     RATE_LIMIT_DEFAULT = os.getenv("RATE_LIMIT_DEFAULT", "100/minute;1000/hour")
+    # Global floor applied to every /api/ route (regression: security audit
+    # 2026-09-22 -- only 6 of 106 input endpoints previously carried an
+    # explicit @rate_limit decorator). Existing per-route decorators keep
+    # applying ON TOP of this floor; it is never a replacement for them.
+    RATE_LIMIT_GLOBAL_DEFAULT = os.getenv("RATE_LIMIT_GLOBAL_DEFAULT", "120/minute")
+    # Tighter limit for unauthenticated, auth-sensitive entry points (login,
+    # agent enrollment/refresh) -- the highest-value brute-force targets.
+    RATE_LIMIT_AUTH_SENSITIVE = os.getenv("RATE_LIMIT_AUTH_SENSITIVE", "10/minute")
 
     # Audit Logging
     AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() == "true"
@@ -146,6 +174,43 @@ class Config:
             f"{db_type}://{cls.DB_USER}:{cls.DB_PASS}@"
             f"{cls.DB_HOST}:{cls.DB_PORT}/{cls.DB_NAME}"
         )
+
+    @classmethod
+    def validate_secrets(cls) -> None:
+        """Validate that secrets are properly configured.
+
+        In production/non-development environments, raises RuntimeError if any
+        critical secrets still have their dev-default values. Dev/test
+        environments can use defaults.
+
+        Raises:
+            RuntimeError: If running in production with dev-default secrets.
+        """
+        # Only enforce strict validation for production (non-DEBUG, non-TESTING)
+        is_dev_or_test = cls.DEBUG or cls.TESTING
+        if is_dev_or_test:
+            return
+
+        # Check SECRET_KEY
+        if cls.SECRET_KEY == "dev-secret-key-change-in-production":
+            raise RuntimeError(
+                "SECRET_KEY is set to dev default in production. "
+                "Set SECRET_KEY environment variable to a secure random value."
+            )
+
+        # Check JWT_SECRET_KEY
+        if cls.JWT_SECRET_KEY == "dev-secret-key-change-in-production":
+            raise RuntimeError(
+                "JWT_SECRET_KEY is set to dev default in production. "
+                "Set JWT_SECRET_KEY environment variable to a secure random value."
+            )
+
+        # Check SECURITY_PASSWORD_SALT
+        if cls.SECURITY_PASSWORD_SALT == "dev-salt-change-in-production":
+            raise RuntimeError(
+                "SECURITY_PASSWORD_SALT is set to dev default in production. "
+                "Set SECURITY_PASSWORD_SALT environment variable to a secure random value."
+            )
 
 
 class DevelopmentConfig(Config):

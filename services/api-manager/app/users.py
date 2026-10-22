@@ -22,8 +22,8 @@ users_bp = Blueprint("users", __name__)
 @admin_required
 async def get_users():
     """List all users with pagination (Admin only)."""
-    page = (await request.args).get("page", 1, type=int)
-    per_page = (await request.args).get("per_page", 20, type=int)
+    page = request.args.get("page", 1, type=int)
+    per_page = request.args.get("per_page", 20, type=int)
 
     # Limit per_page to reasonable bounds
     per_page = min(max(per_page, 1), 100)

@@ -1,5 +1,5 @@
 # Alpha environment overrides (local MicroK8s)
-namespace: gough-alpha
+namespace: gough
 replicaCount: 1
 image:
   pullPolicy: Never
@@ -8,6 +8,15 @@ env:
     value: "DEBUG"
   - name: RELEASE_MODE
     value: "false"
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: gough.localhost.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
 resources:
   limits:
     cpu: 200m

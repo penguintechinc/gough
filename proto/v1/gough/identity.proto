@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Identity {
+  rpc IssueSVID(IssueSVIDRequest) returns (IssueSVIDResponse);
+  rpc VerifyOTPN(VerifyOTPNRequest) returns (VerifyOTPNResponse);
+}
+
+message IssueSVIDRequest {
+  string service_name = 1;
+  int32  ttl_seconds  = 2;
+  string csr_pem      = 3;
+}
+
+message IssueSVIDResponse {
+  string certificate_pem = 1;
+  string private_key_pem = 2;
+  int64  expires_at      = 3;
+  string spiffe_id       = 4;
+}
+
+message VerifyOTPNRequest {
+  string node_id        = 1;
+  string otp_token      = 2;
+  string rotation_class = 3;
+}
+
+message VerifyOTPNResponse {
+  bool   valid            = 1;
+  bytes  decrypted_secret = 2;
+  string rotation_class   = 3;
+  string node_id          = 4;
+}

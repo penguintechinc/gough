@@ -1,0 +1,16 @@
+# Alpha environment overrides (local MicroK8s)
+# See values.yaml NOTE - discovery-agent is not a typical in-cluster
+# workload; confirm intent before enabling this release in alpha.
+namespace: gough
+replicaCount: 1
+image:
+  pullPolicy: Never
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+autoscaling:
+  enabled: false

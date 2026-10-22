@@ -1,0 +1,8255 @@
+{
+  "description": "250-egg (5 chains \u00d7 50) \u2014 perf test p95 < 5s",
+  "node": {
+    "id": 101,
+    "name": "node-perf-101",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:fe",
+    "hardware_tags": [],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-perf-41d4-a716-446655440250",
+    "reason": "perf 250 eggs",
+    "actor_sub": "bench",
+    "disk_plan": {
+      "disk_device": "/dev/sda",
+      "luks_enabled": false,
+      "partitions": []
+    },
+    "egg_assignments": [
+      {
+        "egg_id": 2001
+      },
+      {
+        "egg_id": 2002
+      },
+      {
+        "egg_id": 2003
+      },
+      {
+        "egg_id": 2004
+      },
+      {
+        "egg_id": 2005
+      },
+      {
+        "egg_id": 2006
+      },
+      {
+        "egg_id": 2007
+      },
+      {
+        "egg_id": 2008
+      },
+      {
+        "egg_id": 2009
+      },
+      {
+        "egg_id": 2010
+      },
+      {
+        "egg_id": 2011
+      },
+      {
+        "egg_id": 2012
+      },
+      {
+        "egg_id": 2013
+      },
+      {
+        "egg_id": 2014
+      },
+      {
+        "egg_id": 2015
+      },
+      {
+        "egg_id": 2016
+      },
+      {
+        "egg_id": 2017
+      },
+      {
+        "egg_id": 2018
+      },
+      {
+        "egg_id": 2019
+      },
+      {
+        "egg_id": 2020
+      },
+      {
+        "egg_id": 2021
+      },
+      {
+        "egg_id": 2022
+      },
+      {
+        "egg_id": 2023
+      },
+      {
+        "egg_id": 2024
+      },
+      {
+        "egg_id": 2025
+      },
+      {
+        "egg_id": 2026
+      },
+      {
+        "egg_id": 2027
+      },
+      {
+        "egg_id": 2028
+      },
+      {
+        "egg_id": 2029
+      },
+      {
+        "egg_id": 2030
+      },
+      {
+        "egg_id": 2031
+      },
+      {
+        "egg_id": 2032
+      },
+      {
+        "egg_id": 2033
+      },
+      {
+        "egg_id": 2034
+      },
+      {
+        "egg_id": 2035
+      },
+      {
+        "egg_id": 2036
+      },
+      {
+        "egg_id": 2037
+      },
+      {
+        "egg_id": 2038
+      },
+      {
+        "egg_id": 2039
+      },
+      {
+        "egg_id": 2040
+      },
+      {
+        "egg_id": 2041
+      },
+      {
+        "egg_id": 2042
+      },
+      {
+        "egg_id": 2043
+      },
+      {
+        "egg_id": 2044
+      },
+      {
+        "egg_id": 2045
+      },
+      {
+        "egg_id": 2046
+      },
+      {
+        "egg_id": 2047
+      },
+      {
+        "egg_id": 2048
+      },
+      {
+        "egg_id": 2049
+      },
+      {
+        "egg_id": 2050
+      },
+      {
+        "egg_id": 2051
+      },
+      {
+        "egg_id": 2052
+      },
+      {
+        "egg_id": 2053
+      },
+      {
+        "egg_id": 2054
+      },
+      {
+        "egg_id": 2055
+      },
+      {
+        "egg_id": 2056
+      },
+      {
+        "egg_id": 2057
+      },
+      {
+        "egg_id": 2058
+      },
+      {
+        "egg_id": 2059
+      },
+      {
+        "egg_id": 2060
+      },
+      {
+        "egg_id": 2061
+      },
+      {
+        "egg_id": 2062
+      },
+      {
+        "egg_id": 2063
+      },
+      {
+        "egg_id": 2064
+      },
+      {
+        "egg_id": 2065
+      },
+      {
+        "egg_id": 2066
+      },
+      {
+        "egg_id": 2067
+      },
+      {
+        "egg_id": 2068
+      },
+      {
+        "egg_id": 2069
+      },
+      {
+        "egg_id": 2070
+      },
+      {
+        "egg_id": 2071
+      },
+      {
+        "egg_id": 2072
+      },
+      {
+        "egg_id": 2073
+      },
+      {
+        "egg_id": 2074
+      },
+      {
+        "egg_id": 2075
+      },
+      {
+        "egg_id": 2076
+      },
+      {
+        "egg_id": 2077
+      },
+      {
+        "egg_id": 2078
+      },
+      {
+        "egg_id": 2079
+      },
+      {
+        "egg_id": 2080
+      },
+      {
+        "egg_id": 2081
+      },
+      {
+        "egg_id": 2082
+      },
+      {
+        "egg_id": 2083
+      },
+      {
+        "egg_id": 2084
+      },
+      {
+        "egg_id": 2085
+      },
+      {
+        "egg_id": 2086
+      },
+      {
+        "egg_id": 2087
+      },
+      {
+        "egg_id": 2088
+      },
+      {
+        "egg_id": 2089
+      },
+      {
+        "egg_id": 2090
+      },
+      {
+        "egg_id": 2091
+      },
+      {
+        "egg_id": 2092
+      },
+      {
+        "egg_id": 2093
+      },
+      {
+        "egg_id": 2094
+      },
+      {
+        "egg_id": 2095
+      },
+      {
+        "egg_id": 2096
+      },
+      {
+        "egg_id": 2097
+      },
+      {
+        "egg_id": 2098
+      },
+      {
+        "egg_id": 2099
+      },
+      {
+        "egg_id": 2100
+      },
+      {
+        "egg_id": 2101
+      },
+      {
+        "egg_id": 2102
+      },
+      {
+        "egg_id": 2103
+      },
+      {
+        "egg_id": 2104
+      },
+      {
+        "egg_id": 2105
+      },
+      {
+        "egg_id": 2106
+      },
+      {
+        "egg_id": 2107
+      },
+      {
+        "egg_id": 2108
+      },
+      {
+        "egg_id": 2109
+      },
+      {
+        "egg_id": 2110
+      },
+      {
+        "egg_id": 2111
+      },
+      {
+        "egg_id": 2112
+      },
+      {
+        "egg_id": 2113
+      },
+      {
+        "egg_id": 2114
+      },
+      {
+        "egg_id": 2115
+      },
+      {
+        "egg_id": 2116
+      },
+      {
+        "egg_id": 2117
+      },
+      {
+        "egg_id": 2118
+      },
+      {
+        "egg_id": 2119
+      },
+      {
+        "egg_id": 2120
+      },
+      {
+        "egg_id": 2121
+      },
+      {
+        "egg_id": 2122
+      },
+      {
+        "egg_id": 2123
+      },
+      {
+        "egg_id": 2124
+      },
+      {
+        "egg_id": 2125
+      },
+      {
+        "egg_id": 2126
+      },
+      {
+        "egg_id": 2127
+      },
+      {
+        "egg_id": 2128
+      },
+      {
+        "egg_id": 2129
+      },
+      {
+        "egg_id": 2130
+      },
+      {
+        "egg_id": 2131
+      },
+      {
+        "egg_id": 2132
+      },
+      {
+        "egg_id": 2133
+      },
+      {
+        "egg_id": 2134
+      },
+      {
+        "egg_id": 2135
+      },
+      {
+        "egg_id": 2136
+      },
+      {
+        "egg_id": 2137
+      },
+      {
+        "egg_id": 2138
+      },
+      {
+        "egg_id": 2139
+      },
+      {
+        "egg_id": 2140
+      },
+      {
+        "egg_id": 2141
+      },
+      {
+        "egg_id": 2142
+      },
+      {
+        "egg_id": 2143
+      },
+      {
+        "egg_id": 2144
+      },
+      {
+        "egg_id": 2145
+      },
+      {
+        "egg_id": 2146
+      },
+      {
+        "egg_id": 2147
+      },
+      {
+        "egg_id": 2148
+      },
+      {
+        "egg_id": 2149
+      },
+      {
+        "egg_id": 2150
+      },
+      {
+        "egg_id": 2151
+      },
+      {
+        "egg_id": 2152
+      },
+      {
+        "egg_id": 2153
+      },
+      {
+        "egg_id": 2154
+      },
+      {
+        "egg_id": 2155
+      },
+      {
+        "egg_id": 2156
+      },
+      {
+        "egg_id": 2157
+      },
+      {
+        "egg_id": 2158
+      },
+      {
+        "egg_id": 2159
+      },
+      {
+        "egg_id": 2160
+      },
+      {
+        "egg_id": 2161
+      },
+      {
+        "egg_id": 2162
+      },
+      {
+        "egg_id": 2163
+      },
+      {
+        "egg_id": 2164
+      },
+      {
+        "egg_id": 2165
+      },
+      {
+        "egg_id": 2166
+      },
+      {
+        "egg_id": 2167
+      },
+      {
+        "egg_id": 2168
+      },
+      {
+        "egg_id": 2169
+      },
+      {
+        "egg_id": 2170
+      },
+      {
+        "egg_id": 2171
+      },
+      {
+        "egg_id": 2172
+      },
+      {
+        "egg_id": 2173
+      },
+      {
+        "egg_id": 2174
+      },
+      {
+        "egg_id": 2175
+      },
+      {
+        "egg_id": 2176
+      },
+      {
+        "egg_id": 2177
+      },
+      {
+        "egg_id": 2178
+      },
+      {
+        "egg_id": 2179
+      },
+      {
+        "egg_id": 2180
+      },
+      {
+        "egg_id": 2181
+      },
+      {
+        "egg_id": 2182
+      },
+      {
+        "egg_id": 2183
+      },
+      {
+        "egg_id": 2184
+      },
+      {
+        "egg_id": 2185
+      },
+      {
+        "egg_id": 2186
+      },
+      {
+        "egg_id": 2187
+      },
+      {
+        "egg_id": 2188
+      },
+      {
+        "egg_id": 2189
+      },
+      {
+        "egg_id": 2190
+      },
+      {
+        "egg_id": 2191
+      },
+      {
+        "egg_id": 2192
+      },
+      {
+        "egg_id": 2193
+      },
+      {
+        "egg_id": 2194
+      },
+      {
+        "egg_id": 2195
+      },
+      {
+        "egg_id": 2196
+      },
+      {
+        "egg_id": 2197
+      },
+      {
+        "egg_id": 2198
+      },
+      {
+        "egg_id": 2199
+      },
+      {
+        "egg_id": 2200
+      },
+      {
+        "egg_id": 2201
+      },
+      {
+        "egg_id": 2202
+      },
+      {
+        "egg_id": 2203
+      },
+      {
+        "egg_id": 2204
+      },
+      {
+        "egg_id": 2205
+      },
+      {
+        "egg_id": 2206
+      },
+      {
+        "egg_id": 2207
+      },
+      {
+        "egg_id": 2208
+      },
+      {
+        "egg_id": 2209
+      },
+      {
+        "egg_id": 2210
+      },
+      {
+        "egg_id": 2211
+      },
+      {
+        "egg_id": 2212
+      },
+      {
+        "egg_id": 2213
+      },
+      {
+        "egg_id": 2214
+      },
+      {
+        "egg_id": 2215
+      },
+      {
+        "egg_id": 2216
+      },
+      {
+        "egg_id": 2217
+      },
+      {
+        "egg_id": 2218
+      },
+      {
+        "egg_id": 2219
+      },
+      {
+        "egg_id": 2220
+      },
+      {
+        "egg_id": 2221
+      },
+      {
+        "egg_id": 2222
+      },
+      {
+        "egg_id": 2223
+      },
+      {
+        "egg_id": 2224
+      },
+      {
+        "egg_id": 2225
+      },
+      {
+        "egg_id": 2226
+      },
+      {
+        "egg_id": 2227
+      },
+      {
+        "egg_id": 2228
+      },
+      {
+        "egg_id": 2229
+      },
+      {
+        "egg_id": 2230
+      },
+      {
+        "egg_id": 2231
+      },
+      {
+        "egg_id": 2232
+      },
+      {
+        "egg_id": 2233
+      },
+      {
+        "egg_id": 2234
+      },
+      {
+        "egg_id": 2235
+      },
+      {
+        "egg_id": 2236
+      },
+      {
+        "egg_id": 2237
+      },
+      {
+        "egg_id": 2238
+      },
+      {
+        "egg_id": 2239
+      },
+      {
+        "egg_id": 2240
+      },
+      {
+        "egg_id": 2241
+      },
+      {
+        "egg_id": 2242
+      },
+      {
+        "egg_id": 2243
+      },
+      {
+        "egg_id": 2244
+      },
+      {
+        "egg_id": 2245
+      },
+      {
+        "egg_id": 2246
+      },
+      {
+        "egg_id": 2247
+      },
+      {
+        "egg_id": 2248
+      },
+      {
+        "egg_id": 2249
+      },
+      {
+        "egg_id": 2250
+      }
+    ]
+  },
+  "eggs": [
+    {
+      "id": 2001,
+      "name": "perf-egg-2001",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2001.conf",
+            "content": "egg 2001"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2001"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2002,
+      "name": "perf-egg-2002",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2001,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2002.conf",
+            "content": "egg 2002"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2002"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2003,
+      "name": "perf-egg-2003",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2002,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2003.conf",
+            "content": "egg 2003"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2003"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2004,
+      "name": "perf-egg-2004",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2003,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2004.conf",
+            "content": "egg 2004"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2004"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2005,
+      "name": "perf-egg-2005",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2004,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2005.conf",
+            "content": "egg 2005"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2005"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2006,
+      "name": "perf-egg-2006",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2005,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2006.conf",
+            "content": "egg 2006"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2006"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2007,
+      "name": "perf-egg-2007",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2006,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2007.conf",
+            "content": "egg 2007"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2007"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2008,
+      "name": "perf-egg-2008",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2007,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2008.conf",
+            "content": "egg 2008"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2008"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2009,
+      "name": "perf-egg-2009",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2008,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2009.conf",
+            "content": "egg 2009"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2009"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2010,
+      "name": "perf-egg-2010",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2009,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2010.conf",
+            "content": "egg 2010"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2010"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2011,
+      "name": "perf-egg-2011",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2010,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2011.conf",
+            "content": "egg 2011"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2011"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2012,
+      "name": "perf-egg-2012",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2011,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2012.conf",
+            "content": "egg 2012"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2012"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2013,
+      "name": "perf-egg-2013",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2012,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2013.conf",
+            "content": "egg 2013"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2013"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2014,
+      "name": "perf-egg-2014",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2013,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2014.conf",
+            "content": "egg 2014"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2014"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2015,
+      "name": "perf-egg-2015",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2014,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2015.conf",
+            "content": "egg 2015"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2015"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2016,
+      "name": "perf-egg-2016",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2015,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2016.conf",
+            "content": "egg 2016"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2016"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2017,
+      "name": "perf-egg-2017",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2016,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2017.conf",
+            "content": "egg 2017"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2017"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2018,
+      "name": "perf-egg-2018",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2017,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2018.conf",
+            "content": "egg 2018"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2018"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2019,
+      "name": "perf-egg-2019",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2018,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2019.conf",
+            "content": "egg 2019"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2019"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2020,
+      "name": "perf-egg-2020",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2019,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2020.conf",
+            "content": "egg 2020"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2020"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2021,
+      "name": "perf-egg-2021",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2020,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2021.conf",
+            "content": "egg 2021"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2021"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2022,
+      "name": "perf-egg-2022",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2021,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2022.conf",
+            "content": "egg 2022"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2022"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2023,
+      "name": "perf-egg-2023",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2022,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2023.conf",
+            "content": "egg 2023"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2023"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2024,
+      "name": "perf-egg-2024",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2023,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2024.conf",
+            "content": "egg 2024"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2024"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2025,
+      "name": "perf-egg-2025",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2024,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2025.conf",
+            "content": "egg 2025"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2025"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2026,
+      "name": "perf-egg-2026",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2025,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2026.conf",
+            "content": "egg 2026"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2026"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2027,
+      "name": "perf-egg-2027",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2026,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2027.conf",
+            "content": "egg 2027"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2027"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2028,
+      "name": "perf-egg-2028",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2027,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2028.conf",
+            "content": "egg 2028"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2028"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2029,
+      "name": "perf-egg-2029",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2028,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2029.conf",
+            "content": "egg 2029"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2029"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2030,
+      "name": "perf-egg-2030",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2029,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2030.conf",
+            "content": "egg 2030"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2030"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2031,
+      "name": "perf-egg-2031",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2030,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2031.conf",
+            "content": "egg 2031"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2031"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2032,
+      "name": "perf-egg-2032",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2031,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2032.conf",
+            "content": "egg 2032"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2032"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2033,
+      "name": "perf-egg-2033",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2032,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2033.conf",
+            "content": "egg 2033"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2033"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2034,
+      "name": "perf-egg-2034",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2033,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2034.conf",
+            "content": "egg 2034"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2034"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2035,
+      "name": "perf-egg-2035",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2034,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2035.conf",
+            "content": "egg 2035"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2035"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2036,
+      "name": "perf-egg-2036",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2035,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2036.conf",
+            "content": "egg 2036"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2036"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2037,
+      "name": "perf-egg-2037",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2036,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2037.conf",
+            "content": "egg 2037"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2037"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2038,
+      "name": "perf-egg-2038",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2037,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2038.conf",
+            "content": "egg 2038"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2038"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2039,
+      "name": "perf-egg-2039",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2038,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2039.conf",
+            "content": "egg 2039"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2039"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2040,
+      "name": "perf-egg-2040",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2039,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2040.conf",
+            "content": "egg 2040"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2040"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2041,
+      "name": "perf-egg-2041",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2040,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2041.conf",
+            "content": "egg 2041"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2041"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2042,
+      "name": "perf-egg-2042",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2041,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2042.conf",
+            "content": "egg 2042"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2042"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2043,
+      "name": "perf-egg-2043",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2042,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2043.conf",
+            "content": "egg 2043"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2043"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2044,
+      "name": "perf-egg-2044",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2043,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2044.conf",
+            "content": "egg 2044"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2044"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2045,
+      "name": "perf-egg-2045",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2044,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2045.conf",
+            "content": "egg 2045"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2045"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2046,
+      "name": "perf-egg-2046",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2045,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2046.conf",
+            "content": "egg 2046"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2046"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2047,
+      "name": "perf-egg-2047",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2046,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2047.conf",
+            "content": "egg 2047"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2047"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2048,
+      "name": "perf-egg-2048",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2047,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2048.conf",
+            "content": "egg 2048"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2048"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2049,
+      "name": "perf-egg-2049",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2048,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2049.conf",
+            "content": "egg 2049"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2049"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2050,
+      "name": "perf-egg-2050",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2049,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2050.conf",
+            "content": "egg 2050"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2050"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2051,
+      "name": "perf-egg-2051",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2051.conf",
+            "content": "egg 2051"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2051"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2052,
+      "name": "perf-egg-2052",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2051,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2052.conf",
+            "content": "egg 2052"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2052"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2053,
+      "name": "perf-egg-2053",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2052,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2053.conf",
+            "content": "egg 2053"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2053"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2054,
+      "name": "perf-egg-2054",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2053,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2054.conf",
+            "content": "egg 2054"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2054"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2055,
+      "name": "perf-egg-2055",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2054,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2055.conf",
+            "content": "egg 2055"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2055"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2056,
+      "name": "perf-egg-2056",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2055,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2056.conf",
+            "content": "egg 2056"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2056"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2057,
+      "name": "perf-egg-2057",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2056,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2057.conf",
+            "content": "egg 2057"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2057"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2058,
+      "name": "perf-egg-2058",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2057,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2058.conf",
+            "content": "egg 2058"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2058"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2059,
+      "name": "perf-egg-2059",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2058,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2059.conf",
+            "content": "egg 2059"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2059"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2060,
+      "name": "perf-egg-2060",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2059,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2060.conf",
+            "content": "egg 2060"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2060"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2061,
+      "name": "perf-egg-2061",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2060,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2061.conf",
+            "content": "egg 2061"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2061"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2062,
+      "name": "perf-egg-2062",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2061,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2062.conf",
+            "content": "egg 2062"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2062"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2063,
+      "name": "perf-egg-2063",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2062,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2063.conf",
+            "content": "egg 2063"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2063"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2064,
+      "name": "perf-egg-2064",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2063,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2064.conf",
+            "content": "egg 2064"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2064"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2065,
+      "name": "perf-egg-2065",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2064,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2065.conf",
+            "content": "egg 2065"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2065"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2066,
+      "name": "perf-egg-2066",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2065,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2066.conf",
+            "content": "egg 2066"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2066"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2067,
+      "name": "perf-egg-2067",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2066,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2067.conf",
+            "content": "egg 2067"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2067"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2068,
+      "name": "perf-egg-2068",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2067,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2068.conf",
+            "content": "egg 2068"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2068"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2069,
+      "name": "perf-egg-2069",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2068,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2069.conf",
+            "content": "egg 2069"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2069"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2070,
+      "name": "perf-egg-2070",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2069,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2070.conf",
+            "content": "egg 2070"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2070"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2071,
+      "name": "perf-egg-2071",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2070,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2071.conf",
+            "content": "egg 2071"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2071"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2072,
+      "name": "perf-egg-2072",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2071,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2072.conf",
+            "content": "egg 2072"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2072"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2073,
+      "name": "perf-egg-2073",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2072,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2073.conf",
+            "content": "egg 2073"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2073"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2074,
+      "name": "perf-egg-2074",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2073,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2074.conf",
+            "content": "egg 2074"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2074"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2075,
+      "name": "perf-egg-2075",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2074,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2075.conf",
+            "content": "egg 2075"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2075"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2076,
+      "name": "perf-egg-2076",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2075,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2076.conf",
+            "content": "egg 2076"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2076"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2077,
+      "name": "perf-egg-2077",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2076,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2077.conf",
+            "content": "egg 2077"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2077"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2078,
+      "name": "perf-egg-2078",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2077,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2078.conf",
+            "content": "egg 2078"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2078"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2079,
+      "name": "perf-egg-2079",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2078,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2079.conf",
+            "content": "egg 2079"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2079"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2080,
+      "name": "perf-egg-2080",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2079,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2080.conf",
+            "content": "egg 2080"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2080"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2081,
+      "name": "perf-egg-2081",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2080,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2081.conf",
+            "content": "egg 2081"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2081"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2082,
+      "name": "perf-egg-2082",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2081,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2082.conf",
+            "content": "egg 2082"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2082"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2083,
+      "name": "perf-egg-2083",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2082,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2083.conf",
+            "content": "egg 2083"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2083"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2084,
+      "name": "perf-egg-2084",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2083,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2084.conf",
+            "content": "egg 2084"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2084"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2085,
+      "name": "perf-egg-2085",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2084,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2085.conf",
+            "content": "egg 2085"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2085"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2086,
+      "name": "perf-egg-2086",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2085,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2086.conf",
+            "content": "egg 2086"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2086"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2087,
+      "name": "perf-egg-2087",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2086,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2087.conf",
+            "content": "egg 2087"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2087"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2088,
+      "name": "perf-egg-2088",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2087,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2088.conf",
+            "content": "egg 2088"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2088"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2089,
+      "name": "perf-egg-2089",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2088,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2089.conf",
+            "content": "egg 2089"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2089"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2090,
+      "name": "perf-egg-2090",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2089,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2090.conf",
+            "content": "egg 2090"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2090"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2091,
+      "name": "perf-egg-2091",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2090,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2091.conf",
+            "content": "egg 2091"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2091"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2092,
+      "name": "perf-egg-2092",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2091,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2092.conf",
+            "content": "egg 2092"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2092"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2093,
+      "name": "perf-egg-2093",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2092,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2093.conf",
+            "content": "egg 2093"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2093"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2094,
+      "name": "perf-egg-2094",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2093,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2094.conf",
+            "content": "egg 2094"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2094"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2095,
+      "name": "perf-egg-2095",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2094,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2095.conf",
+            "content": "egg 2095"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2095"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2096,
+      "name": "perf-egg-2096",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2095,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2096.conf",
+            "content": "egg 2096"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2096"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2097,
+      "name": "perf-egg-2097",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2096,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2097.conf",
+            "content": "egg 2097"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2097"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2098,
+      "name": "perf-egg-2098",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2097,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2098.conf",
+            "content": "egg 2098"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2098"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2099,
+      "name": "perf-egg-2099",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2098,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2099.conf",
+            "content": "egg 2099"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2099"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2100,
+      "name": "perf-egg-2100",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2099,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2100.conf",
+            "content": "egg 2100"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2100"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2101,
+      "name": "perf-egg-2101",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2101.conf",
+            "content": "egg 2101"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2101"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2102,
+      "name": "perf-egg-2102",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2101,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2102.conf",
+            "content": "egg 2102"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2102"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2103,
+      "name": "perf-egg-2103",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2102,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2103.conf",
+            "content": "egg 2103"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2103"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2104,
+      "name": "perf-egg-2104",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2103,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2104.conf",
+            "content": "egg 2104"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2104"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2105,
+      "name": "perf-egg-2105",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2104,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2105.conf",
+            "content": "egg 2105"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2105"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2106,
+      "name": "perf-egg-2106",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2105,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2106.conf",
+            "content": "egg 2106"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2106"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2107,
+      "name": "perf-egg-2107",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2106,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2107.conf",
+            "content": "egg 2107"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2107"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2108,
+      "name": "perf-egg-2108",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2107,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2108.conf",
+            "content": "egg 2108"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2108"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2109,
+      "name": "perf-egg-2109",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2108,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2109.conf",
+            "content": "egg 2109"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2109"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2110,
+      "name": "perf-egg-2110",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2109,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2110.conf",
+            "content": "egg 2110"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2110"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2111,
+      "name": "perf-egg-2111",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2110,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2111.conf",
+            "content": "egg 2111"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2111"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2112,
+      "name": "perf-egg-2112",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2111,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2112.conf",
+            "content": "egg 2112"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2112"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2113,
+      "name": "perf-egg-2113",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2112,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2113.conf",
+            "content": "egg 2113"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2113"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2114,
+      "name": "perf-egg-2114",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2113,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2114.conf",
+            "content": "egg 2114"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2114"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2115,
+      "name": "perf-egg-2115",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2114,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2115.conf",
+            "content": "egg 2115"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2115"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2116,
+      "name": "perf-egg-2116",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2115,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2116.conf",
+            "content": "egg 2116"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2116"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2117,
+      "name": "perf-egg-2117",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2116,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2117.conf",
+            "content": "egg 2117"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2117"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2118,
+      "name": "perf-egg-2118",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2117,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2118.conf",
+            "content": "egg 2118"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2118"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2119,
+      "name": "perf-egg-2119",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2118,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2119.conf",
+            "content": "egg 2119"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2119"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2120,
+      "name": "perf-egg-2120",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2119,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2120.conf",
+            "content": "egg 2120"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2120"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2121,
+      "name": "perf-egg-2121",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2120,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2121.conf",
+            "content": "egg 2121"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2121"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2122,
+      "name": "perf-egg-2122",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2121,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2122.conf",
+            "content": "egg 2122"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2122"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2123,
+      "name": "perf-egg-2123",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2122,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2123.conf",
+            "content": "egg 2123"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2123"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2124,
+      "name": "perf-egg-2124",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2123,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2124.conf",
+            "content": "egg 2124"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2124"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2125,
+      "name": "perf-egg-2125",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2124,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2125.conf",
+            "content": "egg 2125"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2125"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2126,
+      "name": "perf-egg-2126",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2125,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2126.conf",
+            "content": "egg 2126"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2126"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2127,
+      "name": "perf-egg-2127",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2126,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2127.conf",
+            "content": "egg 2127"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2127"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2128,
+      "name": "perf-egg-2128",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2127,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2128.conf",
+            "content": "egg 2128"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2128"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2129,
+      "name": "perf-egg-2129",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2128,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2129.conf",
+            "content": "egg 2129"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2129"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2130,
+      "name": "perf-egg-2130",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2129,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2130.conf",
+            "content": "egg 2130"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2130"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2131,
+      "name": "perf-egg-2131",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2130,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2131.conf",
+            "content": "egg 2131"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2131"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2132,
+      "name": "perf-egg-2132",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2131,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2132.conf",
+            "content": "egg 2132"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2132"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2133,
+      "name": "perf-egg-2133",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2132,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2133.conf",
+            "content": "egg 2133"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2133"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2134,
+      "name": "perf-egg-2134",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2133,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2134.conf",
+            "content": "egg 2134"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2134"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2135,
+      "name": "perf-egg-2135",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2134,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2135.conf",
+            "content": "egg 2135"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2135"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2136,
+      "name": "perf-egg-2136",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2135,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2136.conf",
+            "content": "egg 2136"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2136"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2137,
+      "name": "perf-egg-2137",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2136,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2137.conf",
+            "content": "egg 2137"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2137"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2138,
+      "name": "perf-egg-2138",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2137,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2138.conf",
+            "content": "egg 2138"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2138"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2139,
+      "name": "perf-egg-2139",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2138,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2139.conf",
+            "content": "egg 2139"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2139"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2140,
+      "name": "perf-egg-2140",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2139,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2140.conf",
+            "content": "egg 2140"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2140"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2141,
+      "name": "perf-egg-2141",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2140,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2141.conf",
+            "content": "egg 2141"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2141"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2142,
+      "name": "perf-egg-2142",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2141,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2142.conf",
+            "content": "egg 2142"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2142"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2143,
+      "name": "perf-egg-2143",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2142,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2143.conf",
+            "content": "egg 2143"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2143"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2144,
+      "name": "perf-egg-2144",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2143,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2144.conf",
+            "content": "egg 2144"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2144"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2145,
+      "name": "perf-egg-2145",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2144,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2145.conf",
+            "content": "egg 2145"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2145"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2146,
+      "name": "perf-egg-2146",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2145,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2146.conf",
+            "content": "egg 2146"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2146"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2147,
+      "name": "perf-egg-2147",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2146,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2147.conf",
+            "content": "egg 2147"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2147"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2148,
+      "name": "perf-egg-2148",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2147,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2148.conf",
+            "content": "egg 2148"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2148"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2149,
+      "name": "perf-egg-2149",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2148,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2149.conf",
+            "content": "egg 2149"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2149"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2150,
+      "name": "perf-egg-2150",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2149,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2150.conf",
+            "content": "egg 2150"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2150"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2151,
+      "name": "perf-egg-2151",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2151.conf",
+            "content": "egg 2151"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2151"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2152,
+      "name": "perf-egg-2152",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2151,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2152.conf",
+            "content": "egg 2152"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2152"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2153,
+      "name": "perf-egg-2153",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2152,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2153.conf",
+            "content": "egg 2153"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2153"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2154,
+      "name": "perf-egg-2154",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2153,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2154.conf",
+            "content": "egg 2154"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2154"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2155,
+      "name": "perf-egg-2155",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2154,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2155.conf",
+            "content": "egg 2155"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2155"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2156,
+      "name": "perf-egg-2156",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2155,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2156.conf",
+            "content": "egg 2156"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2156"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2157,
+      "name": "perf-egg-2157",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2156,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2157.conf",
+            "content": "egg 2157"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2157"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2158,
+      "name": "perf-egg-2158",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2157,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2158.conf",
+            "content": "egg 2158"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2158"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2159,
+      "name": "perf-egg-2159",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2158,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2159.conf",
+            "content": "egg 2159"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2159"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2160,
+      "name": "perf-egg-2160",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2159,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2160.conf",
+            "content": "egg 2160"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2160"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2161,
+      "name": "perf-egg-2161",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2160,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2161.conf",
+            "content": "egg 2161"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2161"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2162,
+      "name": "perf-egg-2162",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2161,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2162.conf",
+            "content": "egg 2162"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2162"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2163,
+      "name": "perf-egg-2163",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2162,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2163.conf",
+            "content": "egg 2163"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2163"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2164,
+      "name": "perf-egg-2164",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2163,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2164.conf",
+            "content": "egg 2164"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2164"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2165,
+      "name": "perf-egg-2165",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2164,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2165.conf",
+            "content": "egg 2165"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2165"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2166,
+      "name": "perf-egg-2166",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2165,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2166.conf",
+            "content": "egg 2166"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2166"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2167,
+      "name": "perf-egg-2167",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2166,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2167.conf",
+            "content": "egg 2167"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2167"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2168,
+      "name": "perf-egg-2168",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2167,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2168.conf",
+            "content": "egg 2168"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2168"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2169,
+      "name": "perf-egg-2169",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2168,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2169.conf",
+            "content": "egg 2169"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2169"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2170,
+      "name": "perf-egg-2170",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2169,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2170.conf",
+            "content": "egg 2170"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2170"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2171,
+      "name": "perf-egg-2171",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2170,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2171.conf",
+            "content": "egg 2171"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2171"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2172,
+      "name": "perf-egg-2172",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2171,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2172.conf",
+            "content": "egg 2172"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2172"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2173,
+      "name": "perf-egg-2173",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2172,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2173.conf",
+            "content": "egg 2173"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2173"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2174,
+      "name": "perf-egg-2174",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2173,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2174.conf",
+            "content": "egg 2174"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2174"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2175,
+      "name": "perf-egg-2175",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2174,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2175.conf",
+            "content": "egg 2175"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2175"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2176,
+      "name": "perf-egg-2176",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2175,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2176.conf",
+            "content": "egg 2176"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2176"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2177,
+      "name": "perf-egg-2177",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2176,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2177.conf",
+            "content": "egg 2177"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2177"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2178,
+      "name": "perf-egg-2178",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2177,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2178.conf",
+            "content": "egg 2178"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2178"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2179,
+      "name": "perf-egg-2179",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2178,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2179.conf",
+            "content": "egg 2179"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2179"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2180,
+      "name": "perf-egg-2180",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2179,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2180.conf",
+            "content": "egg 2180"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2180"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2181,
+      "name": "perf-egg-2181",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2180,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2181.conf",
+            "content": "egg 2181"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2181"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2182,
+      "name": "perf-egg-2182",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2181,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2182.conf",
+            "content": "egg 2182"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2182"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2183,
+      "name": "perf-egg-2183",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2182,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2183.conf",
+            "content": "egg 2183"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2183"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2184,
+      "name": "perf-egg-2184",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2183,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2184.conf",
+            "content": "egg 2184"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2184"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2185,
+      "name": "perf-egg-2185",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2184,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2185.conf",
+            "content": "egg 2185"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2185"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2186,
+      "name": "perf-egg-2186",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2185,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2186.conf",
+            "content": "egg 2186"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2186"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2187,
+      "name": "perf-egg-2187",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2186,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2187.conf",
+            "content": "egg 2187"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2187"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2188,
+      "name": "perf-egg-2188",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2187,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2188.conf",
+            "content": "egg 2188"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2188"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2189,
+      "name": "perf-egg-2189",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2188,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2189.conf",
+            "content": "egg 2189"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2189"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2190,
+      "name": "perf-egg-2190",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2189,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2190.conf",
+            "content": "egg 2190"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2190"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2191,
+      "name": "perf-egg-2191",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2190,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2191.conf",
+            "content": "egg 2191"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2191"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2192,
+      "name": "perf-egg-2192",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2191,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2192.conf",
+            "content": "egg 2192"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2192"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2193,
+      "name": "perf-egg-2193",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2192,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2193.conf",
+            "content": "egg 2193"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2193"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2194,
+      "name": "perf-egg-2194",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2193,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2194.conf",
+            "content": "egg 2194"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2194"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2195,
+      "name": "perf-egg-2195",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2194,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2195.conf",
+            "content": "egg 2195"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2195"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2196,
+      "name": "perf-egg-2196",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2195,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2196.conf",
+            "content": "egg 2196"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2196"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2197,
+      "name": "perf-egg-2197",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2196,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2197.conf",
+            "content": "egg 2197"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2197"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2198,
+      "name": "perf-egg-2198",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2197,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2198.conf",
+            "content": "egg 2198"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2198"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2199,
+      "name": "perf-egg-2199",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2198,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2199.conf",
+            "content": "egg 2199"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2199"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2200,
+      "name": "perf-egg-2200",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2199,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2200.conf",
+            "content": "egg 2200"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2200"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2201,
+      "name": "perf-egg-2201",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2201.conf",
+            "content": "egg 2201"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2201"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2202,
+      "name": "perf-egg-2202",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2201,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2202.conf",
+            "content": "egg 2202"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2202"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2203,
+      "name": "perf-egg-2203",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2202,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2203.conf",
+            "content": "egg 2203"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2203"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2204,
+      "name": "perf-egg-2204",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2203,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2204.conf",
+            "content": "egg 2204"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2204"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2205,
+      "name": "perf-egg-2205",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2204,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2205.conf",
+            "content": "egg 2205"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2205"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2206,
+      "name": "perf-egg-2206",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2205,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2206.conf",
+            "content": "egg 2206"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2206"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2207,
+      "name": "perf-egg-2207",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2206,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2207.conf",
+            "content": "egg 2207"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2207"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2208,
+      "name": "perf-egg-2208",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2207,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2208.conf",
+            "content": "egg 2208"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2208"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2209,
+      "name": "perf-egg-2209",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2208,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2209.conf",
+            "content": "egg 2209"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2209"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2210,
+      "name": "perf-egg-2210",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2209,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2210.conf",
+            "content": "egg 2210"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2210"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2211,
+      "name": "perf-egg-2211",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2210,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2211.conf",
+            "content": "egg 2211"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2211"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2212,
+      "name": "perf-egg-2212",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2211,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2212.conf",
+            "content": "egg 2212"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2212"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2213,
+      "name": "perf-egg-2213",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2212,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2213.conf",
+            "content": "egg 2213"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2213"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2214,
+      "name": "perf-egg-2214",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2213,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2214.conf",
+            "content": "egg 2214"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2214"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2215,
+      "name": "perf-egg-2215",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2214,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2215.conf",
+            "content": "egg 2215"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2215"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2216,
+      "name": "perf-egg-2216",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2215,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2216.conf",
+            "content": "egg 2216"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2216"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2217,
+      "name": "perf-egg-2217",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2216,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2217.conf",
+            "content": "egg 2217"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2217"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2218,
+      "name": "perf-egg-2218",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2217,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2218.conf",
+            "content": "egg 2218"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2218"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2219,
+      "name": "perf-egg-2219",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2218,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2219.conf",
+            "content": "egg 2219"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2219"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2220,
+      "name": "perf-egg-2220",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2219,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2220.conf",
+            "content": "egg 2220"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2220"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2221,
+      "name": "perf-egg-2221",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2220,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2221.conf",
+            "content": "egg 2221"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2221"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2222,
+      "name": "perf-egg-2222",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2221,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2222.conf",
+            "content": "egg 2222"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2222"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2223,
+      "name": "perf-egg-2223",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2222,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2223.conf",
+            "content": "egg 2223"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2223"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2224,
+      "name": "perf-egg-2224",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2223,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2224.conf",
+            "content": "egg 2224"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2224"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2225,
+      "name": "perf-egg-2225",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2224,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2225.conf",
+            "content": "egg 2225"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2225"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2226,
+      "name": "perf-egg-2226",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2225,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2226.conf",
+            "content": "egg 2226"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2226"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2227,
+      "name": "perf-egg-2227",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2226,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2227.conf",
+            "content": "egg 2227"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2227"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2228,
+      "name": "perf-egg-2228",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2227,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2228.conf",
+            "content": "egg 2228"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2228"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2229,
+      "name": "perf-egg-2229",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2228,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2229.conf",
+            "content": "egg 2229"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2229"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2230,
+      "name": "perf-egg-2230",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2229,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2230.conf",
+            "content": "egg 2230"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2230"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2231,
+      "name": "perf-egg-2231",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2230,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2231.conf",
+            "content": "egg 2231"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2231"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2232,
+      "name": "perf-egg-2232",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2231,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2232.conf",
+            "content": "egg 2232"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2232"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2233,
+      "name": "perf-egg-2233",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2232,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2233.conf",
+            "content": "egg 2233"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2233"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2234,
+      "name": "perf-egg-2234",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2233,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2234.conf",
+            "content": "egg 2234"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2234"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2235,
+      "name": "perf-egg-2235",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2234,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2235.conf",
+            "content": "egg 2235"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2235"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2236,
+      "name": "perf-egg-2236",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2235,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2236.conf",
+            "content": "egg 2236"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2236"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2237,
+      "name": "perf-egg-2237",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2236,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2237.conf",
+            "content": "egg 2237"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2237"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2238,
+      "name": "perf-egg-2238",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2237,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2238.conf",
+            "content": "egg 2238"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2238"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2239,
+      "name": "perf-egg-2239",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2238,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2239.conf",
+            "content": "egg 2239"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2239"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2240,
+      "name": "perf-egg-2240",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2239,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2240.conf",
+            "content": "egg 2240"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2240"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2241,
+      "name": "perf-egg-2241",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2240,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2241.conf",
+            "content": "egg 2241"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2241"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2242,
+      "name": "perf-egg-2242",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2241,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2242.conf",
+            "content": "egg 2242"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2242"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2243,
+      "name": "perf-egg-2243",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2242,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2243.conf",
+            "content": "egg 2243"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2243"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2244,
+      "name": "perf-egg-2244",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2243,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2244.conf",
+            "content": "egg 2244"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2244"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2245,
+      "name": "perf-egg-2245",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2244,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2245.conf",
+            "content": "egg 2245"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2245"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2246,
+      "name": "perf-egg-2246",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2245,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2246.conf",
+            "content": "egg 2246"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2246"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2247,
+      "name": "perf-egg-2247",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2246,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2247.conf",
+            "content": "egg 2247"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2247"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2248,
+      "name": "perf-egg-2248",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2247,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2248.conf",
+            "content": "egg 2248"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2248"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2249,
+      "name": "perf-egg-2249",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2248,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2249.conf",
+            "content": "egg 2249"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2249"
+        ]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 2250,
+      "name": "perf-egg-2250",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {
+          "egg_id": 2249,
+          "mode": "hard"
+        }
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [
+          {
+            "path": "/etc/egg/cfg-2250.conf",
+            "content": "egg 2250"
+          }
+        ],
+        "runcmd": [
+          "egg-init 2250"
+        ]
+      },
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": true,
+    "egg_order_length": 250,
+    "perf_p95_ms": 5000
+  }
+}

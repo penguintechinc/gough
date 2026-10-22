@@ -9,11 +9,13 @@ from __future__ import annotations
 import logging
 import uuid
 from datetime import datetime
+from typing import Any
 
 from quart import Blueprint, g, jsonify, request
 
 from ..middleware import auth_required, get_current_user, user_has_role
 from ..audit import get_audit_logger
+from ..db.run_db import run_db
 from ..models import get_db
 
 log = logging.getLogger(__name__)
@@ -135,12 +137,16 @@ async def create_session():
 
     current_user = get_current_user()
 
-    # Check permissions
-    has_access, error_msg = check_shell_access(
-        current_user["id"],
-        resource_type,
-        resource_id
-    )
+    # Check permissions. Regression: gh-22. Off the event loop via
+    # run_db() instead of blocking the request coroutine inline.
+    def _check_access() -> tuple[bool, str | None]:
+        return check_shell_access(
+            current_user["id"],
+            resource_type,
+            resource_id
+        )
+
+    has_access, error_msg = await run_db(_check_access)
 
     if not has_access:
         log.warning(
@@ -151,74 +157,86 @@ async def create_session():
 
     db = get_db()
 
-    # Find appropriate access agent for this resource
+    # Find appropriate access agent for this resource. Regression: gh-22.
     # This is a simplified version - real implementation would need
     # to match agents based on resource location, network, etc.
-    agent = db(
-        (db.access_agents.status == "active")
-    ).select(orderby=db.access_agents.last_heartbeat).first()
+    def _fetch_agent() -> Any:
+        return db(
+            (db.access_agents.status == "active")
+        ).select(orderby=db.access_agents.last_heartbeat).first()
+
+    agent = await run_db(_fetch_agent)
 
     if not agent:
         return jsonify({
             "error": "No active access agents available for this resource"
         }), 404
 
-    try:
-        # Generate unique session ID
-        session_id = str(uuid.uuid4())
+    # Generate unique session ID
+    session_id = str(uuid.uuid4())
 
-        # Get client IP
-        client_ip = (
-            request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-            or request.headers.get("X-Real-IP")
-            or request.remote_addr
-        )
+    # Get client IP
+    client_ip = (
+        request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        or request.headers.get("X-Real-IP")
+        or request.remote_addr
+    )
 
-        # Create session record
-        db.shell_sessions.insert(
-            session_id=session_id,
-            user_id=current_user["id"],
-            resource_type=resource_type,
-            resource_id=resource_id,
-            agent_id=agent.id,
-            session_type=session_type,
-            client_ip=client_ip,
-            started_at=datetime.utcnow(),
-        )
-
-        db.commit()
-
-        # Audit log
-        audit_logger = get_audit_logger()
-        if audit_logger:
-            audit_logger.log_shell_session_create(
+    # Regression: gh-22. Insert + commit + audit log is one unit of work --
+    # stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py), with a single rollback point inside the closure
+    # (never split a transaction across a thread hop).
+    def _create_session() -> tuple[bool, Any]:
+        try:
+            # Create session record
+            db.shell_sessions.insert(
                 session_id=session_id,
-                target_host=f"{resource_type}/{resource_id}",
-                target_user=current_user["email"],
-                details={
-                    "session_type": session_type,
-                    "agent_id": agent.agent_id,
-                    "client_ip": client_ip,
-                },
+                user_id=current_user["id"],
+                resource_type=resource_type,
+                resource_id=resource_id,
+                agent_id=agent.id,
+                session_type=session_type,
+                client_ip=client_ip,
+                started_at=datetime.utcnow(),
             )
 
-        # Generate WebSocket URL
-        # In production, this would be the actual WebSocket endpoint
-        # with proper protocol (wss://) and hostname
-        websocket_url = f"wss://gough.local/ws/shell/{session_id}"
+            db.commit()
 
-        return jsonify({
-            "message": "Shell session created successfully",
-            "session_id": session_id,
-            "websocket_url": websocket_url,
-            "session_type": session_type,
-            "agent_id": agent.agent_id,
-        }), 201
+            # Audit log
+            audit_logger = get_audit_logger()
+            if audit_logger:
+                audit_logger.log_shell_session_create(
+                    session_id=session_id,
+                    target_host=f"{resource_type}/{resource_id}",
+                    target_user=current_user["email"],
+                    details={
+                        "session_type": session_type,
+                        "agent_id": agent.agent_id,
+                        "client_ip": client_ip,
+                    },
+                )
+            return True, None
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error creating shell session: {e}")
+            return False, e
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error creating shell session: {e}")
-        return jsonify({"error": str(e)}), 500
+    ok, err = await run_db(_create_session)
+    if not ok:
+        return jsonify({"error": str(err)}), 500
+
+    # Generate WebSocket URL
+    # In production, this would be the actual WebSocket endpoint
+    # with proper protocol (wss://) and hostname
+    websocket_url = f"wss://gough.local/ws/shell/{session_id}"
+
+    return jsonify({
+        "message": "Shell session created successfully",
+        "session_id": session_id,
+        "websocket_url": websocket_url,
+        "session_type": session_type,
+        "agent_id": agent.agent_id,
+    }), 201
 
 
 @shell_bp.route("/sessions", methods=["GET"])
@@ -232,11 +250,16 @@ async def list_sessions():
     db = get_db()
     current_user = get_current_user()
 
-    # Get user's active sessions (not ended)
-    sessions = db(
-        (db.shell_sessions.user_id == current_user["id"]) & (
-            db.shell_sessions.ended_at is None)
-    ).select(orderby=~db.shell_sessions.started_at).as_list()
+    # Get user's active sessions (not ended). Regression: gh-22 -- now off
+    # the event loop via run_db() instead of blocking the request
+    # coroutine inline.
+    def _fetch() -> Any:
+        return db(
+            (db.shell_sessions.user_id == current_user["id"]) & (
+                db.shell_sessions.ended_at is None)
+        ).select(orderby=~db.shell_sessions.started_at).as_list()
+
+    sessions = await run_db(_fetch)
 
     sessions_data = []
     for session in sessions:
@@ -286,8 +309,12 @@ async def terminate_session(session_id: str):
     """
     db = get_db()
 
-    # Find session
-    session = db(db.shell_sessions.session_id == session_id).select().first()
+    # Find session. Regression: gh-22. Off the event loop via run_db()
+    # instead of blocking the request coroutine inline.
+    def _fetch_session() -> Any:
+        return db(db.shell_sessions.session_id == session_id).select().first()
+
+    session = await run_db(_fetch_session)
 
     if not session:
         return jsonify({"error": "Session not found"}), 404
@@ -304,41 +331,50 @@ async def terminate_session(session_id: str):
     if session.ended_at:
         return jsonify({"error": "Session already terminated"}), 400
 
-    try:
-        # Calculate duration
-        duration_seconds = None
-        if session.started_at:
-            duration_seconds = int(
-                (datetime.utcnow() - session.started_at).total_seconds()
+    # Regression: gh-22. Update + commit + audit log is one unit of work --
+    # stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py), with a single rollback point inside the closure.
+    def _terminate() -> tuple[bool, Any]:
+        try:
+            # Calculate duration
+            duration_seconds = None
+            if session.started_at:
+                duration_seconds = int(
+                    (datetime.utcnow() - session.started_at).total_seconds()
+                )
+
+            # Update session with end time
+            db(db.shell_sessions.session_id == session_id).update(
+                ended_at=datetime.utcnow()
             )
 
-        # Update session with end time
-        db(db.shell_sessions.session_id == session_id).update(
-            ended_at=datetime.utcnow()
-        )
+            db.commit()
 
-        db.commit()
+            # Audit log
+            audit_logger = get_audit_logger()
+            if audit_logger:
+                audit_logger.log_shell_session_terminate(
+                    session_id=session_id,
+                    reason="user_requested",
+                    duration_seconds=duration_seconds,
+                    details={
+                        "resource_type": session.resource_type,
+                        "resource_id": session.resource_id,
+                    },
+                )
 
-        # Audit log
-        audit_logger = get_audit_logger()
-        if audit_logger:
-            audit_logger.log_shell_session_terminate(
-                session_id=session_id,
-                reason="user_requested",
-                duration_seconds=duration_seconds,
-                details={
-                    "resource_type": session.resource_type,
-                    "resource_id": session.resource_id,
-                },
-            )
+            return True, duration_seconds
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error terminating session {session_id}: {e}")
+            return False, e
 
-        return jsonify({
-            "message": "Session terminated successfully",
-            "session_id": session_id,
-            "duration_seconds": duration_seconds,
-        }), 200
+    ok, result = await run_db(_terminate)
+    if not ok:
+        return jsonify({"error": str(result)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error terminating session {session_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "message": "Session terminated successfully",
+        "session_id": session_id,
+        "duration_seconds": result,
+    }), 200

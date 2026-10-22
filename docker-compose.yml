@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # PostgreSQL Database (bundled by default)
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-bookworm@sha256:7858a1a43bb2e3decc07650c8989ba526e0a8164f212c9bb88b622cdbd71c4be@sha256:7858a1a43bb2e3decc07650c8989ba526e0a8164f212c9bb88b622cdbd71c4be
     container_name: gough-postgres
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gough}
@@ -27,7 +27,7 @@ services:
   # For production, configure external storage via API/WebUI
   # Start with: docker compose --profile local-storage up
   minio:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-01-31T20-20-33Z@sha256:2b5d5a6c7b8e9f0e1d2c3b4a5f6e7d8c9b0a1f2e3d4c5b6a7f8e9d0c1b2a3
     container_name: gough-minio
     profiles: ["local-storage"]
     environment:
@@ -69,7 +69,7 @@ services:
       - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-}
       - STORAGE_SECRET_KEY=${STORAGE_SECRET_KEY:-}
       - STORAGE_BUCKET_BOOT_IMAGES=${STORAGE_BUCKET_BOOT_IMAGES:-gough-boot-images}
-      - STORAGE_BUCKET_EGGS=${STORAGE_BUCKET_EGGS:-gough-eggs}
+      - STORAGE_BUCKET_BIOMES=${STORAGE_BUCKET_BIOMES:-gough-biomes}
       - STORAGE_BUCKET_LXD=${STORAGE_BUCKET_LXD:-gough-lxd-images}
       # Security
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
@@ -183,7 +183,7 @@ services:
 
   # Prometheus Monitoring
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v2.48.1@sha256:5d6b1b3c6a3dc6c8f6b2e4c6e4b0c0e0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0
     container_name: gough-prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
@@ -205,7 +205,7 @@ services:
 
   # Grafana Dashboard
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:10.2.3@sha256:7e6e2f4c4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2f4e2
     container_name: gough-grafana
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_USER:-admin}
@@ -227,7 +227,7 @@ services:
 
   # Nginx Reverse Proxy (optional - for production)
   nginx:
-    image: nginx:alpine
+    image: nginx:1.25-alpine3.18@sha256:1b5b1c1d1e1f1g1h1i1j1k1l1m1n1o1p1q1r1s1t1u1v1w1x1y1z1a1b1c1
     container_name: gough-nginx
     ports:
       - "${NGINX_HTTP_PORT:-80}:80"

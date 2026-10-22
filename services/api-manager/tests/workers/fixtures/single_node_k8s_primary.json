@@ -1,0 +1,56 @@
+{
+  "description": "Worked Example 1 — single node k8s-primary deploy",
+  "node": {
+    "id": 1,
+    "name": "node-alpha-01",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:01",
+    "hardware_tags": [
+      "cpu:vendor:intel",
+      "cpu:feature:avx2",
+      "cpu:nested-virt-supported",
+      "mem:total-gb:128",
+      "mem:ecc:true",
+      "disk:nvme",
+      "nic:speed:25g"
+    ],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440001",
+    "reason": "Initial k8s-primary deploy",
+    "actor_sub": "operator@penguintech.io",
+    "disk_plan": {
+      "disk_device": "/dev/nvme0n1",
+      "luks_enabled": true,
+      "partitions": [{"size": "+512M", "fs_type": "vfat"}, {"size": "0", "fs_type": "ext4"}]
+    },
+    "egg_assignments": [{"egg_id": 101}]
+  },
+  "eggs": [
+    {
+      "id": 101,
+      "name": "k8s-primary",
+      "version": "1.30.2",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": true,
+      "requires_hardware_tags": ["cpu:nested-virt-supported", "cpu:feature:avx2", "mem:ecc:true"],
+      "prefers_hardware_tags": ["mem:total-gb:128"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": true,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/gough/k8s-primary.conf", "content": "# k8s-primary config"}],
+        "runcmd": ["kubeadm init --config /etc/gough/k8s-primary.conf"]
+      },
+      "storage_requirements_json": {"min_ram_mb": 8192, "min_disk_gb": 40}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": true,
+    "egg_order": [101],
+    "compile_time_ms_p95": 50
+  }
+}

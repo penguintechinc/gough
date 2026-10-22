@@ -21,6 +21,8 @@ from typing import Any, Optional
 
 import httpx
 
+from ..db.run_db import run_db
+
 log = logging.getLogger(__name__)
 
 
@@ -529,8 +531,13 @@ async def get_elder_client(db) -> Optional[ElderClient]:
         log.debug("Elder configuration not available (table missing)")
         return None
 
-    # Get active configuration
-    config = db(db.elder_config.is_active).select().first()
+    # Get active configuration.
+    # Regression: gh-22. Off the event loop via run_db() instead of blocking
+    # the request coroutine inline.
+    def _fetch_config() -> Any:
+        return db(db.elder_config.is_active).select().first()
+
+    config = await run_db(_fetch_config)
 
     if not config:
         log.debug("No active Elder configuration found")

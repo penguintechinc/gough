@@ -151,7 +151,7 @@ shell
         """
         Fetch cloud-init user-data for machine.
 
-        Returns merged cloud-init YAML with all eggs applied.
+        Returns merged cloud-init YAML with all biomes applied.
         """
         api_url = f"{self.config.api_manager_url}/api/v1/internal/cloud-init/{machine_id}/user-data"
         headers = self.enrollment.get_auth_headers()

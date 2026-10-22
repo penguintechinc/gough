@@ -28,7 +28,7 @@ export interface Machine {
   updated_at: string | null;
 }
 
-export interface Egg {
+export interface Biome {
   id: number;
   name: string;
   display_name: string;
@@ -56,12 +56,12 @@ export interface Egg {
   updated_at: string | null;
 }
 
-export interface EggGroup {
+export interface BiomeGroup {
   id: number;
   name: string;
   display_name: string;
   description: string;
-  eggs: number[];
+  biomes: number[];
   is_default: boolean;
   created_at: string;
   updated_at: string | null;
@@ -212,18 +212,18 @@ export interface UpdateEggData {
   is_default?: boolean;
 }
 
-export interface CreateEggGroupData {
+export interface CreateBiomeGroupData {
   name: string;
   display_name: string;
   description?: string;
-  eggs: number[];
+  biomes: number[];
   is_default?: boolean;
 }
 
-export interface UpdateEggGroupData {
+export interface UpdateBiomeGroupData {
   display_name?: string;
   description?: string;
-  eggs?: number[];
+  biomes?: number[];
   is_default?: boolean;
 }
 
@@ -292,6 +292,8 @@ export interface DeploymentData {
   image_id: number;
   boot_config_id?: number;
   eggs_to_deploy?: number[];
+  biome_id?: string | number;
+  params?: Record<string, unknown>;
 }
 
 export interface PowerActionData {
@@ -355,9 +357,9 @@ export const machinesApi = {
     return response.data;
   },
 
-  assignEggs: async (id: number | string, eggIds: number[]): Promise<Machine> => {
-    const response = await api.post(`/ipxe/machines/${id}/eggs`, {
-      egg_ids: eggIds,
+  assignEggs: async (id: number | string, biomeIds: number[]): Promise<Machine> => {
+    const response = await api.post(`/ipxe/machines/${id}/biomes`, {
+      biomeIds: biomeIds,
     });
     return response.data;
   },
@@ -368,7 +370,7 @@ export const machinesApi = {
 };
 
 // ============================================================================
-// Eggs API
+// Biomes API
 // ============================================================================
 
 export const eggsApi = {
@@ -377,73 +379,73 @@ export const eggsApi = {
     category?: string;
     is_active?: boolean;
     is_default?: boolean;
-  }): Promise<{ eggs: Egg[]; total: number }> => {
+  }): Promise<{ biomes: Biome[]; total: number }> => {
     const params = new URLSearchParams();
     if (filters?.type) params.append('type', filters.type);
     if (filters?.category) params.append('category', filters.category);
     if (filters?.is_active !== undefined) params.append('is_active', String(filters.is_active));
     if (filters?.is_default !== undefined) params.append('is_default', String(filters.is_default));
 
-    const response = await api.get('/eggs', {
+    const response = await api.get('/biomes', {
       params: Object.fromEntries(params),
     });
     return response.data;
   },
 
-  get: async (id: number): Promise<Egg> => {
-    const response = await api.get(`/eggs/${id}`);
+  get: async (id: number): Promise<Biome> => {
+    const response = await api.get(`/biomes/${id}`);
     return response.data;
   },
 
-  create: async (data: CreateEggData): Promise<Egg> => {
-    const response = await api.post('/eggs', data);
+  create: async (data: CreateEggData): Promise<Biome> => {
+    const response = await api.post('/biomes', data);
     return response.data;
   },
 
-  update: async (id: number, data: UpdateEggData): Promise<Egg> => {
-    const response = await api.put(`/eggs/${id}`, data);
+  update: async (id: number, data: UpdateEggData): Promise<Biome> => {
+    const response = await api.put(`/biomes/${id}`, data);
     return response.data;
   },
 
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/eggs/${id}`);
+    await api.delete(`/biomes/${id}`);
   },
 
-  render: async (eggIds: number[]): Promise<{ cloud_init: string }> => {
-    const response = await api.post('/eggs/render', {
-      egg_ids: eggIds,
+  render: async (biomeIds: number[]): Promise<{ cloud_init: string }> => {
+    const response = await api.post('/biomes/render', {
+      biomeIds: biomeIds,
     });
     return response.data;
   },
 };
 
 // ============================================================================
-// Egg Groups API
+// Biome Groups API
 // ============================================================================
 
 export const eggGroupsApi = {
-  list: async (): Promise<{ egg_groups: EggGroup[]; total: number }> => {
-    const response = await api.get('/eggs/groups');
+  list: async (): Promise<{ egg_groups: BiomeGroup[]; total: number }> => {
+    const response = await api.get('/biomes/groups');
     return response.data;
   },
 
-  get: async (id: number): Promise<EggGroup> => {
-    const response = await api.get(`/eggs/groups/${id}`);
+  get: async (id: number): Promise<BiomeGroup> => {
+    const response = await api.get(`/biomes/groups/${id}`);
     return response.data;
   },
 
-  create: async (data: CreateEggGroupData): Promise<EggGroup> => {
-    const response = await api.post('/eggs/groups', data);
+  create: async (data: CreateBiomeGroupData): Promise<BiomeGroup> => {
+    const response = await api.post('/biomes/groups', data);
     return response.data;
   },
 
-  update: async (id: number, data: UpdateEggGroupData): Promise<EggGroup> => {
-    const response = await api.put(`/eggs/groups/${id}`, data);
+  update: async (id: number, data: UpdateBiomeGroupData): Promise<BiomeGroup> => {
+    const response = await api.put(`/biomes/groups/${id}`, data);
     return response.data;
   },
 
   delete: async (id: number): Promise<void> => {
-    await api.delete(`/eggs/groups/${id}`);
+    await api.delete(`/biomes/groups/${id}`);
   },
 };
 

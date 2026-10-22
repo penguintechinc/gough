@@ -1,0 +1,62 @@
+{
+  "blockdevices": [
+    {
+      "name": "nvme0n1",
+      "kname": "nvme0n1",
+      "type": "disk",
+      "size": "3.5T",
+      "rota": false,
+      "tran": "nvme",
+      "phy-sec": 512,
+      "log-sec": 512,
+      "model": "Samsung PM9A3 3.84TB",
+      "serial": "S6EXNE0T123456",
+      "wwn": "eui.002538b311b4a1c9",
+      "vendor": "",
+      "rev": "EXA77F3Q",
+      "mountpoint": null,
+      "fstype": null,
+      "hotplug": false,
+      "children": [
+        {
+          "name": "nvme0n1p1",
+          "kname": "nvme0n1p1",
+          "type": "part",
+          "size": "1G",
+          "rota": false,
+          "tran": "",
+          "phy-sec": 512,
+          "log-sec": 512,
+          "model": "",
+          "serial": "",
+          "wwn": "",
+          "vendor": "",
+          "rev": "",
+          "mountpoint": "/boot/efi",
+          "fstype": "vfat",
+          "hotplug": false,
+          "children": []
+        }
+      ]
+    },
+    {
+      "name": "sda",
+      "kname": "sda",
+      "type": "disk",
+      "size": "14.6T",
+      "rota": true,
+      "tran": "sas",
+      "phy-sec": 512,
+      "log-sec": 512,
+      "model": "ST16000NM001G",
+      "serial": "ZL2GR123",
+      "wwn": "0x5000c500e6a1234a",
+      "vendor": "SEAGATE ",
+      "rev": "SN04",
+      "mountpoint": null,
+      "fstype": null,
+      "hotplug": false,
+      "children": []
+    }
+  ]
+}

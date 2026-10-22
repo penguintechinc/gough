@@ -1,0 +1,35 @@
+# Alpha environment overrides (local MicroK8s)
+namespace: gough
+replicaCount: 1
+image:
+  pullPolicy: Never
+env:
+  - name: LOG_LEVEL
+    value: "DEBUG"
+  - name: RELEASE_MODE
+    value: "false"
+  # penguin-aaa ES256 OIDC — see values.yaml for the shared-keystore rationale.
+  - name: OIDC_ISSUER
+    value: "https://gough.localhost.local"
+  - name: OIDC_AUDIENCE
+    value: "gough-api"
+  - name: GOUGH_KEY_STORE_PATH
+    value: "/var/gough/keys/oidc_keys.json"
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: gough.localhost.local
+      paths:
+        - path: /api/v1
+          pathType: Prefix
+  tls: []
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+autoscaling:
+  enabled: false

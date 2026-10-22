@@ -1,0 +1,15 @@
+apiVersion: v2
+name: worker-ipxe
+description: Gough Worker iPXE - DHCP/ProxyDHCP/TFTP/HTTP boot orchestration for bare-metal provisioning
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - python
+  - ipxe
+  - dhcp
+  - tftp
+  - provisioning
+maintainers:
+  - name: Penguin Tech Inc
+    email: support@penguintech.io

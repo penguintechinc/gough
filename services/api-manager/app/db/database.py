@@ -1,171 +1,153 @@
 """
-PyDAL database configuration for runtime operations.
+RLS-wired, app-context-free penguin-dal accessor for background/worker code.
 
-USAGE: PyDAL handles ALL runtime database operations and migrations.
-SQLAlchemy is only used for initial schema creation (see init_db.py).
+Regression: gh-22 (DB pool consolidation). Prior to this fix, gough ran TWO
+independent penguin-dal connection pools:
 
-Per CLAUDE.md standards:
-- PyDAL: ALL runtime database operations and migrations (migrate=True)
-- SQLAlchemy: Database initialization and schema creation only
+* ``app.models``' ``init_db()``/``get_db()`` -- built from
+  ``Config.get_db_uri()`` (``DB_*`` env vars), RLS-wired via
+  ``install_rls_events`` at app startup, but only reachable through Quart's
+  ``quart.g``/``current_app`` -- i.e. it REQUIRES an active app context.
+* This module's ``init_db()``/``get_db()`` -- built from a bare
+  ``DATABASE_URL`` env var (set only in CI, never in production Helm
+  values), NOT RLS-wired at all, but usable with no app context.
+
+Neither pool covered both requirements at once, so any code that needed
+"no app context" AND "RLS-wired" (background workers: the SMART sweeper,
+the audit chain writer's leader-lease/append/mirror/verify paths, any
+future supercronic-scheduled job) had nowhere correct to turn -- and
+``app.api.disks`` used this module's pool for ordinary REQUEST-path queries
+against RLS-protected tables (``disks``, ``disk_plans``), which 500'd in
+every real deployment (no ``DATABASE_URL`` there) and would have silently
+returned zero rows under RLS even if it hadn't.
+
+Consolidated design -- both pools now point at the same database and are
+both RLS-wired, but remain two distinct pools (not merged into one engine
+object; a request pool and a worker pool legitimately coexist -- see
+``app.db.rls``'s checkout/checkin GUC wiring, which is per-engine):
+
+* ``app.models.get_db()`` -- REQUEST-path accessor. Use from Quart route
+  handlers (``app.api.*`` blueprints). Requires ``quart.g``/``current_app``;
+  the request's tenant middleware has already pushed the tenant onto
+  ``app.db.rls``'s ``ContextVar`` by the time a handler calls this.
+* ``app.db.database.get_db()`` (this module) -- WORKER/no-context accessor.
+  Use from anything that does NOT run inside Quart's request pipeline:
+  leader-only background workers (``app.workers.smart_sweeper``), the audit
+  chain writer's injected ``db_session`` (``app.workers.audit_chain_writer``),
+  gRPC server handlers that aren't backed by a request context, supercronic
+  entrypoints. Thread-local, built lazily on first ``get_db()`` call per
+  thread -- no Quart machinery involved at all.
+
+Both resolve the SAME underlying database: ``DATABASE_URL`` (SQLAlchemy-
+format, e.g. ``postgresql://...``) if set -- CI's service-container jobs set
+this -- otherwise ``Config.get_db_uri()`` (the ``DB_*`` env vars), exactly
+the source ``app.models.init_db()`` uses. Both install RLS GUC wiring
+(``app.db.rls.install_rls_events``) on their own engine at construction
+time, so a query issued through either pool carries the tenant currently set
+on ``app.db.rls``'s ``ContextVar`` (or fails closed to zero rows if unset --
+see that module's docstring). Background workers that intentionally operate
+across every tenant (the SMART sweeper, the audit chain writer) push
+``app.db.rls.CROSS_TENANT_SENTINEL`` for the duration of their DB work
+rather than relying on an ambient per-request tenant that will never be set
+outside Quart's request pipeline.
+
+Pick the accessor for your context, not for convenience -- both point at the
+same data, so there is no functional reason to reach for one over the other
+except which surface (Quart request vs. no context) is actually running.
 
 Thread Safety:
-- Thread-local storage for database connections
-- Connection pooling via PyDAL
-- Safe for use with asyncio.to_thread() for blocking operations
+- Thread-local storage for database connections (this module's ``get_db()``)
+- Connection pooling via penguin-dal
+- Safe for use with ``asyncio.to_thread()`` for blocking operations
 """
 
-import os
-import logging
-import threading
-from typing import Optional, Dict, Any, List
-from contextlib import contextmanager
-from pydal import DAL, Field
-from datetime import datetime
+from __future__ import annotations
 
-logger = logging.getLogger(__name__)
+import os
+import threading
+from contextlib import contextmanager
+from typing import Iterator, Optional
+
+from penguin_dal import DB
+from penguintechinc_utils import get_logger
+
+from ..config import Config
+from .rls import install_rls_events
+
+logger = get_logger(__name__)
 
 # Thread-local storage for database connections
 _thread_local = threading.local()
 
 
-def get_pydal_uri(db_type: str, database_url: str) -> str:
-    """
-    Convert DB_TYPE and DATABASE_URL to PyDAL connection string.
-
-    Args:
-        db_type: Database type (postgres, mysql, mariadb, sqlite)
-        database_url: Database connection URL
-
-    Returns:
-        PyDAL-compatible connection string
-    """
-    db_type_lower = db_type.lower()
-
-    if db_type_lower in ['postgres', 'postgresql']:
-        if database_url.startswith('postgresql://') or database_url.startswith('postgres://'):
-            return database_url.replace('postgres://', 'postgres://')
-        return f'postgres://{database_url}'
-
-    elif db_type_lower in ['mysql', 'mariadb']:
-        if database_url.startswith('mysql://'):
-            return database_url
-        return f'mysql://{database_url}'
-
-    elif db_type_lower == 'sqlite':
-        if database_url.startswith('sqlite://'):
-            return database_url
-        return f'sqlite://{database_url}'
-
-    else:
-        raise ValueError(f"Unsupported DB_TYPE: {db_type}. Supported: postgres, mysql, mariadb, sqlite")
-
-
-def define_tables(db: DAL) -> None:
-    """
-    Define PyDAL table schemas with migrations enabled.
-
-    Args:
-        db: PyDAL database instance
-    """
-    db.define_table(
-        'api_definitions',
-        Field('name', 'string', length=255, notnull=True),
-        Field('version', 'string', length=50, notnull=True),
-        Field('path', 'string', length=500, notnull=True),
-        Field('method', 'string', length=10, notnull=True),
-        Field('description', 'text'),
-        Field('openapi_spec', 'json'),
-        Field('enabled', 'boolean', default=True, notnull=True),
-        Field('created_at', 'datetime', default=datetime.utcnow, notnull=True),
-        Field('updated_at', 'datetime', default=datetime.utcnow, update=datetime.utcnow, notnull=True),
-    )
-
-    db.define_table(
-        'api_usage',
-        Field('api_id', 'integer', notnull=True),
-        Field('timestamp', 'datetime', default=datetime.utcnow, notnull=True),
-        Field('method', 'string', length=10, notnull=True),
-        Field('path', 'string', length=500, notnull=True),
-        Field('status_code', 'integer', notnull=True),
-        Field('response_time_ms', 'integer', notnull=True),
-        Field('user_id', 'string', length=255),
-        Field('ip_address', 'string', length=45),
-        Field('user_agent', 'string', length=500),
-    )
-
-    db.define_table(
-        'api_keys',
-        Field('key_hash', 'string', length=255, notnull=True, unique=True),
-        Field('name', 'string', length=255, notnull=True),
-        Field('user_id', 'string', length=255, notnull=True),
-        Field('scopes', 'json', notnull=True),
-        Field('enabled', 'boolean', default=True, notnull=True),
-        Field('rate_limit', 'integer', default=1000, notnull=True),
-        Field('created_at', 'datetime', default=datetime.utcnow, notnull=True),
-        Field('expires_at', 'datetime'),
-        Field('last_used_at', 'datetime'),
-    )
-
-    db.commit()
-
-
-def init_pydal(
+def init_db(
     database_url: Optional[str] = None,
-    db_type: Optional[str] = None,
-    pool_size: int = 10,
-    migrate: bool = True,
-    fake_migrate: bool = False
-) -> DAL:
-    """
-    Initialize PyDAL database connection with migrations enabled.
+    pool_size: Optional[int] = None,
+) -> DB:
+    """Build a new RLS-wired penguin-dal ``DB`` instance, no app context required.
+
+    Resolution order for the connection URI: the explicit ``database_url``
+    argument, then the ``DATABASE_URL`` env var (SQLAlchemy-format,
+    ``postgresql://...`` -- CI's service-container jobs set this), then
+    ``Config.get_db_uri()`` (the ``DB_*`` env vars) -- the same source
+    ``app.models.init_db()`` uses, converted from PyDAL to SQLAlchemy format
+    exactly the way that module does. This guarantees both pools resolve to
+    the same database whenever ``DATABASE_URL`` isn't explicitly overriding
+    it for a given environment (e.g. CI).
 
     Args:
-        database_url: Database connection URL (defaults to DATABASE_URL env var)
-        db_type: Database type (defaults to DB_TYPE env var)
-        pool_size: Connection pool size
-        migrate: Enable automatic migrations
-        fake_migrate: Enable fake migrations (for manual schema management)
+        database_url: Explicit SQLAlchemy URI override (``postgresql://``,
+            ``mysql+pymysql://``, ``sqlite:///``). Defaults to the
+            ``DATABASE_URL`` env var, then ``Config.get_db_uri()``.
+        pool_size: Connection pool size. Defaults to ``Config.DB_POOL_SIZE``
+            (same default the request-path pool uses).
 
     Returns:
-        PyDAL DAL instance
+        A penguin-dal ``DB`` instance with RLS GUC wiring installed on its
+        engine (``app.db.rls.install_rls_events`` -- a no-op for non-Postgres
+        dialects).
     """
-    db_type = db_type or os.getenv('DB_TYPE', 'postgres')
-    database_url = database_url or os.getenv('DATABASE_URL')
+    # database_url / DATABASE_URL are already SQLAlchemy-format (the CI
+    # service-container jobs that set DATABASE_URL use `postgresql://...`
+    # directly) -- only Config.get_db_uri()'s PyDAL-format output
+    # (`postgres://`, `sqlite://file`) needs conversion.
+    # convert_pydal_to_sqlalchemy_uri() is NOT idempotent for sqlite (PyDAL's
+    # `sqlite://file` and SQLAlchemy's `sqlite:///file` differ by exactly one
+    # slash), so it must never run on an input that might already be
+    # SQLAlchemy-format -- running it unconditionally here would turn an
+    # already-correct `sqlite:///file` into `sqlite:////file`.
+    sa_uri = database_url or os.getenv("DATABASE_URL")
+    if not sa_uri:
+        from ..models_sqlalchemy import convert_pydal_to_sqlalchemy_uri
 
-    if not database_url:
-        raise ValueError("DATABASE_URL environment variable not set")
+        sa_uri = convert_pydal_to_sqlalchemy_uri(Config.get_db_uri())
+    resolved_pool_size = pool_size if pool_size is not None else Config.DB_POOL_SIZE
 
-    pydal_uri = get_pydal_uri(db_type, database_url)
-
-    logger.info(f"Initializing PyDAL with DB_TYPE={db_type}, pool_size={pool_size}")
-
-    db = DAL(
-        pydal_uri,
-        pool_size=pool_size,
-        migrate=migrate,
-        fake_migrate=fake_migrate,
-        check_reserved=['all'],
-        folder=os.getenv('PYDAL_MIGRATIONS_FOLDER', 'databases'),
+    logger.info(
+        f"Initializing app.db.database penguin-dal pool "
+        f"(pool_size={resolved_pool_size}, RLS-wired)"
     )
 
-    define_tables(db)
+    db = DB(sa_uri, pool_size=resolved_pool_size)
+    install_rls_events(db.engine)
 
-    logger.info("PyDAL initialized successfully")
+    logger.info("app.db.database penguin-dal pool initialized successfully")
     return db
 
 
-def get_db() -> DAL:
-    """
-    Get thread-local database connection.
+def get_db() -> DB:
+    """Get the thread-local, RLS-wired database connection -- no Quart app context required.
+
+    This is the accessor for code that cannot rely on ``quart.g``/
+    ``current_app`` -- see this module's docstring for the full rule on
+    which accessor (this one vs. ``app.models.get_db()``) to use where.
 
     Returns:
-        PyDAL DAL instance for current thread
-
-    Raises:
-        RuntimeError: If database not initialized for current thread
+        penguin-dal ``DB`` instance for the current thread. Lazily built on
+        first call per thread via ``init_db()``.
     """
     if not hasattr(_thread_local, 'db') or _thread_local.db is None:
-        _thread_local.db = init_pydal()
+        _thread_local.db = init_db()
 
     return _thread_local.db
 
@@ -187,7 +169,7 @@ def close_db() -> None:
 
 
 @contextmanager
-def get_db_context():
+def get_db_context() -> Iterator[DB]:
     """
     Context manager for database connections.
 
@@ -200,227 +182,3 @@ def get_db_context():
         yield db
     finally:
         db.commit()
-
-
-def execute_query(
-    query: str,
-    params: Optional[Dict[str, Any]] = None,
-    fetch: bool = True
-) -> Optional[List[Dict[str, Any]]]:
-    """
-    Execute raw SQL query with parameter binding.
-
-    Args:
-        query: SQL query string
-        params: Query parameters for binding
-        fetch: Whether to fetch results
-
-    Returns:
-        List of row dictionaries if fetch=True, None otherwise
-    """
-    db = get_db()
-    try:
-        result = db.executesql(query, placeholders=params or {}, as_dict=True)
-        if fetch:
-            return result
-        db.commit()
-        return None
-    except Exception as e:
-        logger.error(f"Query execution failed: {e}", exc_info=True)
-        db.rollback()
-        raise
-
-
-def get_connection_info() -> Dict[str, Any]:
-    """
-    Get current database connection information.
-
-    Returns:
-        Dictionary with connection details
-    """
-    db = get_db()
-    return {
-        'db_type': os.getenv('DB_TYPE', 'postgres'),
-        'pool_size': db._pool_size,
-        'migrate_enabled': db._migrate,
-        'tables': list(db.tables),
-        'adapter': str(type(db._adapter).__name__),
-    }
-
-
-def insert_api_definition(
-    name: str,
-    version: str,
-    path: str,
-    method: str,
-    description: Optional[str] = None,
-    openapi_spec: Optional[Dict[str, Any]] = None,
-    enabled: bool = True
-) -> int:
-    """
-    Insert new API definition.
-
-    Args:
-        name: API name
-        version: API version
-        path: API path
-        method: HTTP method
-        description: API description
-        openapi_spec: OpenAPI specification
-        enabled: Whether API is enabled
-
-    Returns:
-        ID of inserted record
-    """
-    db = get_db()
-    record_id = db.api_definitions.insert(
-        name=name,
-        version=version,
-        path=path,
-        method=method,
-        description=description,
-        openapi_spec=openapi_spec,
-        enabled=enabled,
-    )
-    db.commit()
-    return record_id
-
-
-def get_api_definitions(
-    name: Optional[str] = None,
-    version: Optional[str] = None,
-    enabled: Optional[bool] = None
-) -> List[Dict[str, Any]]:
-    """
-    Get API definitions with optional filters.
-
-    Args:
-        name: Filter by API name
-        version: Filter by version
-        enabled: Filter by enabled status
-
-    Returns:
-        List of API definition dictionaries
-    """
-    db = get_db()
-    query = db.api_definitions.id > 0
-
-    if name is not None:
-        query &= (db.api_definitions.name == name)
-    if version is not None:
-        query &= (db.api_definitions.version == version)
-    if enabled is not None:
-        query &= (db.api_definitions.enabled == enabled)
-
-    rows = db(query).select()
-    return [row.as_dict() for row in rows]
-
-
-def insert_api_usage(
-    api_id: int,
-    method: str,
-    path: str,
-    status_code: int,
-    response_time_ms: int,
-    user_id: Optional[str] = None,
-    ip_address: Optional[str] = None,
-    user_agent: Optional[str] = None
-) -> int:
-    """
-    Insert API usage record.
-
-    Args:
-        api_id: API definition ID
-        method: HTTP method
-        path: Request path
-        status_code: HTTP status code
-        response_time_ms: Response time in milliseconds
-        user_id: User ID
-        ip_address: Client IP address
-        user_agent: User agent string
-
-    Returns:
-        ID of inserted record
-    """
-    db = get_db()
-    record_id = db.api_usage.insert(
-        api_id=api_id,
-        method=method,
-        path=path,
-        status_code=status_code,
-        response_time_ms=response_time_ms,
-        user_id=user_id,
-        ip_address=ip_address,
-        user_agent=user_agent,
-    )
-    db.commit()
-    return record_id
-
-
-def insert_api_key(
-    key_hash: str,
-    name: str,
-    user_id: str,
-    scopes: List[str],
-    enabled: bool = True,
-    rate_limit: int = 1000,
-    expires_at: Optional[datetime] = None
-) -> int:
-    """
-    Insert new API key.
-
-    Args:
-        key_hash: Hashed API key
-        name: Key name/description
-        user_id: User ID
-        scopes: List of permission scopes
-        enabled: Whether key is enabled
-        rate_limit: Rate limit per hour
-        expires_at: Expiration datetime
-
-    Returns:
-        ID of inserted record
-    """
-    db = get_db()
-    record_id = db.api_keys.insert(
-        key_hash=key_hash,
-        name=name,
-        user_id=user_id,
-        scopes=scopes,
-        enabled=enabled,
-        rate_limit=rate_limit,
-        expires_at=expires_at,
-    )
-    db.commit()
-    return record_id
-
-
-def get_api_key_by_hash(key_hash: str) -> Optional[Dict[str, Any]]:
-    """
-    Get API key by hash.
-
-    Args:
-        key_hash: Hashed API key
-
-    Returns:
-        API key dictionary or None if not found
-    """
-    db = get_db()
-    row = db(db.api_keys.key_hash == key_hash).select().first()
-    return row.as_dict() if row else None
-
-
-def update_api_key_last_used(key_id: int) -> bool:
-    """
-    Update API key last used timestamp.
-
-    Args:
-        key_id: API key ID
-
-    Returns:
-        True if updated, False otherwise
-    """
-    db = get_db()
-    updated = db(db.api_keys.id == key_id).update(last_used_at=datetime.utcnow())
-    db.commit()
-    return updated > 0

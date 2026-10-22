@@ -51,3 +51,8 @@ env/
 .coverage
 htmlcov/
 .pytest_cache/
+
+# Stray artifact directory some tests create when a MagicMock (e.g. an
+# unconfigured app.config.get(...) stub) leaks into a real Path(...)/open()
+# call instead of a real config value -- not a real app directory.
+/MagicMock/

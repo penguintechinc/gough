@@ -15,7 +15,7 @@ VENV_DIR="$PROJECT_ROOT/venv"
 TEST_TYPE="all"
 ENVIRONMENT="local"
 PARALLEL_JOBS=4
-COVERAGE_THRESHOLD=80
+COVERAGE_THRESHOLD=90
 PERFORMANCE_ENABLED=false
 INTEGRATION_ENABLED=false
 DOCKER_ENABLED=false
@@ -319,7 +319,7 @@ run_tests() {
     source "$VENV_DIR/bin/activate"
     
     # Base pytest command
-    local pytest_cmd="python -m pytest"
+    local pytest_cmd="python3 -m pytest"
     local pytest_args=""
     
     # Add parallel execution

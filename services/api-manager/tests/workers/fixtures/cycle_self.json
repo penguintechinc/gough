@@ -1,0 +1,39 @@
+{
+  "description": "Self-loop cycle: egg depends on itself",
+  "node": {
+    "id": 11,
+    "name": "node-self-11",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:11",
+    "hardware_tags": [],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440011",
+    "reason": "self cycle test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 411}]
+  },
+  "eggs": [
+    {
+      "id": 411,
+      "name": "self-loop-egg",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [{"egg_id": 411, "mode": "hard"}],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [{"code": "egg_dependency_cycle"}]
+  }
+}

@@ -460,3 +460,98 @@ def get_rate_limiter() -> Optional[RateLimiter]:
 def init_rate_limiter(app: Quart) -> RateLimiter:
     """Initialize and return rate limiter for app."""
     return RateLimiter(app)
+
+
+# ---------------------------------------------------------------------------
+# Global rate-limit floor (regression: security audit 2026-09-22 -- MEDIUM)
+# ---------------------------------------------------------------------------
+#
+# Only 6 of 106 input endpoints previously carried an explicit @rate_limit
+# decorator, leaving the rest completely unbounded. install_global_rate_limiting
+# adds a floor applied to EVERY /api/ route: a default limit keyed
+# per-authenticated-user (else per-IP, via RateLimiter._get_identifier -- the
+# same identifier logic used everywhere else in this module), and a tighter
+# limit on the unauthenticated, auth-sensitive entry points that are the
+# highest-value brute-force targets. Existing per-route @rate_limit decorators
+# keep applying ON TOP of this floor -- it is a floor, never a replacement.
+
+_GLOBAL_EXEMPT_PATH_PREFIXES: tuple[str, ...] = ("/health", "/ready")
+_GLOBAL_EXEMPT_PATHS: frozenset[str] = frozenset(
+    {"/api/v1/openapi.json", "/api/v1/openapi.yaml"}
+)
+# (method, path) pairs that get the strict, auth-sensitive limit instead of
+# the global default -- unauthenticated brute-force entry points.
+_STRICT_AUTH_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/api/v1/auth/login"),
+        ("POST", "/api/v1/agents/enroll"),
+        ("POST", "/api/v1/agents/refresh"),
+    }
+)
+
+
+def _global_rate_limit_applies(path: str) -> bool:
+    """Whether the global floor applies to this path.
+
+    Scoped to ``/api/`` routes only (per spec); health/readiness aliases and
+    the OpenAPI spec endpoints are exempt even if nested under ``/api/``.
+    """
+    if not path.startswith("/api/"):
+        return False
+    if path in _GLOBAL_EXEMPT_PATHS:
+        return False
+    return not any(path.startswith(prefix) for prefix in _GLOBAL_EXEMPT_PATH_PREFIXES)
+
+
+def install_global_rate_limiting(app: Quart) -> None:
+    """Install the global ``/api/`` rate-limit floor as a ``before_request`` hook.
+
+    Call once, after :func:`init_rate_limiter` has attached a ``RateLimiter``
+    to ``app.extensions``. Fails OPEN: any exception from the limiter backend
+    (storage down, misconfigured Redis, etc.) other than ``RateLimitExceeded``
+    itself is logged and the request is allowed through -- a limiter outage
+    must never turn into a 500 for every request.
+    """
+
+    @app.before_request
+    async def _global_rate_limit_gate():
+        if not app.config.get("RATE_LIMIT_ENABLED", True):
+            return None
+
+        path = request.path
+        if not _global_rate_limit_applies(path):
+            return None
+
+        limiter = get_rate_limiter()
+        if limiter is None:
+            return None
+
+        is_strict = (request.method, path) in _STRICT_AUTH_ROUTES
+        limit_str = (
+            app.config.get("RATE_LIMIT_AUTH_SENSITIVE", "10/minute")
+            if is_strict
+            else app.config.get("RATE_LIMIT_GLOBAL_DEFAULT", "120/minute")
+        )
+        limits = limiter._parse_limit_string(limit_str)
+        key_prefix = "global-strict" if is_strict else "global"
+
+        try:
+            await limiter.check_rate_limit(limits=limits, key_prefix=key_prefix)
+        except RateLimitExceeded as exc:
+            response = jsonify(
+                {
+                    "error": "rate_limit_exceeded",
+                    "message": str(exc),
+                    "retry_after": exc.retry_after,
+                }
+            )
+            response.status_code = 429
+            response.headers["Retry-After"] = str(exc.retry_after)
+            return response
+        except Exception as exc:  # noqa: BLE001 -- fail-open by design, see docstring
+            app.logger.warning(
+                "Global rate limiter backend failed; allowing request through: %s", exc
+            )
+            return None
+
+        return None

@@ -1,0 +1,165 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Nodes {
+  rpc Discover(DiscoverRequest) returns (DiscoverResponse);
+  rpc List(ListRequest) returns (ListResponse);
+  rpc Get(GetRequest) returns (GetResponse);
+  rpc Patch(PatchRequest) returns (PatchResponse);
+  rpc Deploy(DeployRequest) returns (DeployResponse);
+  rpc Reject(RejectRequest) returns (RejectResponse);
+  rpc Rekey(RekeyRequest) returns (RekeyResponse);
+  rpc Evacuate(EvacuateRequest) returns (EvacuateResponse);
+  rpc Decommission(DecommissionRequest) returns (DecommissionResponse);
+  rpc EventStream(EventStreamRequest) returns (stream EventStreamResponse);
+  rpc AddManual(AddManualRequest) returns (AddManualResponse);
+}
+
+message DiscoverRequest {
+  string dmi_uuid = 1;
+  string primary_nic_mac = 2;
+  string firmware_type = 3;
+  string lshw_json = 4;
+  string lsblk_json = 5;
+  repeated NicInfo nics = 6;
+  repeated SmartReport smart_reports = 7;
+  NumaTopology numa_topology = 8;
+  repeated Accelerator accelerators = 9;
+  repeated string hardware_tags = 10;
+}
+
+message DiscoverResponse {
+  int64 node_id = 1;
+  string state = 2;
+  string spire_join_token = 3;
+  string control_tunnel_endpoint = 4;
+  string control_tunnel_spiffe_id = 5;
+}
+
+message ListRequest {
+  string filter = 1;
+  string sort_by = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message ListResponse {
+  repeated Node nodes = 1;
+  string next_cursor = 2;
+}
+
+message GetRequest {
+  int64 node_id = 1;
+}
+
+message GetResponse {
+  Node node = 1;
+}
+
+message PatchRequest {
+  int64 node_id = 1;
+  string patch_data = 2;
+}
+
+message PatchResponse {
+  Node node = 1;
+}
+
+message DeployRequest {
+  int64 node_id = 1;
+  string deployment_config = 2;
+}
+
+message DeployResponse {
+  string status = 1;
+  string deployment_id = 2;
+}
+
+message RejectRequest {
+  int64 node_id = 1;
+  string reason = 2;
+}
+
+message RejectResponse {
+  string status = 1;
+}
+
+message RekeyRequest {
+  int64 node_id = 1;
+}
+
+message RekeyResponse {
+  string new_credentials = 1;
+}
+
+message EvacuateRequest {
+  int64 node_id = 1;
+}
+
+message EvacuateResponse {
+  string status = 1;
+  string evacuation_id = 2;
+}
+
+message DecommissionRequest {
+  int64 node_id = 1;
+}
+
+message DecommissionResponse {
+  string status = 1;
+}
+
+message EventStreamRequest {
+  string filter = 1;
+  repeated string event_types = 2;
+}
+
+message EventStreamResponse {
+  string event_type = 1;
+  string payload = 2;
+  string timestamp = 3;
+}
+
+message AddManualRequest {
+  string hostname = 1;
+  string mac_address = 2;
+  string firmware_type = 3;
+  map<string, string> metadata = 4;
+}
+
+message AddManualResponse {
+  int64 node_id = 1;
+}
+
+message Node {
+  int64 id = 1;
+  string hostname = 2;
+  string state = 3;
+  int64 created_at = 4;
+  // biome references are handled via biome_id in related tables
+}
+
+message NicInfo {
+  string name = 1;
+  string mac = 2;
+  string ipv4 = 3;
+}
+
+message SmartReport {
+  string device = 1;
+  string health_status = 2;
+}
+
+message NumaTopology {
+  int32 num_nodes = 1;
+  repeated int32 cpus_per_node = 2;
+}
+
+message Accelerator {
+  string type = 1;
+  string name = 2;
+  int32 count = 3;
+}

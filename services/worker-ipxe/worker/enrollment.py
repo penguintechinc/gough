@@ -5,13 +5,13 @@ Registers the worker with the central api-manager on startup.
 """
 
 import asyncio
-import structlog
 import httpx
+from penguintechinc_utils import get_logger
 from typing import Optional
 
 from worker.config import WorkerConfig
 
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 class EnrollmentManager:

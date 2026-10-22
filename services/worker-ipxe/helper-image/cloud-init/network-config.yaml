@@ -1,0 +1,44 @@
+# Network configuration for Gough Phase 1 helper image
+# cloud-init v2 network config format
+#
+# Dual-stack DHCP (IPv4 + IPv6) with fallback to SLAAC + RA-DNS if DHCPv6 unavailable
+
+version: 2
+ethernets:
+  # Primary NIC: auto-configured via DHCP (IPv4) and DHCPv6 (IPv6)
+  # Falls back to SLAAC with RA-DNS if DHCPv6 is unavailable
+  eth0:
+    # IPv4: DHCP enabled
+    dhcp4: true
+    dhcp4-overrides:
+      # Use DHCP for addressing and routing
+      use-routes: true
+      # Allow cloud-init to configure NTP servers from DHCP
+      use-ntp: true
+
+    # IPv6: DHCPv6 with SLAAC fallback
+    dhcp6: true
+    # Enable SLAAC if DHCPv6 is not available
+    ipv6-ra-enabled: true
+    ipv6-address-generation: 'slaac'
+
+    # DHCP options
+    optional: false  # Mark as required; cloud-init will wait for lease
+
+  # Secondary NIC (optional): same configuration for bonded/redundancy scenarios
+  eth1:
+    dhcp4: true
+    dhcp4-overrides:
+      use-routes: false  # Only use primary NIC for routing
+      use-ntp: false
+    dhcp6: true
+    ipv6-ra-enabled: true
+    ipv6-address-generation: 'slaac'
+    optional: true
+
+# DNS resolution: prefer IPv4 by default; IPv6-only environments set gough_prefer_ipv6=1
+resolv_conf:
+  # Use resolv.conf from DHCP/RA + fallback to Google Public DNS
+  options:
+    - timeout:2
+    - attempts:3

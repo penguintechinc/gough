@@ -1,7 +1,7 @@
 /**
  * Machine Detail Page
  *
- * Single machine view with tabs for Info, Hardware, Eggs, and Logs.
+ * Single machine view with tabs for Info, Hardware, Biomes, and Logs.
  */
 
 import React, { useState, useEffect, useCallback } from 'react';
@@ -21,6 +21,13 @@ interface Machine {
   egg_name?: string;
   deployed_at?: string;
   metadata?: Record<string, any>;
+}
+
+interface ControlPlaneFrontendParams {
+  mode: 'kube-vip' | 'external' | 'none';
+  endpoint?: string;
+  interface?: string;
+  network_baseline?: 'mgmt' | 'internal' | 'external';
 }
 
 interface HardwareInfo {
@@ -58,7 +65,7 @@ interface LogEntry {
   source?: string;
 }
 
-type Tab = 'info' | 'hardware' | 'eggs' | 'logs';
+type Tab = 'info' | 'hardware' | 'biomes' | 'logs';
 
 export const MachineDetail: React.FC = () => {
   const { machineId } = useParams<{ machineId: string }>();
@@ -66,10 +73,20 @@ export const MachineDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState<Tab>('info');
   const [machine, setMachine] = useState<Machine | null>(null);
   const [hardware, setHardware] = useState<HardwareInfo | null>(null);
-  const [eggs, setEggs] = useState<EggDeployment[]>([]);
+  const [biomes, setEggs] = useState<EggDeployment[]>([]);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // Deploy modal state
+  const [showDeployModal, setShowDeployModal] = useState(false);
+  const [selectedBiome, setSelectedBiome] = useState<string>('');
+  const [frontendMode, setFrontendMode] = useState<'kube-vip' | 'external' | 'none'>('kube-vip');
+  const [frontendEndpoint, setFrontendEndpoint] = useState('');
+  const [frontendInterface, setFrontendInterface] = useState('');
+  const [frontendBaseline, setFrontendBaseline] = useState<'mgmt' | 'internal' | 'external'>('external');
+  const [isDeploying, setIsDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
 
   const fetchMachineData = useCallback(async () => {
     if (!machineId) return;
@@ -103,10 +120,10 @@ export const MachineDetail: React.FC = () => {
     if (!machineId) return;
 
     try {
-      const response = await api.get(`/provisioning/machines/${machineId}/eggs`);
-      setEggs(response.data.eggs || []);
+      const response = await api.get(`/provisioning/machines/${machineId}/biomes`);
+      setEggs(response.data.biomes || []);
     } catch (err: any) {
-      console.error('Failed to fetch eggs:', err);
+      console.error('Failed to fetch biomes:', err);
     }
   }, [machineId]);
 
@@ -128,12 +145,12 @@ export const MachineDetail: React.FC = () => {
   useEffect(() => {
     if (activeTab === 'hardware' && !hardware) {
       fetchHardware();
-    } else if (activeTab === 'eggs' && eggs.length === 0) {
+    } else if (activeTab === 'biomes' && biomes.length === 0) {
       fetchEggs();
     } else if (activeTab === 'logs' && logs.length === 0) {
       fetchLogs();
     }
-  }, [activeTab, hardware, eggs.length, logs.length, fetchHardware, fetchEggs, fetchLogs]);
+  }, [activeTab, hardware, biomes.length, logs.length, fetchHardware, fetchEggs, fetchLogs]);
 
   const handleMachineAction = async (action: string) => {
     if (!machineId) return;
@@ -145,6 +162,69 @@ export const MachineDetail: React.FC = () => {
     } catch (err: any) {
       const message = err.response?.data?.error || `Failed to ${action} machine`;
       setError(message);
+    }
+  };
+
+  const validateDeployForm = (): boolean => {
+    if (!selectedBiome) {
+      setDeployError('Please select a biome');
+      return false;
+    }
+    if (frontendMode !== 'none' && !frontendEndpoint) {
+      setDeployError('Endpoint is required for kube-vip and external modes');
+      return false;
+    }
+    if (frontendEndpoint && !frontendEndpoint.includes(':')) {
+      setDeployError('Endpoint must include port (e.g. 10.2.0.10:6443)');
+      return false;
+    }
+    return true;
+  };
+
+  const handleDeploy = async () => {
+    if (!machineId || !validateDeployForm()) return;
+
+    setIsDeploying(true);
+    setDeployError(null);
+
+    try {
+      const params: Record<string, unknown> = {};
+      if (selectedBiome === 'k8s-primary') {
+        const cpfParams: ControlPlaneFrontendParams = {
+          mode: frontendMode,
+        };
+        if (frontendMode !== 'none') {
+          cpfParams.endpoint = frontendEndpoint;
+          cpfParams.network_baseline = frontendBaseline;
+        }
+        if (frontendMode === 'kube-vip' && frontendInterface) {
+          cpfParams.interface = frontendInterface;
+        }
+        params.control_plane_frontend = cpfParams;
+      }
+
+      const deployPayload = {
+        biome_id: selectedBiome,
+        params,
+      };
+
+      console.log('[K8sPrimaryDeploy] Submit { mode: "' + frontendMode + '", endpoint: "<masked>", baseline: "' + frontendBaseline + '" }');
+
+      await api.post(`/provisioning/machines/${machineId}/deploy`, deployPayload);
+
+      setShowDeployModal(false);
+      setSelectedBiome('');
+      setFrontendMode('kube-vip');
+      setFrontendEndpoint('');
+      setFrontendInterface('');
+      setFrontendBaseline('external');
+
+      await fetchEggs();
+    } catch (err: any) {
+      const message = err.response?.data?.error || 'Failed to deploy biome';
+      setDeployError(message);
+    } finally {
+      setIsDeploying(false);
     }
   };
 
@@ -283,7 +363,7 @@ export const MachineDetail: React.FC = () => {
         {[
           { id: 'info', label: 'Information' },
           { id: 'hardware', label: 'Hardware' },
-          { id: 'eggs', label: 'Eggs' },
+          { id: 'biomes', label: 'Biomes' },
           { id: 'logs', label: 'Logs' },
         ].map((tab) => (
           <button
@@ -436,29 +516,37 @@ export const MachineDetail: React.FC = () => {
           </div>
         )}
 
-        {/* Eggs Tab */}
-        {activeTab === 'eggs' && (
+        {/* Biomes Tab */}
+        {activeTab === 'biomes' && (
           <div>
-            {eggs.length > 0 ? (
+            <div className="mb-6">
+              <button
+                onClick={() => setShowDeployModal(true)}
+                className="px-4 py-2 bg-gold-600 hover:bg-gold-500 text-dark-900 rounded font-medium transition-colors"
+              >
+                Deploy Biome
+              </button>
+            </div>
+            {biomes.length > 0 ? (
               <div className="space-y-3">
-                {eggs.map((egg) => (
-                  <div key={egg.id} className="p-4 bg-dark-800 rounded-lg">
+                {biomes.map((biome) => (
+                  <div key={biome.id} className="p-4 bg-dark-800 rounded-lg">
                     <div className="flex items-center justify-between mb-2">
                       <div>
-                        <h4 className="text-white font-medium">{egg.egg_name}</h4>
-                        <p className="text-sm text-dark-400">Version {egg.egg_version}</p>
+                        <h4 className="text-white font-medium">{biome.egg_name}</h4>
+                        <p className="text-sm text-dark-400">Version {biome.egg_version}</p>
                       </div>
-                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${getStateColor(egg.state)}`}>
-                        {egg.state}
+                      <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs rounded border ${getStateColor(biome.state)}`}>
+                        {biome.state}
                       </span>
                     </div>
                     <div className="flex items-center gap-4 text-sm text-dark-400">
-                      <span>Deployed: {new Date(egg.deployed_at).toLocaleString()}</span>
-                      {egg.duration_seconds && <span>Duration: {egg.duration_seconds}s</span>}
+                      <span>Deployed: {new Date(biome.deployed_at).toLocaleString()}</span>
+                      {biome.duration_seconds && <span>Duration: {biome.duration_seconds}s</span>}
                     </div>
-                    {egg.error_message && (
+                    {biome.error_message && (
                       <div className="mt-2 p-2 bg-red-900/20 border border-red-700 rounded text-sm text-red-300">
-                        {egg.error_message}
+                        {biome.error_message}
                       </div>
                     )}
                   </div>
@@ -466,7 +554,7 @@ export const MachineDetail: React.FC = () => {
               </div>
             ) : (
               <div className="text-center py-12 text-dark-400">
-                <p>No eggs deployed on this machine</p>
+                <p>No biomes deployed on this machine</p>
               </div>
             )}
           </div>
@@ -496,6 +584,170 @@ export const MachineDetail: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Deploy Modal */}
+      {showDeployModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-dark-900 border border-dark-700 rounded-lg max-w-md w-full p-6">
+            <h2 className="text-xl font-bold text-gold-500 mb-4">Deploy Biome</h2>
+
+            {deployError && (
+              <div className="mb-4 p-3 bg-red-900/30 border border-red-700 rounded text-sm text-red-300">
+                {deployError}
+              </div>
+            )}
+
+            {/* Biome Selection */}
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gold-400 mb-2">Biome</label>
+              <select
+                value={selectedBiome}
+                onChange={(e) => setSelectedBiome(e.target.value)}
+                className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded text-white focus:outline-none focus:ring-2 focus:ring-gold-500"
+              >
+                <option value="">Select a biome...</option>
+                <option value="k8s-primary">k8s-primary</option>
+                <option value="k8s-worker">k8s-worker</option>
+                <option value="storage">storage</option>
+              </select>
+            </div>
+
+            {/* k8s-primary Control Plane Frontend Picker */}
+            {selectedBiome === 'k8s-primary' && (
+              <div className="mb-4 p-4 bg-dark-800 rounded border border-dark-700">
+                <label className="block text-sm font-medium text-gold-400 mb-3">Control Plane Frontend</label>
+
+                <div className="space-y-3">
+                  {/* kube-vip Option */}
+                  <label className="flex items-start gap-3 cursor-pointer p-3 hover:bg-dark-700/50 rounded transition-colors" data-testid="frontend-mode-kube-vip">
+                    <input
+                      type="radio"
+                      name="frontend-mode"
+                      value="kube-vip"
+                      checked={frontendMode === 'kube-vip'}
+                      onChange={(e) => setFrontendMode(e.target.value as 'kube-vip' | 'external' | 'none')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="text-white font-medium">kube-vip (Recommended)</p>
+                      <p className="text-xs text-dark-400">Built-in HA for ≤7 control-plane nodes — L2 ARP VIP via static pod</p>
+                    </div>
+                  </label>
+
+                  {/* kube-vip Fields */}
+                  {frontendMode === 'kube-vip' && (
+                    <div className="ml-6 space-y-2 p-2 bg-dark-900/50 rounded border border-dark-700/50">
+                      <div>
+                        <label className="block text-xs font-medium text-dark-400 mb-1">VIP Endpoint*</label>
+                        <input
+                          type="text"
+                          placeholder="10.2.0.10:6443"
+                          value={frontendEndpoint}
+                          onChange={(e) => setFrontendEndpoint(e.target.value)}
+                          data-testid="frontend-endpoint-input"
+                          className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-gold-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-dark-400 mb-1">Interface (optional)</label>
+                        <input
+                          type="text"
+                          placeholder="ens3"
+                          value={frontendInterface}
+                          onChange={(e) => setFrontendInterface(e.target.value)}
+                          data-testid="frontend-interface-input"
+                          className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-gold-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-dark-400 mb-1">Network Baseline</label>
+                        <select
+                          value={frontendBaseline}
+                          onChange={(e) => setFrontendBaseline(e.target.value as 'mgmt' | 'internal' | 'external')}
+                          data-testid="frontend-baseline-select"
+                          className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-gold-500"
+                        >
+                          <option value="mgmt">mgmt</option>
+                          <option value="internal">internal</option>
+                          <option value="external">external</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* external Option */}
+                  <label className="flex items-start gap-3 cursor-pointer p-3 hover:bg-dark-700/50 rounded transition-colors" data-testid="frontend-mode-external">
+                    <input
+                      type="radio"
+                      name="frontend-mode"
+                      value="external"
+                      checked={frontendMode === 'external'}
+                      onChange={(e) => setFrontendMode(e.target.value as 'kube-vip' | 'external' | 'none')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="text-white font-medium">External LB</p>
+                      <p className="text-xs text-dark-400">Recommended for larger clusters or existing F5/NLB infrastructure</p>
+                    </div>
+                  </label>
+
+                  {/* external Fields */}
+                  {frontendMode === 'external' && (
+                    <div className="ml-6 space-y-2 p-2 bg-dark-900/50 rounded border border-dark-700/50">
+                      <div>
+                        <label className="block text-xs font-medium text-dark-400 mb-1">LB Endpoint*</label>
+                        <input
+                          type="text"
+                          placeholder="nlb.example.com:6443"
+                          value={frontendEndpoint}
+                          onChange={(e) => setFrontendEndpoint(e.target.value)}
+                          data-testid="frontend-endpoint-input"
+                          className="w-full px-2 py-1 bg-dark-700 border border-dark-600 rounded text-sm text-white focus:outline-none focus:ring-1 focus:ring-gold-500"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* none Option */}
+                  <label className="flex items-start gap-3 cursor-pointer p-3 hover:bg-dark-700/50 rounded transition-colors" data-testid="frontend-mode-none">
+                    <input
+                      type="radio"
+                      name="frontend-mode"
+                      value="none"
+                      checked={frontendMode === 'none'}
+                      onChange={(e) => setFrontendMode(e.target.value as 'kube-vip' | 'external' | 'none')}
+                      className="mt-1"
+                    />
+                    <div>
+                      <p className="text-white font-medium">Single-node demo</p>
+                      <p className="text-xs text-dark-400">No HA — cluster cannot be horizontally scaled later</p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setShowDeployModal(false)}
+                disabled={isDeploying}
+                className="px-4 py-2 bg-dark-700 hover:bg-dark-600 text-white rounded transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeploy}
+                disabled={isDeploying || !selectedBiome}
+                data-testid="deploy-submit"
+                className="px-4 py-2 bg-gold-600 hover:bg-gold-500 text-dark-900 rounded font-medium transition-colors disabled:opacity-50"
+              >
+                {isDeploying ? 'Deploying...' : 'Deploy'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

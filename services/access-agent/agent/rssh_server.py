@@ -4,8 +4,8 @@ Provides SSH server that accepts connections with certificates
 signed by the Gough SSH CA. Spawns PTY sessions for shell access.
 """
 
-import logging
 import os
+from penguintechinc_utils import get_logger
 import pty
 import select
 import socket
@@ -23,7 +23,7 @@ from paramiko import RSAKey, ServerInterface, Transport
 from .cert_validator import CertificateInfo, CertificateValidator
 from .config import AgentConfig
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 @dataclass

@@ -1,0 +1,102 @@
+{
+  "description": "Worked Example 3 — VM workload + mixed hardware with GPU scheduling",
+  "node": {
+    "id": 8,
+    "name": "node-gpu-08",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:08",
+    "hardware_tags": [
+      "cpu:vendor:nvidia",
+      "cpu:nested-virt-supported",
+      "cpu:vendor:intel",
+      "gpu:pcie",
+      "gpu:nvidia",
+      "gpu:nvidia:cuda-arch:sm-89",
+      "tpm:2.0",
+      "mem:total-gb:256",
+      "disk:nvme",
+      "nic:speed:100g"
+    ],
+    "hardware_json": {
+      "accelerators": [
+        {
+          "kind": "gpu",
+          "bus_type": "pcie",
+          "vendor": "nvidia",
+          "model": "L40S",
+          "vram_gb": 48,
+          "compute_capability": "sm-89",
+          "numa_node": 0
+        }
+      ],
+      "free_ram_mb": 196608
+    }
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440003",
+    "reason": "GPU workload + mixed hardware",
+    "actor_sub": "operator@penguintech.io",
+    "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+    "egg_assignments": [{"egg_id": 301}, {"egg_id": 302}]
+  },
+  "eggs": [
+    {
+      "id": 301,
+      "name": "windows-vm",
+      "version": "11.0.0",
+      "phase": "post_deploy",
+      "workload_type": "vm",
+      "lock_to_host": true,
+      "requires_hardware_tags": ["cpu:nested-virt-supported", "cpu:vendor:intel"],
+      "prefers_hardware_tags": ["gpu:pcie", "tpm:2.0"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/gough/windows-vm.conf", "content": "# windows vm conf"}],
+        "runcmd": ["vm-init windows"]
+      },
+      "storage_requirements_json": {"min_ram_mb": 16384}
+    },
+    {
+      "id": 302,
+      "name": "ollama-llm",
+      "version": "0.5.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": ["gpu:nvidia", "cpu:feature:avx2"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/ollama/config.json", "content": "{}"}],
+        "runcmd": ["ollama serve"]
+      },
+      "storage_requirements_json": {
+        "needs_gpu": {
+          "kind": "gpu",
+          "bus_type": "pcie",
+          "vendor": "nvidia",
+          "min_compute_capability": "sm-86",
+          "vram_per_device_min_gb": 48,
+          "total_vram_min_gb": 48,
+          "device_count_min": 1,
+          "device_count_max": 1,
+          "shared_memory_acceptable": false
+        }
+      }
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "tag_constraint_unsatisfiable",
+        "details_contains": "cpu:feature:avx2"
+      }
+    ]
+  }
+}

@@ -1,0 +1,136 @@
+{
+  "description": "HA k8s-primary with external LB frontend across 3 nodes (bootstrap + 2 joins)",
+  "nodes": [
+    {
+      "id": 20,
+      "name": "cp-ext-1",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:20",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    },
+    {
+      "id": 21,
+      "name": "cp-ext-2",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:21",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    },
+    {
+      "id": 22,
+      "name": "cp-ext-3",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:22",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    }
+  ],
+  "plan_requests": [
+    {
+      "node_id": 20,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "reason": "Bootstrap k8s-primary with external LB",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 301,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "external",
+              "endpoint": "cp.internal.example.com:6443"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "node_id": 21,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "reason": "Join k8s-primary node 2 with external LB",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 301,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "external",
+              "endpoint": "cp.internal.example.com:6443"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "node_id": 22,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "reason": "Join k8s-primary node 3 with external LB",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 301,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "external",
+              "endpoint": "cp.internal.example.com:6443"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "biomes": [
+    {
+      "id": 301,
+      "name": "k8s-primary",
+      "version": "1.30.0",
+      "phase": "post_deploy",
+      "biome_kind": "infrastructure",
+      "lock_to_host": true,
+      "emits_joiner_secrets": true,
+      "requires_hardware_tags": ["cpu:nested-virt-supported"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "cloud_init": {
+        "write_files": [{"path": "/etc/gough/k8s-primary.conf", "content": "# k8s primary config"}],
+        "runcmd": []
+      }
+    }
+  ],
+  "joiner_secrets": [
+    {
+      "id": "550e8400-0001-41d4-a716-446655440200",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_join_token",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    },
+    {
+      "id": "550e8400-0002-41d4-a716-446655440200",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_ca_hash",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    },
+    {
+      "id": "550e8400-0003-41d4-a716-446655440200",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440200",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_certificate_key",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    }
+  ],
+  "expect": {
+    "success": true,
+    "bootstrap_no_manifest": true,
+    "join_no_manifest": true,
+    "all_use_endpoint": "cp.internal.example.com:6443"
+  }
+}

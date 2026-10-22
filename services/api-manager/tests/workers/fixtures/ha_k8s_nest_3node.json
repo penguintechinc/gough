@@ -1,0 +1,111 @@
+{
+  "description": "Worked Example 2 — HA k8s + Nest across 3 nodes",
+  "nodes": [
+    {
+      "id": 4,
+      "name": "node-04",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:04",
+      "hardware_tags": [
+        "cpu:nested-virt-supported", "cpu:feature:avx2", "mem:total-gb:256",
+        "disk:nvme", "nic:speed:25g"
+      ],
+      "hardware_json": {}
+    }
+  ],
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440002",
+    "reason": "HA k8s + nest 3-node",
+    "actor_sub": "operator@penguintech.io",
+    "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+    "egg_assignments": [
+      {"egg_id": 201},
+      {"egg_id": 202},
+      {"egg_id": 203}
+    ]
+  },
+  "eggs": [
+    {
+      "id": 201,
+      "name": "nest-primary",
+      "version": "1.2.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": ["cpu:nested-virt-supported"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": true,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/nest/primary.conf", "content": "# nest primary"}],
+        "runcmd": ["nest-init primary"]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 202,
+      "name": "k8s-worker",
+      "version": "1.30.2",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": ["cpu:nested-virt-supported", "cpu:feature:avx2"],
+      "forbids_hardware_tags": [],
+      "dependencies": [{"egg_id": 9001, "mode": "hard", "version_min": "1.29", "egg_kind": "k8s-primary"}],
+      "consumes_joiner_secrets_from": [
+        {"egg_kind": "k8s-primary", "extractor_name": "kubeadm_join_token", "scope": "cluster"},
+        {"egg_kind": "k8s-primary", "extractor_name": "kubeadm_ca_hash", "scope": "cluster"}
+      ],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/gough/k8s-worker.conf", "content": "# worker config"}],
+        "runcmd": ["kubeadm join --config /etc/gough/k8s-worker.conf"]
+      },
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 203,
+      "name": "prometheus-grafana",
+      "version": "2.50.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/prometheus/config.yml", "content": "# prom config"}],
+        "runcmd": ["prometheus-init"]
+      },
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [
+    {
+      "id": "550e8400-0001-41d4-a716-446655440001",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440002",
+      "egg_kind": "k8s-primary",
+      "extractor_name": "kubeadm_join_token",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    },
+    {
+      "id": "550e8400-0002-41d4-a716-446655440001",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440002",
+      "egg_kind": "k8s-primary",
+      "extractor_name": "kubeadm_ca_hash",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    }
+  ],
+  "expect": {
+    "success": true,
+    "egg_order_contains": [201, 203, 202],
+    "k8s_worker_last": true,
+    "joiner_secret_refs_count": 2
+  }
+}

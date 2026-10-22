@@ -5,16 +5,19 @@ Provides REST API for agent enrollment, authentication, and management.
 
 from __future__ import annotations
 
+import ast
 import hashlib
+import json
 import logging
 import secrets
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 import jwt
 from quart import Blueprint, current_app, g, jsonify, request
 
+from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
 from ..models import get_db
@@ -22,6 +25,32 @@ from ..models import get_db
 log = logging.getLogger(__name__)
 
 agents_bp = Blueprint("agents", __name__, url_prefix="/api/v1/agents")
+
+
+def _parse_capabilities(raw: str | None) -> list[str]:
+    """Safely parse a stored ``capabilities`` value into a list of strings.
+
+    ``capabilities`` is persisted as a JSON-encoded string (rows written after
+    this fix). Rows written before this fix hold a Python ``repr()`` of a list
+    (``str(["ssh"])`` -> ``"['ssh']"``), so ``ast.literal_eval`` (literals
+    only -- never arbitrary code) is tried as a compatibility fallback.
+    NEVER uses ``eval``: an enrolling caller fully controls this field's
+    content via the request body, so ``eval`` on it is remote code execution
+    (regression: audit eval RCE agents.py:395). Anything falsy, unparsable, or
+    not a list of strings falls back to the safe default ``["ssh"]``.
+    """
+    if not raw:
+        return ["ssh"]
+    try:
+        parsed: Any = json.loads(raw)
+    except (ValueError, TypeError):
+        try:
+            parsed = ast.literal_eval(raw)
+        except (ValueError, SyntaxError, TypeError):
+            return ["ssh"]
+    if isinstance(parsed, list) and all(isinstance(c, str) for c in parsed):
+        return parsed
+    return ["ssh"]
 
 
 # ============================================================================
@@ -49,43 +78,50 @@ async def create_enrollment_key():
 
     db = get_db()
 
-    try:
-        # Generate secure enrollment key
-        # Format: ENROLL-XXXX-XXXX-XXXX-XXXX
-        key_parts = [secrets.token_hex(2).upper() for _ in range(4)]
-        enrollment_key = f"ENROLL-{'-'.join(key_parts)}"
+    # Generate secure enrollment key
+    # Format: ENROLL-XXXX-XXXX-XXXX-XXXX
+    key_parts = [secrets.token_hex(2).upper() for _ in range(4)]
+    enrollment_key = f"ENROLL-{'-'.join(key_parts)}"
 
-        # Hash the key for storage
-        key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
+    # Hash the key for storage
+    key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
 
-        # Calculate expiry
-        expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
+    # Calculate expiry
+    expires_at = datetime.utcnow() + timedelta(hours=expires_in_hours)
 
-        current_user = get_current_user()
+    current_user = get_current_user()
 
-        # Store key
-        key_id = db.enrollment_keys.insert(
-            key_hash=key_hash,
-            created_by=current_user["id"],
-            expires_at=expires_at,
-            metadata=str(metadata) if metadata else None,
-        )
+    # Regression: gh-22. Insert + commit is one unit of work -- stays in
+    # one run_db() closure per the house rule (see app/db/run_db.py),
+    # single rollback point inside the closure.
+    def _store_key() -> tuple[bool, Any]:
+        try:
+            key_id = db.enrollment_keys.insert(
+                key_hash=key_hash,
+                created_by=current_user["id"],
+                expires_at=expires_at,
+                metadata=str(metadata) if metadata else None,
+            )
+            db.commit()
+            return True, key_id
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error creating enrollment key: {e}")
+            return False, e
 
-        db.commit()
+    ok, result = await run_db(_store_key)
+    if not ok:
+        return jsonify({"error": str(result)}), 500
 
-        log.info(f"Enrollment key created by user {current_user['id']}")
+    key_id = result
+    log.info(f"Enrollment key created by user {current_user['id']}")
 
-        return jsonify({
-            "message": "Enrollment key created",
-            "enrollment_key": enrollment_key,
-            "expires_at": expires_at.isoformat(),
-            "key_id": key_id,
-        }), 201
-
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error creating enrollment key: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "message": "Enrollment key created",
+        "enrollment_key": enrollment_key,
+        "expires_at": expires_at.isoformat(),
+        "key_id": key_id,
+    }), 201
 
 
 @agents_bp.route("/enrollment-keys", methods=["GET"])
@@ -101,13 +137,21 @@ async def list_enrollment_keys():
         200: List of enrollment keys
     """
     db = get_db()
-    include_used = (await request.args).get("include_used", "false").lower() == "true"
+    include_used = request.args.get("include_used", "false").lower() == "true"
 
     query = db.enrollment_keys.id > 0
     if not include_used:
-        query &= db.enrollment_keys.is_used is False
+        # Pre-existing bug (fix-round, gh-22): `is False` is a Python
+        # identity check against a PyDAL field proxy -- never true for a
+        # real Field object, so this branch always silently no-opped
+        # instead of actually filtering. `== False` is the correct DAL
+        # idiom (see e.g. this file's own enroll_agent() claim query, and
+        # `noqa: E712` usage throughout the codebase).
+        query &= db.enrollment_keys.is_used == False  # noqa: E712 -- DAL idiom
 
-    keys = db(query).select(orderby=~db.enrollment_keys.created_at).as_list()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    keys = await run_db(lambda: db(query).select(orderby=~db.enrollment_keys.created_at).as_list())
 
     keys_data = []
     for key in keys:
@@ -143,20 +187,30 @@ async def revoke_enrollment_key(key_id: int):
     """
     db = get_db()
 
-    key = db.enrollment_keys(key_id)
-    if not key:
+    # Regression: gh-22. Fetch + delete + commit is one unit of work --
+    # stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py), single rollback point inside the closure.
+    def _revoke() -> tuple[str, Any]:
+        key = db.enrollment_keys(key_id)
+        if not key:
+            return "not_found", None
+        try:
+            # Soft-delete: keep the row so a revoked key can never be re-seeded or re-used.
+            db(db.enrollment_keys.id == key_id).update(revoked=True)
+            db.commit()
+            return "ok", None
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error revoking enrollment key: {e}")
+            return "error", e
+
+    status, err = await run_db(_revoke)
+    if status == "not_found":
         return jsonify({"error": "Enrollment key not found"}), 404
+    if status == "error":
+        return jsonify({"error": str(err)}), 500
 
-    try:
-        db(db.enrollment_keys.id == key_id).delete()
-        db.commit()
-
-        return jsonify({"message": "Enrollment key revoked"}), 200
-
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error revoking enrollment key: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Enrollment key revoked"}), 200
 
 
 # ============================================================================
@@ -186,7 +240,7 @@ async def enroll_agent():
         409: Enrollment key already used
     """
     # Get enrollment key from header
-    enrollment_key = (await request.headers).get("X-Enrollment-Key")
+    enrollment_key = request.headers.get("X-Enrollment-Key")
     if not enrollment_key:
         return jsonify({"error": "Enrollment key required"}), 401
 
@@ -200,12 +254,18 @@ async def enroll_agent():
 
     db = get_db()
 
-    # Hash and find enrollment key
+    # Hash and find enrollment key. Regression: gh-22. Off the event loop
+    # via run_db() instead of blocking the request coroutine inline.
     key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
-    key_record = db(db.enrollment_keys.key_hash == key_hash).select().first()
+    key_record = await run_db(
+        lambda: db(db.enrollment_keys.key_hash == key_hash).select().first()
+    )
 
     if not key_record:
         return jsonify({"error": "Invalid enrollment key"}), 401
+
+    if key_record.revoked:
+        return jsonify({"error": "Enrollment key revoked"}), 401
 
     if key_record.is_used:
         return jsonify({"error": "Enrollment key already used"}), 409
@@ -213,72 +273,112 @@ async def enroll_agent():
     if key_record.expires_at and key_record.expires_at < datetime.utcnow():
         return jsonify({"error": "Enrollment key expired"}), 401
 
-    try:
-        # Generate agent ID
-        agent_id = str(uuid.uuid4())
+    # Validate capabilities is a list[str] before it ever touches storage or a
+    # JWT claim. Regression: audit eval RCE agents.py:395 -- the untrusted
+    # request body used to be stored via str(...) and later eval()'d on
+    # refresh; rejecting anything but list[str] here closes the taint path at
+    # its source.
+    raw_capabilities = data.get("capabilities", ["ssh"])
+    if not isinstance(raw_capabilities, list) or not all(
+        isinstance(c, str) for c in raw_capabilities
+    ):
+        return jsonify({"error": "capabilities must be a list of strings"}), 400
+    caps = raw_capabilities
 
-        # Create agent record
-        agent_db_id = db.access_agents.insert(
-            agent_id=agent_id,
-            hostname=hostname,
-            ip_address=data.get("ip_address"),
-            enrollment_key_hash=key_hash,
-            enrollment_completed=True,
-            status="active",
-            capabilities=str(data.get("capabilities", ["ssh"])),
-            enrolled_at=datetime.utcnow(),
-            last_heartbeat=datetime.utcnow(),
-        )
+    # Generate agent ID + JWT tokens (non-DB, pure/local)
+    agent_id = str(uuid.uuid4())
+    access_token = _create_agent_access_token(agent_id, caps)
+    refresh_token, refresh_expires = _create_agent_refresh_token(agent_id)
 
-        # Mark enrollment key as used
-        db(db.enrollment_keys.id == key_record.id).update(
-            is_used=True,
-            used_by_agent=agent_db_id,
-        )
+    # Fix-round (gh-22): the is_used check above is a fast-path only -- two
+    # concurrent enroll requests can both read is_used=False before either
+    # writes (a run_db() closure boundary is a thread boundary, not a
+    # transaction boundary; see app/db/run_db.py). The *authoritative*
+    # guard is this closure's conditional UPDATE: it flips is_used only if
+    # the row still reads False at write time, and Postgres serializes
+    # concurrent UPDATEs to the same row, so at most one concurrent
+    # request's UPDATE affects a row -- the rowcount is checked before any
+    # agent is inserted, so a losing request never creates an agent row.
+    def _enroll() -> tuple[str, Any]:
+        try:
+            claimed = db(
+                (db.enrollment_keys.id == key_record.id)
+                & (db.enrollment_keys.is_used == False)  # noqa: E712 -- DAL idiom
+                & (db.enrollment_keys.revoked == False)  # noqa: E712 -- DAL idiom
+            ).update(is_used=True)
+            if not claimed:
+                db.commit()
+                return "already_used", None
 
-        # Generate JWT tokens
-        caps = data.get("capabilities", ["ssh"])
-        access_token = _create_agent_access_token(agent_id, caps)
-        refresh_token, refresh_expires = _create_agent_refresh_token(agent_id)
-
-        db.commit()
-
-        # Get CA public key
-        ca_config = db(db.ssh_ca_config.is_active is True).select().first()
-        ca_public_key = ca_config.public_key if ca_config else None
-
-        # Audit log
-        audit_logger = get_audit_logger()
-        if audit_logger:
-            audit_logger.log_agent_enroll(
+            agent_db_id = db.access_agents.insert(
                 agent_id=agent_id,
                 hostname=hostname,
-                agent_version=data.get("agent_version", "unknown"),
-                details={
-                    "ip_address": data.get("ip_address"),
-                    "capabilities": data.get("capabilities"),
-                },
+                ip_address=data.get("ip_address"),
+                enrollment_key_hash=key_hash,
+                enrollment_completed=True,
+                status="active",
+                capabilities=json.dumps(caps),
+                enrolled_at=datetime.utcnow(),
+                last_heartbeat=datetime.utcnow(),
             )
 
-        log.info(f"Agent {hostname} enrolled as {agent_id}")
+            # Record which agent claimed the key (already marked used above).
+            db(db.enrollment_keys.id == key_record.id).update(
+                used_by_agent=agent_db_id,
+            )
 
-        return jsonify({
-            "message": "Agent enrolled successfully",
-            "agent_id": agent_id,
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "access_token_expires_in": 3600,
-            "refresh_token_expires_in": 2592000,
-            "ca_public_key": ca_public_key,
-            "config": {
-                "heartbeat_interval": 30,
-            },
-        }), 201
+            db.commit()
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error enrolling agent: {e}")
-        return jsonify({"error": str(e)}), 500
+            # Get CA public key.
+            # Pre-existing bug (fix-round, gh-22): `is True` is a Python
+            # identity check against a PyDAL field proxy, never true for a
+            # real Field object -- `db(False)` then raises inside
+            # QuerySet's table-extraction (AttributeError: 'bool' object
+            # has no attribute 'table'), turning every successful
+            # enrollment into a 500. `== True` is the correct DAL idiom.
+            ca_config = db(db.ssh_ca_config.is_active == True).select().first()  # noqa: E712 -- DAL idiom
+            ca_public_key = ca_config.public_key if ca_config else None
+
+            # Audit log
+            audit_logger = get_audit_logger()
+            if audit_logger:
+                audit_logger.log_agent_enroll(
+                    agent_id=agent_id,
+                    hostname=hostname,
+                    agent_version=data.get("agent_version", "unknown"),
+                    details={
+                        "ip_address": data.get("ip_address"),
+                        "capabilities": caps,
+                    },
+                )
+
+            return "ok", ca_public_key
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error enrolling agent: {e}")
+            return "error", e
+
+    status, result = await run_db(_enroll)
+    if status == "already_used":
+        return jsonify({"error": "Enrollment key already used"}), 409
+    if status == "error":
+        return jsonify({"error": str(result)}), 500
+
+    ca_public_key = result
+    log.info(f"Agent {hostname} enrolled as {agent_id}")
+
+    return jsonify({
+        "message": "Agent enrolled successfully",
+        "agent_id": agent_id,
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "access_token_expires_in": 3600,
+        "refresh_token_expires_in": 2592000,
+        "ca_public_key": ca_public_key,
+        "config": {
+            "heartbeat_interval": 30,
+        },
+    }), 201
 
 
 # ============================================================================
@@ -300,7 +400,7 @@ async def refresh_agent_token():
         401: Invalid or expired refresh token
     """
     # Get refresh token from header
-    auth_header = (await request.headers).get("Authorization", "")
+    auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return jsonify({"error": "Authorization header required"}), 401
 
@@ -323,17 +423,24 @@ async def refresh_agent_token():
 
         db = get_db()
 
-        # Verify agent exists and is active
-        agent = db(db.access_agents.agent_id == agent_id).select().first()
+        # Verify agent exists and is active. Regression: gh-22. Off the
+        # event loop via run_db() instead of blocking the request
+        # coroutine inline.
+        agent = await run_db(
+            lambda: db(db.access_agents.agent_id == agent_id).select().first()
+        )
         if not agent:
             return jsonify({"error": "Agent not found"}), 401
 
         if agent.status != "active":
             return jsonify({"error": "Agent is not active"}), 401
 
-        # Generate new tokens
-        caps = eval(agent.capabilities) if agent.capabilities else ["ssh"]
-        capabilities = caps
+        # Generate new tokens. Regression: audit eval RCE agents.py:395 --
+        # agent.capabilities is attacker-influenced (set at enrollment from the
+        # request body), so it is parsed via _parse_capabilities (JSON, with a
+        # literal-only ast.literal_eval fallback for pre-fix rows) and NEVER
+        # eval()'d.
+        capabilities = _parse_capabilities(agent.capabilities)
         access_token = _create_agent_access_token(agent_id, capabilities)
         new_refresh_token, _ = _create_agent_refresh_token(agent_id)
 
@@ -378,27 +485,33 @@ async def agent_heartbeat():
 
     db = get_db()
 
-    try:
-        # Update agent record
-        db(db.access_agents.agent_id == agent_id).update(
-            last_heartbeat=datetime.utcnow(),
-            status=data.get("status", "active"),
-        )
+    # Regression: gh-22. Update + commit is one unit of work -- stays in
+    # one run_db() closure per the house rule (see app/db/run_db.py),
+    # single rollback point inside the closure.
+    def _update_heartbeat() -> tuple[bool, Any]:
+        try:
+            db(db.access_agents.agent_id == agent_id).update(
+                last_heartbeat=datetime.utcnow(),
+                status=data.get("status", "active"),
+            )
+            db.commit()
+            return True, None
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error processing heartbeat: {e}")
+            return False, e
 
-        db.commit()
+    ok, err = await run_db(_update_heartbeat)
+    if not ok:
+        return jsonify({"error": str(err)}), 500
 
-        # Check for pending commands (future feature)
-        commands = []
+    # Check for pending commands (future feature)
+    commands = []
 
-        return jsonify({
-            "status": "ok",
-            "commands": commands,
-        }), 200
-
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error processing heartbeat: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "status": "ok",
+        "commands": commands,
+    }), 200
 
 
 # ============================================================================
@@ -420,15 +533,17 @@ async def list_agents():
     """
     db = get_db()
 
-    status_filter = (await request.args).get("status")
+    status_filter = request.args.get("status")
 
     query = db.access_agents.id > 0
     if status_filter:
         query &= db.access_agents.status == status_filter
 
-    agents = db(query).select(
-        orderby=~db.access_agents.last_heartbeat
-    ).as_list()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    agents = await run_db(
+        lambda: db(query).select(orderby=~db.access_agents.last_heartbeat).as_list()
+    )
 
     agents_data = []
     for agent in agents:
@@ -438,7 +553,8 @@ async def list_agents():
             "hostname": agent["hostname"],
             "ip_address": agent["ip_address"],
             "status": agent["status"],
-            "capabilities": agent["capabilities"],
+            "capabilities": _parse_capabilities(agent["capabilities"]),
+            "enrollment_completed": agent["enrollment_completed"],
             "last_heartbeat": agent["last_heartbeat"].isoformat()
             if agent["last_heartbeat"] else None,
             "enrolled_at": agent["enrolled_at"].isoformat()
@@ -466,7 +582,11 @@ async def get_agent(agent_id: str):
     """
     db = get_db()
 
-    agent = db(db.access_agents.agent_id == agent_id).select().first()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    agent = await run_db(
+        lambda: db(db.access_agents.agent_id == agent_id).select().first()
+    )
     if not agent:
         return jsonify({"error": "Agent not found"}), 404
 
@@ -477,7 +597,7 @@ async def get_agent(agent_id: str):
             "hostname": agent.hostname,
             "ip_address": agent.ip_address,
             "status": agent.status,
-            "capabilities": agent.capabilities,
+            "capabilities": _parse_capabilities(agent.capabilities),
             "enrollment_completed": agent.enrollment_completed,
             "last_heartbeat": agent.last_heartbeat.isoformat()
             if agent.last_heartbeat else None,
@@ -504,25 +624,34 @@ async def suspend_agent(agent_id: str):
     """
     db = get_db()
 
-    agent = db(db.access_agents.agent_id == agent_id).select().first()
-    if not agent:
+    # Regression: gh-22. Fetch + update + commit is one unit of work --
+    # stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py), single rollback point inside the closure.
+    def _suspend() -> tuple[str, Any]:
+        agent = db(db.access_agents.agent_id == agent_id).select().first()
+        if not agent:
+            return "not_found", None
+        try:
+            db(db.access_agents.agent_id == agent_id).update(
+                status="suspended",
+                updated_at=datetime.utcnow(),
+            )
+            db.commit()
+            return "ok", None
+        except Exception as e:
+            db.rollback()
+            return "error", e
+
+    status, err = await run_db(_suspend)
+    if status == "not_found":
         return jsonify({"error": "Agent not found"}), 404
+    if status == "error":
+        return jsonify({"error": str(err)}), 500
 
-    try:
-        db(db.access_agents.agent_id == agent_id).update(
-            status="suspended",
-            updated_at=datetime.utcnow(),
-        )
-        db.commit()
+    current_user = get_current_user()
+    log.info(f"Agent {agent_id} suspended by user {current_user['id']}")
 
-        current_user = get_current_user()
-        log.info(f"Agent {agent_id} suspended by user {current_user['id']}")
-
-        return jsonify({"message": "Agent suspended"}), 200
-
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Agent suspended"}), 200
 
 
 @agents_bp.route("/<agent_id>/resume", methods=["POST"])
@@ -540,25 +669,34 @@ async def resume_agent(agent_id: str):
     """
     db = get_db()
 
-    agent = db(db.access_agents.agent_id == agent_id).select().first()
-    if not agent:
+    # Regression: gh-22. Fetch + update + commit is one unit of work --
+    # stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py), single rollback point inside the closure.
+    def _resume() -> tuple[str, Any]:
+        agent = db(db.access_agents.agent_id == agent_id).select().first()
+        if not agent:
+            return "not_found", None
+        try:
+            db(db.access_agents.agent_id == agent_id).update(
+                status="active",
+                updated_at=datetime.utcnow(),
+            )
+            db.commit()
+            return "ok", None
+        except Exception as e:
+            db.rollback()
+            return "error", e
+
+    status, err = await run_db(_resume)
+    if status == "not_found":
         return jsonify({"error": "Agent not found"}), 404
+    if status == "error":
+        return jsonify({"error": str(err)}), 500
 
-    try:
-        db(db.access_agents.agent_id == agent_id).update(
-            status="active",
-            updated_at=datetime.utcnow(),
-        )
-        db.commit()
+    current_user = get_current_user()
+    log.info(f"Agent {agent_id} resumed by user {current_user['id']}")
 
-        current_user = get_current_user()
-        log.info(f"Agent {agent_id} resumed by user {current_user['id']}")
-
-        return jsonify({"message": "Agent resumed"}), 200
-
-    except Exception as e:
-        db.rollback()
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Agent resumed"}), 200
 
 
 # ============================================================================
@@ -623,7 +761,7 @@ async def _validate_agent_token() -> Optional[str]:
     Returns:
         Agent ID if valid, None otherwise
     """
-    auth_header = (await request.headers).get("Authorization", "")
+    auth_header = request.headers.get("Authorization", "")
     if not auth_header.startswith("Bearer "):
         return None
 

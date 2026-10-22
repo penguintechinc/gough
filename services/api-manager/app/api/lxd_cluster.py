@@ -1,31 +1,36 @@
-"""LXD Cluster Join Token and Bootstrap Enrollment API.
+"""LXD cluster join token and bootstrap enrollment API.
 
-Serves the installer hub contracts:
+Installer hub contracts:
 
-- ``POST /api/v1/lxd/cluster-join-tokens`` mints a one-time LXD cluster join token
-  for a member. Authorization is server-side only:
-    1. the caller is an active agent (``agent_access`` bearer token);
-    2. the agent's enrollment key is join-eligible (purpose ``node-join`` or ``bootstrap``);
-    3. ``member_name`` equals the hostname recorded for the agent at enrollment;
-    4. no unexpired issuance exists for the member or agent;
-    5. the member does not already exist in the LXD cluster.
-  Every grant and refusal is written to ``lxd_join_token_issuances`` and audited.
-- ``POST /api/v1/lxd/node-join-keys`` (admin) issues a single-use join-eligible
-  enrollment key, returned once.
-- ``seed_bootstrap_enrollment_key`` seeds ``GOUGH_BOOTSTRAP_TOKEN`` into
-  ``enrollment_keys`` exactly once per token hash, recorded in the never-deleted
-  ``bootstrap_token_seeds`` tombstone, so deleting or revoking the key cannot
-  resurrect it.
+- ``POST /api/v1/lxd/cluster-join-tokens`` mints a one-time LXD cluster join token.
+  Authorization is server-side only, checked in this order:
+    1. caller is an active agent (``agent_access`` bearer token);
+    2. the agent's enrollment key is join-eligible (purpose ``node-join`` or ``bootstrap``)
+       and not revoked;
+    3. for ``node-join`` keys, the key's server-side ``intended_hostname`` equals the
+       agent's enrolled hostname;
+    4. ``member_name`` equals the agent's enrolled hostname.
+  Single issuance is enforced by the database, not by process memory: the grant row is
+  inserted first, and unique "live" columns (agent, member, key) reject a second live
+  grant with IntegrityError, mapped to 409. A row becomes FAILED (and releases its live
+  columns) only when the LXD mint fails. A successful ISSUED row consumes the agent's
+  join right permanently; it is never re-granted by expiry.
+- ``POST /api/v1/lxd/node-join-keys`` (admin) issues a single-use join-eligible enrollment
+  key bound to ``intended_hostname``, returned once.
+- ``seed_bootstrap_enrollment_key`` seeds ``GOUGH_BOOTSTRAP_TOKEN`` at most once per token
+  hash. A ``bootstrap_token_seeds`` tombstone is written with the key and never deleted; if
+  a key row exists without a tombstone, the tombstone is written and nothing is inserted.
 
-Operators: after the first successful enrollment, remove GOUGH_BOOTSTRAP_TOKEN from
-the Secret and the deployment env, then rotate it. A re-seed of the same token is
-refused by design even if the enrollment key row was deleted.
+Operators: remove GOUGH_BOOTSTRAP_TOKEN from the Secret and the deployment env after the
+first successful enrollment, then rotate it. Upgrading from a build that predates the
+tombstone table: remove the env var before upgrading, or rely on the migration backfill
+for bootstrap keys it can identify.
 """
 
 from __future__ import annotations
 
-import asyncio
 import base64
+import ast
 import hashlib
 import json
 import logging
@@ -39,8 +44,10 @@ from typing import Any, Optional
 import httpx
 import jwt
 from quart import Blueprint, current_app, jsonify, request
+from sqlalchemy.exc import IntegrityError
 
 from ..audit import AuditEventType, AuditSeverity, get_audit_logger
+from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required
 from ..models import get_db
 from ..rate_limit import rate_limit
@@ -53,9 +60,9 @@ PURPOSE_NODE_JOIN = "node-join"
 PURPOSE_BOOTSTRAP = "bootstrap"
 _JOIN_ELIGIBLE_PURPOSES = frozenset({PURPOSE_NODE_JOIN, PURPOSE_BOOTSTRAP})
 
-ISSUANCE_STATUS_ISSUED = 0
-ISSUANCE_STATUS_FAILED = 1
-_ISSUANCE_TTL = timedelta(minutes=15)
+ISSUANCE_ISSUED = 0
+ISSUANCE_FAILED = 1
+_TOKEN_VALIDITY = timedelta(minutes=15)  # informational: recorded as expires_at only
 
 # LXD operations are always addressed as /1.0/operations/<uuid>; anything else is refused.
 _LXD_OPERATION_PREFIX = "/1.0/operations/"
@@ -69,10 +76,6 @@ _HOSTNAME_MAX_LEN = 63
 _BOOTSTRAP_TOKEN_RE = re.compile(r"^[A-Za-z0-9_\-]{32,256}$")
 _KEY_TTL_DEFAULT_HOURS = 24
 _KEY_TTL_MAX_HOURS = 24
-
-# Serializes the check-then-record-then-mint sequence so two requests cannot both pass
-# the "no unexpired issuance" check. Single-process guard; see report for multi-replica note.
-_MINT_LOCK = asyncio.Lock()
 
 
 @dataclass(slots=True, frozen=True)
@@ -99,6 +102,16 @@ class AgentRecord:
     enrollment_key_hash: Optional[str]
 
 
+@dataclass(slots=True, frozen=True)
+class KeyJoinInfo:
+    """Server-side enrollment key facts relevant to join authorization."""
+
+    key_hash: str
+    purpose: Optional[str]
+    intended_hostname: Optional[str]
+    revoked: bool
+
+
 class LxdUpstreamError(Exception):
     """LXD refused or failed the request; carries the HTTP status to surface."""
 
@@ -114,6 +127,10 @@ class LxdMemberExistsError(Exception):
 
 class LxdUnavailableError(Exception):
     """LXD is unreachable, timed out, or not configured; surfaces as 503."""
+
+
+class IssuanceConflictError(Exception):
+    """A live issuance already exists for the agent, member, or key (unique constraint)."""
 
 
 def mask_token(token: str) -> str:
@@ -139,6 +156,22 @@ def parse_join_token_request(payload: Any) -> JoinTokenRequest:
     if not is_valid_hostname(member_name):
         raise ValueError("member_name must be a valid RFC 1123 hostname (max 63 characters)")
     return JoinTokenRequest(member_name=member_name)
+
+
+def parse_metadata(raw: Any) -> dict[str, Any]:
+    """Parse enrollment_keys.metadata written as JSON or as a Python dict repr (agents.py).
+
+    ``ast.literal_eval`` only accepts literals, so this never executes code.
+    """
+    if not isinstance(raw, str) or not raw:
+        return {}
+    for loader in (json.loads, ast.literal_eval):
+        try:
+            value = loader(raw)
+        except (ValueError, SyntaxError, TypeError):
+            continue
+        return value if isinstance(value, dict) else {}
+    return {}
 
 
 def _lxd_settings() -> tuple[str, Any, Any]:
@@ -168,7 +201,7 @@ def _encode_join_token(metadata: Any) -> str:
 
 
 async def _lxd_member_exists(client: httpx.AsyncClient, member_name: str) -> bool:
-    """Return True when LXD already lists the member; False on 404; upstream errors raise."""
+    """Return True when LXD already lists the member; False on 404; other statuses raise."""
     resp = await client.get(f"/1.0/cluster/members/{member_name}")
     if resp.status_code == 200:
         return True
@@ -231,8 +264,16 @@ def _authenticate_agent() -> Optional[str]:
 
 
 # ============================================================================
-# Database access (sync; always called via asyncio.to_thread from handlers)
+# Database access (sync; always invoked through run_db)
 # ============================================================================
+
+
+def _is_unique_violation(exc: BaseException) -> bool:
+    """True when an exception is a unique-constraint violation from either SQLAlchemy or the DAL."""
+    if isinstance(exc, IntegrityError):
+        return True
+    text = str(exc).lower()
+    return "unique" in text or "duplicate" in text
 
 
 def _db_load_agent(agent_id: str) -> Optional[AgentRecord]:
@@ -249,59 +290,72 @@ def _db_load_agent(agent_id: str) -> Optional[AgentRecord]:
     )
 
 
-def _db_key_purpose(key_hash: str) -> Optional[str]:
-    """Return the purpose recorded in an enrollment key's metadata, or None if absent or malformed."""
+def _db_key_join_info(key_hash: str) -> Optional[KeyJoinInfo]:
+    """Return purpose, intended hostname, and revocation for an enrollment key, or None if absent."""
     db = get_db()
     row = db(db.enrollment_keys.key_hash == key_hash).select().first()
     if row is None:
         return None
+    meta = parse_metadata(row["metadata"])
+    purpose = meta.get("purpose")
+    intended = meta.get("intended_hostname")
+    return KeyJoinInfo(
+        key_hash=key_hash,
+        purpose=purpose if isinstance(purpose, str) else None,
+        intended_hostname=intended if isinstance(intended, str) else None,
+        revoked=bool(row["revoked"]),
+    )
+
+
+def _db_record_issuance(agent_id: str, member_name: str, key_hash: str, now: datetime) -> int:
+    """Insert the grant row first. Unique live columns reject a second live grant.
+
+    Raises IssuanceConflictError when the agent, member, or key already holds a live grant.
+    """
+    db = get_db()
     try:
-        meta = json.loads(row["metadata"] or "{}")
-    except (TypeError, ValueError):
-        return None
-    purpose = meta.get("purpose") if isinstance(meta, dict) else None
-    return purpose if isinstance(purpose, str) else None
-
-
-def _db_has_live_issuance(agent_id: str, member_name: str, now: datetime) -> bool:
-    """True when an unexpired, non-failed issuance exists for this member or this agent."""
-    db = get_db()
-    t = db.lxd_join_token_issuances
-    query = (
-        ((t.member_name == member_name) | (t.agent_id == agent_id))
-        & (t.status == ISSUANCE_STATUS_ISSUED)
-        & (t.expires_at > now)
-    )
-    return db(query).select().first() is not None
-
-
-def _db_record_issuance(agent_id: str, member_name: str, now: datetime) -> int:
-    """Insert an issuance row before calling LXD so a crash still leaves evidence; returns its id."""
-    db = get_db()
-    issuance_id = db.lxd_join_token_issuances.insert(
-        agent_id=agent_id,
-        member_name=member_name,
-        status=ISSUANCE_STATUS_ISSUED,
-        issued_at=now,
-        expires_at=now + _ISSUANCE_TTL,
-    )
-    db.commit()
+        issuance_id = db.lxd_join_token_issuances.insert(
+            agent_id=agent_id,
+            member_name=member_name,
+            key_hash=key_hash,
+            status=ISSUANCE_ISSUED,
+            issued_at=now,
+            expires_at=now + _TOKEN_VALIDITY,
+            agent_live=agent_id,
+            member_live=member_name,
+            key_live=key_hash,
+        )
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        if _is_unique_violation(exc):
+            raise IssuanceConflictError() from exc
+        raise
     return int(issuance_id)
 
 
-def _db_mark_issuance_failed(issuance_id: int, now: datetime) -> None:
-    """Mark a grant failed and expire it immediately so the caller may retry; the row is kept."""
+def _db_mark_issuance_failed(issuance_id: int) -> None:
+    """Mark a grant FAILED and clear its live columns, releasing the agent, member, and key."""
     db = get_db()
     db(db.lxd_join_token_issuances.id == issuance_id).update(
-        status=ISSUANCE_STATUS_FAILED, expires_at=now,
+        status=ISSUANCE_FAILED, agent_live=None, member_live=None, key_live=None,
     )
     db.commit()
 
 
-def _db_bootstrap_seeded(token_hash: str) -> bool:
-    """True when a tombstone exists for this bootstrap token hash (never deleted)."""
+def _db_bootstrap_state(token_hash: str) -> tuple[bool, bool]:
+    """Return (tombstone_exists, enrollment_key_row_exists) for a bootstrap token hash."""
     db = get_db()
-    return db(db.bootstrap_token_seeds.token_hash == token_hash).select().first() is not None
+    tombstone = db(db.bootstrap_token_seeds.token_hash == token_hash).select().first() is not None
+    key = db(db.enrollment_keys.key_hash == token_hash).select().first() is not None
+    return tombstone, key
+
+
+def _db_write_tombstone(token_hash: str) -> None:
+    """Record that this bootstrap token was seeded. Tombstones are never deleted."""
+    db = get_db()
+    db.bootstrap_token_seeds.insert(token_hash=token_hash, seeded_at=datetime.utcnow())
+    db.commit()
 
 
 def _db_first_active_user_id() -> Optional[int]:
@@ -311,27 +365,29 @@ def _db_first_active_user_id() -> Optional[int]:
     return int(row.id) if row else None
 
 
-def _db_insert_enrollment_key(key_hash: str, owner_id: int, expires_at: datetime, purpose: str) -> None:
-    """Insert a single-use enrollment key carrying its purpose in metadata."""
+def _db_insert_enrollment_key(key_hash: str, owner_id: int, expires_at: datetime, metadata: dict[str, Any]) -> None:
+    """Insert a single-use enrollment key whose purpose and binding live in metadata."""
     db = get_db()
     db.enrollment_keys.insert(
         key_hash=key_hash,
         created_by=owner_id,
         expires_at=expires_at,
         is_used=False,
-        metadata=json.dumps({"purpose": purpose}),
+        revoked=False,
+        metadata=json.dumps(metadata),
     )
     db.commit()
 
 
-def _db_seed_bootstrap(token_hash: str, key_hash: str, owner_id: int, expires_at: datetime) -> None:
-    """Insert the bootstrap enrollment key and its never-deleted tombstone in one commit."""
+def _db_seed_bootstrap(token_hash: str, owner_id: int, expires_at: datetime) -> None:
+    """Insert the bootstrap key and its tombstone in one commit."""
     db = get_db()
     db.enrollment_keys.insert(
-        key_hash=key_hash,
+        key_hash=token_hash,
         created_by=owner_id,
         expires_at=expires_at,
         is_used=False,
+        revoked=False,
         metadata=json.dumps({"purpose": PURPOSE_BOOTSTRAP}),
     )
     db.bootstrap_token_seeds.insert(token_hash=token_hash, seeded_at=datetime.utcnow())
@@ -364,9 +420,7 @@ def _audit(action: str, message: str, severity: AuditSeverity, details: dict[str
 # ============================================================================
 
 
-async def _refuse(
-    status: int, error: str, reason: str, member_name: str, agent_id: str,
-) -> tuple[Any, int]:
+def _refuse(status: int, error: str, reason: str, member_name: str, agent_id: str) -> tuple[Any, int]:
     """Audit a refusal and build the client response; the reason is never secret."""
     _audit("lxd.cluster_join_token.refused", f"LXD join token refused: {reason}", AuditSeverity.WARNING,
            {"member_name": member_name, "agent_id": agent_id, "reason": reason})
@@ -379,8 +433,6 @@ async def create_cluster_join_token():
     """Mint a one-time LXD cluster join token for the calling agent's own hostname.
 
     Auth: ``Authorization: Bearer <agent access token>`` from ``/agents/enroll``.
-    The enrollment key must be join-eligible and ``member_name`` must equal the
-    hostname recorded for the agent at enrollment.
 
     Body: ``{"member_name": "<RFC 1123 hostname>"}``
 
@@ -388,8 +440,9 @@ async def create_cluster_join_token():
         200: ``{"token": "<lxd join token>"}``
         400: invalid body or hostname
         401: missing, invalid, or expired agent token, or unknown agent
-        403: agent inactive, key not join-eligible, or member_name not the agent's hostname
-        409: member already exists in LXD, or an unexpired token was already issued
+        403: agent inactive; key missing, revoked, or not join-eligible; intended hostname
+             or member_name not the agent's enrolled hostname
+        409: join right already consumed by a live grant, or LXD member already exists
         502: LXD returned an error or unusable response
         503: LXD unreachable, timed out, or not configured
     """
@@ -403,45 +456,53 @@ async def create_cluster_join_token():
         return jsonify({"error": str(exc)}), 400
 
     member_name = join_req.member_name
-    agent = await asyncio.to_thread(_db_load_agent, agent_id)
+    agent = await run_db(lambda: _db_load_agent(agent_id))
     if agent is None:
         return jsonify({"error": "Authentication required"}), 401
     if agent.status != "active":
-        return await _refuse(403, "Agent is not active", "agent_not_active", member_name, agent_id)
+        return _refuse(403, "Agent is not active", "agent_not_active", member_name, agent_id)
     if member_name != agent.hostname:
-        return await _refuse(403, "member_name must match the enrolled agent hostname",
-                             "hostname_mismatch", member_name, agent_id)
-    purpose = None
+        return _refuse(403, "member_name must match the enrolled agent hostname",
+                       "hostname_mismatch", member_name, agent_id)
+    key = None
     if agent.enrollment_key_hash:
-        purpose = await asyncio.to_thread(_db_key_purpose, agent.enrollment_key_hash)
-    if purpose not in _JOIN_ELIGIBLE_PURPOSES:
-        return await _refuse(403, "agent enrollment key is not join-eligible",
-                             "key_not_join_eligible", member_name, agent_id)
+        key_hash = agent.enrollment_key_hash
+        key = await run_db(lambda: _db_key_join_info(key_hash))
+    if key is None or key.purpose not in _JOIN_ELIGIBLE_PURPOSES:
+        return _refuse(403, "agent enrollment key is not join-eligible",
+                       "key_not_join_eligible", member_name, agent_id)
+    if key.revoked:
+        return _refuse(403, "agent enrollment key is revoked", "key_revoked", member_name, agent_id)
+    if key.purpose == PURPOSE_NODE_JOIN and key.intended_hostname != agent.hostname:
+        return _refuse(403, "enrollment key intended hostname does not match the agent",
+                       "intended_hostname_mismatch", member_name, agent_id)
 
-    async with _MINT_LOCK:
-        now = datetime.utcnow()
-        if await asyncio.to_thread(_db_has_live_issuance, agent_id, member_name, now):
-            return await _refuse(409, "an unexpired join token was already issued",
-                                 "live_issuance_exists", member_name, agent_id)
-        issuance_id = await asyncio.to_thread(_db_record_issuance, agent_id, member_name, now)
-        try:
-            token = await request_lxd_join_token(member_name)
-        except LxdMemberExistsError:
-            await asyncio.to_thread(_db_mark_issuance_failed, issuance_id, datetime.utcnow())
-            return await _refuse(409, "cluster member already exists", "member_exists",
-                                 member_name, agent_id)
-        except LxdUpstreamError as exc:
-            await asyncio.to_thread(_db_mark_issuance_failed, issuance_id, datetime.utcnow())
-            log.warning("LXD join token request failed for %s: HTTP %s", member_name, exc.status)
-            _audit("lxd.cluster_join_token.failed", f"LXD join token failed: {exc}", AuditSeverity.ERROR,
-                   {"member_name": member_name, "agent_id": agent_id, "upstream_status": exc.status})
-            return jsonify({"error": str(exc)}), exc.status
-        except LxdUnavailableError as exc:
-            await asyncio.to_thread(_db_mark_issuance_failed, issuance_id, datetime.utcnow())
-            log.error("LXD unavailable for join token request: %s", exc)
-            _audit("lxd.cluster_join_token.failed", f"LXD unavailable: {exc}", AuditSeverity.ERROR,
-                   {"member_name": member_name, "agent_id": agent_id})
-            return jsonify({"error": "LXD cluster unavailable, retry later"}), 503
+    now = datetime.utcnow()
+    try:
+        issuance_id = await run_db(
+            lambda: _db_record_issuance(agent_id, member_name, key.key_hash, now),
+        )
+    except IssuanceConflictError:
+        return _refuse(409, "join token already issued for this agent, member, or key",
+                       "issuance_conflict", member_name, agent_id)
+
+    try:
+        token = await request_lxd_join_token(member_name)
+    except LxdMemberExistsError:
+        await run_db(lambda: _db_mark_issuance_failed(issuance_id))
+        return _refuse(409, "cluster member already exists", "member_exists", member_name, agent_id)
+    except LxdUpstreamError as exc:
+        await run_db(lambda: _db_mark_issuance_failed(issuance_id))
+        log.warning("LXD join token request failed for %s: HTTP %s", member_name, exc.status)
+        _audit("lxd.cluster_join_token.failed", f"LXD join token failed: {exc}", AuditSeverity.ERROR,
+               {"member_name": member_name, "agent_id": agent_id, "upstream_status": exc.status})
+        return jsonify({"error": str(exc)}), exc.status
+    except LxdUnavailableError as exc:
+        await run_db(lambda: _db_mark_issuance_failed(issuance_id))
+        log.error("LXD unavailable for join token request: %s", exc)
+        _audit("lxd.cluster_join_token.failed", f"LXD unavailable: {exc}", AuditSeverity.ERROR,
+               {"member_name": member_name, "agent_id": agent_id})
+        return jsonify({"error": "LXD cluster unavailable, retry later"}), 503
 
     _audit("lxd.cluster_join_token.issued", "LXD cluster join token issued", AuditSeverity.INFO,
            {"member_name": member_name, "agent_id": agent_id, "issuance_id": issuance_id,
@@ -459,29 +520,34 @@ async def create_cluster_join_token():
 @auth_required
 @roles_required("admin")
 async def create_node_join_key():
-    """Issue a single-use, join-eligible enrollment key for a new node. Shown once.
+    """Issue a single-use, join-eligible enrollment key bound to one hostname. Shown once.
 
-    Body (optional): ``{"ttl_hours": 1..24}`` (default 24).
+    Body: ``{"intended_hostname": "<RFC 1123 hostname>", "ttl_hours": 1..24 (optional, default 24)}``
 
     Returns:
-        201: ``{"enrollment_key": "<secret>", "expires_at": "<iso8601>"}``
-        400: invalid ttl
+        201: ``{"enrollment_key": "<secret>", "expires_at": "<iso8601>", "intended_hostname": "..."}``
+        400: invalid body, hostname, or ttl
     """
-    body = await request.get_json(silent=True) or {}
-    ttl_raw = body.get("ttl_hours", _KEY_TTL_DEFAULT_HOURS) if isinstance(body, dict) else None
+    body = await request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify({"error": "request body must be a JSON object"}), 400
+    intended = body.get("intended_hostname")
+    if not isinstance(intended, str) or not is_valid_hostname(intended):
+        return jsonify({"error": "intended_hostname must be a valid RFC 1123 hostname"}), 400
+    ttl_raw = body.get("ttl_hours", _KEY_TTL_DEFAULT_HOURS)
     if not isinstance(ttl_raw, int) or isinstance(ttl_raw, bool) or not 1 <= ttl_raw <= _KEY_TTL_MAX_HOURS:
         return jsonify({"error": f"ttl_hours must be an integer 1-{_KEY_TTL_MAX_HOURS}"}), 400
-    current = get_current_user() or {}
-    owner_id = int(current["id"])
+    owner_id = int((get_current_user() or {})["id"])
     key = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(hours=ttl_raw)
-    await asyncio.to_thread(
-        _db_insert_enrollment_key, hashlib.sha256(key.encode()).hexdigest(), owner_id, expires_at,
-        PURPOSE_NODE_JOIN,
-    )
+    await run_db(lambda: _db_insert_enrollment_key(
+        hashlib.sha256(key.encode()).hexdigest(), owner_id, expires_at,
+        {"purpose": PURPOSE_NODE_JOIN, "intended_hostname": intended},
+    ))
     _audit("lxd.node_join_key.issued", "node-join enrollment key issued", AuditSeverity.INFO,
-           {"owner_id": owner_id, "ttl_hours": ttl_raw})
-    return jsonify({"enrollment_key": key, "expires_at": expires_at.isoformat()}), 201
+           {"owner_id": owner_id, "intended_hostname": intended, "ttl_hours": ttl_raw})
+    return jsonify({"enrollment_key": key, "expires_at": expires_at.isoformat(),
+                    "intended_hostname": intended}), 201
 
 
 # ============================================================================
@@ -490,15 +556,16 @@ async def create_node_join_key():
 
 
 def bootstrap_token_hash(token: str) -> str:
-    """Return the SHA-256 hex digest of a bootstrap token (tombstone key)."""
+    """Return the SHA-256 hex digest of a bootstrap token (enrollment key hash and tombstone key)."""
     return hashlib.sha256(token.encode()).hexdigest()
 
 
 def seed_bootstrap_enrollment_key(token: str, ttl_hours: int = _KEY_TTL_DEFAULT_HOURS) -> bool:
     """Seed the bootstrap token as a single-use enrollment key, at most once per token hash.
 
-    Returns True when seeded. Returns False when a tombstone already exists, even if the
-    enrollment key row was later deleted or revoked: a seeded token is never re-seeded.
+    Returns True only when a key and tombstone were inserted. Returns False when a tombstone
+    exists (even if the key was later deleted or revoked), or when a key row exists without a
+    tombstone, in which case the tombstone is written and nothing else changes.
     Raises ValueError for a malformed token or TTL, and RuntimeError when no user can own the key.
     """
     if not _BOOTSTRAP_TOKEN_RE.fullmatch(token):
@@ -507,12 +574,16 @@ def seed_bootstrap_enrollment_key(token: str, ttl_hours: int = _KEY_TTL_DEFAULT_
         raise ValueError(f"bootstrap token TTL must be 1-{_KEY_TTL_MAX_HOURS} hours")
 
     token_hash = bootstrap_token_hash(token)
-    if _db_bootstrap_seeded(token_hash):
+    tombstone, key_exists = _db_bootstrap_state(token_hash)
+    if tombstone:
+        return False
+    if key_exists:
+        _db_write_tombstone(token_hash)
         return False
     owner_id = _db_first_active_user_id()
     if owner_id is None:
         raise RuntimeError("no active user exists to own the bootstrap enrollment key")
-    _db_seed_bootstrap(token_hash, token_hash, owner_id, datetime.utcnow() + timedelta(hours=ttl_hours))
+    _db_seed_bootstrap(token_hash, owner_id, datetime.utcnow() + timedelta(hours=ttl_hours))
     log.info("seeded bootstrap enrollment key %s", mask_token(token))
     return True
 
@@ -528,5 +599,5 @@ async def seed_bootstrap_token_on_startup() -> None:
         ttl = int(ttl_raw)
     except ValueError as exc:
         raise RuntimeError("GOUGH_BOOTSTRAP_TOKEN_TTL_HOURS must be an integer") from exc
-    seeded = await asyncio.to_thread(seed_bootstrap_enrollment_key, token, ttl)
+    seeded = await run_db(lambda: seed_bootstrap_enrollment_key(token, ttl))
     current_app.logger.info("bootstrap enrollment key %s", "seeded" if seeded else "already seeded (tombstone)")

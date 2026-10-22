@@ -1,0 +1,44 @@
+{
+  "description": "Soft dependency not in plan — warning emitted, plan succeeds",
+  "node": {
+    "id": 50,
+    "name": "node-soft-50",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:50",
+    "hardware_tags": ["cpu:nested-virt-supported"],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440050",
+    "reason": "optional dep test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 901}]
+  },
+  "eggs": [
+    {
+      "id": 901,
+      "name": "loki",
+      "version": "3.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {"egg_id": 9999, "mode": "soft"}
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {
+        "write_files": [{"path": "/etc/loki/config.yml", "content": "# loki config"}],
+        "runcmd": ["loki-init"]
+      },
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": true,
+    "compile_warnings_contains": ["9999"]
+  }
+}

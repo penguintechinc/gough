@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from typing import Any
 
 from quart import Blueprint, g, jsonify, request
 
+from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..models import get_db
 
@@ -58,47 +60,56 @@ async def create_team():
 
     db = get_db()
 
-    # Check if team name already exists
-    existing = db(db.resource_teams.name == name).select().first()
+    # Check if team name already exists. Regression: gh-22. Off the event
+    # loop via run_db() instead of blocking the request coroutine inline.
+    existing = await run_db(lambda: db(db.resource_teams.name == name).select().first())
     if existing:
         return jsonify({"error": "Team name already exists"}), 409
 
     description = data.get("description", "").strip()
     metadata = data.get("metadata")
+    current_user = get_current_user()
 
-    try:
-        current_user = get_current_user()
-        team_id = db.resource_teams.insert(
-            name=name,
-            description=description or None,
-            created_by=current_user["id"],
-            is_active=True,
-            metadata=str(metadata) if metadata else None,
-        )
+    # Regression: gh-22. Insert + commit + the post-commit refetch is one
+    # unit of work -- stays in one run_db() closure per the house rule
+    # (see app/db/run_db.py).
+    def _create() -> tuple[bool, Any]:
+        try:
+            team_id = db.resource_teams.insert(
+                name=name,
+                description=description or None,
+                created_by=current_user["id"],
+                is_active=True,
+                metadata=str(metadata) if metadata else None,
+            )
 
-        db.commit()
+            db.commit()
 
-        team = db.resource_teams(team_id)
+            return True, db.resource_teams(team_id)
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error creating team: {e}")
+            return False, e
 
-        return jsonify({
-            "message": "Team created successfully",
-            "team": {
-                "id": team.id,
-                "name": team.name,
-                "description": team.description,
-                "created_by": team.created_by,
-                "is_active": team.is_active,
-                "created_at": (
-                    team.created_at.isoformat()
-                    if team.created_at else None
-                ),
-            },
-        }), 201
+    ok, result = await run_db(_create)
+    if not ok:
+        return jsonify({"error": str(result)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error creating team: {e}")
-        return jsonify({"error": str(e)}), 500
+    team = result
+    return jsonify({
+        "message": "Team created successfully",
+        "team": {
+            "id": team.id,
+            "name": team.name,
+            "description": team.description,
+            "created_by": team.created_by,
+            "is_active": team.is_active,
+            "created_at": (
+                team.created_at.isoformat()
+                if team.created_at else None
+            ),
+        },
+    }), 201
 
 
 @teams_bp.route("/", methods=["GET"])
@@ -115,11 +126,14 @@ async def list_user_teams():
     db = get_db()
     current_user = get_current_user()
 
-    # Get teams where user is a member
-    user_teams = db(
-        (db.team_members.user_id == current_user["id"])
-        & (db.resource_teams.id == db.team_members.team_id)
-    ).select(db.resource_teams.ALL, orderby=db.resource_teams.name).as_list()
+    # Get teams where user is a member. Regression: gh-22. Off the event
+    # loop via run_db() instead of blocking the request coroutine inline.
+    user_teams = await run_db(
+        lambda: db(
+            (db.team_members.user_id == current_user["id"])
+            & (db.resource_teams.id == db.team_members.team_id)
+        ).select(db.resource_teams.ALL, orderby=db.resource_teams.name).as_list()
+    )
 
     teams = []
     for team_row in user_teams:
@@ -154,17 +168,21 @@ async def get_team(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
     current_user = get_current_user()
 
     # Check if user is a member of the team
-    member = db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == current_user["id"])
-    ).select().first()
+    member = await run_db(
+        lambda: db(
+            (db.team_members.team_id == team_id)
+            & (db.team_members.user_id == current_user["id"])
+        ).select().first()
+    )
 
     if not member and user_has_role("admin"):
         pass  # Admins can view any team
@@ -172,7 +190,7 @@ async def get_team(team_id: int):
         return jsonify({"error": "Access denied"}), 403
 
     # Count members
-    member_count = db(db.team_members.team_id == team_id).count()
+    member_count = await run_db(lambda: db(db.team_members.team_id == team_id).count())
 
     return jsonify({
         "team": {
@@ -215,7 +233,9 @@ async def update_team(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -223,11 +243,13 @@ async def update_team(team_id: int):
 
     # Check permissions: only owner/admin can update
     if not user_has_role("admin"):
-        owner = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-            & (db.team_members.role == "owner")
-        ).select().first()
+        owner = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+                & (db.team_members.role == "owner")
+            ).select().first()
+        )
 
         if not owner:
             return jsonify({"error": "Access denied"}), 403
@@ -250,11 +272,15 @@ async def update_team(team_id: int):
                     "error": "Team name must be 255 characters or less"
                 }), 400
 
-            # Check uniqueness excluding current team
-            existing = db(
-                (db.resource_teams.name == name)
-                & (db.resource_teams.id != team_id)
-            ).select().first()
+            # Check uniqueness excluding current team. Regression: gh-22.
+            # Off the event loop via run_db() instead of blocking the
+            # request coroutine inline.
+            existing = await run_db(
+                lambda: db(
+                    (db.resource_teams.name == name)
+                    & (db.resource_teams.id != team_id)
+                ).select().first()
+            )
             if existing:
                 return jsonify({"error": "Team name already exists"}), 409
 
@@ -266,12 +292,27 @@ async def update_team(team_id: int):
         if "is_active" in data:
             update_data["is_active"] = bool(data["is_active"])
 
-        if update_data:
-            update_data["updated_at"] = datetime.utcnow()
-            db(db.resource_teams.id == team_id).update(**update_data)
-            db.commit()
+        # Regression: gh-22. Update + commit + the post-commit refetch is
+        # one unit of work -- stays in one run_db() closure per the house
+        # rule (see app/db/run_db.py), with its own rollback point inside
+        # the closure (a penguin-dal connection checkout can't be resumed
+        # on a different thread, so the outer except below must not also
+        # call db.rollback() -- single rollback point, never double).
+        def _apply_update() -> tuple[bool, Any]:
+            try:
+                if update_data:
+                    update_data["updated_at"] = datetime.utcnow()
+                    db(db.resource_teams.id == team_id).update(**update_data)
+                    db.commit()
+                return True, db.resource_teams(team_id)
+            except Exception as exc:
+                db.rollback()
+                return False, exc
 
-        team = db.resource_teams(team_id)
+        ok, team = await run_db(_apply_update)
+        if not ok:
+            log.exception(f"Error updating team {team_id}: {team}")
+            return jsonify({"error": str(team)}), 500
 
         return jsonify({
             "message": "Team updated successfully",
@@ -288,7 +329,6 @@ async def update_team(team_id: int):
         }), 200
 
     except Exception as e:
-        db.rollback()
         log.exception(f"Error updating team {team_id}: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -309,21 +349,31 @@ async def delete_team(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
-    try:
-        # Delete cascades to team_members and resource_assignments
-        db(db.resource_teams.id == team_id).delete()
-        db.commit()
+    # Delete cascades to team_members and resource_assignments. Regression:
+    # gh-22. Delete + commit is one unit of work -- stays in one run_db()
+    # closure per the house rule (see app/db/run_db.py), single rollback
+    # point inside the closure.
+    def _delete() -> tuple[bool, Any]:
+        try:
+            db(db.resource_teams.id == team_id).delete()
+            db.commit()
+            return True, None
+        except Exception as e:
+            db.rollback()
+            log.exception(f"Error deleting team {team_id}: {e}")
+            return False, e
 
-        return jsonify({"message": "Team deleted successfully"}), 200
+    ok, err = await run_db(_delete)
+    if not ok:
+        return jsonify({"error": str(err)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error deleting team {team_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Team deleted successfully"}), 200
 
 
 # ============================================================================
@@ -353,7 +403,9 @@ async def add_member(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -361,10 +413,12 @@ async def add_member(team_id: int):
 
     # Check permissions: team owner or admin
     if not user_has_role("admin"):
-        member_role = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        member_role = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not member_role or member_role.role not in ["owner", "admin"]:
             return jsonify({"error": "Access denied"}), 403
@@ -377,16 +431,21 @@ async def add_member(team_id: int):
     if not user_id:
         return jsonify({"error": "User ID required"}), 400
 
-    # Verify user exists
-    user = db.auth_user(user_id)
+    # Verify user exists + check if already a member -- one unit of work,
+    # no intervening await. Regression: gh-22.
+    def _check_preconditions() -> tuple[Any, Any]:
+        user = db.auth_user(user_id)
+        if not user:
+            return None, None
+        existing = db(
+            (db.team_members.team_id == team_id)
+            & (db.team_members.user_id == user_id)
+        ).select().first()
+        return user, existing
+
+    user, existing = await run_db(_check_preconditions)
     if not user:
         return jsonify({"error": "User not found"}), 404
-
-    # Check if already a member
-    existing = db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == user_id)
-    ).select().first()
 
     if existing:
         return jsonify({"error": "User is already a member"}), 409
@@ -408,17 +467,30 @@ async def add_member(team_id: int):
                     "error": "Invalid expires_at datetime format"
                 }), 400
 
-        member_id = db.team_members.insert(
-            team_id=team_id,
-            user_id=user_id,
-            role=role,
-            added_by=current_user["id"],
-            expires_at=expires_at,
-        )
+        # Regression: gh-22. Insert + commit + the post-commit refetch is
+        # one unit of work -- stays in one run_db() closure per the house
+        # rule (see app/db/run_db.py), single rollback point inside it.
+        def _add_member() -> tuple[bool, Any]:
+            try:
+                member_id = db.team_members.insert(
+                    team_id=team_id,
+                    user_id=user_id,
+                    role=role,
+                    added_by=current_user["id"],
+                    expires_at=expires_at,
+                )
 
-        db.commit()
+                db.commit()
 
-        member = db.team_members(member_id)
+                return True, db.team_members(member_id)
+            except Exception as exc:
+                db.rollback()
+                return False, exc
+
+        ok, member = await run_db(_add_member)
+        if not ok:
+            log.exception(f"Error adding member to team {team_id}: {member}")
+            return jsonify({"error": str(member)}), 500
 
         return jsonify({
             "message": "Member added successfully",
@@ -440,7 +512,6 @@ async def add_member(team_id: int):
         }), 201
 
     except Exception as e:
-        db.rollback()
         log.exception(f"Error adding member to team {team_id}: {e}")
         return jsonify({"error": str(e)}), 500
 
@@ -460,7 +531,9 @@ async def list_members(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -468,15 +541,19 @@ async def list_members(team_id: int):
 
     # Check if user is a member
     if not user_has_role("admin"):
-        member = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        member = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not member:
             return jsonify({"error": "Access denied"}), 403
 
-    members = db(db.team_members.team_id == team_id).select().as_list()
+    # Regression: gh-22 -- now off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    members = await run_db(lambda: db(db.team_members.team_id == team_id).select().as_list())
 
     members_data = []
     for member in members:
@@ -518,7 +595,9 @@ async def remove_member(team_id: int, user_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -526,35 +605,47 @@ async def remove_member(team_id: int, user_id: int):
 
     # Check permissions: only team admin/owner or global admin
     if not user_has_role("admin"):
-        requester_role = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        requester_role = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not requester_role or requester_role.role not in ["owner", "admin"]:
             return jsonify({"error": "Access denied"}), 403
 
-    member = db(
-        (db.team_members.team_id == team_id)
-        & (db.team_members.user_id == user_id)
-    ).select().first()
+    member = await run_db(
+        lambda: db(
+            (db.team_members.team_id == team_id)
+            & (db.team_members.user_id == user_id)
+        ).select().first()
+    )
 
     if not member:
         return jsonify({"error": "Team member not found"}), 404
 
-    try:
-        db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == user_id)
-        ).delete()
-        db.commit()
+    # Regression: gh-22. Delete + commit is one unit of work -- stays in
+    # one run_db() closure per the house rule (see app/db/run_db.py),
+    # single rollback point inside the closure.
+    def _delete() -> tuple[bool, Any]:
+        try:
+            db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == user_id)
+            ).delete()
+            db.commit()
+            return True, None
+        except Exception as e:
+            db.rollback()
+            return False, e
 
-        return jsonify({"message": "Member removed successfully"}), 200
+    ok, err = await run_db(_delete)
+    if not ok:
+        log.exception(f"Error removing member from team {team_id}: {err}")
+        return jsonify({"error": str(err)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error removing member from team {team_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Member removed successfully"}), 200
 
 
 # ============================================================================
@@ -583,7 +674,9 @@ async def assign_resource(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -591,10 +684,12 @@ async def assign_resource(team_id: int):
 
     # Check permissions
     if not user_has_role("admin"):
-        member = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        member = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not member or member.role not in ["owner", "admin"]:
             return jsonify({"error": "Access denied"}), 403
@@ -619,37 +714,44 @@ async def assign_resource(team_id: int):
     if not isinstance(permissions, (list, dict)):
         return jsonify({"error": "permissions must be a list or object"}), 400
 
-    try:
-        assignment_id = db.resource_assignments.insert(
-            team_id=team_id,
-            resource_type=resource_type,
-            resource_id=resource_id,
-            permissions=str(permissions),
-            assigned_by=current_user["id"],
-        )
+    # Regression: gh-22. Insert + commit + the post-commit refetch is one
+    # unit of work -- stays in one run_db() closure per the house rule
+    # (see app/db/run_db.py), single rollback point inside the closure.
+    def _assign() -> tuple[bool, Any]:
+        try:
+            assignment_id = db.resource_assignments.insert(
+                team_id=team_id,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                permissions=str(permissions),
+                assigned_by=current_user["id"],
+            )
 
-        db.commit()
+            db.commit()
 
-        assignment = db.resource_assignments(assignment_id)
+            return True, db.resource_assignments(assignment_id)
+        except Exception as e:
+            db.rollback()
+            return False, e
 
-        return jsonify({
-            "message": "Resource assigned successfully",
-            "assignment": {
-                "id": assignment.id,
-                "team_id": assignment.team_id,
-                "resource_type": assignment.resource_type,
-                "resource_id": assignment.resource_id,
-                "permissions": assignment.permissions,
-                "assigned_by": assignment.assigned_by,
-                "assigned_at": assignment.assigned_at.isoformat()
-                if assignment.assigned_at else None,
-            },
-        }), 201
+    ok, assignment = await run_db(_assign)
+    if not ok:
+        log.exception(f"Error assigning resource to team {team_id}: {assignment}")
+        return jsonify({"error": str(assignment)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error assigning resource to team {team_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "message": "Resource assigned successfully",
+        "assignment": {
+            "id": assignment.id,
+            "team_id": assignment.team_id,
+            "resource_type": assignment.resource_type,
+            "resource_id": assignment.resource_id,
+            "permissions": assignment.permissions,
+            "assigned_by": assignment.assigned_by,
+            "assigned_at": assignment.assigned_at.isoformat()
+            if assignment.assigned_at else None,
+        },
+    }), 201
 
 
 @teams_bp.route("/<int:team_id>/resources", methods=["GET"])
@@ -667,7 +769,9 @@ async def list_resources(team_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    team = await run_db(lambda: db.resource_teams(team_id))
     if not team:
         return jsonify({"error": "Team not found"}), 404
 
@@ -675,18 +779,18 @@ async def list_resources(team_id: int):
 
     # Check if user is a member
     if not user_has_role("admin"):
-        member = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        member = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not member:
             return jsonify({"error": "Access denied"}), 403
 
-    resources = (
-        db(db.resource_assignments.team_id == team_id)
-        .select()
-        .as_list()
+    resources = await run_db(
+        lambda: db(db.resource_assignments.team_id == team_id).select().as_list()
     )
 
     resources_data = []
@@ -728,11 +832,17 @@ async def unassign_resource(team_id: int, assignment_id: int):
     """
     db = get_db()
 
-    team = db.resource_teams(team_id)
+    # Regression: gh-22. Team + assignment fetch is one unit of work -- off
+    # the event loop via run_db() instead of blocking the request coroutine
+    # inline.
+    def _fetch() -> tuple[Any, Any]:
+        team = db.resource_teams(team_id)
+        assignment = db.resource_assignments(assignment_id)
+        return team, assignment
+
+    team, assignment = await run_db(_fetch)
     if not team:
         return jsonify({"error": "Team not found"}), 404
-
-    assignment = db.resource_assignments(assignment_id)
     if not assignment or assignment.team_id != team_id:
         return jsonify({"error": "Resource assignment not found"}), 404
 
@@ -740,21 +850,31 @@ async def unassign_resource(team_id: int, assignment_id: int):
 
     # Check permissions
     if not user_has_role("admin"):
-        member = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        member = await run_db(
+            lambda: db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == current_user["id"])
+            ).select().first()
+        )
 
         if not member or member.role not in ["owner", "admin"]:
             return jsonify({"error": "Access denied"}), 403
 
-    try:
-        db(db.resource_assignments.id == assignment_id).delete()
-        db.commit()
+    # Regression: gh-22. Delete + commit is one unit of work -- stays in
+    # one run_db() closure per the house rule (see app/db/run_db.py),
+    # single rollback point inside the closure.
+    def _delete() -> tuple[bool, Any]:
+        try:
+            db(db.resource_assignments.id == assignment_id).delete()
+            db.commit()
+            return True, None
+        except Exception as e:
+            db.rollback()
+            return False, e
 
-        return jsonify({"message": "Resource unassigned successfully"}), 200
+    ok, err = await run_db(_delete)
+    if not ok:
+        log.exception(f"Error unassigning resource from team {team_id}: {err}")
+        return jsonify({"error": str(err)}), 500
 
-    except Exception as e:
-        db.rollback()
-        log.exception(f"Error unassigning resource from team {team_id}: {e}")
-        return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Resource unassigned successfully"}), 200

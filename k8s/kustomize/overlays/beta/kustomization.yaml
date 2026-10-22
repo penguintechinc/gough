@@ -5,7 +5,7 @@ kind: Kustomization
 metadata:
   name: gough-beta
 
-namespace: gough-beta
+namespace: gough
 
 namePrefix: beta-
 
@@ -24,11 +24,14 @@ replicas:
     count: 1
 
 images:
-  - name: registry-dal2.penguintech.io/gough/api-manager
+  - name: api-manager
+    newName: ghcr.io/penguintechinc/gough/api-manager
     newTag: latest
-  - name: registry-dal2.penguintech.io/gough/webui
+  - name: webui
+    newName: ghcr.io/penguintechinc/gough/webui
     newTag: latest
-  - name: registry-dal2.penguintech.io/gough/worker-ipxe
+  - name: worker-ipxe
+    newName: ghcr.io/penguintechinc/gough/worker-ipxe
     newTag: latest
 
 configMapGenerator:

@@ -1,6 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import api, { setTokens, clearTokens, getAccessToken } from '../lib/api';
+import api from '../lib/api';
 import type { User, LoginCredentials, AuthState } from '../types';
 
 interface AuthStore extends AuthState {
@@ -11,109 +10,88 @@ interface AuthStore extends AuthState {
   setUser: (user: User | null) => void;
 }
 
-export const useAuthStore = create<AuthStore>()(
-  persist(
-    (set, get) => ({
-      user: null,
-      accessToken: null,
-      refreshToken: null,
-      isAuthenticated: false,
-      isLoading: true,
+// No `persist` middleware here on purpose — auth state lives in the
+// HttpOnly `gough_access`/`gough_refresh` cookies the backend manages.
+// Persisting anything auth-related to localStorage (directly or via
+// zustand's storage) would reintroduce the XSS-exfiltration risk this
+// migration removes.
+export const useAuthStore = create<AuthStore>()((set) => ({
+  user: null,
+  isAuthenticated: false,
+  isLoading: true,
 
-      login: async (credentials: LoginCredentials) => {
-        try {
-          const response = await api.post('/auth/login', credentials);
-          const { access_token, refresh_token, user } = response.data;
+  login: async (credentials: LoginCredentials) => {
+    try {
+      // The response body still includes tokens for programmatic/API
+      // clients, but the web UI ignores them — the browser already has
+      // the HttpOnly cookies from the Set-Cookie headers on this response.
+      const response = await api.post('/auth/login', credentials);
+      const { user } = response.data;
 
-          setTokens(access_token, refresh_token);
-
-          set({
-            user,
-            accessToken: access_token,
-            refreshToken: refresh_token,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-        } catch (error) {
-          clearTokens();
-          set({
-            user: null,
-            accessToken: null,
-            refreshToken: null,
-            isAuthenticated: false,
-            isLoading: false,
-          });
-          throw error;
-        }
-      },
-
-      logout: async () => {
-        try {
-          await api.post('/auth/logout');
-        } catch {
-          // Ignore logout errors
-        } finally {
-          clearTokens();
-          set({
-            user: null,
-            accessToken: null,
-            refreshToken: null,
-            isAuthenticated: false,
-            isLoading: false,
-          });
-        }
-      },
-
-      fetchUser: async () => {
-        try {
-          const response = await api.get('/auth/me');
-          set({ user: response.data, isLoading: false });
-        } catch {
-          set({ user: null, isLoading: false });
-        }
-      },
-
-      checkAuth: async () => {
-        const token = getAccessToken();
-        if (!token) {
-          set({ isAuthenticated: false, isLoading: false });
-          return false;
-        }
-
-        try {
-          const response = await api.get('/auth/me');
-          set({
-            user: response.data,
-            isAuthenticated: true,
-            isLoading: false,
-          });
-          return true;
-        } catch {
-          clearTokens();
-          set({
-            user: null,
-            accessToken: null,
-            refreshToken: null,
-            isAuthenticated: false,
-            isLoading: false,
-          });
-          return false;
-        }
-      },
-
-      setUser: (user: User | null) => {
-        set({ user });
-      },
-    }),
-    {
-      name: 'auth-storage',
-      partialize: (state) => ({
-        accessToken: state.accessToken,
-        refreshToken: state.refreshToken,
-      }),
+      set({
+        user,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+    } catch (error) {
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+      throw error;
     }
-  )
-);
+  },
+
+  logout: async () => {
+    try {
+      // Backend clears gough_access/gough_refresh/gough_csrf cookies.
+      await api.post('/auth/logout');
+    } catch {
+      // Ignore logout errors
+    } finally {
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+    }
+  },
+
+  fetchUser: async () => {
+    try {
+      const response = await api.get('/auth/me');
+      set({ user: response.data, isLoading: false });
+    } catch {
+      set({ user: null, isLoading: false });
+    }
+  },
+
+  checkAuth: async () => {
+    // Cookies are HttpOnly, so presence can't be checked client-side —
+    // ask the backend directly, which reads gough_access from the cookie.
+    try {
+      const response = await api.get('/auth/me');
+      set({
+        user: response.data,
+        isAuthenticated: true,
+        isLoading: false,
+      });
+      return true;
+    } catch {
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+      });
+      return false;
+    }
+  },
+
+  setUser: (user: User | null) => {
+    set({ user });
+  },
+}));
 
 // Hook for components
 export const useAuth = () => {

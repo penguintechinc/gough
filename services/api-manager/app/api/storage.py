@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import logging
+import uuid
 from datetime import datetime
+from typing import Optional, Any
 
 from quart import Blueprint, jsonify, request
 
 from ..auth import require_auth, require_role
+from ..db.run_db import run_db
 from ..models import get_db
 from ..services.storage import (
     StorageConfig,
@@ -23,10 +26,27 @@ from ..services.storage import (
     StorageValidationError,
     get_storage_service,
 )
+from ._dto import serialize_storage_config
+from ._helpers import envelope_success, err_bad_request, err_not_found
 
 log = logging.getLogger(__name__)
 
 storage_bp = Blueprint("storage", __name__)
+
+
+def _user_has_scope(scope: str) -> bool:
+    """Check if current user has a specific scope."""
+    from ..middleware import get_current_user
+    user = get_current_user() or {}
+    payload = user.get("_jwt_payload") or {}
+    raw = payload.get("scope", "")
+    if isinstance(raw, list):
+        scopes = {s for s in raw if isinstance(s, str)}
+    elif isinstance(raw, str):
+        scopes = set(raw.split())
+    else:
+        scopes = set()
+    return scope in scopes
 
 
 @storage_bp.route("/configs", methods=["GET"])
@@ -40,23 +60,13 @@ async def list_storage_configs():
     """
     db = get_db()
 
-    configs = []
-    for row in db(db.storage_config).select(orderby=~db.storage_config.is_default):
-        configs.append(
-            {
-                "id": row.id,
-                "name": row.name,
-                "provider_type": row.provider_type,
-                "endpoint_url": row.endpoint_url,
-                "region": row.region,
-                "bucket_name": row.bucket_name,
-                "is_default": row.is_default,
-                "is_active": row.is_active,
-                "use_ssl": row.use_ssl,
-                "created_at": row.created_at.isoformat() if row.created_at else None,
-                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            }
-        )
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    rows = await run_db(
+        lambda: db(db.storage_config).select(orderby=~db.storage_config.is_default)
+    )
+
+    configs = [serialize_storage_config(row) for row in rows]
 
     return jsonify({"configs": configs}), 200
 
@@ -116,51 +126,44 @@ async def create_storage_config():
 
     db = get_db()
 
-    existing = db(db.storage_config.name == name).select().first()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    existing = await run_db(lambda: db(db.storage_config.name == name).select().first())
     if existing:
         return jsonify({"error": f"Storage configuration '{name}' already exists"}), 409
 
-    if is_default:
-        db(db.storage_config).update(is_default=False)
-
     config_data_json = json.dumps(config_data) if config_data else None
+    created_by = request.user.id
 
-    config_id = db.storage_config.insert(
-        name=name,
-        provider_type=provider_type,
-        endpoint_url=endpoint_url,
-        region=region,
-        bucket_name=bucket_name,
-        credentials_path=credentials_path,
-        is_default=is_default,
-        is_active=True,
-        use_ssl=use_ssl,
-        config_data=config_data_json,
-        created_by=request.user.id,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
-    )
-    db.commit()
+    # Regression: gh-22. Clearing the old default + insert + commit + the
+    # post-commit refetch is one unit of work -- stays in one run_db()
+    # closure per the house rule (see app/db/run_db.py).
+    def _create() -> Any:
+        if is_default:
+            db(db.storage_config).update(is_default=False)
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+        config_id = db.storage_config.insert(
+            name=name,
+            provider_type=provider_type,
+            endpoint_url=endpoint_url,
+            region=region,
+            bucket_name=bucket_name,
+            credentials_path=credentials_path,
+            is_default=is_default,
+            is_active=True,
+            use_ssl=use_ssl,
+            config_data=config_data_json,
+            created_by=created_by,
+            created_at=datetime.utcnow(),
+            updated_at=datetime.utcnow(),
+        )
+        db.commit()
 
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "created_at": config_row.created_at.isoformat(),
-            }
-        ),
-        201,
-    )
+        return db(db.storage_config.id == config_id).select().first()
+
+    config_row = await run_db(_create)
+
+    return jsonify(serialize_storage_config(config_row)), 201
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["GET"])
@@ -178,42 +181,20 @@ async def get_storage_config(config_id: int):
     """
     db = get_db()
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    config_row = await run_db(lambda: db(db.storage_config.id == config_id).select().first())
 
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
 
-    config_data = {}
-    if config_row.config_data:
-        try:
-            config_data = json.loads(config_row.config_data)
-        except json.JSONDecodeError:
-            log.warning(f"Invalid JSON in config_data for storage {config_id}")
-
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "credentials_path": config_row.credentials_path,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "config_data": config_data,
-                "created_at": config_row.created_at.isoformat()
-                if config_row.created_at
-                else None,
-                "updated_at": config_row.updated_at.isoformat()
-                if config_row.updated_at
-                else None,
-            }
-        ),
-        200,
-    )
+    # Explicit allow-list projection -- never the raw row. Regression: audit
+    # output-validation. This handler used to echo ``credentials_path`` (a
+    # secrets-manager pointer) and ``config_data`` (provider-specific JSON
+    # that can itself carry inline credentials, e.g. a GCS service-account
+    # key) straight from the row, the same raw-row-echo shape as the fixed
+    # clouds.py provider leak. See ``app.api._dto.STORAGE_CONFIG_PUBLIC_FIELDS``.
+    return jsonify(serialize_storage_config(config_row)), 200
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["PUT"])
@@ -242,7 +223,9 @@ async def update_storage_config(config_id: int):
     """
     db = get_db()
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+    # Regression: gh-22. Off the event loop via run_db() instead of
+    # blocking the request coroutine inline.
+    config_row = await run_db(lambda: db(db.storage_config.id == config_id).select().first())
 
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
@@ -257,10 +240,14 @@ async def update_storage_config(config_id: int):
     if "name" in data:
         name = data["name"].strip()
         if name:
-            existing = db(
-                (db.storage_config.name == name)
-                & (db.storage_config.id != config_id)
-            ).select().first()
+            # Regression: gh-22. Off the event loop via run_db() instead
+            # of blocking the request coroutine inline.
+            existing = await run_db(
+                lambda: db(
+                    (db.storage_config.name == name)
+                    & (db.storage_config.id != config_id)
+                ).select().first()
+            )
             if existing:
                 return (
                     jsonify({"error": f"Storage configuration '{name}' already exists"}),
@@ -291,28 +278,17 @@ async def update_storage_config(config_id: int):
     if "config_data" in data:
         update_fields["config_data"] = json.dumps(data["config_data"])
 
-    db(db.storage_config.id == config_id).update(**update_fields)
-    db.commit()
+    # Regression: gh-22. Update + commit + the post-commit refetch is one
+    # unit of work -- stays in one run_db() closure per the house rule
+    # (see app/db/run_db.py).
+    def _apply_update() -> Any:
+        db(db.storage_config.id == config_id).update(**update_fields)
+        db.commit()
+        return db(db.storage_config.id == config_id).select().first()
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+    config_row = await run_db(_apply_update)
 
-    return (
-        jsonify(
-            {
-                "id": config_row.id,
-                "name": config_row.name,
-                "provider_type": config_row.provider_type,
-                "endpoint_url": config_row.endpoint_url,
-                "region": config_row.region,
-                "bucket_name": config_row.bucket_name,
-                "is_default": config_row.is_default,
-                "is_active": config_row.is_active,
-                "use_ssl": config_row.use_ssl,
-                "updated_at": config_row.updated_at.isoformat(),
-            }
-        ),
-        200,
-    )
+    return jsonify(serialize_storage_config(config_row)), 200
 
 
 @storage_bp.route("/configs/<int:config_id>", methods=["DELETE"])
@@ -331,12 +307,23 @@ async def delete_storage_config(config_id: int):
     """
     db = get_db()
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+    # Regression: gh-22. Fetch + (conditional) delete + commit is one unit
+    # of work -- stays in one run_db() closure per the house rule (see
+    # app/db/run_db.py).
+    def _delete() -> str:
+        config_row = db(db.storage_config.id == config_id).select().first()
+        if not config_row:
+            return "not_found"
+        if config_row.is_default:
+            return "is_default"
+        db(db.storage_config.id == config_id).delete()
+        db.commit()
+        return "ok"
 
-    if not config_row:
+    status = await run_db(_delete)
+    if status == "not_found":
         return jsonify({"error": "Storage configuration not found"}), 404
-
-    if config_row.is_default:
+    if status == "is_default":
         return (
             jsonify(
                 {
@@ -345,9 +332,6 @@ async def delete_storage_config(config_id: int):
             ),
             409,
         )
-
-    db(db.storage_config.id == config_id).delete()
-    db.commit()
 
     return "", 204
 
@@ -391,14 +375,21 @@ async def set_default_storage_config(config_id: int):
     """
     db = get_db()
 
-    config_row = db(db.storage_config.id == config_id).select().first()
+    # Regression: gh-22. Fetch + (conditional) clear-old-default +
+    # set-new-default + commit is one unit of work -- stays in one
+    # run_db() closure per the house rule (see app/db/run_db.py).
+    def _set_default() -> Any:
+        config_row = db(db.storage_config.id == config_id).select().first()
+        if not config_row:
+            return None
+        db(db.storage_config).update(is_default=False)
+        db(db.storage_config.id == config_id).update(is_default=True)
+        db.commit()
+        return config_row
 
+    config_row = await run_db(_set_default)
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
-
-    db(db.storage_config).update(is_default=False)
-    db(db.storage_config.id == config_id).update(is_default=True)
-    db.commit()
 
     return jsonify({"message": f"Storage '{config_row.name}' set as default"}), 200
 
@@ -598,3 +589,148 @@ async def delete_object(object_key: str):
         return jsonify({"error": "Storage configuration not found"}), 404
     except StorageError as e:
         return jsonify({"error": str(e)}), 400
+
+
+# ============================================================================
+# Storage Quotas (Plan 5)
+# ============================================================================
+
+
+@storage_bp.route("/quotas", methods=["GET"])
+@require_auth
+async def list_storage_quotas():
+    """List storage quotas.
+
+    Spec: ``GET /api/v1/storage/quotas``
+    Scope: ``gough.storage.read``
+
+    Query Parameters:
+        tenant_id: Filter by tenant (optional)
+
+    Returns:
+        200: List of storage quotas with pagination metadata
+    """
+    if not _user_has_scope("gough.storage.read"):
+        return jsonify({"error": "Insufficient scope: gough.storage.read required"}), 403
+
+    db = get_db()
+
+    # Parse query parameters
+    tenant_id_filter = request.args.get("tenant_id", None)
+
+    # Build query
+    query = db(db.storage_quotas)
+    if tenant_id_filter:
+        query = query(db.storage_quotas.tenant_id == tenant_id_filter)
+
+    # Fetch all quotas. Regression: gh-22 -- now off the event loop via
+    # run_db() instead of blocking the request coroutine inline.
+    quotas_rows = await run_db(lambda: query.select(orderby=~db.storage_quotas.created_at))
+
+    quotas = []
+    for row in quotas_rows:
+        quotas.append({
+            "id": str(row.id),
+            "tenant_id": row.tenant_id,
+            "resource_type": row.resource_type,
+            "limit_value": float(row.limit_value) if row.limit_value else None,
+            "used_value": float(row.used_value) if row.used_value else None,
+            "unit": row.unit,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        })
+
+    return envelope_success({
+        "quotas": quotas,
+        "total": len(quotas),
+    })
+
+
+@storage_bp.route("/quota-request", methods=["POST"])
+@require_auth
+async def request_storage_quota():
+    """Request a storage quota increase.
+
+    Spec: ``POST /api/v1/storage/quota-request``
+    Scope: ``gough.storage.write``
+
+    Request Body:
+        tenant_id: Tenant ID (required)
+        resource_type: Type of resource (e.g., "storage", "bandwidth", "buckets") (required)
+        requested_value: Requested quota value (required)
+        unit: Unit of measurement (e.g., "GB", "TB", "count") (required)
+        justification: Reason for the request (required)
+
+    Returns:
+        201: Quota request created
+        400: Invalid request
+    """
+    if not _user_has_scope("gough.storage.write"):
+        return jsonify({"error": "Insufficient scope: gough.storage.write required"}), 403
+
+    data = await request.get_json(silent=True)
+    if not data:
+        return err_bad_request("JSON body required")
+
+    # Validate required fields
+    required_fields = ["tenant_id", "resource_type", "requested_value", "unit", "justification"]
+    for field in required_fields:
+        if field not in data or not data.get(field):
+            return err_bad_request(f"Required field missing: {field}")
+
+    tenant_id = data.get("tenant_id", "").strip()
+    resource_type = data.get("resource_type", "").strip()
+    requested_value = data.get("requested_value")
+    unit = data.get("unit", "").strip()
+    justification = data.get("justification", "").strip()
+
+    # Validate requested_value is numeric
+    try:
+        requested_value = float(requested_value)
+    except (ValueError, TypeError):
+        return err_bad_request("requested_value must be a number")
+
+    db = get_db()
+    request_id = str(uuid.uuid4())
+    now = datetime.utcnow()
+
+    # Regression: gh-22. Insert + commit is one unit of work -- stays in
+    # one run_db() closure per the house rule (see app/db/run_db.py),
+    # single rollback point inside the closure.
+    def _insert() -> tuple[bool, Any]:
+        try:
+            db.storage_quota_requests.insert(
+                id=request_id,
+                tenant_id=tenant_id,
+                resource_type=resource_type,
+                requested_value=requested_value,
+                unit=unit,
+                justification=justification,
+                status="pending",
+                created_at=now,
+                updated_at=now,
+            )
+            db.commit()
+            return True, None
+        except Exception as exc:  # noqa: BLE001
+            db.rollback()
+            return False, exc
+
+    ok, exc = await run_db(_insert)
+    if not ok:
+        log.exception("Error creating storage quota request: %s", exc)
+        return jsonify({"error": f"Internal server error: {str(exc)}"}), 500
+
+    return envelope_success(
+        {
+            "id": request_id,
+            "tenant_id": tenant_id,
+            "resource_type": resource_type,
+            "requested_value": requested_value,
+            "unit": unit,
+            "justification": justification,
+            "status": "pending",
+            "created_at": now.isoformat(),
+        },
+        status_code=201,
+    )

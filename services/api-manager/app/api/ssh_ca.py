@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta
+from typing import Any
 
 from quart import Blueprint, g, jsonify, request
 
+from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required
 from ..audit import AuditEventType, get_audit_logger
 from ..models import get_db
@@ -48,8 +50,12 @@ async def initialize_ca():
     db = get_db()
 
     try:
-        # Check if CA already exists
-        existing_ca = db(db.ssh_ca_config.id > 0).select().first()
+        # Check if CA already exists. Regression: gh-22. Off the event loop
+        # via run_db() instead of blocking the request coroutine inline.
+        def _fetch_existing() -> Any:
+            return db(db.ssh_ca_config.id > 0).select().first()
+
+        existing_ca = await run_db(_fetch_existing)
         if existing_ca:
             return (
                 jsonify(
@@ -70,27 +76,35 @@ async def initialize_ca():
             else "Gough SSH CA"
         )
 
-        db.ssh_ca_config.insert(
-            ca_name=ca_name,
-            public_key=ca.get_public_key(),
-            created_at=datetime.utcnow(),
-            initialized=True,
-        )
-        db.commit()
+        # Regression: gh-22. Off the event loop via run_db() instead of
+        # blocking the request coroutine inline.
+        def _store_ca_config() -> None:
+            db.ssh_ca_config.insert(
+                ca_name=ca_name,
+                public_key=ca.get_public_key(),
+                created_at=datetime.utcnow(),
+                initialized=True,
+            )
+            db.commit()
+
+        await run_db(_store_ca_config)
 
         current_user = get_current_user()
 
-        # Audit log
+        # Audit log. Regression: gh-22. AuditLogger.log() issues its own
+        # synchronous db.system_logs.insert()+commit() -- off the event
+        # loop via run_db() instead of blocking the request coroutine
+        # inline.
         audit_logger = get_audit_logger()
         if audit_logger:
-            audit_logger.log(
+            await run_db(lambda: audit_logger.log(
                 event_type=AuditEventType.CERT_ISSUED,
                 message=f"SSH CA initialized: {ca_name}",
                 user_id=current_user["id"],
                 resource_type="ssh_ca",
                 resource_id="0",
                 details={"action": "ca_initialization", "ca_name": ca_name},
-            )
+            ))
 
         log.info(f"SSH CA initialized by user {current_user['id']}")
 
@@ -128,8 +142,12 @@ async def get_public_key():
     db = get_db()
 
     try:
-        # Get CA configuration
-        ca_config = db(db.ssh_ca_config.id > 0).select().first()
+        # Get CA configuration. Regression: gh-22. Off the event loop via
+        # run_db() instead of blocking the request coroutine inline.
+        def _fetch_ca_config() -> Any:
+            return db(db.ssh_ca_config.id > 0).select().first()
+
+        ca_config = await run_db(_fetch_ca_config)
 
         if not ca_config:
             return (
@@ -212,10 +230,16 @@ async def sign_certificate():
     try:
         current_user = get_current_user()
 
-        # Check user has shell access to resource
-        if not check_shell_access(
-            current_user["id"], resource_type, resource_id
-        ):
+        # Check user has shell access to resource. Regression: gh-22. Off
+        # the event loop via run_db() instead of blocking the request
+        # coroutine inline (check_shell_access issues its own direct
+        # penguin-dal reads -- app.permissions.check_resource_permission).
+        def _check_access() -> bool:
+            return check_shell_access(
+                current_user["id"], resource_type, resource_id
+            )
+
+        if not await run_db(_check_access):
             return (
                 jsonify(
                     {
@@ -228,8 +252,12 @@ async def sign_certificate():
                 400,
             )
 
-        # Get CA configuration
-        ca_config = db(db.ssh_ca_config.id > 0).select().first()
+        # Get CA configuration. Regression: gh-22. Off the event loop via
+        # run_db() instead of blocking the request coroutine inline.
+        def _fetch_ca_config() -> Any:
+            return db(db.ssh_ca_config.id > 0).select().first()
+
+        ca_config = await run_db(_fetch_ca_config)
         if not ca_config:
             return (
                 jsonify({"error": "Certificate Authority not initialized"}),
@@ -248,10 +276,13 @@ async def sign_certificate():
         # Calculate validity end time
         valid_until = datetime.utcnow() + timedelta(seconds=validity_seconds)
 
-        # Audit log
+        # Audit log. Regression: gh-22. AuditLogger.log() issues its own
+        # synchronous db.system_logs.insert()+commit() -- off the event
+        # loop via run_db() instead of blocking the request coroutine
+        # inline.
         audit_logger = get_audit_logger()
         if audit_logger:
-            audit_logger.log(
+            await run_db(lambda: audit_logger.log(
                 event_type=AuditEventType.CERT_ISSUED,
                 message=f"Certificate signed for {resource_type}/{resource_id}",
                 user_id=current_user["id"],
@@ -263,7 +294,7 @@ async def sign_certificate():
                     "validity_seconds": validity_seconds,
                     "key_id": key_id,
                 },
-            )
+            ))
 
         log.info(
             f"SSH certificate signed for user {current_user['id']} "

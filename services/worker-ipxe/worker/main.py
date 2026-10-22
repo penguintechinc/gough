@@ -5,11 +5,11 @@ Starts all services (DHCP, TFTP, HTTP) and manages lifecycle.
 """
 
 import asyncio
-import logging
 import signal
 import sys
-import structlog
+from penguintechinc_utils import get_logger
 from prometheus_client import start_http_server
+import structlog
 
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
@@ -19,20 +19,7 @@ from worker.services.http_server import HTTPBootServer
 from worker.services.dhcp_proxy import DHCPProxyServer
 from worker.services.dhcp_server import DHCPFullServer
 
-# Configure structured logging
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.add_log_level,
-        structlog.processors.JSONRenderer(),
-    ],
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),
-    context_class=dict,
-    logger_factory=structlog.PrintLoggerFactory(),
-    cache_logger_on_first_use=True,
-)
-
-logger = structlog.get_logger()
+logger = get_logger(__name__)
 
 
 class WorkerIPXE:

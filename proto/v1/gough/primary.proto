@@ -1,0 +1,55 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Primary {
+  rpc Status(PrimaryStatusRequest) returns (PrimaryStatusResponse);
+  rpc Replace(ReplaceRequest) returns (ReplaceResponse);
+  rpc ForceRecover(ForceRecoverRequest) returns (ForceRecoverResponse);
+  rpc FrontendSwitch(FrontendSwitchRequest) returns (FrontendSwitchResponse);
+  rpc RotateCA(RotateCARequest) returns (RotateCAResponse);
+}
+
+message PrimaryStatusRequest {
+  string node_id = 1;
+}
+
+message PrimaryStatusResponse {
+  string status = 1;
+  string leader_id = 2;
+  int64 term = 3;
+}
+
+message ReplaceRequest {
+  string replacement_config = 1;
+}
+
+message ReplaceResponse {
+  string status = 1;
+}
+
+message ForceRecoverRequest {
+  string recovery_params = 1;
+}
+
+message ForceRecoverResponse {
+  string status = 1;
+}
+
+message FrontendSwitchRequest {
+  string target_frontend = 1;
+}
+
+message FrontendSwitchResponse {
+  string status = 1;
+}
+
+message RotateCARequest {
+  string rotation_params = 1;
+}
+
+message RotateCAResponse {
+  string new_ca_cert = 1;
+}

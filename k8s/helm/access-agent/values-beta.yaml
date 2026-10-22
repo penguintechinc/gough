@@ -1,0 +1,30 @@
+# Beta environment overrides (dal2 cluster)
+namespace: gough
+replicaCount: 2
+image:
+  registry: ghcr.io/penguintechinc/gough
+  pullPolicy: Always
+imagePullSecrets:
+  - name: ghcr-pull-secret
+env:
+  - name: GOUGH_LOG_LEVEL
+    value: "INFO"
+configMapData:
+  management-server-url: "https://gough.penguintech.cloud"
+  heartbeat-interval: "30"
+  verify-ssl: "true"
+  log-level: "INFO"
+  capabilities: "ssh"
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 125m
+    memory: 256Mi
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80

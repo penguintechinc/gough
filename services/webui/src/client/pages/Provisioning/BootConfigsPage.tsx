@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import Card from '../../components/Card';
 import Button from '../../components/Button';
 import TabNavigation from '../../components/TabNavigation';
+import api from '../../lib/api';
 
 interface BootConfig {
   id: number;
@@ -47,14 +48,8 @@ export default function BootConfigsPage() {
   const fetchConfigs = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch('/api/v1/provisioning/boot-configs', {
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to fetch boot configs');
-      const data = await response.json();
-      setConfigs(data.items || []);
+      const response = await api.get('/provisioning/boot-configs');
+      setConfigs(response.data.items || []);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load boot configs');
@@ -68,15 +63,7 @@ export default function BootConfigsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch('/api/v1/provisioning/boot-configs', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to create boot config');
+      await api.post('/provisioning/boot-configs', formData);
       setShowCreateModal(false);
       setFormData({ name: '', description: '', boot_type: 'ipxe', script: '', kernel_params: '' });
       fetchConfigs();
@@ -92,15 +79,7 @@ export default function BootConfigsPage() {
     if (!selectedConfig) return;
     setIsSubmitting(true);
     try {
-      const response = await fetch(`/api/v1/provisioning/boot-configs/${selectedConfig.id}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-        body: JSON.stringify(formData),
-      });
-      if (!response.ok) throw new Error('Failed to update boot config');
+      await api.put(`/provisioning/boot-configs/${selectedConfig.id}`, formData);
       setShowEditModal(false);
       setSelectedConfig(null);
       setFormData({ name: '', description: '', boot_type: 'ipxe', script: '', kernel_params: '' });
@@ -115,13 +94,7 @@ export default function BootConfigsPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Are you sure you want to delete this boot config?')) return;
     try {
-      const response = await fetch(`/api/v1/provisioning/boot-configs/${id}`, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${localStorage.getItem('access_token')}`,
-        },
-      });
-      if (!response.ok) throw new Error('Failed to delete boot config');
+      await api.delete(`/provisioning/boot-configs/${id}`);
       fetchConfigs();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete boot config');

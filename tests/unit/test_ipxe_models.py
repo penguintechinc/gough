@@ -3,7 +3,7 @@
 Tests:
 - iPXE configuration table structure and constraints
 - Machine inventory table structure and constraints
-- Egg/deployable package table structure and constraints
+- Biome/deployable package table structure and constraints
 - Boot image table structure and constraints
 - Boot configuration table structure and constraints
 - Deployment job table structure and constraints
@@ -36,7 +36,7 @@ class TestIPXEConfig:
         )
         db.commit()
 
-        config = db.ipxe_config(config_id)
+        config = db.ipxe_config[config_id]
         assert config is not None
         assert config.name == "prod-ipxe"
         assert config.dhcp_mode == "proxy"
@@ -72,7 +72,7 @@ class TestIPXEConfig:
                 dhcp_interface="eth0"
             )
             db.commit()
-            assert db.ipxe_config(config_id).dhcp_mode == mode
+            assert db.ipxe_config[config_id].dhcp_mode == mode
 
     def test_ipxe_config_timestamps(self, db):
         """Test that timestamps are automatically set."""
@@ -83,7 +83,7 @@ class TestIPXEConfig:
         )
         db.commit()
 
-        config = db.ipxe_config(config_id)
+        config = db.ipxe_config[config_id]
         assert config.created_at is not None
         assert config.updated_at is not None
         assert isinstance(config.created_at, datetime)
@@ -111,7 +111,7 @@ class TestIPXEMachine:
         )
         db.commit()
 
-        machine = db.ipxe_machines(machine_id)
+        machine = db.ipxe_machines[machine_id]
         assert machine.system_id == "node-001"
         assert machine.hostname == "server-01.local"
         assert machine.mac_address == "00:1a:2b:3c:4d:5e"
@@ -147,7 +147,7 @@ class TestIPXEMachine:
                 status=status
             )
             db.commit()
-            assert db.ipxe_machines(machine_id).status == status
+            assert db.ipxe_machines[machine_id].status == status
 
     def test_machine_boot_modes(self, db):
         """Test valid boot modes."""
@@ -160,7 +160,7 @@ class TestIPXEMachine:
                 boot_mode=mode
             )
             db.commit()
-            assert db.ipxe_machines(machine_id).boot_mode == mode
+            assert db.ipxe_machines[machine_id].boot_mode == mode
 
     def test_machine_tags_storage(self, db):
         """Test storing tags as JSON."""
@@ -172,133 +172,119 @@ class TestIPXEMachine:
         )
         db.commit()
 
-        machine = db.ipxe_machines(machine_id)
+        machine = db.ipxe_machines[machine_id]
         stored_tags = json.loads(machine.tags) if machine.tags else []
         assert stored_tags == tags
 
 
-class TestEgg:
-    """Tests for deployable eggs table."""
+class TestBiome:
+    """Tests for deployable biomes table."""
 
-    def test_create_snap_egg(self, db):
-        """Test creating a snap-type egg."""
-        egg_id = db.eggs.insert(
-            name="postgresql",
-            display_name="PostgreSQL Database",
-            description="PostgreSQL database snap",
-            egg_type="snap",
-            version="15.0",
-            category="database",
-            snap_name="postgresql",
-            snap_channel="stable",
-            snap_classic=False,
-            is_active=True,
-            required_architecture="amd64"
+    def test_create_lxc_biome(self, db):
+        """Test creating an LXC workload biome."""
+        biome_id = db.biomes.insert(
+            name="k8s-worker",
+            biome_kind="k8s-worker",
+            workload_type="lxc",
+            phase="post_deploy",
+            registry_url="ghcr.io/penguintechinc/gough/k8s-worker:v1.0.0",
+            tenant_id="__default__"
         )
         db.commit()
 
-        egg = db.eggs(egg_id)
-        assert egg.name == "postgresql"
-        assert egg.egg_type == "snap"
-        assert egg.snap_name == "postgresql"
-        assert egg.snap_channel == "stable"
+        biome = db.biomes[biome_id]
+        assert biome.name == "k8s-worker"
+        assert biome.biome_kind == "k8s-worker"
+        assert biome.workload_type == "lxc"
+        assert biome.phase == "post_deploy"
 
-    def test_create_cloud_init_egg(self, db):
-        """Test creating a cloud-init egg."""
-        cloud_init = """#cloud-config
-packages:
-  - curl
-  - git
-runcmd:
-  - echo "Setup complete"
-"""
-        egg_id = db.eggs.insert(
-            name="base-ubuntu",
-            display_name="Base Ubuntu",
-            egg_type="cloud_init",
-            cloud_init_content=cloud_init,
-            is_active=True
+    def test_create_host_biome(self, db):
+        """Test creating a host-mode biome."""
+        biome_id = db.biomes.insert(
+            name="nest-agent",
+            biome_kind="nest-agent",
+            workload_type="host",
+            phase="phase2_initial",
+            registry_url="ghcr.io/penguintechinc/gough/nest-agent:v1.0.0",
+            tenant_id="__default__"
         )
         db.commit()
 
-        egg = db.eggs(egg_id)
-        assert egg.egg_type == "cloud_init"
-        assert "packages:" in egg.cloud_init_content
-        assert "curl" in egg.cloud_init_content
+        biome = db.biomes[biome_id]
+        assert biome.name == "nest-agent"
+        assert biome.biome_kind == "nest-agent"
+        assert biome.workload_type == "host"
+        assert biome.phase == "phase2_initial"
 
-    def test_create_lxd_container_egg(self, db):
-        """Test creating an LXD container egg."""
-        egg_id = db.eggs.insert(
-            name="ubuntu-container",
-            display_name="Ubuntu Container",
-            egg_type="lxd_container",
-            lxd_image_alias="ubuntu-24.04",
-            lxd_image_url="images://ubuntu/24.04/cloud",
-            lxd_profiles=json.dumps(["default", "network"]),
-            is_active=True
+    def test_create_biome_with_hardware_tags(self, db):
+        """Test creating a biome with hardware tag requirements."""
+        biome_id = db.biomes.insert(
+            name="longhorn-agent",
+            biome_kind="longhorn-agent",
+            workload_type="lxc",
+            phase="post_deploy",
+            requires_hardware_tags=json.dumps(["disk:count:2", "mem:total-gb:8"]),
+            registry_url="ghcr.io/penguintechinc/gough/longhorn-agent:v1.0.0",
+            tenant_id="__default__"
         )
         db.commit()
 
-        egg = db.eggs(egg_id)
-        assert egg.egg_type == "lxd_container"
-        assert egg.lxd_image_alias == "ubuntu-24.04"
-        profiles = json.loads(egg.lxd_profiles)
-        assert "default" in profiles
+        biome = db.biomes[biome_id]
+        assert biome.name == "longhorn-agent"
+        tags = json.loads(biome.requires_hardware_tags)
+        assert "disk:count:2" in tags
+        assert "mem:total-gb:8" in tags
 
-    def test_egg_unique_name(self, db):
-        """Test that egg names are unique."""
-        db.eggs.insert(
-            name="unique-egg",
-            display_name="Unique Egg",
-            egg_type="snap"
+    def test_biome_unique_name(self, db):
+        """Test that biome names are unique."""
+        db.biomes.insert(
+            name="unique-biome",
+            biome_kind="custom",
+            workload_type="lxc"
         )
         db.commit()
 
         with pytest.raises(Exception):
-            db.eggs.insert(
-                name="unique-egg",
-                display_name="Another Egg",
-                egg_type="snap"
+            db.biomes.insert(
+                name="unique-biome",
+                biome_kind="custom",
+                workload_type="lxc"
             )
             db.commit()
 
-    def test_egg_dependencies(self, db):
-        """Test storing egg dependencies."""
-        egg1_id = db.eggs.insert(
-            name="base",
-            display_name="Base",
-            egg_type="snap"
+    def test_biome_with_signing(self, db):
+        """Test creating a biome with signature verification."""
+        biome_id = db.biomes.insert(
+            name="signed-biome",
+            biome_kind="custom",
+            workload_type="lxc",
+            signing_key_id="cosign-prod-key",
+            image_digest="sha256:abc123def456",
+            signature_verified=True
         )
         db.commit()
 
-        egg2_id = db.eggs.insert(
-            name="app",
-            display_name="App",
-            egg_type="snap",
-            dependencies=json.dumps([egg1_id])
+        biome = db.biomes[biome_id]
+        assert biome.signing_key_id == "cosign-prod-key"
+        assert biome.image_digest == "sha256:abc123def456"
+        assert biome.signature_verified is True
+
+    def test_biome_hardware_requirements(self, db):
+        """Test storing hardware requirement tags."""
+        biome_id = db.biomes.insert(
+            name="gpu-workload",
+            biome_kind="cuda-app",
+            workload_type="lxc",
+            requires_hardware_tags=json.dumps(["mem:total-gb:4", "disk:count:1"]),
+            forbids_hardware_tags=json.dumps(["gpu:nvidia"])
         )
         db.commit()
 
-        egg = db.eggs(egg2_id)
-        deps = json.loads(egg.dependencies) if egg.dependencies else []
-        assert egg1_id in deps
-
-    def test_egg_resource_requirements(self, db):
-        """Test storing resource requirements."""
-        egg_id = db.eggs.insert(
-            name="heavy-app",
-            display_name="Heavy App",
-            egg_type="snap",
-            min_ram_mb=4096,
-            min_disk_gb=100,
-            required_architecture="arm64"
-        )
-        db.commit()
-
-        egg = db.eggs(egg_id)
-        assert egg.min_ram_mb == 4096
-        assert egg.min_disk_gb == 100
-        assert egg.required_architecture == "arm64"
+        biome = db.biomes[biome_id]
+        requires = json.loads(biome.requires_hardware_tags)
+        forbids = json.loads(biome.forbids_hardware_tags)
+        assert "mem:total-gb:4" in requires
+        assert "gpu:nvidia" in forbids
 
 
 class TestIPXEImage:
@@ -324,7 +310,7 @@ class TestIPXEImage:
         )
         db.commit()
 
-        image = db.ipxe_images(image_id)
+        image = db.ipxe_images[image_id]
         assert image.name == "ubuntu-24.04"
         assert image.os_name == "ubuntu"
         assert image.os_version == "24.04"
@@ -343,7 +329,7 @@ class TestIPXEImage:
                 image_type=img_type
             )
             db.commit()
-            assert db.ipxe_images(image_id).image_type == img_type
+            assert db.ipxe_images[image_id].image_type == img_type
 
     def test_image_architecture(self, db):
         """Test valid architectures for images."""
@@ -357,7 +343,7 @@ class TestIPXEImage:
                 architecture=arch
             )
             db.commit()
-            assert db.ipxe_images(image_id).architecture == arch
+            assert db.ipxe_images[image_id].architecture == arch
 
 
 class TestBootConfig:
@@ -377,7 +363,7 @@ class TestBootConfig:
         )
         db.commit()
 
-        config = db.ipxe_boot_configs(config_id)
+        config = db.ipxe_boot_configs[config_id]
         assert config.name == "standard-boot"
         assert config.timeout_seconds == 30
         assert config.default_image_id == test_image.id
@@ -415,7 +401,7 @@ class TestDeploymentJob:
         )
         db.commit()
 
-        job = db.deployment_jobs(job_id)
+        job = db.deployment_jobs[job_id]
         assert job.job_id == "deploy-001"
         assert job.machine_id == test_machine.id
         assert job.status == "pending"
@@ -434,7 +420,7 @@ class TestDeploymentJob:
                 status=status
             )
             db.commit()
-            assert db.deployment_jobs(job_id).status == status
+            assert db.deployment_jobs[job_id].status == status
 
     def test_deployment_job_progress_tracking(self, db, test_machine, test_image):
         """Test tracking deployment progress."""
@@ -451,7 +437,7 @@ class TestDeploymentJob:
         db(db.deployment_jobs.id == job_id).update(progress_percent=75)
         db.commit()
 
-        job = db.deployment_jobs(job_id)
+        job = db.deployment_jobs[job_id]
         assert job.progress_percent == 75
 
 
@@ -470,7 +456,7 @@ class TestBootEvent:
         )
         db.commit()
 
-        event = db.boot_events(event_id)
+        event = db.boot_events[event_id]
         assert event.machine_id == test_machine.id
         assert event.event_type == "dhcp_request"
         assert event.status == "success"
@@ -488,7 +474,7 @@ class TestBootEvent:
                 event_type=event_type
             )
             db.commit()
-            assert db.boot_events(event_id).event_type == event_type
+            assert db.boot_events[event_id].event_type == event_type
 
     def test_boot_event_details_storage(self, db, test_machine):
         """Test storing detailed event information."""
@@ -505,55 +491,55 @@ class TestBootEvent:
         )
         db.commit()
 
-        event = db.boot_events(event_id)
+        event = db.boot_events[event_id]
         stored_details = json.loads(event.details) if event.details else {}
         assert stored_details["dhcp_server"] == "10.0.0.1"
 
 
-class TestEggGroup:
-    """Tests for egg grouping table."""
+class TestBiomeGroup:
+    """Tests for biome grouping table."""
 
-    def test_create_egg_group(self, db, test_egg):
-        """Test creating an egg group."""
-        group_id = db.egg_groups.insert(
+    def test_create_biome_group(self, db, test_biome):
+        """Test creating a biome group."""
+        group_id = db.biome_groups.insert(
             name="hypervisor-stack",
             display_name="Hypervisor Stack",
             description="Complete hypervisor deployment",
-            eggs=json.dumps([{"egg_id": test_egg.id, "order": 1}]),
+            biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
             is_default=False
         )
         db.commit()
 
-        group = db.egg_groups(group_id)
+        group = db.biome_groups[group_id]
         assert group.name == "hypervisor-stack"
-        eggs = json.loads(group.eggs)
-        assert len(eggs) == 1
-        assert eggs[0]["egg_id"] == test_egg.id
+        biomes = json.loads(group.biomes)
+        assert len(biomes) == 1
+        assert biomes[0]["biome_id"] == test_biome.id
 
-    def test_egg_group_multiple_eggs(self, db):
-        """Test egg group with multiple eggs."""
-        egg_ids = []
+    def test_biome_group_multiple_biomes(self, db):
+        """Test biome group with multiple biomes."""
+        biome_ids = []
         for i in range(3):
-            egg_id = db.eggs.insert(
+            biome_id = db.biomes.insert(
                 name=f"app-{i}",
-                display_name=f"App {i}",
-                egg_type="snap"
+                biome_kind="custom",
+                workload_type="lxc"
             )
-            egg_ids.append(egg_id)
+            biome_ids.append(biome_id)
         db.commit()
 
-        eggs_data = [
-            {"egg_id": eid, "order": i+1}
-            for i, eid in enumerate(egg_ids)
+        biomes_data = [
+            {"biome_id": eid, "order": i+1}
+            for i, eid in enumerate(biome_ids)
         ]
-        group_id = db.egg_groups.insert(
+        group_id = db.biome_groups.insert(
             name="multi-app",
             display_name="Multi App",
-            eggs=json.dumps(eggs_data)
+            biomes=json.dumps(biomes_data)
         )
         db.commit()
 
-        group = db.egg_groups(group_id)
-        eggs = json.loads(group.eggs)
-        assert len(eggs) == 3
-        assert all(e["egg_id"] in egg_ids for e in eggs)
+        group = db.biome_groups[group_id]
+        biomes = json.loads(group.biomes)
+        assert len(biomes) == 3
+        assert all(e["biome_id"] in biome_ids for e in biomes)

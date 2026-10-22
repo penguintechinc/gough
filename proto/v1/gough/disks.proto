@@ -1,0 +1,65 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Disks {
+  rpc List(DiskListRequest) returns (DiskListResponse);
+  rpc Plan(PlanRequest) returns (PlanResponse);
+  rpc Patch(DiskPatchRequest) returns (DiskPatchResponse);
+  rpc SmartRecheck(SmartRecheckRequest) returns (SmartRecheckResponse);
+}
+
+message DiskListRequest {
+  string filter = 1;
+  string sort_by = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message DiskListResponse {
+  repeated Disk disks = 1;
+  string next_cursor = 2;
+}
+
+message PlanRequest {
+  int64 node_id = 1;
+  int64 disk_id = 2;
+  string planning_params = 3;
+}
+
+message PlanResponse {
+  string plan_id = 1;
+  string plan_data = 2;
+  string status = 3;
+}
+
+message DiskPatchRequest {
+  int64 node_id = 1;
+  int64 disk_id = 2;
+  string patch_data = 3;
+}
+
+message DiskPatchResponse {
+  Disk disk = 1;
+}
+
+message SmartRecheckRequest {
+  int64 node_id = 1;
+  int64 disk_id = 2;
+}
+
+message SmartRecheckResponse {
+  string health_status = 1;
+  string device = 2;
+  int32 temperature = 3;
+}
+
+message Disk {
+  int64 id = 1;
+  string device = 2;
+  int64 size_bytes = 3;
+  string health_status = 4;
+  string state = 5;
+}

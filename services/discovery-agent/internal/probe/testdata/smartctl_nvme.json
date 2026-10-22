@@ -1,0 +1,40 @@
+{
+  "device": {
+    "name": "/dev/nvme0n1",
+    "info_name": "/dev/nvme0n1",
+    "type": "nvme",
+    "protocol": "NVMe"
+  },
+  "model_family": "",
+  "model_name": "Samsung PM9A3 3.84TB",
+  "serial_number": "S6EXNE0T123456",
+  "firmware_version": "EXA77F3Q",
+  "user_capacity": {
+    "blocks": 7500000000,
+    "bytes": 3840755982336
+  },
+  "smart_status": {
+    "passed": true
+  },
+  "nvme_smart_health_information_log": {
+    "critical_warning": 0,
+    "temperature": 32,
+    "available_spare": 100,
+    "available_spare_threshold": 10,
+    "percentage_used": 0,
+    "data_units_read": 123456,
+    "data_units_written": 234567,
+    "power_cycles": 12,
+    "power_on_hours": 876,
+    "unsafe_shutdowns": 2,
+    "media_errors": 0,
+    "num_err_log_entries": 0
+  },
+  "power_on_time": {
+    "hours": 876
+  },
+  "power_cycle_count": 12,
+  "temperature": {
+    "current": 32
+  }
+}

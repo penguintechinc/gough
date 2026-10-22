@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Capacity {
+  rpc Forecast(ForecastRequest) returns (ForecastResponse);
+  rpc Risks(RisksRequest) returns (RisksResponse);
+}
+
+message ForecastRequest {
+  string time_horizon = 1;
+  string scope = 2;
+}
+
+message ForecastResponse {
+  string forecast_id = 1;
+  string forecast_data = 2;
+}
+
+message RisksRequest {
+  string scope = 1;
+}
+
+message RisksResponse {
+  repeated Risk risks = 1;
+}
+
+message Risk {
+  string id = 1;
+  string severity = 2;
+  string description = 3;
+}

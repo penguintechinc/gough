@@ -1,0 +1,72 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service JoinerSecrets {
+  rpc Emit(EmitRequest) returns (EmitResponse);
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse);
+  rpc Rotate(RotateRequest) returns (RotateResponse);
+  rpc Revoke(RevokeRequest) returns (RevokeResponse);
+  rpc List(JoinerListRequest) returns (JoinerListResponse);
+}
+
+message EmitRequest {
+  string node_id     = 1;
+  string rotation_class = 2;
+  int32  key_version = 3;
+}
+
+message EmitResponse {
+  string secret_id      = 1;
+  string expires_at     = 2;
+}
+
+message ConsumeRequest {
+  string secret_id = 1;
+  string node_id   = 2;
+}
+
+message ConsumeResponse {
+  bytes  decrypted_secret = 1;
+  string rotation_class   = 2;
+}
+
+message RotateRequest {
+  string secret_id      = 1;
+  int32  new_key_version = 2;
+}
+
+message RotateResponse {
+  string new_secret_id = 1;
+  string expires_at    = 2;
+}
+
+message RevokeRequest {
+  string secret_id = 1;
+}
+
+message RevokeResponse {
+  bool revoked = 1;
+}
+
+message JoinerListRequest {
+  string node_id = 1;
+  int32  limit   = 2;
+  string cursor  = 3;
+}
+
+message JoinerListResponse {
+  repeated JoinerSecret secrets    = 1;
+  string               next_cursor = 2;
+}
+
+message JoinerSecret {
+  string id             = 1;
+  string node_id        = 2;
+  string rotation_class = 3;
+  int32  key_version    = 4;
+  string created_at     = 5;
+  string expires_at     = 6;
+}

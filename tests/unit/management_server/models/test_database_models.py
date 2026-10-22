@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from unittest.mock import Mock, patch
 
 import pytest
-from pydal.validators import ValidationError
+from penguin_dal.exceptions import ValidationError
 
 
 class TestDatabaseModels:

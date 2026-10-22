@@ -22,6 +22,7 @@ from typing import Any, Optional
 from quart import Quart, websocket
 
 from .audit import get_audit_logger
+from .db.run_db import run_db
 from .models import get_db
 
 log = logging.getLogger(__name__)
@@ -43,11 +44,16 @@ def init_websocket(app: Quart) -> None:
             await websocket.close(1008, "No session_id provided")
             return
 
-        # Validate session exists in database
+        # Validate session exists in database.
+        # Regression: gh-22. Off the event loop via run_db() instead of
+        # blocking the WebSocket coroutine inline (this service is
+        # single-process/single-loop, gRPC included).
         db = get_db()
-        session = db(
-            db.shell_sessions.session_id == session_id
-        ).select().first()
+
+        def _fetch_session() -> Any:
+            return db(db.shell_sessions.session_id == session_id).select().first()
+
+        session = await run_db(_fetch_session)
 
         if not session:
             log.warning(
@@ -103,35 +109,41 @@ def init_websocket(app: Quart) -> None:
                 # Cleanup
                 await manager.cleanup()
 
-                # Update session in database
-                session = (
-                    db(db.shell_sessions.session_id == session_id)
-                    .select()
-                    .first()
-                )
-
-                if session and not session.ended_at:
-                    # Calculate duration
-                    duration_seconds = None
-                    if session.started_at:
-                        duration_seconds = int(
-                            (datetime.utcnow() - session.started_at).total_seconds()
-                        )
-
-                    # Update session
-                    db(db.shell_sessions.session_id == session_id).update(
-                        ended_at=datetime.utcnow()
+                # Regression: gh-22. Session refetch + conditional
+                # update+commit + audit log is one logical "session
+                # teardown" unit of work -- stays in a single run_db()
+                # closure per the house rule (see app/db/run_db.py).
+                def _finish_session() -> None:
+                    sess = (
+                        db(db.shell_sessions.session_id == session_id)
+                        .select()
+                        .first()
                     )
-                    db.commit()
 
-                    # Audit log
-                    audit_logger = get_audit_logger()
-                    if audit_logger:
-                        audit_logger.log_shell_session_terminate(
-                            session_id=session_id,
-                            reason="client_disconnect",
-                            duration_seconds=duration_seconds,
+                    if sess and not sess.ended_at:
+                        # Calculate duration
+                        duration_seconds = None
+                        if sess.started_at:
+                            duration_seconds = int(
+                                (datetime.utcnow() - sess.started_at).total_seconds()
+                            )
+
+                        # Update session
+                        db(db.shell_sessions.session_id == session_id).update(
+                            ended_at=datetime.utcnow()
                         )
+                        db.commit()
+
+                        # Audit log
+                        audit_logger = get_audit_logger()
+                        if audit_logger:
+                            audit_logger.log_shell_session_terminate(
+                                session_id=session_id,
+                                reason="client_disconnect",
+                                duration_seconds=duration_seconds,
+                            )
+
+                await run_db(_finish_session)
 
         except Exception as e:
             log.exception(f"Error starting shell session: {e}")

@@ -1,16 +1,18 @@
 # Beta environment overrides (dal2 cluster)
-namespace: gough-beta
+namespace: gough
 replicaCount: 2
 image:
-  registry: registry-dal2.penguintech.io
+  registry: ghcr.io/penguintechinc/gough
   pullPolicy: Always
+imagePullSecrets:
+  - name: ghcr-pull-secret
 env:
   - name: LOG_LEVEL
     value: "INFO"
   - name: RELEASE_MODE
     value: "false"
 ingress:
-  enabled: true
+  enabled: false
   className: "nginx"
   hosts:
     - host: gough.penguintech.cloud
@@ -21,6 +23,17 @@ ingress:
     - secretName: penguintech-wildcard-tls
       hosts:
         - gough.penguintech.cloud
+
+httproute:
+  enabled: true
+  gatewayName: dal2-gateway
+  gatewayNamespace: cilium-gateway
+  host: "gough.penguintech.cloud"
+  rules:
+    - path: /api/v2
+      service: "go-backend"
+      port: 80
+
 resources:
   limits:
     cpu: 1000m

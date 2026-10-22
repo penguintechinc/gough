@@ -1,9 +1,9 @@
-replicaCount: 3
+replicaCount: 1
 
 image:
-  repository: project-template/go-backend
+  repository: ghcr.io/penguintechinc/gough/discovery-agent
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
 
 imagePullSecrets: []
 nameOverride: ""
@@ -30,8 +30,8 @@ securityContext:
 
 service:
   type: ClusterIP
-  port: 80
-  targetPort: 8080
+  port: 8443
+  targetPort: 8443
   annotations: {}
 
 ingress:
@@ -45,17 +45,24 @@ ingress:
           pathType: Prefix
   tls: []
 
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
 resources:
   limits:
-    cpu: 1000m
-    memory: 1Gi
-  requests:
     cpu: 250m
-    memory: 512Mi
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
 
 autoscaling:
-  enabled: true
-  minReplicas: 3
+  enabled: false
+  minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 60
   targetMemoryUtilizationPercentage: 75
@@ -70,7 +77,7 @@ env:
   - name: GO_ENV
     value: "production"
   - name: PORT
-    value: "8080"
+    value: "8443"
   - name: DB_TYPE
     valueFrom:
       configMapKeyRef:
@@ -126,20 +133,31 @@ env:
       configMapKeyRef:
         name: go-backend-config
         key: release-mode
+  - name: SPIRE_AGENT_SOCKET
+    value: "unix:///run/spire/agent.sock"
+  - name: GOUGH_PRIMARY_URL
+    valueFrom:
+      configMapKeyRef:
+        name: go-backend-config
+        key: gough-primary-url
+  - name: GOUGH_GRPC_PORT
+    value: "8443"
 
 livenessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
+  exec:
+    command:
+      - /app/discovery-agent
+      - -health-check
   initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
   failureThreshold: 3
 
 readinessProbe:
-  httpGet:
-    path: /healthz
-    port: 8080
+  exec:
+    command:
+      - /app/discovery-agent
+      - -ready-check
   initialDelaySeconds: 10
   periodSeconds: 5
   timeoutSeconds: 3
@@ -153,9 +171,10 @@ configMapData:
   db-type: "postgres"
   db-host: "postgres"
   db-port: "5432"
-  db-name: "app_db"
+  db-name: "gough_discovery"
   xdp-enabled: "false"
   numa-aware: "false"
+  gough-primary-url: "http://api-manager:8080"
   license-server-url: "https://license.penguintech.io"
   release-mode: "false"
 

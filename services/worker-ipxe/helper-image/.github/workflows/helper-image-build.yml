@@ -1,0 +1,115 @@
+name: Helper Image Build
+
+on:
+  push:
+    branches:
+      - main
+      - release/**
+    paths:
+      - 'services/worker-ipxe/helper-image/**'
+      - 'services/discovery-agent/dist/discovery-agent'
+      - '.github/workflows/helper-image-build.yml'
+  pull_request:
+    branches:
+      - main
+      - release/**
+    paths:
+      - 'services/worker-ipxe/helper-image/**'
+      - 'services/discovery-agent/dist/discovery-agent'
+      - '.github/workflows/helper-image-build.yml'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: penguintechinc/gough/helper-image
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        platform:
+          - linux/amd64
+          - linux/arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ceed0410567ccf08cb  # v4.1.1
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f95db51fddba0c2d1ec667646a06c3e01604b3ce  # v3.0.0
+        with:
+          version: latest
+          buildkitd-flags: --debug
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@343f7c4344506bccd94d8c56fbc030f8abed9f2d  # v3.0.0
+        if: github.event_name == 'push'
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          GIT_SHA_SHORT=$(git rev-parse --short HEAD)
+          GIT_SHA=$(git rev-parse HEAD)
+          BUILD_DATE=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+          if [[ "${{ github.ref }}" == "refs/heads/main" || "${{ github.ref }}" == refs/heads/release/* ]]; then
+            IMAGE_TAG="$GIT_SHA_SHORT"
+          else
+            IMAGE_TAG="test-${{ github.run_number }}-$GIT_SHA_SHORT"
+          fi
+
+          echo "git_sha=$GIT_SHA" >> "$GITHUB_OUTPUT"
+          echo "git_sha_short=$GIT_SHA_SHORT" >> "$GITHUB_OUTPUT"
+          echo "build_date=$BUILD_DATE" >> "$GITHUB_OUTPUT"
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        uses: docker/build-push-action@4a13e500e55cf31b7a5d59a38ab2040ab0f97f00  # v5.1.0
+        with:
+          context: ./services/worker-ipxe/helper-image
+          platforms: ${{ matrix.platform }}
+          push: ${{ github.event_name == 'push' }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.image_tag }}
+          labels: |
+            org.opencontainers.image.created=${{ steps.meta.outputs.build_date }}
+            org.opencontainers.image.revision=${{ steps.meta.outputs.git_sha }}
+          build-args: |
+            BUILD_DATE=${{ steps.meta.outputs.build_date }}
+            VCS_REF=${{ steps.meta.outputs.git_sha }}
+
+      - name: Run tests
+        if: matrix.platform == 'linux/amd64'
+        working-directory: ./services/worker-ipxe/helper-image
+        run: |
+          bash ./tests/test-image-builds.sh
+          bash ./tests/test-rootless.sh
+
+  verify:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@c85c95e3d7251135ab7dc9ceed0410567ccf08cb  # v4.1.1
+
+      - name: Extract metadata
+        id: meta
+        run: |
+          GIT_SHA_SHORT=$(git rev-parse --short HEAD)
+          echo "git_sha_short=$GIT_SHA_SHORT" >> "$GITHUB_OUTPUT"
+
+      - name: Display image info
+        run: |
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.git_sha_short }}
+          docker images ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.git_sha_short }} --no-trunc

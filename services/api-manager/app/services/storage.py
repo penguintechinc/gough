@@ -20,6 +20,7 @@ import boto3
 from botocore.client import Config as BotoConfig
 from botocore.exceptions import BotoCoreError, ClientError
 
+from ..db.run_db import run_db
 from ..models import get_db
 
 log = logging.getLogger(__name__)
@@ -485,20 +486,24 @@ async def get_storage_service(
 
     db = get_db()
 
-    if config_id:
-        config_row = db(
-            (db.storage_config.id == config_id) & (db.storage_config.is_active == True)
-        ).select().first()
-    elif config_name:
-        config_row = db(
-            (db.storage_config.name == config_name)
-            & (db.storage_config.is_active == True)
-        ).select().first()
-    else:
-        config_row = db(
+    # Regression: gh-22. Off the event loop via run_db() instead of blocking
+    # the request coroutine inline.
+    def _fetch_config() -> Any:
+        if config_id:
+            return db(
+                (db.storage_config.id == config_id) & (db.storage_config.is_active == True)
+            ).select().first()
+        elif config_name:
+            return db(
+                (db.storage_config.name == config_name)
+                & (db.storage_config.is_active == True)
+            ).select().first()
+        return db(
             (db.storage_config.is_default == True)
             & (db.storage_config.is_active == True)
         ).select().first()
+
+    config_row = await run_db(_fetch_config)
 
     if not config_row:
         raise StorageConfigNotFoundError(config_id=config_id, config_name=config_name)

@@ -1,0 +1,59 @@
+{
+  "description": "A→B→A two-egg cycle detection",
+  "node": {
+    "id": 10,
+    "name": "node-cycle-10",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:10",
+    "hardware_tags": [],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440010",
+    "reason": "cycle test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "biome_assignments": [{"biome_id": 401}, {"biome_id": 402}]
+  },
+  "biomes": [
+    {
+      "id": 401,
+      "name": "biome-A",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [{"egg_id": 402, "mode": "hard"}],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 402,
+      "name": "biome-B",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [{"egg_id": 401, "mode": "hard"}],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "egg_dependency_cycle",
+        "cycle_contains": ["biome-A", "biome-B"]
+      }
+    ]
+  }
+}

@@ -246,7 +246,7 @@ export const ProvisioningDashboard: React.FC = () => {
               <tr className="border-b border-dark-700">
                 <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Machine</th>
                 <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Hostname</th>
-                <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Egg</th>
+                <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Biome</th>
                 <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">State</th>
                 <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Duration</th>
                 <th className="text-left py-2 px-3 text-sm font-medium text-dark-400">Deployed</th>

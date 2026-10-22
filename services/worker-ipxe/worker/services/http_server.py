@@ -4,6 +4,9 @@ HTTP boot server for iPXE scripts, kernels, and cloud-init.
 Provides dynamic iPXE script generation and serves boot images.
 """
 
+import re
+import os
+from urllib.parse import urlparse
 import structlog
 from quart import Quart, request, Response, jsonify
 from hypercorn.config import Config
@@ -15,6 +18,67 @@ from worker.enrollment import EnrollmentManager
 from worker.services.ipxe_handler import IPXEHandler
 
 logger = structlog.get_logger()
+
+
+def _validate_image_path(image_path: str) -> tuple[bool, str]:
+    """Validate image_path to prevent path traversal and SSRF attacks.
+
+    Returns (is_valid: bool, error_message: str).
+    """
+    # Check for null bytes
+    if '\x00' in image_path:
+        return False, "path contains null bytes"
+
+    # Reject leading slash (absolute path)
+    if image_path.startswith('/'):
+        return False, "path must not start with /"
+
+    # Reject backslashes (Windows-style)
+    if '\\' in image_path:
+        return False, "path contains backslashes"
+
+    # Check for .. in original form
+    if '..' in image_path:
+        return False, "path contains .. traversal"
+
+    # Check for URL-encoded traversal attempts (%2e%2e = .., %2f = /)
+    if '%2e%2e' in image_path.lower() or '%2f' in image_path.lower():
+        return False, "path contains URL-encoded traversal"
+
+    # Strict allowlist: only [A-Za-z0-9._/-]
+    if not re.match(r'^[A-Za-z0-9._/-]+$', image_path):
+        return False, "path contains invalid characters"
+
+    return True, ""
+
+
+def _validate_presigned_url(presigned_url: str) -> tuple[bool, str]:
+    """Validate presigned URL to mitigate SSRF attacks.
+
+    Returns (is_valid: bool, error_message: str).
+    """
+    try:
+        parsed = urlparse(presigned_url)
+    except Exception as e:
+        return False, f"invalid URL format: {e}"
+
+    # Enforce HTTPS
+    if parsed.scheme not in ('https', 'http'):
+        return False, f"URL scheme must be http/https, got {parsed.scheme}"
+
+    # Reject localhost/127.0.0.1 and private IP ranges (basic SSRF prevention)
+    if parsed.hostname:
+        hostname = parsed.hostname.lower()
+        if hostname in ('localhost', '127.0.0.1', '::1') or hostname.startswith('[::1]'):
+            return False, "presigned URL points to localhost"
+        # Reject private IP ranges (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 169.254.0.0/16)
+        if hostname.startswith(('10.', '172.16.', '172.17.', '172.18.', '172.19.',
+                               '172.20.', '172.21.', '172.22.', '172.23.', '172.24.',
+                               '172.25.', '172.26.', '172.27.', '172.28.', '172.29.',
+                               '172.30.', '172.31.', '192.168.', '169.254.')):
+            return False, "presigned URL points to private IP range"
+
+    return True, ""
 
 
 class HTTPBootServer:
@@ -87,9 +151,16 @@ class HTTPBootServer:
             """
             Proxy boot images from storage (MinIO/S3).
 
-            This avoids exposing storage credentials to booting machines.
+            Validates image_path for traversal attacks and presigned URL for SSRF.
+            Avoids exposing storage credentials to booting machines.
             """
             logger.info("image_request", path=image_path)
+
+            # Validate image_path against path traversal attacks
+            is_valid, error_msg = _validate_image_path(image_path)
+            if not is_valid:
+                logger.warning("image_path_validation_failed", path=image_path, reason=error_msg)
+                return Response(f"Invalid path: {error_msg}", status=400)
 
             try:
                 # Request presigned URL from api-manager
@@ -102,6 +173,16 @@ class HTTPBootServer:
                     if response.status_code == 200:
                         data = response.json()
                         presigned_url = data.get("url")
+
+                        # Validate presigned URL to prevent SSRF
+                        is_valid_url, url_error = _validate_presigned_url(presigned_url)
+                        if not is_valid_url:
+                            logger.warning(
+                                "presigned_url_validation_failed",
+                                path=image_path,
+                                reason=url_error,
+                            )
+                            return Response("Invalid presigned URL", status=400)
 
                         # Stream image from storage
                         async with httpx.AsyncClient(timeout=300.0) as storage_client:

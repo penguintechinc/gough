@@ -1,0 +1,62 @@
+{
+  "description": "k8s-primary version 1.28 fails >= 1.29 constraint",
+  "node": {
+    "id": 61,
+    "name": "node-ver-61",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:61",
+    "hardware_tags": ["cpu:nested-virt-supported"],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440061",
+    "reason": "version range unsatisfied test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 1011}, {"egg_id": 1012}]
+  },
+  "eggs": [
+    {
+      "id": 1011,
+      "name": "k8s-primary",
+      "version": "1.28.5",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {"write_files": [], "runcmd": []},
+      "storage_requirements_json": {}
+    },
+    {
+      "id": 1012,
+      "name": "k8s-worker",
+      "version": "1.29.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [],
+      "forbids_hardware_tags": [],
+      "dependencies": [
+        {"egg_id": 1011, "mode": "hard", "version_min": "1.29"}
+      ],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {"write_files": [], "runcmd": []},
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "version_range_unsatisfied",
+        "dep_version": "1.28.5",
+        "version_min": "1.29"
+      }
+    ]
+  }
+}

@@ -1,0 +1,139 @@
+{
+  "description": "HA k8s-primary with kube-vip frontend across 3 nodes (bootstrap + 2 joins)",
+  "nodes": [
+    {
+      "id": 10,
+      "name": "cp-node-1",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:10",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    },
+    {
+      "id": 11,
+      "name": "cp-node-2",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:11",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    },
+    {
+      "id": 12,
+      "name": "cp-node-3",
+      "primary_nic_mac": "aa:bb:cc:dd:ee:12",
+      "hardware_tags": ["cpu:nested-virt-supported", "mem:total-gb:16"],
+      "hardware_json": {}
+    }
+  ],
+  "plan_requests": [
+    {
+      "node_id": 10,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "reason": "Bootstrap k8s-primary with kube-vip",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 201,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "kube-vip",
+              "endpoint": "10.2.0.10:6443",
+              "interface": "eth0"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "node_id": 11,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "reason": "Join k8s-primary node 2 with kube-vip",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 201,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "kube-vip",
+              "endpoint": "10.2.0.10:6443",
+              "interface": "eth0"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "node_id": 12,
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "reason": "Join k8s-primary node 3 with kube-vip",
+      "actor_sub": "operator@penguintech.io",
+      "disk_plan": {"disk_device": "/dev/nvme0n1", "luks_enabled": true, "partitions": []},
+      "biome_assignments": [
+        {
+          "biome_id": 201,
+          "params": {
+            "control_plane_frontend": {
+              "mode": "kube-vip",
+              "endpoint": "10.2.0.10:6443",
+              "interface": "eth0"
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "biomes": [
+    {
+      "id": 201,
+      "name": "k8s-primary",
+      "version": "1.30.0",
+      "phase": "post_deploy",
+      "biome_kind": "infrastructure",
+      "lock_to_host": true,
+      "emits_joiner_secrets": true,
+      "requires_hardware_tags": ["cpu:nested-virt-supported"],
+      "forbids_hardware_tags": [],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "cloud_init": {
+        "write_files": [{"path": "/etc/gough/k8s-primary.conf", "content": "# k8s primary config"}],
+        "runcmd": []
+      }
+    }
+  ],
+  "joiner_secrets": [
+    {
+      "id": "550e8400-0001-41d4-a716-446655440100",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_join_token",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    },
+    {
+      "id": "550e8400-0002-41d4-a716-446655440100",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_ca_hash",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    },
+    {
+      "id": "550e8400-0003-41d4-a716-446655440100",
+      "cluster_id": "550e8400-e29b-41d4-a716-446655440100",
+      "biome_kind": "k8s-primary",
+      "extractor_name": "kubeadm_certificate_key",
+      "scope": "cluster",
+      "revoked_at": null,
+      "expires_at": null
+    }
+  ],
+  "expect": {
+    "success": true,
+    "bootstrap_contains_manifest": true,
+    "join_contains_manifest": true,
+    "all_share_vip": "10.2.0.10:6443"
+  }
+}

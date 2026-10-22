@@ -14,13 +14,13 @@ Per CLAUDE.md standards:
 """
 
 import os
-import logging
+from penguintechinc_utils import get_logger
 import time
 from typing import Optional, Callable, Any, Dict
 from dataclasses import dataclass
 from functools import wraps
 
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -92,7 +92,7 @@ def set_wsrep_sync_wait(db: Any, level: int = 1) -> bool:
     - 7: Sync all operations
 
     Args:
-        db: PyDAL database instance
+        db: penguin-dal DB instance
         level: WSREP sync wait level (0-7)
 
     Returns:
@@ -103,7 +103,7 @@ def set_wsrep_sync_wait(db: Any, level: int = 1) -> bool:
         return True
 
     try:
-        db.executesql(f'SET SESSION wsrep_sync_wait = {level}')
+        db.executesql('SET SESSION wsrep_sync_wait = %(level)s', {'level': level})
         logger.debug(f"Set wsrep_sync_wait to {level}")
         return True
     except Exception as e:
@@ -192,7 +192,7 @@ def set_auto_increment_config(
     to avoid primary key conflicts during concurrent inserts.
 
     Args:
-        db: PyDAL database instance
+        db: penguin-dal DB instance
         offset: Auto-increment offset (defaults to config)
         increment: Auto-increment increment (defaults to config)
 
@@ -208,8 +208,14 @@ def set_auto_increment_config(
     increment = increment if increment is not None else config.auto_increment_increment
 
     try:
-        db.executesql(f'SET SESSION auto_increment_offset = {offset}')
-        db.executesql(f'SET SESSION auto_increment_increment = {increment}')
+        # Both SET SESSION statements must share one connection/transaction
+        # (same intent as the original single `with db.engine.connect()`
+        # block) -- db.transaction() pins one connection for the unit.
+        with db.transaction() as tx:
+            tx.executesql('SET SESSION auto_increment_offset = %(offset)s', {'offset': offset})
+            tx.executesql(
+                'SET SESSION auto_increment_increment = %(increment)s', {'increment': increment}
+            )
         logger.debug(f"Set auto_increment_offset={offset}, auto_increment_increment={increment}")
         return True
     except Exception as e:
@@ -222,7 +228,7 @@ def get_cluster_status(db: Any) -> Optional[Dict[str, Any]]:
     Get Galera cluster status information.
 
     Args:
-        db: PyDAL database instance
+        db: penguin-dal DB instance
 
     Returns:
         Dictionary with cluster status or None if not available
@@ -231,7 +237,12 @@ def get_cluster_status(db: Any) -> Optional[Dict[str, Any]]:
         return None
 
     try:
-        result = db.executesql(
+        # Static, known-safe SQL with no user input -- disable the
+        # quoted-literal injection heuristic so this doesn't emit a
+        # DALSecurityWarning on every call of the ~1s cluster-readiness
+        # polling loop (see executesql docstring: this is exactly the
+        # case check_injection=False is for).
+        rows = db.executesql(
             "SHOW STATUS WHERE Variable_name IN ("
             "'wsrep_cluster_size', "
             "'wsrep_cluster_status', "
@@ -239,11 +250,12 @@ def get_cluster_status(db: Any) -> Optional[Dict[str, Any]]:
             "'wsrep_connected', "
             "'wsrep_local_state_comment'"
             ")",
-            as_dict=True
+            check_injection=False,
         )
+        rows_raw = [{'Variable_name': r[0], 'Value': r[1]} for r in rows]
 
         status = {}
-        for row in result:
+        for row in rows_raw:
             var_name = row.get('Variable_name', '').lower()
             value = row.get('Value', '')
             status[var_name] = value

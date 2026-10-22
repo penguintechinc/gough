@@ -7,6 +7,7 @@ import asyncio
 import logging
 import signal
 import sys
+from penguintechinc_utils import get_logger
 from typing import Any, Dict
 
 from .auth import AgentAuth
@@ -23,7 +24,7 @@ logging.basicConfig(
     handlers=[logging.StreamHandler(sys.stdout)],
 )
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 
 class GoughAgent:

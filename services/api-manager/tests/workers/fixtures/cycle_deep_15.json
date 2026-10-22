@@ -1,0 +1,50 @@
+{
+  "description": "15-egg deep cycle; bounded output to 20 nodes max",
+  "node": {
+    "id": 12,
+    "name": "node-deep-12",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:12",
+    "hardware_tags": [],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440012",
+    "reason": "deep cycle test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [
+      {"egg_id": 501}, {"egg_id": 502}, {"egg_id": 503},
+      {"egg_id": 504}, {"egg_id": 505}, {"egg_id": 506},
+      {"egg_id": 507}, {"egg_id": 508}, {"egg_id": 509},
+      {"egg_id": 510}, {"egg_id": 511}, {"egg_id": 512},
+      {"egg_id": 513}, {"egg_id": 514}, {"egg_id": 515}
+    ]
+  },
+  "eggs": [
+    {"id": 501, "name": "d-01", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 502, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 502, "name": "d-02", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 503, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 503, "name": "d-03", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 504, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 504, "name": "d-04", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 505, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 505, "name": "d-05", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 506, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 506, "name": "d-06", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 507, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 507, "name": "d-07", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 508, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 508, "name": "d-08", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 509, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 509, "name": "d-09", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 510, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 510, "name": "d-10", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 511, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 511, "name": "d-11", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 512, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 512, "name": "d-12", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 513, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 513, "name": "d-13", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 514, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 514, "name": "d-14", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 515, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}},
+    {"id": 515, "name": "d-15", "version": "1.0", "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": false, "requires_hardware_tags": [], "forbids_hardware_tags": [], "dependencies": [{"egg_id": 501, "mode": "hard"}], "consumes_joiner_secrets_from": [], "emits_joiner_secrets": false, "cloud_init": {}, "storage_requirements_json": {}}
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "egg_dependency_cycle",
+        "cycle_max_len": 20
+      }
+    ]
+  }
+}

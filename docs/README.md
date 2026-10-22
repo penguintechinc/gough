@@ -21,6 +21,10 @@ Gough is an enterprise-grade bare metal automation system that combines Ubuntu M
 - **[Management Server API](api/management-server.md)** - RESTful API reference
 - **[MaaS Integration API](api/maas-integration.md)** - MaaS API integration details
 
+### Licensing
+- **[Node Licensing](licensing/node-licensing.md)** - Node allowances, what counts as active, and the 402 refusal path
+- **[License Server Integration](licensing/license-server-integration.md)** - License server API reference
+
 ### Security
 - **[Security Overview](security/overview.md)** - Security architecture and features
 - **[Security Hardening](security/hardening.md)** - Production security checklist

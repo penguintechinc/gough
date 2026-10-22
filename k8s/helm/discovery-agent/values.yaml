@@ -1,0 +1,131 @@
+# NOTE: discovery-agent's binary (cmd/agent/main.go) is an outbound-only
+# gRPC-mTLS client. It reads its configuration from the kernel command line
+# (/proc/cmdline) inside a PXE-booted initrd context and does not listen on
+# any port (see the service Dockerfile's HEALTHCHECK comment). It is designed
+# to run as the sole user-space process on a bare-metal node being
+# discovered/provisioned - not as a persistent Kubernetes Deployment.
+#
+# This chart is scaffolded for packaging/CI consistency with the other Gough
+# services. `service.enabled` defaults to false because there is nothing
+# listening to route to. Confirm real-world deployment intent before
+# installing this release into a cluster.
+
+replicaCount: 1
+
+image:
+  repository: ghcr.io/penguintechinc/gough/discovery-agent
+  pullPolicy: IfNotPresent
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podAnnotations: {}
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# discovery-agent does not listen on any port (outbound gRPC-mTLS client
+# only) - the Service is disabled by default. A placeholder gRPC port is
+# defined in case a future health/metrics listener is added.
+service:
+  enabled: false
+  type: ClusterIP
+  port: 50051
+  targetPort: 50051
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: "nginx"
+  annotations: {}
+  hosts:
+    - host: discovery-agent.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
+resources:
+  limits:
+    cpu: 250m
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
+
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+nodeSelector: {}
+
+tolerations: []
+
+affinity: {}
+
+# No environment-driven configuration exists in this binary - all runtime
+# parameters (primary URL, enrollment JWT, MAC) come from /proc/cmdline in
+# the initrd boot context.
+env: []
+
+# Mirrors the Dockerfile's native HEALTHCHECK (binary presence check) since
+# the agent exposes no HTTP/gRPC health surface.
+livenessProbe:
+  exec:
+    command:
+      - test
+      - -f
+      - /usr/local/bin/discovery-agent
+  initialDelaySeconds: 30
+  periodSeconds: 10
+  timeoutSeconds: 5
+  failureThreshold: 3
+
+readinessProbe:
+  exec:
+    command:
+      - test
+      - -f
+      - /usr/local/bin/discovery-agent
+  initialDelaySeconds: 10
+  periodSeconds: 5
+  timeoutSeconds: 3
+  failureThreshold: 2
+
+volumeMounts: []
+
+volumes: []
+
+configMapData: {}
+
+# Secrets are NOT rendered by this chart. If this agent is ever deployed as a
+# Deployment (see chart notes), provision any referenced Secret out-of-band via
+# Vault, the External Secrets Operator, or Sealed Secrets (see devops standards).

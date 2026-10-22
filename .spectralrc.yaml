@@ -1,0 +1,7 @@
+extends:
+  - "spectral:oas"
+
+rules:
+  # Customize rules here as needed
+  no-eval-in-markdown: error
+  no-script-tags-in-markdown: error

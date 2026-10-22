@@ -7,6 +7,7 @@ and migrations. PyDAL is used for runtime operations as required by CLAUDE.md.
 from datetime import datetime
 
 from sqlalchemy import (
+    JSON,
     Boolean,
     Column,
     DateTime,
@@ -15,9 +16,17 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    false as sa_false,
 )
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
+
+#: JSON column that becomes JSONB on PostgreSQL, matching models_m1's
+#: convention. Used for the cloud tables' dict/list-valued fields, which the
+#: cloud abstraction produces natively and which do not survive a Text column
+#: without every reader re-parsing them.
+JSONColumn = JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 Base = declarative_base()
 
@@ -147,6 +156,27 @@ class EncryptedSecret(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
+class BootstrapNonce(Base):
+    """One-time iPXE bootstrap JWT nonce store (Redis fallback).
+
+    Populated by `app.api.ipxe._register_bootstrap_nonce` whenever the runtime
+    Redis client is unavailable; consumed by
+    `app.security.credentials.validate_one_time_bootstrap_token` for replay
+    rejection. Rows are short-lived (TTL = JWT exp).
+    """
+
+    __tablename__ = "bootstrap_nonces"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    nonce = Column(String(128), unique=True, nullable=False)
+    mac = Column(String(17), nullable=False, index=True)
+    phase = Column(String(16), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    issued_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    used_at = Column(DateTime, nullable=True)
+
+
 # =============================================================================
 # Storage Configuration Tables
 # =============================================================================
@@ -187,7 +217,13 @@ class CloudProvider(Base):
     description = Column(Text)
     region = Column(String(100))
     credentials_path = Column(String(500))
-    config_data = Column(Text)
+    # Provider-specific credentials/settings the cloud abstraction hands to
+    # get_cloud_provider(). JSON rather than Text so a dict round-trips.
+    config_data = Column(JSONColumn)
+    # Connection state as of the last authenticate() -- "connected",
+    # "auth_error", "config_error". Distinct from is_active, which is the
+    # operator's on/off switch.
+    status = Column(String(50), default="disconnected")
     is_active = Column(Boolean, default=True)
     last_sync_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -206,8 +242,14 @@ class CloudMachine(Base):
     provider_id = Column(Integer, ForeignKey("cloud_providers.id"), nullable=False)
     external_id = Column(String(255), nullable=False)
     hostname = Column(String(255))
+    # Primary addresses, denormalised from the *_ips lists below for callers
+    # that want a single address without unpacking JSON.
     ip_address = Column(String(64))
     private_ip = Column(String(64))
+    # Full address lists as reported by the provider. A machine routinely has
+    # more than one of each, which the scalar columns above cannot hold.
+    public_ips = Column(JSONColumn)
+    private_ips = Column(JSONColumn)
     status = Column(String(50), default="new")
     machine_type = Column(String(100))
     architecture = Column(String(50), default="amd64")
@@ -216,8 +258,11 @@ class CloudMachine(Base):
     storage_gb = Column(Integer)
     os_image = Column(String(255))
     zone = Column(String(100))
-    tags = Column(Text)
-    metadata_json = Column('metadata', Text)
+    # Provider tags/labels. JSON rather than Text because licensing reads the
+    # gough-managed marker out of this dict on every allowance count.
+    tags = Column(JSONColumn)
+    # Provider-specific fields with no column of their own.
+    metadata_json = Column('metadata', JSONColumn)
     lxd_cluster_id = Column(Integer, ForeignKey("lxd_clusters.id"))
     fleet_host_id = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -396,6 +441,7 @@ class FleetDMConfig(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(100), unique=True, nullable=False)
     fleet_url = Column(String(500), nullable=False)
+    api_token = Column(String(500))
     api_token_path = Column(String(500))
     is_active = Column(Boolean, default=True)
     osquery_version = Column(String(20), default="5.10.2")
@@ -416,10 +462,12 @@ class FleetHost(Base):
     machine_id = Column(Integer, ForeignKey("cloud_machines.id"))
     server_id = Column(Integer, ForeignKey("servers.id"))
     last_seen_at = Column(DateTime)
+    last_seen = Column(DateTime)
     status = Column(String(50), default="offline")
     platform = Column(String(50))
     osquery_version = Column(String(20))
     enrolled_at = Column(DateTime)
+    enrollment_date = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -638,6 +686,10 @@ class AccessAgent(Base):
     hostname = Column(String(255), nullable=False)
     ip_address = Column(String(64))
     enrollment_key_hash = Column(String(255))
+    # Set by app/api/agents.py at enrollment. enrollment_completed is the
+    # boolean state; this is when it happened. Missing until now, which made
+    # every agent enrollment fail with CompileError("Unconsumed column names").
+    enrolled_at = Column(DateTime)
     enrollment_completed = Column(Boolean, default=False)
     jwt_token_id = Column(Integer, ForeignKey("auth_refresh_tokens.id"))
     last_heartbeat = Column(DateTime)
@@ -657,6 +709,7 @@ class EnrollmentKey(Base):
     created_by = Column(Integer, ForeignKey("auth_user.id"), nullable=False)
     expires_at = Column(DateTime, nullable=False)
     is_used = Column(Boolean, default=False)
+    revoked = Column(Boolean, default=False, nullable=False, server_default=sa_false())
     used_by_agent = Column(Integer, ForeignKey("access_agents.id"))
     metadata_json = Column('metadata', Text)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -731,9 +784,16 @@ class LxdJoinTokenIssuance(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     agent_id = Column(String(255), nullable=False, index=True)
     member_name = Column(String(255), nullable=False, index=True)
+    key_hash = Column(String(255), nullable=False)
     status = Column(Integer, nullable=False, default=0)  # 0=issued, 1=failed
     issued_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     expires_at = Column(DateTime, nullable=False)
+    # "live" mirrors of agent/member/key, set only while ISSUED and NULL once FAILED.
+    # Unique columns allow many NULLs on both SQLite and PostgreSQL, so they act as
+    # partial unique indexes: at most one live grant per agent, member, and key.
+    agent_live = Column(String(255), unique=True, nullable=True)
+    member_live = Column(String(255), unique=True, nullable=True)
+    key_live = Column(String(255), unique=True, nullable=True)
 
 
 class BootstrapTokenSeed(Base):
@@ -746,25 +806,60 @@ class BootstrapTokenSeed(Base):
     seeded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
-def get_sqlalchemy_engine(db_uri: str):
-    """Create SQLAlchemy engine from database URI."""
-    # Convert PyDAL URI to SQLAlchemy URI format
-    if db_uri.startswith("postgres://"):
-        # SQLAlchemy requires postgresql:// not postgres://
-        db_uri = db_uri.replace("postgres://", "postgresql://", 1)
-    elif db_uri.startswith("sqlite:"):
-        # SQLAlchemy uses sqlite:/// for files
-        if "memory" not in db_uri:
-            db_uri = db_uri.replace("sqlite://", "sqlite:///", 1)
+def convert_pydal_to_sqlalchemy_uri(db_uri: str) -> str:
+    """Convert PyDAL database URI to SQLAlchemy format.
 
-    return create_engine(db_uri, echo=False)
+    Handles:
+    - postgres:// → postgresql://
+    - sqlite:memory → sqlite:///:memory:?check_same_thread=false
+    - sqlite://filename.db → sqlite:///filename.db
+    """
+    # Convert PostgreSQL dialect
+    if db_uri.startswith("postgres://"):
+        return db_uri.replace("postgres://", "postgresql://", 1)
+
+    # Convert SQLite dialect
+    if db_uri.startswith("sqlite:"):
+        if db_uri == "sqlite:memory":
+            # Add query param for check_same_thread (required for StaticPool + in-memory)
+            return "sqlite:///:memory:?check_same_thread=false"
+        elif db_uri.startswith("sqlite://"):
+            return db_uri.replace("sqlite://", "sqlite:///", 1)
+
+    return db_uri
+
+
+def get_sqlalchemy_engine(db_uri: str):
+    """Create SQLAlchemy engine from database URI.
+
+    Converts PyDAL format URIs to SQLAlchemy format.
+    For in-memory SQLite, disables pooling to maintain single connection.
+    """
+    from sqlalchemy.pool import StaticPool
+
+    sa_uri = convert_pydal_to_sqlalchemy_uri(db_uri)
+
+    # For in-memory SQLite, disable pooling and set check_same_thread=False
+    if sa_uri == "sqlite:///:memory:":
+        return create_engine(
+            sa_uri,
+            echo=False,
+            poolclass=StaticPool,
+            connect_args={"check_same_thread": False},
+        )
+
+    return create_engine(sa_uri, echo=False)
 
 
 def create_all_tables(db_uri: str):
     """Create all tables using SQLAlchemy and seed default data."""
-    from sqlalchemy.orm import sessionmaker
     import uuid
+
     import bcrypt
+    from sqlalchemy.orm import sessionmaker
+
+    # Register M1 ORM classes on Base.metadata
+    from . import models_m1  # noqa: F401
 
     engine = get_sqlalchemy_engine(db_uri)
     Base.metadata.create_all(engine)
@@ -796,7 +891,7 @@ def create_all_tables(db_uri: str):
 
         if not existing_admin:
             # Hash default password 'admin'
-            password_hash = bcrypt.hashpw("admin".encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+            password_hash = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode('utf-8')
 
             admin_user = AuthUser(
                 email=admin_email,

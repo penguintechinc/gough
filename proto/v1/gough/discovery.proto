@@ -1,0 +1,50 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service Discovery {
+  rpc Probe(ProbeRequest) returns (ProbeResponse);
+  rpc EventStream(stream DiscoveryEventStreamRequest) returns (stream DiscoveryEventStreamResponse);
+  rpc ExecCommand(ExecCommandRequest) returns (ExecCommandResponse);
+  rpc ExtractSecret(ExtractSecretRequest) returns (ExtractSecretResponse);
+}
+
+message ProbeRequest {
+  string probe_params = 1;
+}
+
+message ProbeResponse {
+  string probe_result = 1;
+  string probe_id = 2;
+}
+
+message DiscoveryEventStreamRequest {
+  string event_filter = 1;
+  repeated string event_types = 2;
+}
+
+message DiscoveryEventStreamResponse {
+  string event_type = 1;
+  string event_payload = 2;
+}
+
+message ExecCommandRequest {
+  string command = 1;
+  string target = 2;
+}
+
+message ExecCommandResponse {
+  string output = 1;
+  int32 exit_code = 2;
+}
+
+message ExtractSecretRequest {
+  string secret_id = 1;
+  string scope = 2;
+}
+
+message ExtractSecretResponse {
+  string secret_value = 1;
+}

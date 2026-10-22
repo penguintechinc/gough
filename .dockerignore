@@ -1,0 +1,77 @@
+# Git and version control
+.git
+.gitignore
+.gitattributes
+
+# Build and dependency artifacts
+node_modules
+__pycache__
+*.pyc
+*.pyo
+*.egg-info
+dist
+build
+.venv
+venv
+*.egg
+*.o
+*.so
+.cache
+.pytest_cache
+
+# IDE and editor files
+.vscode
+.idea
+*.swp
+*.swo
+*~
+.DS_Store
+.env.local
+*.sublime-project
+*.sublime-workspace
+
+# Secrets and credentials (never ship these)
+.env
+.env.*.local
+*.key
+*.pem
+credentials.json
+secrets/
+.aws/
+.kube/
+
+# CI/CD and testing
+.github
+.gitlab-ci.yml
+.circleci
+coverage/
+.coverage
+htmlcov/
+.nyc_output
+*.log
+
+# Documentation and comments
+README.md
+CONTRIBUTING.md
+docs/
+.claude/
+CLAUDE.md
+
+# Temporary and backup files
+*.tmp
+*.bak
+*.swp
+/tmp
+dist/
+build/
+
+# OS files
+Thumbs.db
+.DS_Store
+*.exe
+
+# Docker-specific
+Dockerfile
+docker-compose*.yml
+docker-compose*.yaml
+.dockerignore

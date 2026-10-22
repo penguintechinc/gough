@@ -1,0 +1,23 @@
+# Alpha environment overrides (local MicroK8s)
+namespace: gough
+replicaCount: 1
+image:
+  pullPolicy: Never
+env:
+  - name: GOUGH_LOG_LEVEL
+    value: "DEBUG"
+configMapData:
+  management-server-url: "https://gough.localhost.local"
+  heartbeat-interval: "30"
+  verify-ssl: "false"
+  log-level: "DEBUG"
+  capabilities: "ssh"
+resources:
+  limits:
+    cpu: 200m
+    memory: 256Mi
+  requests:
+    cpu: 50m
+    memory: 128Mi
+autoscaling:
+  enabled: false

@@ -1,15 +1,18 @@
-"""Unit tests for the LXD cluster join token endpoint, node-join authorization, and bootstrap seeding.
+"""Unit tests for LXD join authorization, single-issuance ledger, and bootstrap seeding.
 
-LXD is mocked at the HTTP layer with respx. The database is replaced by an in-memory
-FakeStore that patches the module-level ``_db_*`` helpers, so no database is required.
+LXD is mocked at the HTTP layer with respx. The database is an in-memory FakeStore that
+patches the module-level ``_db_*`` helpers. The fake enforces the same unique "live"
+constraints as the real table, so concurrency tests exercise the DB-level guarantee.
 """
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import json
 import logging
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Optional
@@ -25,11 +28,14 @@ from app.api.lxd_cluster import (
     PURPOSE_BOOTSTRAP,
     PURPOSE_NODE_JOIN,
     AgentRecord,
+    IssuanceConflictError,
+    KeyJoinInfo,
     bootstrap_token_hash,
     is_valid_hostname,
     lxd_bp,
     mask_token,
     parse_join_token_request,
+    parse_metadata,
 )
 
 SECRET = "test-jwt-secret"
@@ -48,58 +54,76 @@ BOOTSTRAP = "B" * 40
 
 @dataclass(slots=True)
 class FakeStore:
-    """In-memory stand-in for the access_agents, enrollment_keys, issuance and tombstone tables."""
+    """In-memory agents, enrollment keys, ledger, and tombstones with unique live columns."""
 
     agents: dict[str, AgentRecord] = field(default_factory=dict)
-    key_purpose: dict[str, Optional[str]] = field(default_factory=dict)
+    keys: dict[str, dict] = field(default_factory=dict)  # key_hash -> {purpose, intended, revoked}
     issuances: list[dict] = field(default_factory=list)
     seeds: set[str] = field(default_factory=set)
     seeded_key_inserts: int = 0
+    lock: threading.Lock = field(default_factory=threading.Lock)
 
-    def add_agent(self, agent_id: str, hostname: str, purpose: Optional[str],
-                  status: str = "active") -> None:
-        """Register an agent whose enrollment key has the given purpose (None = not join-eligible)."""
+    def add_agent(self, agent_id: str, hostname: str, purpose: Optional[str], *,
+                  intended: Optional[str] = None, status: str = "active") -> None:
+        """Register an agent and the enrollment key it used."""
         key_hash = hashlib.sha256(f"key-{agent_id}".encode()).hexdigest()
         self.agents[agent_id] = AgentRecord(agent_id, status, hostname, key_hash)
-        self.key_purpose[key_hash] = purpose
+        self.keys[key_hash] = {"purpose": purpose, "intended": intended, "revoked": False}
 
 
-def _load_agent(store: FakeStore, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Patch every DB helper the handlers use to read or write this store."""
-    monkeypatch.setattr(lxd_cluster, "_db_load_agent", lambda a: store.agents.get(a))
-    monkeypatch.setattr(lxd_cluster, "_db_key_purpose", lambda h: store.key_purpose.get(h))
+def _live_conflict(issuances: list[dict], agent_id: str, member: str, key_hash: str) -> bool:
+    """True when a live (status ISSUED) row already holds the agent, member, or key."""
+    return any(
+        i["status"] == 0 and (i["agent_id"] == agent_id or i["member_name"] == member
+                              or i["key_hash"] == key_hash)
+        for i in issuances
+    )
 
-    def live(agent_id: str, member: str, now: datetime) -> bool:
-        return any(
-            i["status"] == 0 and i["expires_at"] > now
-            and (i["member_name"] == member or i["agent_id"] == agent_id)
-            for i in store.issuances
-        )
 
-    def record(agent_id: str, member: str, now: datetime) -> int:
-        store.issuances.append({"id": len(store.issuances) + 1, "agent_id": agent_id,
-                                "member_name": member, "status": 0,
-                                "expires_at": now + lxd_cluster._ISSUANCE_TTL})
-        return len(store.issuances)
+@pytest.fixture
+def store(monkeypatch: pytest.MonkeyPatch) -> FakeStore:
+    """Fresh store with one active node-join agent named node-a bound to intended hostname node-a."""
+    fake = FakeStore()
+    fake.add_agent("agent-1", "node-a", PURPOSE_NODE_JOIN, intended="node-a")
+    monkeypatch.setattr(lxd_cluster, "_db_load_agent", lambda a: fake.agents.get(a))
 
-    def mark_failed(issuance_id: int, now: datetime) -> None:
-        store.issuances[issuance_id - 1]["status"] = 1
-        store.issuances[issuance_id - 1]["expires_at"] = now
+    def key_info(key_hash: str) -> Optional[KeyJoinInfo]:
+        raw = fake.keys.get(key_hash)
+        if raw is None:
+            return None
+        return KeyJoinInfo(key_hash, raw["purpose"], raw["intended"], raw["revoked"])
 
-    def seeded(token_hash: str) -> bool:
-        return token_hash in store.seeds
+    def record(agent_id: str, member: str, key_hash: str, now: datetime) -> int:
+        with fake.lock:
+            if _live_conflict(fake.issuances, agent_id, member, key_hash):
+                raise IssuanceConflictError()
+            fake.issuances.append({"agent_id": agent_id, "member_name": member, "key_hash": key_hash,
+                                   "status": 0, "expires_at": now + timedelta(minutes=15)})
+            return len(fake.issuances)
 
-    def seed(token_hash: str, key_hash: str, owner: int, expires: datetime) -> None:
-        store.key_purpose[key_hash] = PURPOSE_BOOTSTRAP
-        store.seeds.add(token_hash)
-        store.seeded_key_inserts += 1
+    def mark_failed(issuance_id: int) -> None:
+        with fake.lock:
+            fake.issuances[issuance_id - 1]["status"] = 1
 
-    monkeypatch.setattr(lxd_cluster, "_db_has_live_issuance", live)
+    def bootstrap_state(token_hash: str) -> tuple[bool, bool]:
+        return token_hash in fake.seeds, token_hash in fake.keys
+
+    def write_tombstone(token_hash: str) -> None:
+        fake.seeds.add(token_hash)
+
+    def seed(token_hash: str, owner: int, expires: datetime) -> None:
+        fake.keys[token_hash] = {"purpose": PURPOSE_BOOTSTRAP, "intended": None, "revoked": False}
+        fake.seeds.add(token_hash)
+        fake.seeded_key_inserts += 1
+
+    monkeypatch.setattr(lxd_cluster, "_db_key_join_info", key_info)
     monkeypatch.setattr(lxd_cluster, "_db_record_issuance", record)
     monkeypatch.setattr(lxd_cluster, "_db_mark_issuance_failed", mark_failed)
-    monkeypatch.setattr(lxd_cluster, "_db_bootstrap_seeded", seeded)
+    monkeypatch.setattr(lxd_cluster, "_db_bootstrap_state", bootstrap_state)
+    monkeypatch.setattr(lxd_cluster, "_db_write_tombstone", write_tombstone)
     monkeypatch.setattr(lxd_cluster, "_db_first_active_user_id", lambda: 1)
     monkeypatch.setattr(lxd_cluster, "_db_seed_bootstrap", seed)
+    return fake
 
 
 def _agent_jwt(agent_id: str = "agent-1", token_type: str = "agent_access",
@@ -122,13 +146,13 @@ def _operation_ok(metadata: object = None) -> dict:
                          "metadata": TOKEN_META if metadata is None else metadata}}
 
 
-@pytest.fixture
-def store(monkeypatch: pytest.MonkeyPatch) -> FakeStore:
-    """Fresh in-memory store with one active node-join agent named node-a."""
-    fake = FakeStore()
-    fake.add_agent("agent-1", "node-a", PURPOSE_NODE_JOIN)
-    _load_agent(fake, monkeypatch)
-    return fake
+def _lxd_success_routes(mock: respx.MockRouter):
+    """Register the LXD mock: member absent (404), POST accepted, operation completes."""
+    mock.get(MEMBER_URL).respond(404, json={"error": "not found"})
+    post = mock.post("/1.0/cluster/members").respond(
+        202, json={"type": "async", "status_code": 100, "operation": OP_PATH})
+    mock.get(f"{OP_PATH}/wait").respond(200, json=_operation_ok())
+    return post
 
 
 @pytest.fixture
@@ -151,22 +175,12 @@ def client(app: Quart):
     return app.test_client()
 
 
-def _lxd_success_routes(mock: respx.MockRouter, member_absent: bool = True):
-    """Register the LXD mock: member absent (404), POST accepted, operation completes."""
-    if member_absent:
-        mock.get(MEMBER_URL).respond(404, json={"error": "not found"})
-    post = mock.post("/1.0/cluster/members").respond(
-        202, json={"type": "async", "status_code": 100, "operation": OP_PATH})
-    mock.get(f"{OP_PATH}/wait").respond(200, json=_operation_ok())
-    return post
-
-
 class TestSuccess:
     """Happy-path behaviour of the join token endpoint."""
 
     @pytest.mark.asyncio
-    async def test_issues_token_from_completed_operation(self, client, store: FakeStore) -> None:
-        """A completed operation returns the base64 join token and records one issuance."""
+    async def test_issues_token_and_records_live_grant(self, client, store: FakeStore) -> None:
+        """A completed operation returns the base64 token and records one live ISSUED row."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             _lxd_success_routes(mock)
             resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
@@ -180,6 +194,7 @@ class TestSuccess:
         """The member name is forwarded as LXD server_name."""
         store.agents["agent-1"] = AgentRecord("agent-1", "active", "node-a.lab",
                                               store.agents["agent-1"].enrollment_key_hash)
+        store.keys[store.agents["agent-1"].enrollment_key_hash]["intended"] = "node-a.lab"
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             mock.get("/1.0/cluster/members/node-a.lab").respond(404)
             route = mock.post("/1.0/cluster/members").respond(
@@ -190,7 +205,7 @@ class TestSuccess:
 
     @pytest.mark.asyncio
     async def test_bootstrap_purpose_agent_allowed(self, client, store: FakeStore) -> None:
-        """An agent enrolled with a bootstrap key is join-eligible."""
+        """An agent enrolled with a bootstrap key is join-eligible (no intended hostname needed)."""
         store.add_agent("agent-boot", "node-a", PURPOSE_BOOTSTRAP)
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             _lxd_success_routes(mock)
@@ -204,13 +219,14 @@ class TestUpstreamErrors:
 
     @pytest.mark.asyncio
     async def test_member_exists_precheck_409(self, client, store: FakeStore) -> None:
-        """Member already in the cluster (GET 200) refuses the request before minting."""
+        """Member already in the cluster (GET 200) refuses before minting; grant is released."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             mock.get(MEMBER_URL).respond(200, json={"name": "node-a"})
             post = mock.post("/1.0/cluster/members").respond(202)
             resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
         assert resp.status_code == 409
         assert post.call_count == 0
+        assert store.issuances[0]["status"] == 1
 
     @pytest.mark.asyncio
     async def test_lxd_post_409_member_exists(self, client) -> None:
@@ -269,8 +285,8 @@ class TestUpstreamErrors:
         assert resp.status_code == 503
 
     @pytest.mark.asyncio
-    async def test_failed_grant_is_expired_so_retry_allowed(self, client, store: FakeStore) -> None:
-        """A failed LXD call marks the issuance failed; a retry is not blocked by it."""
+    async def test_failed_mint_allows_retry(self, client, store: FakeStore) -> None:
+        """A failed mint marks the row FAILED and releases the live columns; a retry succeeds."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             mock.get(MEMBER_URL).respond(404)
             mock.post("/1.0/cluster/members").respond(500)
@@ -281,6 +297,7 @@ class TestUpstreamErrors:
             _lxd_success_routes(mock)
             second = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
         assert second.status_code == 200
+        assert len(store.issuances) == 2
 
 
 class TestAuth:
@@ -337,7 +354,7 @@ class TestAuth:
 
 
 class TestAuthorization:
-    """Server-side join authorization: hostname binding, key purpose, issuance ledger."""
+    """Join authorization: hostname binding, key purpose, revocation, consumable join right."""
 
     @pytest.mark.asyncio
     async def test_wrong_hostname_403(self, client, store: FakeStore) -> None:
@@ -350,7 +367,7 @@ class TestAuthorization:
         assert store.issuances == []
 
     @pytest.mark.asyncio
-    async def test_hostname_comparison_is_exact(self, client, store: FakeStore) -> None:
+    async def test_hostname_comparison_is_exact(self, client) -> None:
         """A case-changed hostname does not match the recorded one."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False):
             resp = await client.post(ENDPOINT, json={"member_name": "NODE-A"}, headers=_auth())
@@ -360,7 +377,7 @@ class TestAuthorization:
     @pytest.mark.parametrize("purpose", [None, "admin", "viewer"])
     async def test_non_join_agent_403(self, client, store: FakeStore, purpose) -> None:
         """An agent whose enrollment key is not node-join or bootstrap is refused; LXD untouched."""
-        store.key_purpose[store.agents["agent-1"].enrollment_key_hash] = purpose
+        store.keys[store.agents["agent-1"].enrollment_key_hash]["purpose"] = purpose
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             route = mock.post("/1.0/cluster/members").respond(202)
             resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
@@ -375,12 +392,30 @@ class TestAuthorization:
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_repeat_while_unexpired_409(self, client, store: FakeStore) -> None:
-        """A second request for the same member while the first grant is live is refused with 409."""
+    async def test_revoked_key_403(self, client, store: FakeStore) -> None:
+        """A revoked join key refuses joins even though the agent is active."""
+        store.keys[store.agents["agent-1"].enrollment_key_hash]["revoked"] = True
+        resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_intended_hostname_mismatch_403(self, client, store: FakeStore) -> None:
+        """A node-join key bound to another hostname refuses even when the agent name matches."""
+        store.keys[store.agents["agent-1"].enrollment_key_hash]["intended"] = "node-z"
+        with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
+            route = mock.post("/1.0/cluster/members").respond(202)
+            resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
+        assert resp.status_code == 403
+        assert route.call_count == 0
+
+    @pytest.mark.asyncio
+    async def test_success_consumes_join_right_even_after_expiry(self, client, store: FakeStore) -> None:
+        """After a successful grant, a second request is refused with 409 regardless of expiry."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             _lxd_success_routes(mock)
             first = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
         assert first.status_code == 200
+        store.issuances[0]["expires_at"] = datetime.utcnow() - timedelta(days=30)
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
             route = mock.post("/1.0/cluster/members").respond(202)
             second = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
@@ -391,21 +426,26 @@ class TestAuthorization:
     @pytest.mark.asyncio
     async def test_live_issuance_for_member_blocks_other_agent(self, client, store: FakeStore) -> None:
         """A live grant for the member blocks a different agent that claims the same hostname."""
-        store.add_agent("agent-2", "node-a", PURPOSE_NODE_JOIN)
-        store.issuances.append({"id": 1, "agent_id": "agent-1", "member_name": "node-a",
+        store.add_agent("agent-2", "node-a", PURPOSE_NODE_JOIN, intended="node-a")
+        store.issuances.append({"agent_id": "agent-1", "member_name": "node-a",
+                                "key_hash": store.agents["agent-1"].enrollment_key_hash,
                                 "status": 0, "expires_at": datetime.utcnow() + timedelta(minutes=5)})
         resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth("agent-2"))
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
-    async def test_expired_issuance_allows_new_grant(self, client, store: FakeStore) -> None:
-        """An issuance past its expiry no longer blocks a new grant."""
-        store.issuances.append({"id": 1, "agent_id": "agent-1", "member_name": "node-a",
-                                "status": 0, "expires_at": datetime.utcnow() - timedelta(seconds=1)})
+    async def test_concurrent_requests_exactly_one_200(self, client, store: FakeStore) -> None:
+        """Two concurrent requests for the same join right: exactly one 200, one LXD POST."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
-            _lxd_success_routes(mock)
-            resp = await client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth())
-        assert resp.status_code == 200
+            post = _lxd_success_routes(mock)
+            r1, r2 = await asyncio.gather(
+                client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth()),
+                client.post(ENDPOINT, json={"member_name": "node-a"}, headers=_auth()),
+            )
+        statuses = sorted([r1.status_code, r2.status_code])
+        assert statuses == [200, 409]
+        assert post.call_count == 1
+        assert len([i for i in store.issuances if i["status"] == 0]) == 1
 
     @pytest.mark.asyncio
     async def test_grant_and_refusal_are_audited(self, client, store: FakeStore, monkeypatch) -> None:
@@ -424,15 +464,8 @@ class TestValidation:
     """Request body and hostname validation."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("name", [
-        "a" * 64,
-        "-leading",
-        "trailing-",
-        "under_score",
-        "has space",
-        "",
-        "bad..dots",
-    ])
+    @pytest.mark.parametrize("name", ["a" * 64, "-leading", "trailing-", "under_score",
+                                      "has space", "", "bad..dots"])
     async def test_bad_hostname_400(self, client, name: str) -> None:
         """Hostnames that are not RFC 1123 or exceed 63 characters are rejected with 400."""
         with respx.mock(base_url=LXD_URL, assert_all_called=False) as mock:
@@ -442,26 +475,16 @@ class TestValidation:
         assert route.call_count == 0
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("body", [
-        None,
-        [],
-        {},
-        {"member_name": 42},
-        {"member_name": "node-a", "extra": True},
-    ])
+    @pytest.mark.parametrize("body", [None, [], {}, {"member_name": 42},
+                                      {"member_name": "node-a", "extra": True}])
     async def test_bad_body_400(self, client, body) -> None:
         """Non-object, missing, wrong-typed, or unknown-field bodies are rejected with 400."""
         resp = await client.post(ENDPOINT, json=body, headers=_auth())
         assert resp.status_code == 400
 
     @pytest.mark.parametrize("name, ok", [
-        ("node-a", True),
-        ("a", True),
-        ("A1-b2", True),
-        ("a" * 63, True),
-        ("a" * 64, False),
-        ("node_a", False),
-        ("-node", False),
+        ("node-a", True), ("a", True), ("A1-b2", True), ("a" * 63, True),
+        ("a" * 64, False), ("node_a", False), ("-node", False),
     ])
     def test_is_valid_hostname(self, name: str, ok: bool) -> None:
         """Hostname helper enforces RFC 1123 labels and the 63-char cap."""
@@ -473,6 +496,16 @@ class TestValidation:
         assert req.member_name == "node-a"
         with pytest.raises(AttributeError):
             req.other = "x"  # type: ignore[attr-defined]
+
+    @pytest.mark.parametrize("raw, purpose", [
+        ('{"purpose": "node-join"}', "node-join"),
+        ("{'purpose': 'bootstrap'}", "bootstrap"),
+        ("not-a-dict", None),
+        (None, None),
+    ])
+    def test_parse_metadata_json_or_repr(self, raw, purpose) -> None:
+        """Metadata written as JSON or as a Python dict repr (agents.py) both parse; garbage yields {}."""
+        assert parse_metadata(raw).get("purpose") == purpose
 
 
 class TestSecrecy:
@@ -498,7 +531,7 @@ class TestSecrecy:
 
 
 class TestBootstrapSeeding:
-    """Bootstrap enrollment key seeding and tombstone behaviour."""
+    """Bootstrap seeding: tombstone or key row blocks a re-seed."""
 
     def test_hash_matches_enroll_scheme(self) -> None:
         """Hash is unsalted SHA-256 hex, identical to /agents/enroll lookups."""
@@ -513,10 +546,18 @@ class TestBootstrapSeeding:
     def test_deleted_key_is_not_resurrected(self, store: FakeStore) -> None:
         """After the key row is deleted or revoked, reseeding the same token is refused."""
         lxd_cluster.seed_bootstrap_enrollment_key(BOOTSTRAP)
-        store.key_purpose.clear()  # simulate hard delete of the enrollment key row
+        store.keys.clear()  # simulate hard delete of the enrollment key row
         assert lxd_cluster.seed_bootstrap_enrollment_key(BOOTSTRAP) is False
         assert store.seeded_key_inserts == 1
-        assert store.key_purpose == {}
+        assert store.keys == {}
+
+    def test_key_without_tombstone_writes_tombstone_only(self, store: FakeStore) -> None:
+        """If a key row exists without a tombstone, seeding writes the tombstone and inserts nothing."""
+        token_hash = bootstrap_token_hash(BOOTSTRAP)
+        store.keys[token_hash] = {"purpose": PURPOSE_BOOTSTRAP, "intended": None, "revoked": False}
+        assert lxd_cluster.seed_bootstrap_enrollment_key(BOOTSTRAP) is False
+        assert store.seeded_key_inserts == 0
+        assert token_hash in store.seeds
 
     @pytest.mark.parametrize("token", ["short", "has space " * 4, "bad/char" * 6])
     def test_seed_rejects_malformed_token(self, store: FakeStore, token: str) -> None:

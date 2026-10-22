@@ -1,0 +1,14 @@
+apiVersion: v2
+name: api-manager
+description: Gough API Manager - Quart/PyDAL backend for node lifecycle, migration, and iPXE orchestration
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - quart
+  - python
+  - api
+  - backend
+maintainers:
+  - name: Penguin Tech Inc
+    email: support@penguintech.io

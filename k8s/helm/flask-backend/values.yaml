@@ -1,9 +1,9 @@
-replicaCount: 3
+replicaCount: 1
 
 image:
-  repository: project-template/flask-backend
+  repository: ghcr.io/penguintechinc/gough/api-manager
   pullPolicy: IfNotPresent
-  tag: latest
+  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
 
 imagePullSecrets: []
 nameOverride: ""
@@ -30,8 +30,8 @@ securityContext:
 
 service:
   type: ClusterIP
-  port: 80
-  targetPort: 5000
+  port: 8080
+  targetPort: 8080
   annotations: {}
 
 ingress:
@@ -45,17 +45,24 @@ ingress:
           pathType: Prefix
   tls: []
 
+httproute:
+  enabled: false
+  gatewayName: shared
+  gatewayNamespace: gateway
+  host: ""
+  rules: []
+
 resources:
   limits:
-    cpu: 500m
-    memory: 512Mi
-  requests:
-    cpu: 125m
+    cpu: 250m
     memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
 
 autoscaling:
-  enabled: true
-  minReplicas: 3
+  enabled: false
+  minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
   targetMemoryUtilizationPercentage: 80
@@ -131,11 +138,28 @@ env:
       configMapKeyRef:
         name: flask-backend-config
         key: release-mode
+  - name: VAULT_ADDR
+    valueFrom:
+      configMapKeyRef:
+        name: flask-backend-config
+        key: vault-addr
+  - name: SPIRE_AGENT_SOCKET
+    value: "unix:///run/spire/agent.sock"
+  - name: NATS_URL
+    valueFrom:
+      configMapKeyRef:
+        name: flask-backend-config
+        key: nats-url
+  - name: REDIS_URL
+    valueFrom:
+      configMapKeyRef:
+        name: flask-backend-config
+        key: redis-url
 
 livenessProbe:
   httpGet:
     path: /healthz
-    port: 5000
+    port: 8080
   initialDelaySeconds: 30
   periodSeconds: 10
   timeoutSeconds: 5
@@ -143,8 +167,8 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /healthz
-    port: 5000
+    path: /readyz
+    port: 8080
   initialDelaySeconds: 10
   periodSeconds: 5
   timeoutSeconds: 3
@@ -158,8 +182,11 @@ configMapData:
   db-type: "postgres"
   db-host: "postgres"
   db-port: "5432"
-  db-name: "app_db"
-  db-pool-size: "10"
+  db-name: "gough_api"
+  db-pool-size: "5"
+  vault-addr: "http://vault:8200"
+  nats-url: "nats://nats:4222"
+  redis-url: "redis://redis:6379"
   license-server-url: "https://license.penguintech.io"
   release-mode: "false"
 

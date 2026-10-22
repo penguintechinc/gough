@@ -1,0 +1,51 @@
+syntax = "proto3";
+
+package gough.v1;
+
+option go_package = "github.com/penguintechinc/gough/services/discovery-agent/internal/grpcgen/gough/v1";
+
+service IPXE {
+  rpc ResolveBootScript(ResolveBootScriptRequest) returns (ResolveBootScriptResponse);
+  rpc BindMac(BindMacRequest) returns (BindMacResponse);
+  rpc MintBootstrapToken(MintBootstrapTokenRequest) returns (MintBootstrapTokenResponse);
+  rpc FetchCloudInit(FetchCloudInitRequest) returns (FetchCloudInitResponse);
+}
+
+message ResolveBootScriptRequest {
+  string mac_address = 1;
+  int64  node_id     = 2;
+}
+
+message ResolveBootScriptResponse {
+  string boot_script = 1;
+}
+
+message BindMacRequest {
+  string mac_address = 1;
+  int64  node_id     = 2;
+}
+
+message BindMacResponse {
+  bool   bound   = 1;
+  string node_id = 2;
+}
+
+message MintBootstrapTokenRequest {
+  int64           node_id     = 1;
+  repeated string permissions = 2;
+}
+
+message MintBootstrapTokenResponse {
+  string token      = 1;
+  int64  expiration = 2;
+}
+
+message FetchCloudInitRequest {
+  int64  node_id  = 1;
+  string baseline = 2;
+}
+
+message FetchCloudInitResponse {
+  string user_data    = 1;
+  string content_type = 2;
+}

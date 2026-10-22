@@ -10,7 +10,7 @@ import subprocess
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Any, List, Optional
 
 import asyncio
 from cryptography.hazmat.backends import default_backend
@@ -18,6 +18,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from quart import Quart, current_app
 
+from app.db.run_db import run_db
 from app.models import get_db
 
 
@@ -63,7 +64,12 @@ class SSHCertificateAuthority:
         if db is None:
             return
 
-        ca_config = db(db.ssh_ca_config.ca_type == "user").select().first()
+        # Regression: gh-22. Off the event loop via run_db() instead of
+        # blocking the request coroutine inline.
+        def _fetch_ca_config() -> Any:
+            return db(db.ssh_ca_config.ca_type == "user").select().first()
+
+        ca_config = await run_db(_fetch_ca_config)
         if not ca_config:
             current_app.logger.info("SSH CA not found, initializing new CA")
             await self.initialize_ca()
@@ -110,29 +116,35 @@ class SSHCertificateAuthority:
             f"SSH CA private key stored at {private_key_path}"
         )
 
-        # Store public key and metadata in database using PyDAL
+        # Store public key and metadata in database using PyDAL.
+        # Regression: gh-22. Read-then-write (check-existing, then
+        # update-or-insert) + commit is one unit of work -- stays in one
+        # run_db() closure per the house rule (see app/db/run_db.py).
         db = get_db()
 
-        # Check if user CA config already exists
-        existing = db(db.ssh_ca_config.ca_type == "user").select().first()
+        def _store_ca_config() -> None:
+            # Check if user CA config already exists
+            existing = db(db.ssh_ca_config.ca_type == "user").select().first()
 
-        if existing:
-            db(db.ssh_ca_config.id == existing.id).update(
-                public_key=public_key_bytes.decode('utf-8'),
-                private_key_vault_path=str(private_key_path),
-            )
-        else:
-            db.ssh_ca_config.insert(
-                ca_name="gough-user-ca",
-                ca_type="user",
-                public_key=public_key_bytes.decode('utf-8'),
-                private_key_vault_path=str(private_key_path),
-                cert_validity_seconds=self.DEFAULT_VALIDITY_SECONDS,
-                max_validity_seconds=self.MAX_VALIDITY_SECONDS,
-                is_active=True,
-            )
+            if existing:
+                db(db.ssh_ca_config.id == existing.id).update(
+                    public_key=public_key_bytes.decode('utf-8'),
+                    private_key_vault_path=str(private_key_path),
+                )
+            else:
+                db.ssh_ca_config.insert(
+                    ca_name="gough-user-ca",
+                    ca_type="user",
+                    public_key=public_key_bytes.decode('utf-8'),
+                    private_key_vault_path=str(private_key_path),
+                    cert_validity_seconds=self.DEFAULT_VALIDITY_SECONDS,
+                    max_validity_seconds=self.MAX_VALIDITY_SECONDS,
+                    is_active=True,
+                )
 
-        db.commit()
+            db.commit()
+
+        await run_db(_store_ca_config)
         current_app.logger.info("SSH CA initialized successfully")
 
     def get_ca_public_key(self) -> str:
@@ -188,8 +200,10 @@ class SSHCertificateAuthority:
             f"validity {validity_seconds}s, key_id {key_id}"
         )
 
-        # Get CA private key
-        ca_private_key_path = self._get_private_key_path()
+        # Get CA private key. Regression: gh-22. _get_private_key_path()
+        # issues its own direct penguin-dal select -- off the event loop
+        # via run_db() instead of blocking the request coroutine inline.
+        ca_private_key_path = await run_db(self._get_private_key_path)
 
         # Create temporary files for user public key and certificate
         with tempfile.TemporaryDirectory() as tmpdir:

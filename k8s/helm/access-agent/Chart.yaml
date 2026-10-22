@@ -1,0 +1,14 @@
+apiVersion: v2
+name: access-agent
+description: Gough Access Agent - rssh server providing remote shell access to managed resources
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - python
+  - rssh
+  - remote-access
+  - agent
+maintainers:
+  - name: Penguin Tech Inc
+    email: support@penguintech.io

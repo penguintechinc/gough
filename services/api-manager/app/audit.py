@@ -241,10 +241,60 @@ class AuditLogger:
                     user_id=event.user_id,
                 )
                 db.commit()
+
+                # Publish audit entry-written event to NATS
+                self._publish_audit_event_nats(event)
         except Exception as e:
             # Don't let audit failures break the application
             if self.app:
                 self.app.logger.error(f"Failed to store audit event: {e}")
+
+    def _publish_audit_event_nats(self, event: AuditEvent) -> None:
+        """Publish audit entry-written event to NATS (fire-and-forget)."""
+        try:
+            import asyncio
+            from quart import current_app
+
+            # Try to get NATS client
+            nats_client = getattr(current_app, "nats_client", None)
+            if nats_client is None:
+                return
+
+            # Build audit payload
+            payload = {
+                "event_id": event.event_id,
+                "event_type": event.event_type.value,
+                "severity": event.severity.value,
+                "message": event.message,
+                "actor": event.user_email or f"user_{event.user_id}",
+                "action": event.event_type.value,
+                "resource_type": event.resource_type,
+                "resource_id": event.resource_id,
+                "timestamp": event.timestamp.isoformat(),
+            }
+
+            # Schedule async publish as a fire-and-forget task
+            async def _publish_async():
+                try:
+                    await nats_client.publish(
+                        subject="gough.audit.entry-written",
+                        payload=payload,
+                        tenant_id="__default__",
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    if self.app:
+                        self.app.logger.warning("NATS audit publish failed: %s", exc)
+
+            # Try to schedule in event loop if available
+            try:
+                asyncio.create_task(_publish_async())
+            except RuntimeError:
+                # No event loop available, skip async publish
+                pass
+        except Exception as exc:  # noqa: BLE001
+            # Swallow all errors in NATS publishing
+            if self.app:
+                self.app.logger.debug("NATS audit publish error (non-fatal): %s", exc)
 
     def _log_to_app_logger(self, event: AuditEvent) -> None:
         """Log audit event to application logger."""

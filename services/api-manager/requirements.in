@@ -1,0 +1,148 @@
+# API Manager - Requirements
+# Python 3.13+
+# Managed via uv: uv pip compile --generate-hashes requirements.in -o requirements.txt
+
+# Web Framework
+Quart==0.19.9
+quart-cors==0.7.0
+
+# Database - SQLAlchemy for schema, penguin-dal for runtime
+SQLAlchemy==2.0.36
+alembic==1.14.0
+penguin-dal==0.4.1
+
+# Auth/authz - penguin-aaa provides the ES256 OIDCProvider (first-party token
+# issuance) + StaticKeyVerifier + ASGI OIDCAuthMiddleware gough authenticates
+# with. Hard runtime dependency (imported in app factory + auth blueprint).
+penguin-aaa==0.2.1
+psycopg2-binary==2.9.10
+PyMySQL==1.1.0
+
+# Authentication (keep for API tokens)
+PyJWT==2.12.0
+bcrypt==4.2.1
+
+# Validation
+pydantic==2.9.2  # M1 Sprint 1: Pydantic v2 schema validation
+email-validator==2.2.0
+
+# Secrets Management
+hvac==2.3.0  # Vault client; Sprint 1 Wave 2 wires real calls
+infisical-python==2.1.1
+
+# Distributed key-value store (Phase 2 quorum check)
+# etcd3==0.12.0 replaced by aetcd: etcd3's own bundled *_pb2.py stubs use the
+# legacy pre-protoc-3.19 _descriptor.FileDescriptor() API, which raises
+# "TypeError: Descriptors cannot be created directly" under any protobuf
+# runtime built with the (default) upb/C++ backend -- protobuf>=4. etcd3 has
+# had no release since 0.12.0 (2020), so there is no fixed version to pin to.
+# aetcd is the actively maintained, async-native successor (protobuf<8,>4,
+# grpcio<2,>1.66.0) and is a closer fit for this async/Quart codebase anyway
+# (no more asyncio.to_thread() wrapping of a sync client). regression: gh-22
+aetcd==1.0.0  # etcd v3 client; Phase 2 primary HA cluster state check
+
+# gRPC runtime (server revived gh-22; buf-generated stubs are gencode 5.28.3,
+# which requires protobuf>=5.27 at runtime -- see protobuf pin below)
+grpcio==1.70.0
+
+# Event stream / messaging
+nats-py==2.9.0  # NATS JetStream client; Sprint 4 event stream
+cryptography==46.0.6
+
+# Observability - OTel logs+metrics+traces for the migration lifecycle
+# (critical-rules.md Observability). Also backs app/observability.py's M2
+# cluster-execution instrumentation (app/api/clusters.py's
+# switch_primary_storage/adopt_cluster). Endpoint is env-configurable
+# (OTEL_EXPORTER_OTLP_ENDPOINT) -- never hardcoded, never vendor-specific.
+opentelemetry-api==1.45.1
+opentelemetry-sdk==1.45.1
+opentelemetry-exporter-otlp-proto-grpc==1.45.1
+boto3==1.35.78
+# 2.20.0 pins protobuf<5.0.0.dev0, which conflicts with the protobuf>=5.28
+# the gRPC gencode requires; 2.20.2 widens that to protobuf<6.0.0dev with no
+# other API changes.
+google-cloud-secret-manager==2.20.2
+# aioboto3==12.2.0 conflicts with boto3 (deferred)
+# moto==5.2.0 conflicts with boto3 (deferred)
+
+# SPIRE/Identity integration deferred (placeholder for future)
+
+# BMC out-of-band control (Sprint 4)
+pyghmi==1.5.77  # IPMI 2.0 over LAN; cipher suite 17 enforced in app/clients/ipmi.py
+
+# Cloud Provider SDKs
+pylxd==2.3.2
+google-cloud-compute==1.19.2
+# app/clouds/azure.py imports from all four of these. Pinning azure-mgmt-compute
+# alone left AZURE_AVAILABLE=False at runtime (azure.identity / azure.mgmt.network
+# / azure.mgmt.resource are NOT transitive deps of azure-mgmt-compute), so every
+# AzureCloud() raised "Azure SDK not available" while the provider stayed
+# registered in CLOUD_REGISTRY -- failing only once an operator added an Azure
+# provider, never at import time.
+azure-mgmt-compute==37.1.0
+azure-identity==1.25.3
+azure-mgmt-network==32.0.0
+azure-mgmt-resource==26.0.0
+
+# Async HTTP client (for MaaS OAuth)
+aiohttp==3.13.5
+httpx==0.27.0
+oauthlib==3.2.2
+
+# Template rendering
+Jinja2==3.1.6
+PyYAML==6.0.2
+
+# ASGI Server
+hypercorn==0.17.3
+
+# Configuration
+python-decouple==3.8
+
+# protobuf: exact-pinned to match the "Protobuf Python Version: 5.28.3"
+# gencode declaration embedded in every buf-generated *_pb2.py in app/grpc/
+# (proto/buf.gen.yaml -> buf.build/protocolbuffers/python:v28.3). Bumping
+# this requires regenerating stubs (`make proto`) with a newer plugin pin
+# first, never bumping protobuf alone.
+protobuf==5.28.3
+
+# Feature flags & license entitlement (app/licensing.py). PostHog is the flag
+# backend embedded in license.penguintech.io; the entitlement API is plain HTTP
+# over requests, which is already a transitive dep but imported directly by
+# app/clouds/vultr.py and app/licensing.py, so it is pinned explicitly here.
+posthog==7.42.0
+requests==2.32.3
+
+# Monitoring
+prometheus-client==0.21.1
+
+# Linear regression for capacity prediction
+numpy==1.26.4
+
+# Development
+pytest==8.3.4
+pytest-cov==6.0.0
+pytest-asyncio==0.24.0
+pytest-benchmark==4.0.0  # Plan compiler performance benchmarks (50-egg p95 < 1s; 250-egg p95 < 5s)
+requests-mock==1.12.1  # LXD HTTPS API mocks for tests/clients/test_lxd_extra.py
+# tests/test_openapi_export.py has always imported this to validate the
+# generated OpenAPI 3.1 document, but it was never declared -- so that
+# assertion silently never ran.
+openapi-spec-validator==0.7.1
+testcontainers==4.8.1  # Real-Postgres pytest fixture (tests/pg_fixtures.py); needs Docker locally, or $DATABASE_URL in CI
+# moto==5.2.0 removed (boto3 conflicts)
+black==24.10.0
+flake8==7.1.1
+mypy==1.14.0
+bandit==1.7.10
+
+# Penguin shared libraries (internal; handled by CI/deployment)
+# penguin-aaa is now an active runtime dependency -- see the Auth/authz block above.
+# penguin-utils is also active: app/db/database.py and app/db/galera.py import
+# penguintechinc_utils.get_logger unconditionally at module scope, so it was
+# missing from this lockfile entirely (not even unpinned) and broke every
+# test collection that touches app.db -- same promotion penguin-aaa got above.
+penguin-utils==0.3.0
+# penguin-libs==0.2.0
+# penguin-licensing==0.1.0
+# penguin-sal==0.1.0

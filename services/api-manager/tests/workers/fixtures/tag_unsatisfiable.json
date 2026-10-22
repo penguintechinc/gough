@@ -1,0 +1,57 @@
+{
+  "description": "Egg requires gpu:nvidia:cuda-arch:sm-90 + nic:rdma:roce; node has neither",
+  "node": {
+    "id": 30,
+    "name": "node-notag-30",
+    "primary_nic_mac": "aa:bb:cc:dd:ee:30",
+    "hardware_tags": [
+      "cpu:vendor:amd",
+      "mem:total-gb:64",
+      "disk:nvme",
+      "nic:speed:10g",
+      "lifecycle:playground"
+    ],
+    "hardware_json": {}
+  },
+  "plan_request": {
+    "cluster_id": "550e8400-e29b-41d4-a716-446655440030",
+    "reason": "tag unsatisfiable test",
+    "actor_sub": "test",
+    "disk_plan": {"disk_device": "/dev/sda", "luks_enabled": false, "partitions": []},
+    "egg_assignments": [{"egg_id": 701}]
+  },
+  "eggs": [
+    {
+      "id": 701,
+      "name": "h100-training-job",
+      "version": "1.0.0",
+      "phase": "post_deploy",
+      "workload_type": "lxc",
+      "lock_to_host": false,
+      "requires_hardware_tags": [
+        "gpu:nvidia",
+        "gpu:nvidia:cuda-arch:sm-90",
+        "nic:rdma:roce"
+      ],
+      "prefers_hardware_tags": ["mem:total-gb:512"],
+      "forbids_hardware_tags": ["lifecycle:playground"],
+      "dependencies": [],
+      "consumes_joiner_secrets_from": [],
+      "emits_joiner_secrets": false,
+      "cloud_init": {},
+      "storage_requirements_json": {}
+    }
+  ],
+  "joiner_secrets": [],
+  "expect": {
+    "success": false,
+    "errors": [
+      {
+        "code": "tag_constraint_unsatisfiable",
+        "missing_tags_includes": ["gpu:nvidia", "gpu:nvidia:cuda-arch:sm-90", "nic:rdma:roce"],
+        "forbidden_present_includes": ["lifecycle:playground"],
+        "candidates_considered": 1
+      }
+    ]
+  }
+}

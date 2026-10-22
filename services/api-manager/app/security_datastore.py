@@ -9,11 +9,9 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:
-    from pydal import DAL
-    from pydal.objects import Row
+from penguin_dal import DB, Row
 
 
 class RoleMixin:
@@ -50,7 +48,8 @@ class UserMixin:
         return False
 
     def get_id(self) -> str:
-        return str(getattr(self, "id", ""))
+        id_val = getattr(self, "id", "")
+        return "" if id_val is None else str(id_val)
 
     def has_role(self, role: str | RoleMixin) -> bool:
         roles = getattr(self, "roles", [])
@@ -246,19 +245,27 @@ class PyDALUserDatastore:
     by CLAUDE.md standards.
     """
 
-    def __init__(self, db: DAL) -> None:
+    def __init__(self, db: DB) -> None:
         self.db = db
         self.user_model = PyDALUser
         self.role_model = PyDALRole
 
     def _get_user_roles(self, user_id: int) -> list[PyDALRole]:
-        """Get all roles for a user."""
+        """Get all roles for a user.
+
+        Split-query (link rows, then each role by id) rather than a joined
+        ``.select(db.auth_role.ALL)`` -- penguin-dal does not implement pyDAL's
+        ``Table.ALL`` sentinel, so the joined form raised at runtime (gh-31
+        Finding B). Mirrors ``app.models._get_user_role``.
+        """
         db = self.db
-        rows = db(
-            (db.auth_user_roles.user_id == user_id)
-            & (db.auth_user_roles.role_id == db.auth_role.id)
-        ).select(db.auth_role.ALL)
-        return [PyDALRole(row) for row in rows]
+        links = db(db.auth_user_roles.user_id == user_id).select()
+        roles: list[PyDALRole] = []
+        for link in links:
+            role_row = db(db.auth_role.id == link.role_id).select().first()
+            if role_row:
+                roles.append(PyDALRole(role_row))
+        return roles
 
     def find_user(self, **kwargs: Any) -> PyDALUser | None:
         """Find a user by any attribute."""
