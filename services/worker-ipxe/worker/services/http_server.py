@@ -6,8 +6,10 @@ Provides dynamic iPXE script generation and serves boot images.
 
 import re
 import os
+from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 import structlog
+from decouple import config as env_config
 from quart import Quart, request, Response, jsonify
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
@@ -18,6 +20,63 @@ from worker.enrollment import EnrollmentManager
 from worker.services.ipxe_handler import IPXEHandler
 
 logger = structlog.get_logger()
+
+# Storage (MinIO/S3) timeouts: fast connect failure, long read for multi-GB images.
+STORAGE_CONNECT_TIMEOUT_S = 10.0
+STORAGE_READ_TIMEOUT_S = 300.0
+DEFAULT_IMAGE_CHUNK_SIZE = 1024 * 1024  # 1 MiB
+
+
+def _load_image_chunk_size() -> int:
+    """Read IMAGE_STREAM_CHUNK_SIZE (bytes) from env; fail loudly if below 1."""
+    size = env_config("IMAGE_STREAM_CHUNK_SIZE", default=DEFAULT_IMAGE_CHUNK_SIZE, cast=int)
+    if size < 1:
+        raise ValueError(f"IMAGE_STREAM_CHUNK_SIZE must be >= 1, got {size}")
+    return size
+
+
+async def _open_storage_stream(presigned_url: str) -> tuple[httpx.AsyncClient, httpx.Response]:
+    """Open a streamed GET to storage without reading the body.
+
+    Caller owns the returned client and response and must close both.
+    """
+    timeout = httpx.Timeout(STORAGE_READ_TIMEOUT_S, connect=STORAGE_CONNECT_TIMEOUT_S)
+    client = httpx.AsyncClient(timeout=timeout)
+    try:
+        upstream = await client.send(client.build_request("GET", presigned_url), stream=True)
+    except BaseException:
+        await client.aclose()
+        raise
+    return client, upstream
+
+
+def _outbound_image_headers(upstream: httpx.Response) -> dict[str, str]:
+    """Build client-facing headers for a streamed image.
+
+    Content-Length is forwarded only for identity-encoded bodies, since aiter_bytes
+    yields decoded bytes and an upstream length would then be wrong.
+    """
+    headers = {"Cache-Control": "public, max-age=3600"}
+    upstream_length = upstream.headers.get("content-length")
+    if upstream_length is not None and "content-encoding" not in upstream.headers:
+        headers["Content-Length"] = upstream_length
+    return headers
+
+
+async def _iter_image_chunks(
+    client: httpx.AsyncClient, upstream: httpx.Response, chunk_size: int
+) -> AsyncIterator[bytes]:
+    """Yield upstream bytes in fixed-size chunks, closing upstream and client on exit.
+
+    The finally block runs on normal completion, upstream error, and client disconnect
+    (generator close), so the storage connection never leaks.
+    """
+    try:
+        async for chunk in upstream.aiter_bytes(chunk_size):
+            yield chunk
+    finally:
+        await upstream.aclose()
+        await client.aclose()
 
 
 def _validate_image_path(image_path: str) -> tuple[bool, str]:
@@ -89,6 +148,7 @@ class HTTPBootServer:
         self.enrollment = enrollment
         self.app = Quart(__name__)
         self.ipxe_handler = IPXEHandler(config, enrollment)
+        self.image_chunk_size = _load_image_chunk_size()
         self.server_task = None
 
         # Register routes
@@ -184,17 +244,25 @@ class HTTPBootServer:
                             )
                             return Response("Invalid presigned URL", status=400)
 
-                        # Stream image from storage
-                        async with httpx.AsyncClient(timeout=300.0) as storage_client:
-                            image_response = await storage_client.get(presigned_url)
-                            return Response(
-                                image_response.content,
-                                mimetype="application/octet-stream",
-                                headers={
-                                    "Content-Length": str(len(image_response.content)),
-                                    "Cache-Control": "public, max-age=3600",
-                                },
+                        # Stream image from storage in bounded chunks (never buffer whole image)
+                        storage_client, upstream = await _open_storage_stream(presigned_url)
+                        if not upstream.is_success:
+                            await upstream.aclose()
+                            await storage_client.aclose()
+                            logger.error(
+                                "image_storage_fetch_failed",
+                                path=image_path,
+                                upstream_status=upstream.status_code,
                             )
+                            if upstream.status_code == 404:
+                                return Response("Image not found", status=404)
+                            return Response("Upstream storage error", status=502)
+
+                        return Response(
+                            _iter_image_chunks(storage_client, upstream, self.image_chunk_size),
+                            mimetype="application/octet-stream",
+                            headers=_outbound_image_headers(upstream),
+                        )
                     else:
                         logger.error("image_url_fetch_failed", status=response.status_code)
                         return Response("Image not found", status=404)
