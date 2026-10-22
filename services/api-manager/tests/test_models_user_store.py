@@ -219,6 +219,14 @@ def test_revoke_all_user_tokens_counts_only_active_tokens(auth_db: DB) -> None:
     assert models.is_refresh_token_valid("kim-1") is True
 
 
+def test_dangling_role_assignment_falls_back_to_viewer(auth_db: DB) -> None:
+    """A role assignment pointing at a missing role row resolves to the default viewer role."""
+    user = models.create_user("lee@example.com", "h", role="viewer")
+    auth_db.auth_user_roles.insert(user_id=user["id"], role_id=9999)
+
+    assert models.get_user_by_id(user["id"])["role"] == "viewer"
+
+
 def test_role_lookup_degrades_to_viewer_on_db_error(auth_db: DB, monkeypatch: pytest.MonkeyPatch) -> None:
     """A DB failure while resolving the role is swallowed and reported as the default viewer role."""
 
