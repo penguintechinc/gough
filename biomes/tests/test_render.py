@@ -396,5 +396,130 @@ class CoLocationTests(unittest.TestCase):
             self.assertEqual(len(names), len(set(names)), biome)
 
 
+class ResourceTests(unittest.TestCase):
+    """Every instance carries explicit LXD limits and a root disk; the hub rejects instances without them."""
+
+    def profile(self, biome_dir, params):
+        """Render and return the parsed profile.json for one biome."""
+        return json.loads(render.render_biome(biome_dir, params)["profile.json"])
+
+    def test_controller_defaults_rendered(self):
+        """Controller defaults: 4 cores, 8GiB hard memory without swap, 50GiB root on the default pool."""
+        profile = self.profile(CTL_DIR, controller_params())
+        self.assertEqual(profile["config"]["limits.cpu"], "4")
+        self.assertEqual(profile["config"]["limits.memory"], "8GiB")
+        self.assertEqual(profile["devices"]["root"], {"type": "disk", "path": "/", "pool": "default", "size": "50GiB"})
+
+    def test_worker_defaults_rendered(self):
+        """Worker defaults: 4 cores, 8GiB, 100GiB root."""
+        profile = self.profile(WRK_DIR, worker_params())
+        self.assertEqual(profile["config"]["limits.cpu"], "4")
+        self.assertEqual(profile["config"]["limits.memory"], "8GiB")
+        self.assertEqual(profile["devices"]["root"]["size"], "100GiB")
+
+    def test_lxd_limit_fields_exact(self):
+        """The limits block carries exactly the four limit keys with the hard-enforce and no-swap values."""
+        config = self.profile(WRK_DIR, worker_params())["config"]
+        limits = {k: v for k, v in config.items() if k.startswith("limits.")}
+        self.assertEqual(limits, {
+            "limits.cpu": "4",
+            "limits.memory": "8GiB",
+            "limits.memory.enforce": "hard",
+            "limits.memory.swap": "false",
+        })
+
+    def test_root_device_fields_exact(self):
+        """The root device is a disk on / with the supplied pool and size and no other keys."""
+        devices = self.profile(CTL_DIR, controller_params(storage_pool="fast", root_disk_size="30GiB"))["devices"]
+        self.assertEqual(devices["root"], {"type": "disk", "path": "/", "pool": "fast", "size": "30GiB"})
+        self.assertEqual(devices["eth0"]["parent"], "br0")
+
+    def test_override_above_min_accepted(self):
+        """Overrides at or above the minimum render into the profile and params.env."""
+        out = render.render_biome(WRK_DIR, worker_params(cpu_cores=8, memory="16GiB", root_disk_size="200GiB"))
+        profile = json.loads(out["profile.json"])
+        self.assertEqual(profile["config"]["limits.cpu"], "8")
+        self.assertEqual(profile["config"]["limits.memory"], "16GiB")
+        self.assertEqual(profile["devices"]["root"]["size"], "200GiB")
+        self.assertIn("GOUGH_CPU_CORES=8", params_env_of(out))
+
+    def test_minimum_values_accepted(self):
+        """Values exactly at the minimum are valid."""
+        profile = self.profile(CTL_DIR, controller_params(cpu_cores=2, memory="4GiB", root_disk_size="20GiB"))
+        self.assertEqual(profile["config"]["limits.cpu"], "2")
+        self.assertEqual(profile["config"]["limits.memory"], "4GiB")
+
+    def test_cpu_below_min_rejected(self):
+        """A cpu count below the manifest minimum fails loudly."""
+        with self.assertRaisesRegex(render.RenderError, "cpu_cores must be an integer >= 2"):
+            render.render_biome(CTL_DIR, controller_params(cpu_cores=1))
+
+    def test_memory_below_min_rejected(self):
+        """Memory below 4GiB fails loudly."""
+        with self.assertRaisesRegex(render.RenderError, "memory must be >= 4GiB"):
+            render.render_biome(WRK_DIR, worker_params(memory="2GiB"))
+
+    def test_root_disk_below_min_rejected(self):
+        """Root disk below 20GiB fails loudly."""
+        with self.assertRaisesRegex(render.RenderError, "root_disk_size must be >= 20GiB"):
+            render.render_biome(WRK_DIR, worker_params(root_disk_size="10GiB"))
+
+    def test_bad_units_rejected(self):
+        """Decimal, lowercase, SI and unitless sizes are all refused by the strict unit regex."""
+        for bad in ("8G", "8GB", "8gib", "8.5GiB", "8", "0GiB", " 8GiB", "8GiB\n"):
+            with self.subTest(bad=bad), self.assertRaises(render.RenderError):
+                render.render_biome(WRK_DIR, worker_params(memory=bad))
+
+    def test_bad_cpu_type_rejected(self):
+        """A zero, negative, boolean or non-numeric cpu count is refused."""
+        for bad in (0, -1, True, "four"):
+            with self.subTest(bad=bad), self.assertRaises(render.RenderError):
+                render.render_biome(WRK_DIR, worker_params(cpu_cores=bad))
+
+    def test_manifest_resource_defaults_below_min_rejected(self):
+        """A manifest whose default sits below its own minimum fails before any instance is rendered."""
+        with tempfile.TemporaryDirectory() as tmp:
+            biome = os.path.join(tmp, "b")
+            os.makedirs(os.path.join(biome, "scripts"))
+            os.makedirs(os.path.join(biome, "cloud-init"))
+            manifest = manifest_of(WRK_DIR)
+            manifest["resources"]["memory"] = {"default": "2GiB", "min": "4GiB"}
+            with open(os.path.join(biome, "biome.json"), "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh)
+            with self.assertRaisesRegex(render.RenderError, "memory.default is below its min"):
+                render.resolve_resources(render.load_manifest(biome), {})
+
+    def test_missing_resources_block_fails(self):
+        """A manifest without a resources block is refused."""
+        with tempfile.TemporaryDirectory() as tmp:
+            manifest = manifest_of(WRK_DIR)
+            del manifest["resources"]
+            with open(os.path.join(tmp, "biome.json"), "w", encoding="utf-8") as fh:
+                json.dump(manifest, fh)
+            with self.assertRaisesRegex(render.RenderError, "missing key: resources"):
+                render.load_manifest(tmp)
+
+    def test_resource_params_declared_in_manifests(self):
+        """Both manifests declare the four resource parameters and a resources block."""
+        for biome in (CTL_DIR, WRK_DIR):
+            manifest = manifest_of(biome)
+            names = {p["name"] for p in manifest["parameters"] if p.get("resource")}
+            self.assertEqual(names, {"cpu_cores", "memory", "root_disk_size", "storage_pool"}, biome)
+            self.assertEqual(set(manifest["resources"]), {"cpu_cores", "memory", "root_disk"}, biome)
+
+
+class KubeletReservationTests(unittest.TestCase):
+    """Kubelets inside the biome reserve resources and evict before the LXD hard limit is reached."""
+
+    def test_kubelet_reservation_present_in_both_biomes(self):
+        """Both bootstrap scripts ship a KubeletConfiguration with reserved and eviction settings."""
+        for biome in (CTL_DIR, WRK_DIR):
+            with open(os.path.join(biome, "scripts", "bootstrap.sh"), encoding="utf-8") as fh:
+                script = fh.read()
+            self.assertIn("kind: KubeletConfiguration", script, biome)
+            for line in ("systemReserved:", "kubeReserved:", 'memory.available: "500Mi"', 'nodefs.available: "10%"'):
+                self.assertIn(line, script, biome)
+
+
 if __name__ == "__main__":
     unittest.main()

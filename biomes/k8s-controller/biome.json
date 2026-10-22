@@ -21,7 +21,39 @@
       }
     }
   },
+  "resources": {
+    "cpu_cores": {"default": 4, "min": 2},
+    "memory": {"default": "8GiB", "min": "4GiB"},
+    "root_disk": {"default": "50GiB", "min": "20GiB", "pool": "default"}
+  },
   "parameters": [
+    {
+      "name": "cpu_cores",
+      "type": "int",
+      "resource": true,
+      "description": "LXD limits.cpu. Integer cores; must be >= resources.cpu_cores.min."
+    },
+    {
+      "name": "memory",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[1-9][0-9]{0,11}(KiB|MiB|GiB|TiB)$",
+      "description": "LXD limits.memory (hard, no swap). IEC units only; must be >= resources.memory.min."
+    },
+    {
+      "name": "root_disk_size",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[1-9][0-9]{0,11}(KiB|MiB|GiB|TiB)$",
+      "description": "Root disk size for the instance device. IEC units only; must be >= resources.root_disk.min."
+    },
+    {
+      "name": "storage_pool",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "description": "LXD storage pool holding the root disk."
+    },
     {
       "name": "hostname",
       "type": "string",

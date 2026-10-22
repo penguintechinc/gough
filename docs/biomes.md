@@ -30,7 +30,8 @@ biomes/
 | `lxd.profile_name` | Per-biome profile: `gough-k8s-controller` or `gough-k8s-worker`. |
 | `lxd.config` | `security.nesting`, `security.privileged`, `linux.kernel_modules`, `raw.lxc` (runbook section 3). |
 | `lxd.devices.eth0` | Bridged NIC on `{{ bridge }}`. |
-| `parameters[]` | `name`, `type` (`string` or `bool`), `required`, `default`, `pattern` (full-match regex), `scheme` (`mirror`, see below), `secret`, `description`. |
+| `resources` | Default and minimum `cpu_cores`, `memory`, `root_disk` (default, min, pool). See Resources. |
+| `parameters[]` | `name`, `type` (`string`, `int`, `enum` or `bool`), `required`, `default`, `pattern` (full-match regex), `scheme` (`mirror`, see below), `secret`, `resource` (resource params, see Resources), `description`. |
 
 Placeholders are `{{ name }}`. Parameters are the only input. Values containing control characters, `"` or `\` are rejected, so templates can quote them safely.
 
@@ -63,6 +64,34 @@ Set by the gough orchestrator for this release. Change them only through the coo
 | Gateway API off | `cilium_gateway_api: false` | Needs its CRDs from the chart or file mirror (`gateway_api_crds_url`, `gateway_api_crds_sha256`). The bootstrap fails loudly if enabled without them. |
 | Hubble off | `cilium_hubble: false` | Optional observability (runbook). |
 | Cilium 1.20.1 | `cilium_version: 1.20.1` | Verified in the runbook. Gough follow-up: the hub catalog still pins 1.19.1 and must be updated to match. |
+
+## Resources
+
+Every instance carries explicit LXD limits and a root disk. The renderer always emits them into `profile.json`, so the profile is the only place limits live.
+
+| Parameter | Default (controller / worker) | Minimum | Rendered as |
+|---|---|---|---|
+| `cpu_cores` (int) | 4 / 4 | 2 | `limits.cpu` |
+| `memory` | `8GiB` / `8GiB` | `4GiB` | `limits.memory`, `limits.memory.enforce=hard`, `limits.memory.swap=false` |
+| `root_disk_size` | `50GiB` / `100GiB` | `20GiB` | root device `size` |
+| `storage_pool` | `default` | n/a | root device `pool` |
+
+- Sizes: strict `<int>KiB|MiB|GiB|TiB`, IEC only. `8G`, `8GB`, `8gib`, `0GiB`, decimals and unitless values are refused.
+- Below the minimum, or a malformed value, the render fails with no output.
+- Defaults are sized so the controller can host the kubeadm control plane and Cilium operator. Hub-side workloads (the gough hub) may run on workers, not the controller.
+- Rendering `profile.json` extends the existing `config` and `devices` maps. The installer's `ensure_profile` already applies both, so no installer change is needed.
+
+### Kubelet reservation
+
+Both bootstraps write a `KubeletConfiguration` so the kubelet degrades before LXD's hard limit is reached:
+
+| Setting | Value |
+|---|---|
+| `systemReserved` | cpu `200m`, memory `512Mi` |
+| `kubeReserved` | cpu `100m`, memory `256Mi` |
+| `evictionHard` | `memory.available: 500Mi`, `nodefs.available: 10%` |
+
+Controller: appended to the `kubeadm init` config. Worker: appended to the `kubeadm join` config.
 
 ## Parameters: k8s-controller
 
@@ -164,6 +193,9 @@ The same join material also persists in `/var/lib/gough/biome/join.env` (mode 06
 
 ## Hub contract (must be implemented by gough)
 
+- Instances without limits are rejected. The hub refuses to create an instance unless its rendered profile has `limits.cpu`, `limits.memory` and a root device with `size`.
+- Capacity admission uses the rendered `limits.cpu` and `limits.memory` values against the hypervisor's remaining capacity.
+
 The controller's bootstrap POSTs once the control plane and Cilium are healthy. The body is passed to curl from a 0600 temp file, so it never appears in process arguments.
 
 ```
@@ -223,5 +255,6 @@ Content-Type: application/json
 - Confirm `k8s_package_version` (`1.35.9-1.1`) and `containerd_package_version` against the actual mirror.
 - Cilium 1.20.1 end-to-end is not verified in this repo; run `cilium connectivity test` on the live cluster.
 - kube_proxy_replacement=true is not verified in LXC; the default kube-proxy path is the runbook-verified one.
+- Gough follow-up: hub must submit limits via `cpu_cores`, `memory`, `root_disk_size`, `storage_pool` (or accept defaults) and reject instances whose profile lacks `limits.cpu`, `limits.memory` and a root disk.
 - Gough follow-up: the hub catalog pins Cilium 1.19.1 and must move to the biome's `cilium_version`.
 - Worker Ready is confirmed by the controller side, not by the worker biome.

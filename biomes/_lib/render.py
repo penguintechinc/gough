@@ -19,8 +19,11 @@ TEMPLATES = (
     ("cloud-init/user-data.yaml.tmpl", "user-data"),
     ("cloud-init/network-config.yaml.tmpl", "network-config"),
 )
-REQUIRED_MANIFEST_KEYS = ("name", "version", "lxd", "parameters")
+REQUIRED_MANIFEST_KEYS = ("name", "version", "lxd", "parameters", "resources")
 USER_DATA_HEADER = "#cloud-config\n"
+UNIT_RE = re.compile(r"^([1-9][0-9]{0,11})(KiB|MiB|GiB|TiB)$")
+UNIT_BYTES = {"KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
+INT_RE = re.compile(r"^[1-9][0-9]{0,3}$")
 
 
 class RenderError(Exception):
@@ -66,7 +69,70 @@ def resolve_params(manifest, supplied):
     unknown = sorted(set(supplied) - set(declared))
     if unknown:
         raise RenderError("unknown parameters: " + ", ".join(unknown))
-    return {name: _resolve_one(name, spec, supplied, insecure_ok) for name, spec in declared.items()}
+    resolved = {}
+    for name, spec in declared.items():
+        if spec.get("resource") and name not in supplied:
+            continue  # filled by resolve_resources from the manifest resources block
+        resolved[name] = _resolve_one(name, spec, supplied, insecure_ok)
+    return resolved
+
+
+def parse_size(text, label):
+    """Return the byte count of a strict IEC size (KiB/MiB/GiB/TiB); anything else fails loudly."""
+    if not isinstance(text, str):
+        raise RenderError(f"{label} must be a size string such as 8GiB")
+    match = UNIT_RE.fullmatch(text)
+    if match is None:
+        raise RenderError(f"{label} {text!r} is not a valid size (use <int>KiB|MiB|GiB|TiB, no zero)")
+    return int(match.group(1)) * UNIT_BYTES[match.group(2)]
+
+
+def resolve_resources(manifest, resolved):
+    """Fill cpu/memory/root-disk parameters from the manifest, enforce minimums, and return effective limits.
+
+    Mutates resolved so params.env carries the effective values. Hub admission relies on these limits being present.
+    """
+    res = manifest["resources"]
+    if not isinstance(res, dict):
+        raise RenderError("manifest resources must be an object")
+    try:
+        cpu_default, cpu_min = res["cpu_cores"]["default"], res["cpu_cores"]["min"]
+        mem_default, mem_min = res["memory"]["default"], res["memory"]["min"]
+        disk = res["root_disk"]
+        disk_default, disk_min, pool_default = disk["default"], disk["min"], disk["pool"]
+    except (KeyError, TypeError) as exc:
+        raise RenderError(f"manifest resources incomplete: {exc}") from exc
+    for label, value in (("cpu_cores.default", cpu_default), ("cpu_cores.min", cpu_min)):
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise RenderError(f"manifest resources {label} must be a positive integer")
+    if cpu_default < cpu_min:
+        raise RenderError("manifest resources cpu_cores.default is below its min")
+    for label, value in (("memory", mem_default), ("root_disk.default", disk_default)):
+        parse_size(value, f"manifest resources {label}")
+    if parse_size(mem_default, "memory.default") < parse_size(mem_min, "memory.min"):
+        raise RenderError("manifest resources memory.default is below its min")
+    if parse_size(disk_default, "root_disk.default") < parse_size(disk_min, "root_disk.min"):
+        raise RenderError("manifest resources root_disk.default is below its min")
+    cpu = resolved.setdefault("cpu_cores", cpu_default)
+    memory = resolved.setdefault("memory", mem_default)
+    root_size = resolved.setdefault("root_disk_size", disk_default)
+    pool = resolved.setdefault("storage_pool", pool_default)
+    if isinstance(cpu, bool) or not isinstance(cpu, int) or cpu < cpu_min:
+        raise RenderError(f"parameter cpu_cores must be an integer >= {cpu_min}")
+    if parse_size(memory, "parameter memory") < parse_size(mem_min, "memory.min"):
+        raise RenderError(f"parameter memory must be >= {mem_min}")
+    if parse_size(root_size, "parameter root_disk_size") < parse_size(disk_min, "root_disk.min"):
+        raise RenderError(f"parameter root_disk_size must be >= {disk_min}")
+    if not isinstance(pool, str) or not pool:
+        raise RenderError("parameter storage_pool must be a non-empty string")
+    return {
+        "limits.cpu": str(cpu),
+        "limits.memory": memory,
+        "limits.memory.enforce": "hard",
+        "limits.memory.swap": "false",
+        "root_size": root_size,
+        "root_pool": pool,
+    }
 
 
 def _insecure_flag(manifest, supplied):
@@ -91,6 +157,12 @@ def _resolve_one(name, spec, supplied, insecure_ok):
     if ptype == "bool":
         if not isinstance(value, bool):
             raise RenderError(f"parameter {name} must be a boolean")
+        return value
+    if ptype == "int":
+        if isinstance(value, str) and INT_RE.fullmatch(value):
+            value = int(value)
+        if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+            raise RenderError(f"parameter {name} must be a positive integer")
         return value
     if ptype not in ("string", "enum"):
         raise RenderError(f"parameter {name} has unsupported type {ptype!r}")
@@ -139,20 +211,23 @@ def render_text(text, values):
     return PLACEHOLDER.sub(lambda m: values[m.group(1)], text)
 
 
-def build_profile(manifest, resolved, values):
-    """Build the LXD profile document and enforce the privileged opt-in gate."""
+def build_profile(manifest, resolved, values, limits):
+    """Build the LXD profile document: explicit limits, root disk, and the privileged opt-in gate."""
     lxd = json.loads(render_text(json.dumps(manifest["lxd"]), values))
     config = {key: stringify(val) for key, val in (lxd.get("config") or {}).items()}
+    config.update({k: v for k, v in limits.items() if k.startswith("limits.")})
     if config.get("security.privileged") == "true" and resolved.get("allow_privileged") is not True:
         raise RenderError("biome requires security.privileged; set allow_privileged=true to opt in")
     name = lxd.get("profile_name")
     if not name:
         raise RenderError("manifest lxd.profile_name is required")
+    devices = dict(lxd.get("devices") or {})
+    devices["root"] = {"type": "disk", "path": "/", "pool": limits["root_pool"], "size": limits["root_size"]}
     return {
         "name": name,
         "image": lxd.get("image"),
         "config": config,
-        "devices": lxd.get("devices") or {},
+        "devices": devices,
     }
 
 
@@ -180,6 +255,7 @@ def render_biome(biome_dir, supplied):
     """Render user-data, network-config and profile.json for one biome instance."""
     manifest = load_manifest(biome_dir)
     resolved = resolve_params(manifest, supplied)
+    limits = resolve_resources(manifest, resolved)
     for check in CROSS_CHECKS:
         check(resolved)
     values = {name: stringify(value) for name, value in resolved.items()}
@@ -191,7 +267,7 @@ def render_biome(biome_dir, supplied):
         if out_name == "user-data" and not rendered.startswith(USER_DATA_HEADER):
             raise RenderError("user-data must start with the #cloud-config header")
         outputs[out_name] = rendered
-    profile = build_profile(manifest, resolved, values)
+    profile = build_profile(manifest, resolved, values, limits)
     outputs["profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
     return outputs
 

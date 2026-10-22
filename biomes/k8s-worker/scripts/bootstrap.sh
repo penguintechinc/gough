@@ -223,6 +223,18 @@ nodeRegistration:
   name: "$(hostname)"
   ignorePreflightErrors:
     - SystemVerification
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+systemReserved:
+  cpu: "200m"
+  memory: "512Mi"
+kubeReserved:
+  cpu: "100m"
+  memory: "256Mi"
+evictionHard:
+  memory.available: "500Mi"
+  nodefs.available: "10%"
 YAML
   kubeadm join --config "$JOIN_CONFIG"
   rm -f "$JOIN_CONFIG"

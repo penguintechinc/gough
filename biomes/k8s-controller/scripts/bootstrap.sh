@@ -225,6 +225,18 @@ controlPlaneEndpoint: "${GOUGH_CONTROL_PLANE_ENDPOINT}"
 networking:
   podSubnet: "${GOUGH_POD_CIDR}"
   serviceSubnet: "${GOUGH_SERVICE_CIDR}"
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+systemReserved:
+  cpu: "200m"
+  memory: "512Mi"
+kubeReserved:
+  cpu: "100m"
+  memory: "256Mi"
+evictionHard:
+  memory.available: "500Mi"
+  nodefs.available: "10%"
 YAML
   if [[ "$GOUGH_KUBE_PROXY_REPLACEMENT" != "true" ]]; then
     cat >> "$cfg" <<YAML
