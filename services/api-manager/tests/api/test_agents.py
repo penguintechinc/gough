@@ -513,7 +513,6 @@ async def test_revoke_enrollment_key_not_found_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_success_dal(agents_client, dal):
     """Test POST /api/v1/agents/enroll with valid enrollment key."""
     enrollment_key = "ENROLL-1234-5678-90AB-CDEF"
@@ -553,7 +552,6 @@ async def test_enroll_agent_success_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_no_key_dal(agents_client):
     """Test POST /api/v1/agents/enroll without enrollment key returns 401."""
     body = {"hostname": "agent-01"}
@@ -568,7 +566,6 @@ async def test_enroll_agent_no_key_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_invalid_key_dal(agents_client):
     """Test POST /api/v1/agents/enroll with invalid key returns 401."""
     body = {"hostname": "agent-01"}
@@ -586,7 +583,6 @@ async def test_enroll_agent_invalid_key_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_key_used_dal(agents_client, dal):
     """Test POST /api/v1/agents/enroll with already-used key returns 409."""
     enrollment_key = "ENROLL-USED-1234-5678"
@@ -615,7 +611,6 @@ async def test_enroll_agent_key_used_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_key_expired_dal(agents_client, dal):
     """Test POST /api/v1/agents/enroll with expired key returns 401."""
     enrollment_key = "ENROLL-EXPIRED-1234"
@@ -643,7 +638,6 @@ async def test_enroll_agent_key_expired_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_no_body_dal(agents_client):
     """Test POST /api/v1/agents/enroll without body returns 400."""
     response = await agents_client.post(
@@ -654,7 +648,6 @@ async def test_enroll_agent_no_body_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 189: 'await request.headers' is incorrect syntax in Quart")
 async def test_enroll_agent_no_hostname_dal(agents_client):
     """Test POST /api/v1/agents/enroll without hostname returns 400."""
     enrollment_key = "ENROLL-1234-5678"
@@ -675,7 +668,6 @@ async def test_enroll_agent_no_hostname_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_success_dal(agents_client, dal):
     """Test POST /api/v1/agents/refresh with valid refresh token."""
     agent_id = "test-agent-uuid"
@@ -711,7 +703,6 @@ async def test_refresh_agent_token_success_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_no_header_dal(agents_client):
     """Test POST /api/v1/agents/refresh without auth header returns 401."""
     response = await agents_client.post("/api/v1/agents/refresh")
@@ -719,7 +710,6 @@ async def test_refresh_agent_token_no_header_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_invalid_token_dal(agents_client):
     """Test POST /api/v1/agents/refresh with invalid token returns 401."""
     response = await agents_client.post(
@@ -730,7 +720,6 @@ async def test_refresh_agent_token_invalid_token_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_expired_dal(agents_client):
     """Test POST /api/v1/agents/refresh with expired token returns 401."""
     expired_token = jwt.encode(
@@ -751,7 +740,6 @@ async def test_refresh_agent_token_expired_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_wrong_type_dal(agents_client):
     """Test POST /api/v1/agents/refresh with wrong token type returns 401."""
     wrong_token = jwt.encode(
@@ -772,7 +760,6 @@ async def test_refresh_agent_token_wrong_type_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_agent_not_found_dal(agents_client):
     """Test POST /api/v1/agents/refresh for non-existent agent returns 401."""
     refresh_token = jwt.encode(
@@ -793,7 +780,6 @@ async def test_refresh_agent_token_agent_not_found_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 303: 'await request.headers' is incorrect syntax in Quart")
 async def test_refresh_agent_token_suspended_dal(agents_client, dal):
     """Test POST /api/v1/agents/refresh for suspended agent returns 401."""
     agent_id = "suspended-agent"
@@ -974,7 +960,6 @@ class TestRegressionEvalRCEAgentsPy395:
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 626: 'await request.headers' is incorrect syntax in Quart")
 async def test_agent_heartbeat_success_dal(agents_client, dal):
     """Test POST /api/v1/agents/heartbeat succeeds."""
     agent_id = "heartbeat-agent"
@@ -1015,7 +1000,6 @@ async def test_agent_heartbeat_success_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 626: 'await request.headers' is incorrect syntax in Quart")
 async def test_agent_heartbeat_no_auth_dal(agents_client):
     """Test POST /api/v1/agents/heartbeat without auth returns 401."""
     response = await agents_client.post(
@@ -1027,7 +1011,6 @@ async def test_agent_heartbeat_no_auth_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 423: 'await request.args' is incorrect syntax in Quart")
 async def test_list_agents_dal(agents_client, dal):
     """Test GET /api/v1/agents/ lists agents."""
     dal.access_agents.insert(
@@ -1052,7 +1035,6 @@ async def test_list_agents_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 423: 'await request.args' is incorrect syntax in Quart")
 async def test_list_agents_filter_status_dal(agents_client, dal):
     """Test GET /api/v1/agents/?status=active filters agents."""
     dal.access_agents.insert(

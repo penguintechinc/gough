@@ -684,7 +684,6 @@ class TestSyncMachineToElder:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_sync_machine_elder_not_configured(
         self, ipxe_client, ipxe_app, monkeypatch, mock_machine
     ):
@@ -698,7 +697,6 @@ class TestSyncMachineToElder:
         assert response.status_code == 503
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_sync_machine_elder_success(
         self, ipxe_client, ipxe_app, monkeypatch, mock_machine
     ):
@@ -717,7 +715,6 @@ class TestSyncMachineToElder:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_sync_machine_elder_connection_error(
         self, ipxe_client, ipxe_app, monkeypatch, mock_machine
     ):
@@ -742,7 +739,6 @@ class TestGetElderStatus:
     """Test get_elder_status endpoint."""
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_get_elder_status_not_configured(
         self, ipxe_client, ipxe_app, monkeypatch
     ):
@@ -757,7 +753,6 @@ class TestGetElderStatus:
         assert data["configured"] is False
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_get_elder_status_healthy(
         self, ipxe_client, ipxe_app, monkeypatch
     ):
@@ -779,7 +774,6 @@ class TestGetElderStatus:
         assert data["healthy"] is True
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_get_elder_status_unhealthy(
         self, ipxe_client, ipxe_app, monkeypatch
     ):
@@ -801,7 +795,6 @@ class TestGetElderStatus:
         assert data["healthy"] is False
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="Elder client import inside function, complex async mock")
     async def test_get_elder_status_connection_error(
         self, ipxe_client, ipxe_app, monkeypatch
     ):

@@ -184,7 +184,6 @@ class TestEnrollmentKeyCreation:
 class TestEnrollmentKeyListing:
     """Tests for GET /enrollment-keys endpoint."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 104 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_enrollment_keys_empty(self, agents_client):
         """List enrollment keys when none exist."""
         response = await agents_client.get("/api/v1/agents/enrollment-keys")
@@ -193,7 +192,6 @@ class TestEnrollmentKeyListing:
         assert body["count"] == 0
         assert body["enrollment_keys"] == []
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 104 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_enrollment_keys_with_used(self, agents_client, dal):
         """List enrollment keys including used ones."""
         # Create an unused key
@@ -228,7 +226,6 @@ class TestEnrollmentKeyListing:
         body = await response.get_json()
         assert body["count"] == 2
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 104 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_enrollment_keys_ordering(self, agents_client, dal):
         """List enrollment keys should be ordered by created_at descending."""
         for i in range(3):
@@ -309,7 +306,6 @@ class TestEnrollmentKeyRevocation:
 class TestAgentEnrollment:
     """Tests for POST /enroll endpoint."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_success(self, agents_client, dal):
         """Enroll agent with valid enrollment key."""
         # Create enrollment key
@@ -331,7 +327,6 @@ class TestAgentEnrollment:
         assert "agent_id" in body
         assert "access_token" in body
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_no_key_header(self, agents_client):
         """Enroll without enrollment key header should fail."""
         response = await agents_client.post(
@@ -342,7 +337,6 @@ class TestAgentEnrollment:
         body = await response.get_json()
         assert "error" in body
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_no_hostname(self, agents_client, dal):
         """Enroll without hostname should fail."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -356,7 +350,6 @@ class TestAgentEnrollment:
         )
         assert response.status_code == 400
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_empty_hostname(self, agents_client, dal):
         """Enroll with empty hostname should fail."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -370,7 +363,6 @@ class TestAgentEnrollment:
         )
         assert response.status_code == 400
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_no_request_body(self, agents_client, dal):
         """Enroll without request body should fail."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -383,7 +375,6 @@ class TestAgentEnrollment:
         )
         assert response.status_code == 400
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_invalid_key(self, agents_client):
         """Enroll with invalid enrollment key should fail."""
         response = await agents_client.post(
@@ -395,7 +386,6 @@ class TestAgentEnrollment:
         body = await response.get_json()
         assert "error" in body
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_expired_key(self, agents_client, dal):
         """Enroll with expired enrollment key should fail."""
         key_hash = hashlib.sha256(b"expired-key").hexdigest()
@@ -413,7 +403,6 @@ class TestAgentEnrollment:
         )
         assert response.status_code == 401
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_already_used_key(self, agents_client, dal):
         """Enroll with already-used key should fail."""
         key_hash = hashlib.sha256(b"used-key").hexdigest()
@@ -457,7 +446,6 @@ class TestAgentEnrollment:
         )
         assert response.status_code == 500
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_with_capabilities(self, agents_client, dal):
         """Enroll agent with capabilities list."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -478,7 +466,6 @@ class TestAgentEnrollment:
         body = await response.get_json()
         assert "agent_id" in body
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_enroll_agent_ca_config_present(self, agents_client, dal):
         """Enroll agent should include CA public key if available."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -504,7 +491,6 @@ class TestAgentEnrollment:
 class TestAgentListing:
     """Tests for GET /agents endpoint."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 423 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_agents_empty(self, agents_client):
         """List agents when none enrolled."""
         response = await agents_client.get("/api/v1/agents")
@@ -512,7 +498,6 @@ class TestAgentListing:
         body = await response.get_json()
         assert body.get("count", 0) == 0
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 423 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_agents_multiple(self, agents_client, dal):
         """List multiple enrolled agents."""
         for i in range(3):
@@ -532,7 +517,6 @@ class TestAgentListing:
         body = await response.get_json()
         assert body.get("count") >= 3
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 423 uses await request.args which is not awaitable in Quart", strict=False)
     async def test_list_agents_filter_by_status(self, agents_client, dal):
         """List agents filtered by status."""
         # Create agents with different statuses
@@ -606,7 +590,6 @@ class TestAgentHeartbeat:
 class TestAgentTokenRefresh:
     """Tests for token refresh endpoint."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 303 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_refresh_token_success(self, agents_client, dal):
         """Refresh agent token with valid refresh token."""
         dal.access_agents.insert(
@@ -622,7 +605,6 @@ class TestAgentTokenRefresh:
         # Should return new access token or error (depends on implementation)
         assert response.status_code in (200, 401, 400)
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 303 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_refresh_token_invalid(self, agents_client):
         """Refresh with invalid token should fail."""
         response = await agents_client.post(
@@ -635,7 +617,6 @@ class TestAgentTokenRefresh:
 class TestAgentDeregistration:
     """Tests for agent suspension/deregistration."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 626 uses await request.headers which is not awaitable in Quart", strict=False)
     async def test_deregister_agent_success(self, agents_client, dal):
         """Suspend an enrolled agent."""
         dal.access_agents.insert(
