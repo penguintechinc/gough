@@ -16,6 +16,21 @@ global:
     # Optional CA bundle Secret with key ca.crt (mounted at /etc/gough/lxd-ca).
     caSecretRef:
       name: ""
+  # Air-gap mirrors read by api-manager (GOUGH_* env). Empty values render no env.
+  # Every URL must be https:// unless allowInsecure=true (fails the render otherwise).
+  mirrors:
+    allowInsecure: false
+    registry: ""              # GOUGH_REGISTRY_MIRROR
+    registries: []            # GOUGH_MIRRORED_REGISTRIES (comma-joined)
+    chartUrl: ""              # GOUGH_CHART_MIRROR_URL
+    fileUrl: ""               # GOUGH_FILE_MIRROR_URL
+    # GOUGH_BUNDLE_MIRROR_HOSTS (comma-joined). Empty list = no env: hub allows the hosts of
+    # chartUrl/fileUrl. [""] = blank env: hub REJECTS ALL bundle imports.
+    bundleHosts: []
+    # Optional cosign key reference for biome bundle verification (GOUGH_BIOME_BUNDLE_COSIGN_KEY).
+    cosignKeySecretRef:
+      name: ""
+      key: cosign-key
   # One-time bootstrap enrollment key seeded into api-manager. Generated (>=48 chars) when
   # existingSecret is empty; the Secret must contain key `token`. ttlHours must be 1-24.
   bootstrapToken:

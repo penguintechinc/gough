@@ -80,7 +80,7 @@ Returns JSON {env, volumes, volumeMounts}; empty lists when unset.
   {{- if not (hasPrefix "https://" $lxd.apiUrl) -}}
     {{- fail "global.lxd.apiUrl must start with https://" -}}
   {{- end -}}
-  {{- if not $lxd.clientCertSecretRef.name -}}
+  {{- if not (dig "clientCertSecretRef" "name" "" $lxd) -}}
     {{- fail "global.lxd.clientCertSecretRef.name is required when global.lxd.apiUrl is set" -}}
   {{- end -}}
   {{- $env = append $env (dict "name" "LXD_API_URL" "value" $lxd.apiUrl) -}}
@@ -89,13 +89,34 @@ Returns JSON {env, volumes, volumeMounts}; empty lists when unset.
   {{- $verify := "true" -}}
   {{- if hasKey $lxd "verifySsl" -}}{{- $verify = toString $lxd.verifySsl -}}{{- end -}}
   {{- $env = append $env (dict "name" "LXD_VERIFY_SSL" "value" $verify) -}}
-  {{- $vols = append $vols (dict "name" "lxd-client" "secret" (dict "secretName" $lxd.clientCertSecretRef.name "defaultMode" 256)) -}}
+  {{- $vols = append $vols (dict "name" "lxd-client" "secret" (dict "secretName" (dig "clientCertSecretRef" "name" "" $lxd) "defaultMode" 256)) -}}
   {{- $mounts = append $mounts (dict "name" "lxd-client" "mountPath" "/etc/gough/lxd" "readOnly" true) -}}
-  {{- if $lxd.caSecretRef.name -}}
+  {{- if (dig "caSecretRef" "name" "" $lxd) -}}
     {{- $env = append $env (dict "name" "LXD_CA_FILE" "value" "/etc/gough/lxd-ca/ca.crt") -}}
-    {{- $vols = append $vols (dict "name" "lxd-ca" "secret" (dict "secretName" $lxd.caSecretRef.name "defaultMode" 256 "items" (list (dict "key" "ca.crt" "path" "ca.crt")))) -}}
+    {{- $vols = append $vols (dict "name" "lxd-ca" "secret" (dict "secretName" (dig "caSecretRef" "name" "" $lxd) "defaultMode" 256 "items" (list (dict "key" "ca.crt" "path" "ca.crt")))) -}}
     {{- $mounts = append $mounts (dict "name" "lxd-ca" "mountPath" "/etc/gough/lxd-ca" "readOnly" true) -}}
   {{- end -}}
+{{- end -}}
+{{- $m := dig "global" "mirrors" (dict) .Values.AsMap -}}
+{{- $insecure := $m.allowInsecure | default false -}}
+{{- range $pair := list (list "GOUGH_REGISTRY_MIRROR" $m.registry) (list "GOUGH_CHART_MIRROR_URL" $m.chartUrl) (list "GOUGH_FILE_MIRROR_URL" $m.fileUrl) -}}
+  {{- if index $pair 1 -}}
+    {{- if and (not $insecure) (not (hasPrefix "https://" (index $pair 1))) -}}
+      {{- fail (printf "global.mirrors: %s must start with https:// (or set global.mirrors.allowInsecure=true)" (index $pair 0)) -}}
+    {{- end -}}
+    {{- $env = append $env (dict "name" (index $pair 0) "value" (index $pair 1)) -}}
+  {{- end -}}
+{{- end -}}
+{{- if $m.registries -}}
+  {{- $env = append $env (dict "name" "GOUGH_MIRRORED_REGISTRIES" "value" (join "," $m.registries)) -}}
+{{- end -}}
+{{- /* bundleHosts unset (empty list) -> no env, hub derives hosts from the mirror URLs.
+       bundleHosts: [""] -> blank value, which the hub treats as reject-all. */ -}}
+{{- if $m.bundleHosts -}}
+  {{- $env = append $env (dict "name" "GOUGH_BUNDLE_MIRROR_HOSTS" "value" (join "," $m.bundleHosts)) -}}
+{{- end -}}
+{{- if (dig "cosignKeySecretRef" "name" "" $m) -}}
+  {{- $env = append $env (dict "name" "GOUGH_BIOME_BUNDLE_COSIGN_KEY" "valueFrom" (dict "secretKeyRef" (dict "name" (dig "cosignKeySecretRef" "name" "" $m) "key" (dig "cosignKeySecretRef" "key" "cosign-key" $m) "optional" true))) -}}
 {{- end -}}
 {{- toJson (dict "env" $env "volumes" $vols "volumeMounts" $mounts) -}}
 {{- end }}
