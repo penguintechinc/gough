@@ -27,7 +27,7 @@ from __future__ import annotations
 import importlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from quart import Quart, g
@@ -345,7 +345,9 @@ class TestElderConfigNeverLeaksApiKey:
             updated_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
         )
         db = _make_elder_db(existing_row=None, created_or_updated_row=created_row)
-        with patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe.get_db", return_value=db), patch(
+            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+        ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",
                 json={
@@ -375,7 +377,9 @@ class TestElderConfigNeverLeaksApiKey:
             updated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
         )
         db = _make_elder_db(existing_row=existing_row, created_or_updated_row=updated_row)
-        with patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe.get_db", return_value=db), patch(
+            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+        ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",
                 json={
@@ -406,7 +410,9 @@ class TestElderConfigNeverLeaksApiKey:
             last_error="internal diagnostic detail",
         )
         db = _make_elder_db(existing_row=None, created_or_updated_row=created_row)
-        with patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe.get_db", return_value=db), patch(
+            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+        ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",
                 json={
