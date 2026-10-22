@@ -53,6 +53,58 @@ _SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 _TERM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
 
 
+LOCKING_SHELLS = frozenset({"/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"})
+SHELLS_FILE = "/etc/shells"
+SHADOW_FILE = "/etc/shadow"
+
+
+def shell_problem(shell: str, shells_file: str = SHELLS_FILE) -> Optional[str]:
+    """Return why ``shell`` may not be used for a login, or None if it is acceptable.
+
+    Args:
+        shell: The account's pw_shell (empty means "use /bin/sh").
+        shells_file: Path of the permitted-shells list.
+
+    Returns:
+        A short reason string, or None when the shell is allowed.
+    """
+    if not shell:
+        return None
+    if shell in LOCKING_SHELLS:
+        return "locking shell"
+    if not os.path.isfile(shell) or not os.access(shell, os.X_OK):
+        return "shell missing or not executable"
+    try:
+        with open(shells_file) as f:
+            listed = {ln.strip() for ln in f if ln.strip() and not ln.startswith("#")}
+    except OSError:
+        return "cannot read shells list"
+    return None if shell in listed else "shell not in /etc/shells"
+
+
+def account_locked(username: str, shadow_file: str = SHADOW_FILE) -> bool:
+    """Report whether the account's password field is locked (starts with ``!``).
+
+    Skips gracefully (returns False, logged) when the shadow file is unreadable.
+
+    Args:
+        username: Account name.
+        shadow_file: Path of the shadow database.
+
+    Returns:
+        True only when the account is positively known to be locked.
+    """
+    try:
+        with open(shadow_file) as f:
+            for line in f:
+                parts = line.rstrip("\n").split(":")
+                if parts[0] == username and len(parts) > 1:
+                    return parts[1].startswith("!")
+    except OSError:
+        log.warning("Shadow file unreadable; locked-account check skipped")
+    return False
+
+
 def host_principals(agent_id: Optional[str]) -> List[str]:
     """Return the principals that scope a certificate to this host.
 
@@ -217,6 +269,13 @@ class SSHServerInterface(ServerInterface):
             pw = pwd.getpwnam(username)
         except KeyError:
             log.warning(f"Unknown account {username!r}")
+            return False
+        problem = shell_problem(pw.pw_shell)
+        if problem:
+            log.warning(f"Rejecting login for {username!r}: {problem}")
+            return False
+        if account_locked(username):
+            log.warning(f"Rejecting login for {username!r}: account locked")
             return False
         if pw.pw_uid == 0 and ALLOW_ROOT_PRINCIPAL not in info.principals:
             log.warning("Root login requires the allow-root principal")
@@ -538,7 +597,7 @@ class RSSHServer:
         self._set_window_size(master_fd, height, width)
 
         # Minimal environment: nothing from the agent's own env (tokens, keys) is inherited.
-        shell = pw.pw_shell if pw.pw_shell and os.access(pw.pw_shell, os.X_OK) else "/bin/sh"
+        shell = pw.pw_shell or "/bin/sh"  # validated in _authorize; /bin/sh only if unset
         env = {
             "TERM": term,
             "USER": username,

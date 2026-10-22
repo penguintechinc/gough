@@ -181,3 +181,69 @@ def test_start_shell_unknown_user_never_defaults_to_root() -> None:
     with pytest.raises(KeyError):
         srv._start_shell(session, "no-such-acct-xyz")
     assert session.process is None
+
+
+def test_shell_problem_cases(tmp_path: Any) -> None:
+    """Locking, missing, non-executable and unlisted shells are refused; empty is allowed."""
+    shells = tmp_path / "shells"
+    ok_shell = tmp_path / "okshell"
+    ok_shell.write_text("#!/bin/sh\n")
+    ok_shell.chmod(0o755)
+    noexec = tmp_path / "noexec"
+    noexec.write_text("x")
+    noexec.chmod(0o644)
+    shells.write_text(f"# c\n\n{ok_shell}\n{noexec}\n")
+    f = str(shells)
+    assert rssh.shell_problem("", f) is None
+    assert rssh.shell_problem(str(ok_shell), f) is None
+    assert rssh.shell_problem("/usr/sbin/nologin", f) == "locking shell"
+    assert rssh.shell_problem("/bin/false", f) == "locking shell"
+    assert "missing" in (rssh.shell_problem(str(tmp_path / "nope"), f) or "")
+    assert "not executable" in (rssh.shell_problem(str(noexec), f) or "")
+    shells.write_text("/other\n")
+    assert "not in /etc/shells" in (rssh.shell_problem(str(ok_shell), f) or "")
+    assert "cannot read" in (rssh.shell_problem(str(ok_shell), str(tmp_path / "absent")) or "")
+
+
+def test_account_locked(tmp_path: Any) -> None:
+    """'!' password field is locked; hashes/'*' are not; unreadable shadow is skipped."""
+    sh = tmp_path / "shadow"
+    sh.write_text("a:!$6$x:1::\nb:$6$hash:1::\nc:*:1::\nd:!:1::\nbad\n")
+    f = str(sh)
+    assert rssh.account_locked("a", f) and rssh.account_locked("d", f)
+    assert not rssh.account_locked("b", f) and not rssh.account_locked("c", f)
+    assert not rssh.account_locked("zzz", f)
+    assert not rssh.account_locked("a", str(tmp_path / "absent"))
+
+
+@pytest.mark.parametrize(
+    ("patch", "value"),
+    [("shell_problem", "locking shell"), ("account_locked", True)],
+)
+def test_authorize_rejects_bad_shell_or_locked(
+    monkeypatch: pytest.MonkeyPatch, patch: str, value: Any
+) -> None:
+    """_authorize refuses on shell problems and locked accounts."""
+    monkeypatch.setattr(rssh, patch, lambda *a, **k: value)
+    iface, key = _iface(_info())
+    assert iface.check_auth_publickey(CURRENT_USER, key) == paramiko.AUTH_FAILED
+
+
+def test_empty_pw_shell_falls_back_to_bin_sh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only an empty pw_shell yields /bin/sh, and force-command uses the account shell."""
+    real = pwd.getpwnam(CURRENT_USER)
+    fake = pwd.struct_passwd((real.pw_name, "x", real.pw_uid, real.pw_gid, "", real.pw_dir, ""))
+    monkeypatch.setattr(rssh.pwd, "getpwnam", lambda n: fake)
+    calls: list[list[str]] = []
+
+    class _P:
+        pid = 1
+
+    monkeypatch.setattr(rssh.subprocess, "Popen", lambda argv, **k: calls.append(argv) or _P())
+    srv = rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))
+    session = _session(_FakeChannel(payloads=[]), master_fd=None)
+    session.force_command = "id"
+    monkeypatch.setattr(srv, "_read_input", lambda s: None)
+    monkeypatch.setattr(rssh.threading, "Thread", lambda **k: MagicMock())
+    srv._start_shell(session, CURRENT_USER)
+    assert calls == [["/bin/sh", "-c", "id"]]
