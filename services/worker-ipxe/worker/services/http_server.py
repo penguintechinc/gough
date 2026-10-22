@@ -7,10 +7,12 @@ Provides dynamic iPXE script generation and serves boot images.
 import re
 import os
 from collections.abc import AsyncIterator
+from dataclasses import dataclass
 from urllib.parse import urlparse
 import structlog
 from decouple import config as env_config
 from quart import Quart, request, Response, jsonify
+from quart.wrappers.response import ResponseBody
 from hypercorn.config import Config
 from hypercorn.asyncio import serve
 import httpx
@@ -35,19 +37,40 @@ def _load_image_chunk_size() -> int:
     return size
 
 
-async def _open_storage_stream(presigned_url: str) -> tuple[httpx.AsyncClient, httpx.Response]:
+def _storage_timeout() -> httpx.Timeout:
+    """Return the storage timeout: short connect, long read/write for large images."""
+    return httpx.Timeout(STORAGE_READ_TIMEOUT_S, connect=STORAGE_CONNECT_TIMEOUT_S)
+
+
+@dataclass(slots=True)
+class _StorageStream:
+    """Owns an open streamed storage GET; close() is idempotent and safe to call repeatedly."""
+
+    client: httpx.AsyncClient
+    upstream: httpx.Response
+    closed: bool = False
+
+    async def close(self) -> None:
+        """Close upstream then client exactly once; later calls are no-ops."""
+        if self.closed:
+            return
+        self.closed = True
+        await self.upstream.aclose()
+        await self.client.aclose()
+
+
+async def _open_storage_stream(presigned_url: str) -> _StorageStream:
     """Open a streamed GET to storage without reading the body.
 
-    Caller owns the returned client and response and must close both.
+    Caller must close the returned stream on every path.
     """
-    timeout = httpx.Timeout(STORAGE_READ_TIMEOUT_S, connect=STORAGE_CONNECT_TIMEOUT_S)
-    client = httpx.AsyncClient(timeout=timeout)
+    client = httpx.AsyncClient(timeout=_storage_timeout())
     try:
         upstream = await client.send(client.build_request("GET", presigned_url), stream=True)
     except BaseException:
         await client.aclose()
         raise
-    return client, upstream
+    return _StorageStream(client=client, upstream=upstream)
 
 
 def _outbound_image_headers(upstream: httpx.Response) -> dict[str, str]:
@@ -63,20 +86,44 @@ def _outbound_image_headers(upstream: httpx.Response) -> dict[str, str]:
     return headers
 
 
-async def _iter_image_chunks(
-    client: httpx.AsyncClient, upstream: httpx.Response, chunk_size: int
-) -> AsyncIterator[bytes]:
-    """Yield upstream bytes in fixed-size chunks, closing upstream and client on exit.
+def _upstream_error_response(upstream_status: int) -> Response:
+    """Map a non-2xx storage status to a client error: 404 stays 404, else 502."""
+    if upstream_status == 404:
+        return Response("Image not found", status=404)
+    return Response("Upstream storage error", status=502)
 
-    The finally block runs on normal completion, upstream error, and client disconnect
-    (generator close), so the storage connection never leaks.
+
+class _StreamedImageBody(ResponseBody):
+    """Quart body that streams storage chunks and always releases the storage stream.
+
+    __aexit__ closes the stream even if iteration never started (disconnect before
+    send, HEAD, or a failure after construction), which a generator finally cannot cover.
     """
-    try:
-        async for chunk in upstream.aiter_bytes(chunk_size):
-            yield chunk
-    finally:
-        await upstream.aclose()
-        await client.aclose()
+
+    def __init__(self, stream: _StorageStream, chunk_size: int) -> None:
+        """Bind the owned storage stream and the chunk size used for reads."""
+        self.stream = stream
+        self.chunk_size = chunk_size
+
+    async def __aenter__(self) -> "_StreamedImageBody":
+        """Enter the body context; no resources are acquired here."""
+        return self
+
+    async def __aexit__(self, exc_type: object, exc_value: object, tb: object) -> None:
+        """Release the storage stream on every exit path, including cancellation."""
+        await self.stream.close()
+
+    def __aiter__(self) -> AsyncIterator[bytes]:
+        """Return the chunk generator over the upstream body."""
+        return self._chunks()
+
+    async def _chunks(self) -> AsyncIterator[bytes]:
+        """Yield upstream bytes in fixed-size chunks, closing the stream on completion."""
+        try:
+            async for chunk in self.stream.upstream.aiter_bytes(self.chunk_size):
+                yield chunk
+        finally:
+            await self.stream.close()
 
 
 def _validate_image_path(image_path: str) -> tuple[bool, str]:
@@ -244,25 +291,31 @@ class HTTPBootServer:
                             )
                             return Response("Invalid presigned URL", status=400)
 
+                        if request.method == "HEAD":
+                            return await self._head_image(presigned_url, image_path)
+
                         # Stream image from storage in bounded chunks (never buffer whole image)
-                        storage_client, upstream = await _open_storage_stream(presigned_url)
-                        if not upstream.is_success:
-                            await upstream.aclose()
-                            await storage_client.aclose()
+                        stream = await _open_storage_stream(presigned_url)
+                        if not stream.upstream.is_success:
+                            status = stream.upstream.status_code
+                            await stream.close()
                             logger.error(
                                 "image_storage_fetch_failed",
                                 path=image_path,
-                                upstream_status=upstream.status_code,
+                                upstream_status=status,
                             )
-                            if upstream.status_code == 404:
-                                return Response("Image not found", status=404)
-                            return Response("Upstream storage error", status=502)
+                            return _upstream_error_response(status)
 
-                        return Response(
-                            _iter_image_chunks(storage_client, upstream, self.image_chunk_size),
-                            mimetype="application/octet-stream",
-                            headers=_outbound_image_headers(upstream),
-                        )
+                        try:
+                            response = Response(
+                                _StreamedImageBody(stream, self.image_chunk_size),
+                                mimetype="application/octet-stream",
+                                headers=_outbound_image_headers(stream.upstream),
+                            )
+                        except BaseException:
+                            await stream.close()
+                            raise
+                        return response
                     else:
                         logger.error("image_url_fetch_failed", status=response.status_code)
                         return Response("Image not found", status=404)
@@ -294,6 +347,19 @@ class HTTPBootServer:
             except Exception as e:
                 logger.error("boot_event_forward_error", error=str(e))
                 return jsonify({"status": "error", "message": str(e)}), 500
+
+    async def _head_image(self, presigned_url: str, image_path: str) -> Response:
+        """Answer HEAD with storage metadata only; never opens a streamed GET."""
+        async with httpx.AsyncClient(timeout=_storage_timeout()) as client:
+            upstream = await client.head(presigned_url)
+        if not upstream.is_success:
+            logger.error(
+                "image_storage_head_failed",
+                path=image_path,
+                upstream_status=upstream.status_code,
+            )
+            return _upstream_error_response(upstream.status_code)
+        return Response(b"", mimetype="application/octet-stream", headers=_outbound_image_headers(upstream))
 
     async def start(self):
         """Start HTTP server."""
