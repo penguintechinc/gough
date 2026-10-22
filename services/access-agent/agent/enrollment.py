@@ -6,6 +6,7 @@ then switches to JWT tokens for ongoing authentication.
 
 import json
 import logging
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Tuple
@@ -21,6 +22,27 @@ log = logging.getLogger(__name__)
 class EnrollmentError(Exception):
     """Raised when agent enrollment fails."""
     pass
+
+
+def _error_message(response: httpx.Response) -> str:
+    """Extract a human-readable error from a non-success response.
+
+    Falls back to the raw body (or a generic message) when the body is not a JSON object,
+    e.g. a proxy HTML error page, so the caller always gets an EnrollmentError.
+
+    Args:
+        response: The failed HTTP response.
+
+    Returns:
+        Error text suitable for inclusion in an EnrollmentError message.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        return response.text.strip()[:200] or "Unknown error"
+    if isinstance(body, dict):
+        return str(body.get("error", "Unknown error"))
+    return "Unknown error"
 
 
 class AgentEnrollment:
@@ -107,11 +129,11 @@ class AgentEnrollment:
             "saved_at": datetime.utcnow().isoformat(),
         }
 
-        with open(token_path, "w") as f:
+        # Create with 0600 before any secret bytes are written (no world-readable window).
+        fd = os.open(token_path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            os.fchmod(f.fileno(), 0o600)  # also tightens a pre-existing file
             json.dump(tokens, f, indent=2)
-
-        # Secure file permissions
-        token_path.chmod(0o600)
 
         log.info(f"Saved tokens to {token_path}")
 
@@ -157,8 +179,7 @@ class AgentEnrollment:
                 raise EnrollmentError("Enrollment key already used")
 
             if response.status_code != 201:
-                error_msg = response.json().get("error", "Unknown error")
-                raise EnrollmentError(f"Enrollment failed: {error_msg}")
+                raise EnrollmentError(f"Enrollment failed: {_error_message(response)}")
 
             data = response.json()
 
@@ -221,8 +242,7 @@ class AgentEnrollment:
                 raise EnrollmentError("Refresh token expired or revoked")
 
             if response.status_code != 200:
-                error_msg = response.json().get("error", "Unknown error")
-                raise EnrollmentError(f"Token refresh failed: {error_msg}")
+                raise EnrollmentError(f"Token refresh failed: {_error_message(response)}")
 
             data = response.json()
 

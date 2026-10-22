@@ -4,6 +4,7 @@ Provides SSH server that accepts connections with certificates
 signed by the Gough SSH CA. Spawns PTY sessions for shell access.
 """
 
+import base64
 import os
 from penguintechinc_utils import get_logger
 import pty
@@ -15,7 +16,7 @@ import termios
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import paramiko
 from paramiko import RSAKey, ServerInterface, Transport
@@ -24,6 +25,18 @@ from .cert_validator import CertificateInfo, CertificateValidator
 from .config import AgentConfig
 
 log = get_logger(__name__)
+
+
+def _become_session_leader() -> None:
+    """Start a new session and make the PTY slave (fd 0) its controlling terminal.
+
+    Without TIOCSCTTY the shell has no controlling tty, so job control and Ctrl-C
+    do not work in relayed sessions.
+    """
+    import fcntl
+
+    os.setsid()
+    fcntl.ioctl(0, termios.TIOCSCTTY, 0)
 
 
 @dataclass
@@ -48,15 +61,18 @@ class SSHServerInterface(ServerInterface):
         self,
         cert_validator: CertificateValidator,
         allowed_principals: Optional[List[str]] = None,
+        on_window_change: Optional[Callable[[Any, int, int], None]] = None,
     ):
         """Initialize SSH server interface.
 
         Args:
             cert_validator: Certificate validator
             allowed_principals: Optional list of allowed principals
+            on_window_change: Called with (channel, rows, cols) on terminal resize
         """
         self.cert_validator = cert_validator
         self.allowed_principals = allowed_principals
+        self.on_window_change = on_window_change
         self.authenticated_user: Optional[str] = None
         self.cert_info: Optional[CertificateInfo] = None
 
@@ -76,11 +92,13 @@ class SSHServerInterface(ServerInterface):
 
         try:
             # Get certificate from key
-            cert_str = key.get_base64()
+            # The certificate itself lives in public_blob; get_base64() returns the bare key.
+            public_blob = key.public_blob
+            cert_str = base64.b64encode(public_blob.key_blob).decode()
 
             # Validate certificate
             self.cert_info = self.cert_validator.validate_certificate(
-                f"ssh-rsa-cert-v01@openssh.com {cert_str}",
+                f"{public_blob.key_type} {cert_str}",
                 expected_principals=self.allowed_principals,
             )
 
@@ -138,9 +156,11 @@ class SSHServerInterface(ServerInterface):
         pixelwidth: int,
         pixelheight: int,
     ) -> bool:
-        """Allow window size changes."""
+        """Allow window size changes and propagate them to the PTY."""
         channel.width = width
         channel.height = height
+        if self.on_window_change is not None:
+            self.on_window_change(channel, height, width)
         return True
 
     def get_allowed_auths(self, username: str) -> str:
@@ -300,11 +320,11 @@ class RSSHServer:
             # Create transport
             transport = Transport(client_socket)
             transport.add_server_key(self._host_key)
-            transport.set_gss_host(socket.getfqdn())
 
             # Create server interface
             server = SSHServerInterface(
                 cert_validator=self.cert_validator,
+                on_window_change=self._apply_window_change,
             )
 
             # Start server
@@ -364,6 +384,20 @@ class RSSHServer:
             if transport:
                 transport.close()
 
+    def _apply_window_change(self, channel: Any, rows: int, cols: int) -> None:
+        """Resize the PTY of the session that owns ``channel``.
+
+        Args:
+            channel: Channel that reported the window-change request.
+            rows: New terminal height.
+            cols: New terminal width.
+        """
+        with self._lock:
+            owned = [s for s in self._sessions.values() if s.channel is channel]
+        for session in owned:
+            if session.master_fd is not None:
+                self._set_window_size(session.master_fd, rows, cols)
+
     def _start_shell(self, session: ShellSession, username: str) -> None:
         """Start PTY shell for session.
 
@@ -394,10 +428,15 @@ class RSSHServer:
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
-            preexec_fn=os.setsid,
+            preexec_fn=_become_session_leader,
             env=env,
             cwd=env["HOME"],
         )
+
+        # The child holds its own copy of the slave; drop ours so the master
+        # reaches EOF/EIO when the shell exits and the session can end.
+        os.close(slave_fd)
+        session.slave_fd = None
 
         session.running = True
 
@@ -422,18 +461,15 @@ class RSSHServer:
 
         while session.running and channel.active:
             try:
-                if channel.recv_ready():
+                # Block on the channel's readiness fd instead of a 10ms busy-poll.
+                # The timeout bounds how long a stop request can go unnoticed.
+                readable, _, _ = select.select([channel], [], [], 0.1)
+                if readable and channel.recv_ready():
                     data = channel.recv(1024)
                     if data:
                         os.write(session.master_fd, data)
                     else:
                         break
-
-                # Check for window size changes
-                # This is handled by the channel callback
-
-                import time
-                time.sleep(0.01)
 
             except Exception as e:
                 log.error(f"Error reading from channel: {e}")
