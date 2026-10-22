@@ -5,9 +5,11 @@ upstream error status propagation, upstream close on client disconnect, and
 split connect/read timeouts. Uses httpx.MockTransport, so no network is touched.
 """
 
+import asyncio
 from unittest.mock import Mock
 
 import httpx
+
 import pytest
 
 from worker.config import WorkerConfig
@@ -20,6 +22,7 @@ from worker.services.http_server import (
     _LazyImageBody,
     _StorageStream,
     _outbound_image_headers,
+    _total_length,
 )
 
 REAL_ASYNC_CLIENT = httpx.AsyncClient
@@ -55,8 +58,12 @@ def _make_handler(
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.host == API_HOST:
             return httpx.Response(200, json={"url": STORAGE_URL})
-        if body is None or request.method == "HEAD":
-            return httpx.Response(storage_status, headers=extra_headers)
+        if body is None:
+            return httpx.Response(storage_status)
+        if request.headers.get("range"):
+            if storage_status != 200:
+                return httpx.Response(storage_status)
+            return httpx.Response(206, headers={"content-range": extra_headers.get("content-range", "bytes 0-0/*")})
         return httpx.Response(storage_status, stream=body, headers=extra_headers)
 
     return handler
@@ -71,6 +78,37 @@ def _patch_clients(monkeypatch: pytest.MonkeyPatch, handler, captured: list[dict
         return REAL_ASYNC_CLIENT(*args, **kwargs)
 
     monkeypatch.setattr(http_server.httpx, "AsyncClient", factory)
+
+
+async def _asgi_start_headers(app: object, method: str, path: str) -> dict[bytes, bytes]:
+    """Drive the raw ASGI app and return response-start headers as sent to hypercorn.
+
+    Quart's test client recomputes Content-Length from the body, so header assertions
+    on Content-Length must go through the ASGI layer the server actually uses.
+    """
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
+        "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"",
+        "root_path": "", "headers": [(b"host", b"test")], "client": ("127.0.0.1", 1),
+        "server": ("test", 80),
+    }
+    messages: list[dict] = []
+    finished = asyncio.Event()
+
+    async def receive() -> dict:
+        """Hold the request open until the response body is complete."""
+        await finished.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: dict) -> None:
+        """Record ASGI messages and signal once the body is complete."""
+        messages.append(message)
+        if message["type"] == "http.response.body" and not message.get("more_body"):
+            finished.set()
+
+    await app.asgi_app(scope, receive, send)  # type: ignore[attr-defined]
+    start = next(m for m in messages if m["type"] == "http.response.start")
+    return dict(start["headers"])
 
 
 def _make_server(monkeypatch: pytest.MonkeyPatch, chunk_size: int = 1024) -> HTTPBootServer:
@@ -255,79 +293,110 @@ async def test_response_construction_failure_returns_500(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_head_never_opens_storage_get(monkeypatch: pytest.MonkeyPatch) -> None:
-    """HEAD returns headers from a storage HEAD and never opens a streamed GET."""
+async def test_head_uses_ranged_preflight_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Client HEAD answers from the ranged pre-flight; no full GET is opened."""
     upstream = CountingUpstream(total_chunks=1000, chunk=b"h" * 1024)
-    methods_seen: list[str] = []
+    seen: list[tuple[str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        """Record the storage method and answer HEAD for the boot image."""
+        """Record method and Range; answer the pre-flight with a 206 total."""
         if request.url.host == API_HOST:
             return httpx.Response(200, json={"url": STORAGE_URL})
-        methods_seen.append(request.method)
-        return httpx.Response(200, headers={"content-length": "1024000"})
+        seen.append((request.method, request.headers.get("range")))
+        return httpx.Response(206, headers={"content-range": "bytes 0-0/1024000"})
 
-    captured: list[dict] = []
-    _patch_clients(monkeypatch, handler, captured)
+    _patch_clients(monkeypatch, handler, [])
     server = _make_server(monkeypatch)
 
-    resp = await server.app.test_client().open("/images/boot/ubuntu.iso", method="HEAD")
+    headers = await _asgi_start_headers(server.app, "HEAD", "/images/boot/ubuntu.iso")
 
-    assert resp.status_code == 200
-    assert methods_seen == ["HEAD"]
+    assert headers[b"content-length"] == b"1024000"
+    assert seen == [("GET", "bytes=0-0")]
     assert upstream.yielded == 0
 
 
 @pytest.mark.asyncio
-async def test_get_preflights_with_head_then_streams_get(monkeypatch: pytest.MonkeyPatch) -> None:
-    """GET does one storage HEAD pre-flight, and the GET happens only during body streaming."""
-    upstream = CountingUpstream(total_chunks=3, chunk=b"g" * 1024)
-    methods_seen: list[str] = []
+async def test_preflight_200_ignoring_range_closes_without_body_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A server that ignores Range returns 200: the pre-flight reads headers, never the body."""
+    upstream = CountingUpstream(total_chunks=3, chunk=b"r" * 1024)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        """Record storage methods; HEAD returns length, GET streams the body."""
+        """Ignore Range and return the full object with a known length."""
         if request.url.host == API_HOST:
             return httpx.Response(200, json={"url": STORAGE_URL})
-        methods_seen.append(request.method)
-        if request.method == "HEAD":
-            return httpx.Response(200, headers={"content-length": "3072"})
+        return httpx.Response(200, stream=upstream, headers={"content-length": "3072"})
+
+    _patch_clients(monkeypatch, handler, [])
+    server = _make_server(monkeypatch)
+
+    headers = await _asgi_start_headers(server.app, "HEAD", "/images/boot/full.iso")
+
+    assert headers[b"content-length"] == b"3072"
+    assert upstream.yielded == 0
+    assert upstream.closed is True
+
+
+@pytest.mark.asyncio
+async def test_preflight_403_maps_to_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Storage 403 on the ranged pre-flight surfaces as 502, never 200."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Return 403 for the ranged pre-flight."""
+        if request.url.host == API_HOST:
+            return httpx.Response(200, json={"url": STORAGE_URL})
+        return httpx.Response(403)
+
+    _patch_clients(monkeypatch, handler, [])
+    server = _make_server(monkeypatch)
+
+    resp = await server.app.test_client().open("/images/boot/denied.iso", method="HEAD")
+
+    assert resp.status_code == 502
+
+
+@pytest.mark.asyncio
+async def test_star_total_omits_content_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Content-Range total '*' means unknown size, so Content-Length is not forwarded."""
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Return a 206 whose total size is unknown."""
+        if request.url.host == API_HOST:
+            return httpx.Response(200, json={"url": STORAGE_URL})
+        return httpx.Response(206, headers={"content-range": "bytes 0-0/*"})
+
+    _patch_clients(monkeypatch, handler, [])
+    server = _make_server(monkeypatch)
+
+    headers = await _asgi_start_headers(server.app, "HEAD", "/images/boot/star.iso")
+
+    assert b"content-length" not in headers
+
+
+
+@pytest.mark.asyncio
+async def test_get_preflights_with_ranged_get_then_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+    """GET does one ranged pre-flight; the full GET happens only during body streaming."""
+    upstream = CountingUpstream(total_chunks=3, chunk=b"g" * 1024)
+    seen: list[tuple[str, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        """Answer the pre-flight with a 206 total and stream the unranged GET."""
+        if request.url.host == API_HOST:
+            return httpx.Response(200, json={"url": STORAGE_URL})
+        seen.append((request.method, request.headers.get("range")))
+        if request.headers.get("range"):
+            return httpx.Response(206, headers={"content-range": "bytes 0-0/3072"})
         return httpx.Response(200, stream=upstream)
 
-    captured: list[dict] = []
-    _patch_clients(monkeypatch, handler, captured)
+    _patch_clients(monkeypatch, handler, [])
     server = _make_server(monkeypatch, chunk_size=1024)
 
     resp = await server.app.test_client().get("/images/boot/ubuntu.iso")
 
     assert resp.status_code == 200
-    assert methods_seen == ["HEAD", "GET"]
+    assert seen == [("GET", "bytes=0-0"), ("GET", None)]
     assert len(await resp.get_data()) == 3072
     assert upstream.closed is True
-
-
-@pytest.mark.asyncio
-async def test_head_without_content_length_omits_header(monkeypatch: pytest.MonkeyPatch) -> None:
-    """When storage HEAD carries no Content-Length, the client response omits it."""
-    upstream = CountingUpstream(total_chunks=1, chunk=b"n")
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        """Serve HEAD without a length header and GET with a body."""
-        if request.url.host == API_HOST:
-            return httpx.Response(200, json={"url": STORAGE_URL})
-        if request.method == "HEAD":
-            return httpx.Response(200)
-        return httpx.Response(200, stream=upstream)
-
-    captured: list[dict] = []
-    _patch_clients(monkeypatch, handler, captured)
-    server = _make_server(monkeypatch)
-
-    resp = await server.app.test_client().open("/images/boot/nolen.iso", method="HEAD")
-
-    # Quart fills an empty body's length with 0; the storage-provided length is never forwarded
-    assert resp.status_code == 200
-    assert resp.headers.get("Content-Length", "0") == "0"
-    assert _outbound_image_headers(httpx.Response(200)).get("Content-Length") is None
 
 
 @pytest.mark.asyncio
@@ -340,29 +409,36 @@ async def test_upstream_error_status_propagates(
 ) -> None:
     """Non-2xx storage responses surface as error statuses, never 200 with an error body.
 
-    Regression: the old code returned 200 with whatever body storage sent.
     404 maps to 404; other upstream failures map to 502.
     """
-    captured: list[dict] = []
-    _patch_clients(monkeypatch, _make_handler(upstream_status, None, {}), captured)
+    _patch_clients(monkeypatch, _make_handler(upstream_status, None, {}), [])
     server = _make_server(monkeypatch)
 
     resp = await server.app.test_client().get("/images/boot/missing.iso")
 
     assert resp.status_code == expected_status
-    assert resp.status_code != 200
 
 
-def test_outbound_content_length_passthrough_rules() -> None:
-    """Content-Length is forwarded for identity bodies and dropped for content-encoded ones."""
-    plain = httpx.Response(200, headers={"content-length": "123"})
-    encoded = httpx.Response(200, headers={"content-length": "123", "content-encoding": "gzip"})
+def test_total_length_parsing_rules() -> None:
+    """Total size comes from Content-Range on 206, Content-Length on 200; unknown yields None."""
+    ranged = httpx.Response(206, headers={"content-range": "bytes 0-0/3072", "content-length": "1"})
+    star = httpx.Response(206, headers={"content-range": "bytes 0-0/*"})
+    plain = httpx.Response(200, headers={"content-length": "3072"})
+    encoded = httpx.Response(200, headers={"content-length": "3072", "content-encoding": "gzip"})
     absent = httpx.Response(200)
 
-    assert _outbound_image_headers(plain)["Content-Length"] == "123"
-    assert "Content-Length" not in _outbound_image_headers(encoded)
-    assert "Content-Length" not in _outbound_image_headers(absent)
-    assert _outbound_image_headers(absent)["Cache-Control"] == "public, max-age=3600"
+    assert _total_length(ranged) == 3072
+    assert _total_length(star) is None
+    assert _total_length(plain) == 3072
+    assert _total_length(encoded) is None
+    assert _total_length(absent) is None
+
+
+def test_outbound_headers_omit_content_length_when_unknown() -> None:
+    """Content-Length is emitted only when the total size is known."""
+    assert _outbound_image_headers(3072)["Content-Length"] == "3072"
+    assert "Content-Length" not in _outbound_image_headers(None)
+    assert _outbound_image_headers(None)["Cache-Control"] == "public, max-age=3600"
 
 
 @pytest.mark.asyncio

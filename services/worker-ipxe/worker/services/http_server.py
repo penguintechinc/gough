@@ -73,16 +73,30 @@ async def _open_storage_stream(presigned_url: str) -> _StorageStream:
     return _StorageStream(client=client, upstream=upstream)
 
 
-def _outbound_image_headers(upstream: httpx.Response) -> dict[str, str]:
-    """Build client-facing headers for a streamed image.
+_CONTENT_RANGE_TOTAL = re.compile(r"^bytes 0-0/(\d+)$")
 
-    Content-Length is forwarded only for identity-encoded bodies, since aiter_bytes
-    yields decoded bytes and an upstream length would then be wrong.
+
+def _total_length(upstream: httpx.Response) -> int | None:
+    """Return the full object size from a ranged (206) or plain (200) storage response.
+
+    206: total from Content-Range (None when the total is '*' or missing).
+    200: Content-Length, meaning the server ignored Range and sent the whole object.
+    Returns None for content-encoded bodies, since decoded length differs from the wire length.
     """
+    if "content-encoding" in upstream.headers:
+        return None
+    if upstream.status_code == 206:
+        match = _CONTENT_RANGE_TOTAL.match(upstream.headers.get("content-range", ""))
+        return int(match.group(1)) if match else None
+    length = upstream.headers.get("content-length", "")
+    return int(length) if length.isdigit() else None
+
+
+def _outbound_image_headers(total_length: int | None) -> dict[str, str]:
+    """Build client-facing headers; Content-Length is set only when the total is known."""
     headers = {"Cache-Control": "public, max-age=3600"}
-    upstream_length = upstream.headers.get("content-length")
-    if upstream_length is not None and "content-encoding" not in upstream.headers:
-        headers["Content-Length"] = upstream_length
+    if total_length is not None:
+        headers["Content-Length"] = str(total_length)
     return headers
 
 
@@ -91,6 +105,22 @@ def _upstream_error_response(upstream_status: int) -> Response:
     if upstream_status == 404:
         return Response("Image not found", status=404)
     return Response("Upstream storage error", status=502)
+
+
+class _ImageHeadResponse(Response):
+    """Empty-body HEAD response that keeps the storage-reported Content-Length.
+
+    Quart otherwise overwrites Content-Length with the empty body's length (0).
+    """
+
+    automatically_set_content_length = False
+
+
+@dataclass(slots=True, frozen=True)
+class _ImagePreflight:
+    """Result of the ranged storage pre-flight: total size when known."""
+
+    total_length: int | None
 
 
 class ImageStorageError(Exception):
@@ -307,9 +337,10 @@ class HTTPBootServer:
                         preflight = await self._preflight_image(presigned_url, image_path)
                         if isinstance(preflight, Response):
                             return preflight
-                        out_headers = _outbound_image_headers(preflight)
+                        out_headers = _outbound_image_headers(preflight.total_length)
                         if request.method == "HEAD":
-                            return Response(b"", mimetype="application/octet-stream", headers=out_headers)
+                            out_headers["Content-Type"] = "application/octet-stream"
+                            return _ImageHeadResponse(b"", headers=out_headers)
                         return Response(
                             _LazyImageBody(presigned_url, self.image_chunk_size),
                             mimetype="application/octet-stream",
@@ -347,18 +378,26 @@ class HTTPBootServer:
                 logger.error("boot_event_forward_error", error=str(e))
                 return jsonify({"status": "error", "message": str(e)}), 500
 
-    async def _preflight_image(self, presigned_url: str, image_path: str) -> httpx.Response | Response:
-        """Storage HEAD pre-flight: returns headers or an error Response. Never opens a GET."""
+    async def _preflight_image(self, presigned_url: str, image_path: str) -> "_ImagePreflight | Response":
+        """Ranged GET pre-flight (bytes=0-0): returns the total size or an error Response.
+
+        Same method as the presigned URL (SigV4 binds the method, so HEAD would 403).
+        The pre-flight response is always closed without reading the body.
+        """
         async with httpx.AsyncClient(timeout=_storage_timeout()) as client:
-            upstream = await client.head(presigned_url)
-        if not upstream.is_success:
-            logger.error(
-                "image_storage_head_failed",
-                path=image_path,
-                upstream_status=upstream.status_code,
-            )
-            return _upstream_error_response(upstream.status_code)
-        return upstream
+            request = client.build_request("GET", presigned_url, headers={"Range": "bytes=0-0"})
+            upstream = await client.send(request, stream=True)
+            try:
+                if not upstream.is_success:
+                    logger.error(
+                        "image_storage_preflight_failed",
+                        path=image_path,
+                        upstream_status=upstream.status_code,
+                    )
+                    return _upstream_error_response(upstream.status_code)
+                return _ImagePreflight(total_length=_total_length(upstream))
+            finally:
+                await upstream.aclose()
 
     async def start(self):
         """Start HTTP server."""
