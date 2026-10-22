@@ -60,7 +60,6 @@ def perms_module(monkeypatch, mock_db):
 # ============================================================================
 
 
-@pytest.mark.skip(reason="Production bug: TEAM_ROLES privilege hierarchy is inverted (index 0=owner is treated as lowest, not highest)")
 def test_check_team_access_user_is_owner(perms_module, mock_db):
     """User with owner role should have access as owner."""
     # Setup: user_id=1, team_id=100, role=owner
@@ -78,7 +77,6 @@ def test_check_team_access_user_is_owner(perms_module, mock_db):
     assert result is True
 
 
-@pytest.mark.skip(reason="Production bug: TEAM_ROLES privilege hierarchy is inverted (admin=index 1 < member=index 2, so admin cannot access as member)")
 def test_check_team_access_user_is_admin(perms_module, mock_db):
     """User with admin role should have access as admin or lower."""
     membership = MagicMock()
@@ -93,7 +91,6 @@ def test_check_team_access_user_is_admin(perms_module, mock_db):
     assert result is True
 
 
-@pytest.mark.skip(reason="Production bug: TEAM_ROLES privilege hierarchy is inverted (member=index 2 >= admin=index 1, so incorrectly grants access)")
 def test_check_team_access_user_is_member(perms_module, mock_db):
     """User with member role should NOT have access requiring admin."""
     membership = MagicMock()
@@ -122,7 +119,6 @@ def test_check_team_access_user_is_viewer(perms_module, mock_db):
     assert result is True
 
 
-@pytest.mark.skip(reason="Production bug: TEAM_ROLES privilege hierarchy is inverted (viewer=index 3 >= member=index 2, so incorrectly grants access)")
 def test_check_team_access_viewer_cannot_access_as_member(perms_module, mock_db):
     """Viewer should not be able to access as member."""
     membership = MagicMock()
@@ -148,7 +144,6 @@ def test_check_team_access_no_membership(perms_module, mock_db):
     assert result is False
 
 
-@pytest.mark.skip(reason="Production bug: TEAM_ROLES.index() raises ValueError for unknown role, not caught by except (KeyError, AttributeError)")
 def test_check_team_access_invalid_role(perms_module, mock_db):
     """Invalid role name should return False."""
     db_query = MagicMock()
@@ -195,7 +190,6 @@ def test_resource_permission_user_is_creator(perms_module, mock_db):
     assert result is True
 
 
-@pytest.mark.skip(reason="Production bug: check_team_access raises ValueError when membership role is a MagicMock (not caught by except (KeyError, AttributeError))")
 def test_resource_permission_not_creator_check_team_write(perms_module, mock_db):
     """Non-creator requesting write should check team admin role."""
     resource = MagicMock()
@@ -205,38 +199,26 @@ def test_resource_permission_not_creator_check_team_write(perms_module, mock_db)
     membership = MagicMock()
     membership.role = "admin"
 
-    # Setup two different queries: one for resource fetch, one for team check
+    # db(...) is called in this order: resource fetch, resource_permissions
+    # lookup (no explicit grant), then team_members lookup for the admin check.
     resource_query = MagicMock()
     resource_query.select.return_value.first.return_value = resource
+
+    perms_query = MagicMock()
+    perms_query.select.return_value.first.return_value = None
 
     team_query = MagicMock()
     team_query.select.return_value.first.return_value = membership
 
-    # Configure the mock DB to return different query objects
-    call_count = [0]
-    def mock_getitem_or_call(*args, **kwargs):
-        call_count[0] += 1
-        if call_count[0] == 1:
-            return MagicMock()  # resource_type table
-        return None
+    mock_db.__getitem__ = MagicMock(return_value=MagicMock())
+    mock_db.side_effect = [resource_query, perms_query, team_query]
 
-    def mock_call_or_getitem(condition):
-        call_count[0] += 1
-        if call_count[0] == 2:
-            return resource_query
-        elif call_count[0] == 3:
-            return team_query
-        return resource_query
-
-    mock_db.__getitem__ = lambda x: MagicMock()
-    mock_db.side_effect = lambda condition: resource_query if call_count[0] < 3 else team_query
-
-    # Simplified: just mock the calls directly
     result = perms_module.check_resource_permission(
         user_id=1, resource_type="cloud", resource_id=50, permission="write"
     )
 
-    # Result depends on team access check
+    # Admin membership satisfies the team-admin fallback for write
+    assert result is True
 
 
 def test_resource_permission_resource_not_found(perms_module, mock_db):
@@ -253,7 +235,6 @@ def test_resource_permission_resource_not_found(perms_module, mock_db):
     assert result is False
 
 
-@pytest.mark.skip(reason="Production bug: check_team_access raises ValueError when membership role is a MagicMock (not caught by except (KeyError, AttributeError))")
 def test_resource_permission_read_with_team_member(perms_module, mock_db):
     """Team member should have read permission."""
     resource = MagicMock()
@@ -449,7 +430,6 @@ def test_require_team_permission_no_current_user(perms_module, monkeypatch):
 # ============================================================================
 
 
-@pytest.mark.skip(reason="Production bug: kwargs.get('resource_id', type=int) raises TypeError; dict.get() does not accept keyword arguments")
 def test_require_resource_permission_user_has_access(perms_module, monkeypatch):
     """Decorator should allow if user has resource permission."""
     import asyncio
@@ -465,12 +445,18 @@ def test_require_resource_permission_user_has_access(perms_module, monkeypatch):
     async def test_route(resource_type, resource_id):
         return {"status": "ok"}, 200
 
-    result = asyncio.run(test_route(resource_type="cloud", resource_id=50))
+    from quart import Quart
+
+    async def _in_request() -> tuple:
+        # The decorator reads request.is_json / request.args, which need a request context.
+        async with Quart(__name__).test_request_context("/"):
+            return await test_route(resource_type="cloud", resource_id=50)
+
+    result = asyncio.run(_in_request())
 
     assert result[0]["status"] == "ok"
 
 
-@pytest.mark.skip(reason="Production bug: kwargs.get('resource_id', type=int) raises TypeError; dict.get() does not accept keyword arguments")
 def test_require_resource_permission_user_denied(perms_module, monkeypatch):
     """Decorator should deny if user lacks resource permission."""
     import asyncio
@@ -486,7 +472,14 @@ def test_require_resource_permission_user_denied(perms_module, monkeypatch):
     async def test_route(resource_type, resource_id):
         return {"status": "ok"}, 200
 
-    result = asyncio.run(test_route(resource_type="cloud", resource_id=50))
+    from quart import Quart
+
+    async def _in_request() -> tuple:
+        # The decorator reads request.is_json / request.args, which need a request context.
+        async with Quart(__name__).test_request_context("/"):
+            return await test_route(resource_type="cloud", resource_id=50)
+
+    result = asyncio.run(_in_request())
 
     assert result[1] == 403
 
