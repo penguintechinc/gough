@@ -94,7 +94,11 @@ def init_websocket(app: Quart) -> None:
 
             # Handle messages
             try:
-                async for message in websocket:
+                # Quart's ``websocket`` is a LocalProxy with no __aiter__; an
+                # ``async for`` over it raised AttributeError on the first frame,
+                # so no input/resize was ever forwarded. Receive explicitly.
+                while True:
+                    message = await websocket.receive()
                     data = json.loads(message)
                     msg_type = data.get("type")
 

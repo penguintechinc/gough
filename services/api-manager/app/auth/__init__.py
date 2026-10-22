@@ -494,6 +494,10 @@ async def change_password():
     if not verify_password(current_password, user_row.password):
         return jsonify({"error": "Invalid current password"}), 401
 
+    # Policy: the new password must differ from the current one.
+    if verify_password(new_password, user_row.password):
+        return jsonify({"error": "New password must differ from current password"}), 400
+
     # Update password. Regression: gh-22. Update + commit is one unit of
     # work -- off the event loop via run_db() instead of blocking the
     # request coroutine inline.

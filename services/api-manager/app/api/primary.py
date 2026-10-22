@@ -149,6 +149,11 @@ def _cluster_id() -> str:
         return os.getenv("CLUSTER_ID", "default")
 
 
+def _grpc_target(host: str, port: int = 50051) -> str:
+    """Return a gRPC ``host:port`` target, bracketing IPv6 literals (``[fd00::1]:50051``)."""
+    return f"[{host}]:{port}" if ":" in host else f"{host}:{port}"
+
+
 def _request_id() -> str:
     """Generate or retrieve request ID for audit/tracing."""
     rid = request.headers.get("X-Gough-Request-Id")
@@ -532,6 +537,34 @@ async def _update_endpoint_on_nodes(
     """
     results: dict[int, dict[str, Any]] = {}
 
+    async def _audit_endpoint(node_id: int, node_result: dict[str, Any]) -> None:
+        """Emit the per-node RESOURCE_UPDATE audit event, success or failure.
+
+        Runs for every node including early exits (not found / no address), so
+        refused or unroutable endpoint changes still leave an audit trail.
+        """
+        audit = current_app.extensions.get("audit")
+        if audit and isinstance(audit, AuditLogger):
+            def _emit_endpoint_audit(
+                audit: Any = audit,
+                node_id: int = node_id,
+                node_result: dict[str, Any] = node_result,
+            ) -> Any:
+                return audit.log(
+                    AuditEventType.RESOURCE_UPDATE,
+                    f"Update control-plane endpoint on node {node_id}",
+                    resource_type="primary.endpoint",
+                    resource_id=str(node_id),
+                    details={
+                        "endpoint": new_endpoint,
+                        "success": node_result["success"],
+                        "error": node_result.get("error"),
+                        "duration_ms": node_result["duration_ms"],
+                    },
+                )
+
+            await run_db(_emit_endpoint_audit)
+
     for node_id in node_ids:
         # Deferred — module import shouldn't hard-require this (matches the
         # `aetcd`/`etcdctl` deferred-import pattern used elsewhere in this
@@ -569,6 +602,7 @@ async def _update_endpoint_on_nodes(
             if node_row is None:
                 node_result["error"] = f"Node {node_id} not found in DB"
                 results[node_id] = node_result
+                await _audit_endpoint(node_id, node_result)
                 continue
 
             ipv4 = getattr(node_row, "ipv4", None)
@@ -580,13 +614,14 @@ async def _update_endpoint_on_nodes(
             if not node_ip:
                 node_result["error"] = f"Node {node_id} has no ipv4 or ipv6 address"
                 results[node_id] = node_result
+                await _audit_endpoint(node_id, node_result)
                 continue
 
             # Build gRPC channel to discovery-agent on node (port 50051, SPIFFE mTLS)
             # In production, use mTLS credentials from SPIRE workload API
             channel = await asyncio.to_thread(
                 grpc.secure_channel,
-                f"{node_ip}:50051",
+                _grpc_target(node_ip),
                 grpc.ssl_channel_credentials(),  # SPIRE credentials in real impl
             )
 
@@ -623,34 +658,7 @@ async def _update_endpoint_on_nodes(
         )
         results[node_id] = node_result
 
-        # Emit per-node audit event. Regression: gh-22. AuditLogger.log()
-        # issues its own synchronous db.system_logs.insert()+commit() --
-        # off the event loop via run_db() instead of blocking this
-        # coroutine inline for every node in the loop.
-        audit = current_app.extensions.get("audit")
-        if audit and isinstance(audit, AuditLogger):
-            # Bind loop variables as default args to a named closure
-            # (not a bare lambda) -- avoids both the late-binding-in-a-
-            # loop pitfall and an unannotated-lambda mypy --strict error.
-            def _emit_endpoint_audit(
-                audit: Any = audit,
-                node_id: int = node_id,
-                node_result: dict[str, Any] = node_result,
-            ) -> Any:
-                return audit.log(
-                    AuditEventType.RESOURCE_UPDATE,
-                    f"Update control-plane endpoint on node {node_id}",
-                    resource_type="primary.endpoint",
-                    resource_id=str(node_id),
-                    details={
-                        "endpoint": new_endpoint,
-                        "success": node_result["success"],
-                        "error": node_result.get("error"),
-                        "duration_ms": node_result["duration_ms"],
-                    },
-                )
-
-            await run_db(_emit_endpoint_audit)
+        await _audit_endpoint(node_id, node_result)
 
     return results
 
@@ -714,7 +722,7 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
             # Build gRPC channel to discovery-agent
             channel = await asyncio.to_thread(
                 grpc.secure_channel,
-                f"{node_ip}:50051",
+                _grpc_target(node_ip),
                 grpc.ssl_channel_credentials(),
             )
 
@@ -865,7 +873,7 @@ async def _advertise_bgp_route(
             # In production, use mTLS credentials from SPIRE workload API
             channel = await asyncio.to_thread(
                 grpc.secure_channel,
-                f"{node_ip}:50051",
+                _grpc_target(node_ip),
                 grpc.ssl_channel_credentials(),  # SPIRE credentials in real impl
             )
 
