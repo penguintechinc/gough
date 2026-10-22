@@ -2297,7 +2297,7 @@ paths:
       security: []
   /api/v1/auth/logout:
     post:
-      summary: Logout endpoint - revoke refresh token.
+      summary: Logout endpoint - revoke refresh token and clear browser auth cookies.
       description: "Returns:\n    200: Success message"
       tags:
       - auth
@@ -2566,8 +2566,10 @@ paths:
   /api/v1/auth/refresh:
     post:
       summary: Refresh token endpoint - issue new access token.
-      description: "Request body:\n    - refresh_token: previously issued refresh token\n\nReturns:\n\
-        \    200: {access_token}\n    401: Invalid refresh token"
+      description: "Request body:\n    - refresh_token: previously issued refresh token (optional if the\n\
+        \      ``gough_refresh`` cookie is present -- regression: security audit\n      2026-09-22, browser\
+        \ clients never see the refresh token in JS).\n\nReturns:\n    200: {access_token}\n    400: No\
+        \ refresh token in body or cookie\n    401: Invalid refresh token"
       tags:
       - auth
       operationId: auth_refresh_post
@@ -5227,10 +5229,12 @@ paths:
       - mutualTLS: []
   /api/v1/biomes/{biome_id}/sign:
     post:
-      summary: Asynchronously sign a biome (cosign + syft).
+      summary: Sign a biome with cosign and generate an SBOM with syft.
       description: "Spec ``POST /api/v1/biomes/{id}/sign`` \u2014 scope ``gough.biomes.sign``,\nMFA-required\
-        \ in compliance lanes.  Sprint 2 records a\n``signing_pending`` audit row and emits a NATS event\
-        \ stub via\n``logger.info``; the actual signing pipeline lands in Sprint 4.\n\nReturns 202 immediately."
+        \ in compliance lanes. Behind ``FLAG_BIOME_SIGNING``\n(PostHog, default OFF): when off, records\
+        \ the Sprint-2\n``signing_pending`` audit marker only and returns 202 (no real\nsigning \u2014\
+        \ unchanged legacy behaviour); when on, runs the real\nSprint-4 cosign+syft pipeline synchronously,\
+        \ fail-closed on any step,\nand returns the final ``signed``/``verification_failed`` state."
       tags:
       - biomes
       operationId: biomes_sign_biome_post
@@ -8350,8 +8354,23 @@ paths:
       - mutualTLS: []
   /api/v1/clusters/{cluster_id}/adopt:
     post:
-      summary: 'Brownfield adoption (M1: validate body shape + emit NATS request).'
-      description: Full implementation lands in M2 per spec line 2129 (CQ-4).
+      summary: Brownfield-adopt an existing LXD or Kubernetes cluster into gough.
+      description: 'M1 (``FLAG_CLUSTER_ADOPT`` OFF, default): validates body shape and
+
+        emits a ``gough.cluster.adopt.requested`` NATS event only -- unchanged
+
+        from the original M1 behavior.
+
+
+        M2 (flag ON): discovers the target cluster''s member inventory via
+
+        :func:`_execute_cluster_adoption` (``app.clients.cluster_discovery``
+
+        boundary, mocked in tests) and ingests it into gough''s model
+
+        (``clusters`` + ``cluster_config``), rolling back anything this request
+
+        created on failure.'
       tags:
       - clusters
       operationId: clusters_adopt_cluster_post
@@ -10290,7 +10309,21 @@ paths:
       - mutualTLS: []
   /api/v1/clusters/{cluster_id}/storage/switch-primary:
     post:
-      summary: "Preview a primary-storage switch (M1) \u2014 full execution lands in M2."
+      summary: Switch the cluster's primary storage backend.
+      description: 'M1 (``FLAG_STORAGE_SWITCH_PRIMARY`` OFF, default): returns a migration
+
+        PLAN PREVIEW only -- unchanged from the original M1 behavior.
+
+
+        M2 (flag ON): executes the cutover end to end via
+
+        :func:`_execute_storage_cutover` against the storage-orchestrator
+
+        boundary (mocked in tests), updating ``storage_backends``/
+
+        ``cluster_config`` state, emitting NATS progress events per stage, and
+
+        rolling back on failure.'
       tags:
       - clusters
       operationId: clusters_switch_primary_storage_post
@@ -16671,10 +16704,10 @@ paths:
       summary: List migration events with filters.
       description: "Query parameters:\n    since      ISO-8601 lower bound (inclusive)\n    until    \
         \  ISO-8601 upper bound (exclusive)\n    node_id    src OR dst match\n    biome_id     match on\
-        \ biome_id\n    result     'pass' | 'rejected' | 'executed' | 'rolled_back'\n               (filters\
-        \ by ``result`` column or by ``rejection_reason``\n                presence for the synthetic\
-        \ 'rejected' bucket)\n    limit      page size (default 50, max 200)\n    offset     pagination\
-        \ offset"
+        \ biome_id\n    result     'pass' | 'rejected' | 'executing' | 'executed' |\n               'failed'\
+        \ | 'rolled_back'\n               (filters by ``result`` column or by ``rejection_reason``\n \
+        \               presence for the synthetic 'rejected' bucket)\n    limit      page size (default\
+        \ 50, max 200)\n    offset     pagination offset"
       tags:
       - migration
       operationId: migration_list_events_get
@@ -19637,10 +19670,12 @@ paths:
       - mutualTLS: []
   /api/v1/primary/frontend-switch:
     post:
-      summary: 'Switch control plane frontend mode: kube-vip, external, or anycast (unsupported).'
+      summary: 'Switch control plane frontend mode: kube-vip, external, or anycast (BGP).'
       description: 'Renames modes from M1 vocabulary: vip->kube-vip, anycast->anycast, external (new).
 
-        Returns: 200 on success, 501 for unimplemented anycast, 422 on validation.
+        Returns: 200 on success, 404 if anycast requested but FLAG_ANYCAST_FRONTEND
+
+        is off, 422 on validation, 500 if any node update/BGP announce fails.
 
 
         Body: {target_mode: "kube-vip" | "external" | "anycast", new_endpoint?: "..."}'
@@ -21429,6 +21464,150 @@ paths:
       tags:
       - shell
       operationId: shell_terminate_session_delete
+      parameters:
+      - name: session_id
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Successful response.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SuccessEnvelope'
+        '400':
+          description: Request payload failed validation. (code=invalid_request)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                invalid_request:
+                  summary: invalid_request
+                  value:
+                    status: error
+                    error: Request payload failed validation.
+                    code: invalid_request
+        '401':
+          description: Missing or invalid credential. (code=unauthenticated)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unauthenticated:
+                  summary: unauthenticated
+                  value:
+                    status: error
+                    error: Missing or invalid credential.
+                    code: unauthenticated
+        '403':
+          description: Token scopes do not satisfy endpoint requirements. (code=forbidden_scope)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                forbidden_scope:
+                  summary: forbidden_scope
+                  value:
+                    status: error
+                    error: Token scopes do not satisfy endpoint requirements.
+                    code: forbidden_scope
+        '404':
+          description: Target resource does not exist. (code=not_found)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                not_found:
+                  summary: not_found
+                  value:
+                    status: error
+                    error: Target resource does not exist.
+                    code: not_found
+        '409':
+          description: Resource state conflicts with the request. (code=conflict)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                conflict:
+                  summary: conflict
+                  value:
+                    status: error
+                    error: Resource state conflicts with the request.
+                    code: conflict
+        '423':
+          description: Resource is locked by another in-flight operation. (code=locked)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                locked:
+                  summary: locked
+                  value:
+                    status: error
+                    error: Resource is locked by another in-flight operation.
+                    code: locked
+        '429':
+          description: Caller has exceeded the rate-limit budget. (code=rate_limited)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                rate_limited:
+                  summary: rate_limited
+                  value:
+                    status: error
+                    error: Caller has exceeded the rate-limit budget.
+                    code: rate_limited
+        '500':
+          description: Unhandled server error; see audit log for trace. (code=internal_error)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                internal_error:
+                  summary: internal_error
+                  value:
+                    status: error
+                    error: Unhandled server error; see audit log for trace.
+                    code: internal_error
+        '503':
+          description: Vault/SPIRE/NATS/LXD dependency is unreachable. (code=dependency_unavailable)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                dependency_unavailable:
+                  summary: dependency_unavailable
+                  value:
+                    status: error
+                    error: Vault/SPIRE/NATS/LXD dependency is unreachable.
+                    code: dependency_unavailable
+      security:
+      - bearerAuth: []
+      - mutualTLS: []
+  /api/v1/shell/sessions/{session_id}/ticket:
+    post:
+      summary: Mint a single-use 60s WebSocket ticket for a shell session.
+      description: "The ticket is bound to the authenticated user, their tenant and the\nsession, and\
+        \ is presented as ``?ticket=`` on ``/ws/shell``. Requires the\n``gough.shell.attach`` scope (enforced\
+        \ by SCOPE_POLICY), session ownership\n(or admin) and shell access to the session's resource.\n\
+        \nReturns:\n    200: Ticket issued (``ShellTicketResponse``)\n    403: Not owner/admin or no shell\
+        \ access\n    404: Session not found\n    409: Session already ended"
+      tags:
+      - shell
+      operationId: shell_issue_ticket_post
       parameters:
       - name: session_id
         in: path

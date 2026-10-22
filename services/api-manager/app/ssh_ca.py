@@ -6,6 +6,7 @@ Uses PyDAL for database operations as required by CLAUDE.md.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime
@@ -173,6 +174,8 @@ class SSHCertificateAuthority:
         host_ids: Optional[List[str]] = None,
         source_address: Optional[str] = None,
         force_command: Optional[str] = None,
+        *,
+        allow_root: bool = False,
     ) -> str:
         """Sign user SSH public key using ssh-keygen.
 
@@ -202,9 +205,18 @@ class SSHCertificateAuthority:
         if not principals:
             raise ValueError("At least one principal is required")
 
-        if any(p.startswith("host:") for p in principals):
-            raise ValueError("host: principals are reserved; pass host_ids instead")
-        principals = [*principals, *(f"host:{h}" for h in (host_ids or []))]
+        # Reserved principals are owned by the hub: callers may never request
+        # ``host:*`` / ``allow-root`` (or inject separators); the server adds
+        # them from host_ids / allow_root after its own authorization checks.
+        for p in principals:
+            validate_principal_syntax(p)
+        for h in host_ids or []:
+            validate_principal_syntax(h)
+        principals = [
+            *principals,
+            *(f"{HOST_PRINCIPAL_PREFIX}{h}" for h in (host_ids or [])),
+            *([ALLOW_ROOT_PRINCIPAL] if allow_root else []),
+        ]
 
         current_app.logger.info(
             f"Signing SSH key for principals {principals}, "
@@ -295,6 +307,26 @@ class SSHCertificateAuthority:
             )
 
         return private_key_path
+
+
+HOST_PRINCIPAL_PREFIX = "host:"
+ALLOW_ROOT_PRINCIPAL = "allow-root"
+_PRINCIPAL_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,63}$")
+
+
+def validate_principal_syntax(principal: str) -> None:
+    """Reject reserved (``host:``/``allow-root``) or malformed principals.
+
+    Raises:
+        ValueError: if the principal is reserved, or contains commas, whitespace,
+            control characters or anything outside a conservative login charset.
+    """
+    if not isinstance(principal, str):
+        raise ValueError("principal must be a string")
+    if principal.startswith(HOST_PRINCIPAL_PREFIX) or principal == ALLOW_ROOT_PRINCIPAL:
+        raise ValueError(f"principal {principal!r} is reserved")
+    if not _PRINCIPAL_RE.match(principal):
+        raise ValueError("principal contains invalid characters")
 
 
 def generate_key_id(user_email: str, resource_id: str) -> str:

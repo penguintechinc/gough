@@ -14,7 +14,7 @@ import app.websocket as ws_mod
 from app.shell_tickets import ShellTicketStore, TicketClaims, set_ticket_store
 from app.websocket import MalformedMessage, init_websocket, parse_client_message
 
-SID = "sess-1"
+SID = "11111111-1111-4111-8111-111111111111"
 MODULE = pathlib.Path(ws_mod.__file__)
 
 
@@ -35,7 +35,8 @@ def _no_spawn(monkeypatch):
 
 @pytest.fixture()
 def store():
-    """Fresh in-memory ticket store."""
+    """Fresh in-memory ticket store (also resets the pre-auth audit budget)."""
+    ws_mod._pre_auth_hits.clear()
     s = ShellTicketStore(None)
     set_ticket_store(s)
     yield s
@@ -178,3 +179,30 @@ def test_module_never_spawns_processes():
     )
     assert not re.search(forbidden, src)
     assert "/bin/bash" not in src
+
+
+@pytest.mark.asyncio
+async def test_malformed_session_id_closed_without_logging_raw(client, caplog):
+    evil = "x%0Aforged line%0D%0A"
+    with caplog.at_level("DEBUG"):
+        await _expect_reject(client, f"session_id={evil}&ticket=t")
+        await _expect_reject(client, "session_id=a%0Ab&ticket=t")
+    assert not any("forged" in r.getMessage() for r in caplog.records)
+    assert all("\n" not in r.getMessage() for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_pre_auth_denies_audit_placeholder_and_rate_limited(client, monkeypatch):
+    events = []
+
+    class A:
+        def log_shell_attach(self, sid, uid, outcome, reason, details=None):
+            events.append((sid, uid, outcome, details))
+
+    monkeypatch.setattr(ws_mod, "get_audit_logger", lambda: A())
+    ws_mod._pre_auth_hits.clear()
+    for _ in range(25):
+        await _expect_reject(client, f"session_id={SID}&ticket=bad")
+    assert len(events) == ws_mod.PRE_AUTH_AUDIT_LIMIT
+    assert all(e[0] == "unauthenticated" and e[1] is None for e in events)
+    assert len(events[0][3]["sid_sha256"]) == 16

@@ -20,11 +20,73 @@ from ..middleware import auth_required, get_current_user, roles_required
 from ..audit import AuditEventType, get_audit_logger
 from ..models import get_db
 from ..permissions import check_shell_access
-from ..ssh_ca import SSHCertificateAuthority, SSHCAException
+from ..ssh_ca import (
+    SSHCertificateAuthority,
+    SSHCAException,
+    generate_key_id,
+    validate_principal_syntax,
+    validate_principals,
+)
+from .shell import user_is_admin
 
 log = logging.getLogger(__name__)
 
 ssh_ca_bp = Blueprint("ssh_ca", __name__, url_prefix="/api/v1/ssh-ca")
+
+MAX_API_CERT_VALIDITY_SECONDS = 900
+
+
+def resolve_agent_id(resource_type: str, resource_id: str) -> str | None:
+    """Server-side resource -> access-agent lookup (blocking DB call).
+
+    The ``host:<agent_id>`` principal is derived from this authorized lookup
+    only (agent whose ``agent_id`` or ``hostname`` is the resource), never from
+    request input. Returns None when no active agent matches (fail closed).
+    """
+    db = get_db()
+    row = db(
+        (db.access_agents.status == "active")
+        & (
+            (db.access_agents.agent_id == resource_id)
+            | (db.access_agents.hostname == resource_id)
+        )
+    ).select().first()
+    return row.agent_id if row else None
+
+
+def allowed_login_principals(
+    user_id: int, resource_type: str, resource_id: str
+) -> list[str]:
+    """Per-resource login allowlist from the user's team assignments (blocking).
+
+    Reads ``principals`` from dict-form assignment permissions; admins also get
+    the ``SSH_DEFAULT_LOGIN_PRINCIPALS`` env defaults. Empty list = nothing.
+    """
+    import json
+    import os
+
+    db = get_db()
+    allowed: set[str] = set()
+    if user_is_admin(user_id):
+        allowed |= {p for p in os.getenv("SSH_DEFAULT_LOGIN_PRINCIPALS", "").split(",") if p}
+    team_ids = [
+        tm.team_id
+        for tm in db(db.team_members.user_id == user_id).select(db.team_members.team_id)
+    ]
+    if team_ids:
+        rows = db(
+            (db.resource_assignments.team_id.belongs(team_ids))
+            & (db.resource_assignments.resource_type == resource_type)
+            & (db.resource_assignments.resource_id == resource_id)
+        ).select()
+        for row in rows:
+            try:
+                perms = json.loads(row.permissions)
+            except (ValueError, TypeError):
+                continue
+            if isinstance(perms, dict) and isinstance(perms.get("principals"), list):
+                allowed |= {p for p in perms["principals"] if isinstance(p, str)}
+    return sorted(allowed)
 
 
 # ============================================================================
@@ -230,30 +292,44 @@ async def sign_certificate():
     try:
         current_user = get_current_user()
 
-        # Check user has shell access to resource. Regression: gh-22. Off
-        # the event loop via run_db() instead of blocking the request
-        # coroutine inline (check_shell_access issues its own direct
-        # penguin-dal reads -- app.permissions.check_resource_permission).
-        def _check_access() -> bool:
-            return check_shell_access(
+        # Principal hygiene first: reserved (host:/allow-root) or malformed
+        # requests are rejected outright, never silently filtered.
+        try:
+            for p in principals:
+                validate_principal_syntax(p)
+        except ValueError as exc:
+            return jsonify({"error": str(exc)}), 400
+        validity_seconds = min(validity_seconds, MAX_API_CERT_VALIDITY_SECONDS)
+
+        def _authorize() -> tuple[str | None, str | None, bool]:
+            """Return (agent_id, error, is_admin) for the authorized resource."""
+            if not check_shell_access(current_user["id"], resource_type, resource_id):
+                return None, "User does not have shell access to this resource", False
+            agent_id = resolve_agent_id(resource_type, resource_id)
+            if not agent_id:
+                return None, "No active access agent for this resource", False
+            allowed = allowed_login_principals(
                 current_user["id"], resource_type, resource_id
             )
+            if not validate_principals(principals, allowed):
+                return None, "Principal not permitted for this resource", False
+            return agent_id, None, user_is_admin(current_user["id"])
 
-        if not await run_db(_check_access):
-            return (
-                jsonify(
-                    {
-                        "error": (
-                            "User does not have shell access to this "
-                            "resource"
-                        )
-                    }
-                ),
-                400,
-            )
+        agent_id, auth_err, is_admin = await run_db(_authorize)
+        if auth_err:
+            status = 404 if "agent" in auth_err else 403
+            return jsonify({"error": auth_err}), status
 
-        # Get CA configuration. Regression: gh-22. Off the event loop via
-        # run_db() instead of blocking the request coroutine inline.
+        # allow-root is a separate, explicit grant: root login requested AND
+        # the dangerous gough.shell.root scope AND admin role.
+        scopes = set(
+            (current_user.get("_jwt_payload") or {}).get("scope") or []
+        )
+        wants_root = "root" in principals
+        allow_root = wants_root and is_admin and "gough.shell.root" in scopes
+        if wants_root and not allow_root:
+            return jsonify({"error": "Root access not permitted"}), 403
+
         def _fetch_ca_config() -> Any:
             return db(db.ssh_ca_config.id > 0).select().first()
 
@@ -264,16 +340,17 @@ async def sign_certificate():
                 404,
             )
 
-        # Initialize CA and sign certificate
         ca = SSHCertificateAuthority()
-        certificate, key_id = ca.sign_public_key(
+        key_id = generate_key_id(current_user["email"], resource_id)
+        certificate = await ca.sign_user_key(
             public_key=public_key,
             principals=principals,
-            valid_seconds=validity_seconds,
-            user_id=current_user["id"],
+            validity_seconds=validity_seconds,
+            key_id=key_id,
+            host_ids=[agent_id],
+            allow_root=allow_root,
         )
 
-        # Calculate validity end time
         valid_until = datetime.utcnow() + timedelta(seconds=validity_seconds)
 
         # Audit log. Regression: gh-22. AuditLogger.log() issues its own
@@ -291,6 +368,8 @@ async def sign_certificate():
                 details={
                     "action": "certificate_signed",
                     "principals": principals,
+                    "host_principal": f"host:{agent_id}",
+                    "allow_root": allow_root,
                     "validity_seconds": validity_seconds,
                     "key_id": key_id,
                 },

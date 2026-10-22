@@ -45,6 +45,7 @@ KNOWN_SCOPES: frozenset[str] = frozenset({
     "gough.dr.promote",
     "gough.biomes.unsafe-skip-signing",
     "gough.migration.override-lock",
+    "gough.shell.root",
 })
 
 
@@ -55,6 +56,7 @@ KNOWN_SCOPES: frozenset[str] = frozenset({
 SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Shell WebSocket ticket mint (the /ws/shell upgrade itself authenticates
     # with the single-use ticket this endpoint issues -> ANONYMOUS_PATHS).
+    ("POST", "/api/v1/ssh-ca/sign"): frozenset({"gough.shell.attach"}),
     ("POST", "/api/v1/shell/sessions/<string:session_id>/ticket"): frozenset(
         {"gough.shell.attach"}
     ),
@@ -291,6 +293,7 @@ _DANGEROUS_SCOPES: frozenset[str] = frozenset({
     "gough.dr.promote",
     "gough.biomes.unsafe-skip-signing",
     "gough.migration.override-lock",
+    "gough.shell.root",
 })
 
 # Destructive delete-class scopes excluded from maintainer.
