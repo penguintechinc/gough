@@ -1,7 +1,7 @@
 # Project Template Makefile
 # This Makefile provides common development tasks for multi-language projects
 
-.PHONY: help setup dev test build clean lint format docker deploy install-hooks
+.PHONY: help setup dev test build clean lint format docker deploy install-hooks verify-hooks
 
 # Default target
 .DEFAULT_GOAL := help
@@ -74,7 +74,7 @@ setup-python: ## Setup - Install Python dependencies and tools
 	@python3 --version || (echo "$(RED)Python $(PYTHON_VERSION) not installed$(RESET)" && exit 1)
 	@pip install --upgrade pip
 	@pip install -r requirements.txt
-	@pip install black isort flake8 mypy pytest pytest-cov
+	@pip install ruff mypy pytest pytest-cov
 
 setup-node: ## Setup - Install Node.js dependencies and tools
 	@echo "$(BLUE)Setting up Node.js dependencies...$(RESET)"
@@ -82,11 +82,11 @@ setup-node: ## Setup - Install Node.js dependencies and tools
 	@npm install
 	@cd services/webui && npm install
 
-install-hooks: ## Setup - Install Git hooks from .githooks directory
-	@echo "$(BLUE)Installing Git hooks...$(RESET)"
-	@git config core.hooksPath .githooks
-	@chmod +x .githooks/*
-	@echo "$(GREEN)Git hooks installed (core.hooksPath = .githooks)$(RESET)"
+install-hooks: ## Setup - Install pre-commit framework + register pre-commit and pre-push hooks
+	@./scripts/install-pre-commit.sh
+
+verify-hooks: ## Setup - Report whether pre-commit/pre-push hooks are installed and non-empty
+	@./scripts/install-pre-commit.sh --verify
 
 # Development Commands
 dev: ## Development - Start development environment
@@ -235,9 +235,7 @@ k8s-clean: ## Kubernetes - Delete all resources
 # Code Quality Commands
 lint: ## Code Quality - Run linting for all languages
 	@echo "$(BLUE)Linting all code...$(RESET)"
-	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules --ignore=E501 || true; fi
-	@if command -v black >/dev/null 2>&1; then echo "$(YELLOW)-- black --$(RESET)"; black --check . --exclude '/(\.git|venv|__pycache__|node_modules)/' || true; fi
-	@if command -v isort >/dev/null 2>&1; then echo "$(YELLOW)-- isort --$(RESET)"; isort --check-only . || true; fi
+	@if command -v ruff >/dev/null 2>&1; then echo "$(YELLOW)-- ruff --$(RESET)"; ruff check . || true; ruff format --check . || true; fi
 	@if command -v mypy >/dev/null 2>&1; then echo "$(YELLOW)-- mypy --$(RESET)"; python3 -m mypy . --ignore-missing-imports || true; fi
 	@if command -v golangci-lint >/dev/null 2>&1; then echo "$(YELLOW)-- golangci-lint --$(RESET)"; golangci-lint run || true; fi
 	@if command -v hadolint >/dev/null 2>&1; then echo "$(YELLOW)-- hadolint --$(RESET)"; find . -name "Dockerfile*" -not -path "*/.git/*" | xargs hadolint || true; fi
@@ -252,7 +250,8 @@ lint-go: ## Code Quality - Run Go linting
 
 lint-python: ## Code Quality - Run Python linting
 	@echo "$(BLUE)Linting Python code...$(RESET)"
-	@flake8 .
+	@ruff check .
+	@ruff format --check .
 	@mypy . --ignore-missing-imports
 
 lint-node: ## Code Quality - Run Node.js linting
@@ -271,8 +270,8 @@ format: ## Code Quality - Format code for all languages
 
 format-python: ## Code Quality - Format Python code
 	@echo "$(BLUE)Formatting Python code...$(RESET)"
-	@black services/
-	@isort services/
+	@ruff check --fix services/
+	@ruff format services/
 
 format-node: ## Code Quality - Format Node.js code
 	@echo "$(BLUE)Formatting Node.js code...$(RESET)"

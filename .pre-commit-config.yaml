@@ -1,0 +1,191 @@
+# PenguinTech standard git hooks for gough (hypervisor product: Python + Go + Node/TS).
+#
+# Install:  make install-hooks
+# Run all:  pre-commit run --all-files
+#
+# Two stages, matching devops.md "Git Hooks (Mandatory)":
+#   pre-commit — fast checks only (<30s), blocks the commit
+#   pre-push   — heavier security scans, blocks the push
+#
+# Revs are pinned. Update deliberately via `pre-commit autoupdate` or Renovate,
+# never by floating to a branch.
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  # ── Hygiene ────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+        # Helm templates use Go-template syntax ({{- ... }}) that isn't valid
+        # plain YAML until rendered — exclude, not lintable by this hook.
+        exclude: ^k8s/helm/.*/templates/.*\.ya?ml$
+      - id: check-json
+      - id: check-executables-have-shebangs
+      - id: detect-private-key
+        # False positives: mock SPIFFE/SVID PEM header placeholders in tests
+        # (no real key material) and a doc example with a bracketed
+        # placeholder in place of actual key content — verified, not real.
+        exclude: |
+          (?x)^(
+            services/api-manager/tests/clients/test_spire\.py|
+            services/api-manager/tests/unit/test_primary_endpoints\.py|
+            services/api-manager/tests/test_spire\.py|
+            services/api-manager/tests/test_spire_client_coverage\.py|
+            docs/ansible/playbook-documentation\.md
+          )$
+
+  # ── Secrets ────────────────────────────────────────────────────────────────
+  # Mandatory per devops.md — no commit may introduce a credential.
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
+  # ── Shell ──────────────────────────────────────────────────────────────────
+  # Bash must stay 3.2-compatible (macOS ships 3.2) — see general.md.
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning]
+
+  # ── Python (access-agent, api-manager, worker-ipxe, root) ────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.8.4
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # ── Go (cli/gough, services/discovery-agent — two modules) ───────────────────
+  # Both modules gate their whole source tree behind `//go:build noxdp` (see
+  # backend-go.md XDP pattern) — every module-level Makefile already lints
+  # with `--build-tags noxdp`. A generic multi-module wrapper that runs bare
+  # `golangci-lint run ./...` sees zero files ("no go files to analyze") and
+  # gosec silently reports 0 issues instead of failing, so each module gets
+  # its own hook mirroring its Makefile's `lint`/`gosec` targets exactly.
+  - repo: local
+    hooks:
+      - id: golangci-lint-cli-gough
+        name: golangci-lint (cli/gough)
+        entry: bash -c 'cd cli/gough && golangci-lint run --build-tags noxdp ./...'
+        language: system
+        files: ^cli/gough/.*\.go$
+        pass_filenames: false
+
+      - id: golangci-lint-discovery-agent
+        name: golangci-lint (services/discovery-agent)
+        entry: bash -c 'cd services/discovery-agent && golangci-lint run --build-tags noxdp ./...'
+        language: system
+        files: ^services/discovery-agent/.*\.go$
+        pass_filenames: false
+
+  # ── Node/TS (services/webui) ──────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: eslint-webui
+        name: ESLint (services/webui)
+        entry: bash -c 'cd services/webui && npx eslint src --ext .ts,.tsx'
+        language: system
+        files: ^services/webui/src/.*\.(ts|tsx)$
+        pass_filenames: false
+
+  # ── Dockerfiles ────────────────────────────────────────────────────────────
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.13.1-beta
+    hooks:
+      - id: hadolint-docker
+
+  # ── GitHub Actions ─────────────────────────────────────────────────────────
+  - repo: https://github.com/rhysd/actionlint
+    rev: v1.7.4
+    hooks:
+      - id: actionlint
+
+  # ── Security (pre-push — heavier, keeps commits fast) ──────────────────────
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.8.0
+    hooks:
+      - id: bandit
+        stages: [pre-push]
+
+  # gosec/govulncheck — same build-tag caveat as golangci-lint above; each
+  # module's own Makefile already runs these with `-tags noxdp`.
+  - repo: local
+    hooks:
+      - id: go-sec-cli-gough
+        name: gosec (cli/gough)
+        entry: bash -c 'cd cli/gough && gosec -tags noxdp ./...'
+        language: system
+        files: ^cli/gough/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: go-sec-discovery-agent
+        name: gosec (services/discovery-agent)
+        entry: bash -c 'cd services/discovery-agent && gosec -tags noxdp ./...'
+        language: system
+        files: ^services/discovery-agent/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: go-vulncheck-cli-gough
+        name: govulncheck (cli/gough)
+        entry: bash -c 'cd cli/gough && govulncheck -tags noxdp ./...'
+        language: system
+        files: ^cli/gough/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: go-vulncheck-discovery-agent
+        name: govulncheck (services/discovery-agent)
+        entry: bash -c 'cd services/discovery-agent && govulncheck -tags noxdp ./...'
+        language: system
+        files: ^services/discovery-agent/.*\.go$
+        pass_filenames: false
+        stages: [pre-push]
+
+  - repo: local
+    hooks:
+      - id: dockerfile-rootless
+        name: Dockerfile runs as non-root
+        entry: scripts/hooks/check-dockerfile-rootless.sh
+        language: script
+        files: (^|/)Dockerfile[^/]*$
+        stages: [pre-push]
+
+      - id: trivy-config
+        name: trivy config (K8s/Helm IaC misconfiguration)
+        # Scoped to k8s/helm/ only. k8s/kustomize/ and k8s/manifests/ are
+        # stale project-template scaffolding (project-template namespace,
+        # project-template/*:latest images that don't match any real gough
+        # service) predating this hook, and both directory types are
+        # forbidden outright by devops-kubernetes.md (Helm v4 only, no
+        # Kustomize, no raw kubectl apply -f manifests). They should be
+        # deleted, not gated on — see PR description.
+        entry: trivy config --exit-code 1 --severity CRITICAL,HIGH k8s/helm/
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]
+
+      - id: e2e-gate
+        name: E2E tests (opt-in — see issue #19)
+        description: >
+          E2E requires a deployed cluster (Vault unsealed, SPIRE issuing
+          SVIDs, discovery-agent running). Opt-in via GOUGH_RUN_E2E=1;
+          GOUGH_SKIP_E2E=1 silences the reminder. Formerly .githooks/pre-push.
+        entry: scripts/hooks/e2e-gate.sh
+        language: script
+        pass_filenames: false
+        always_run: true
+        stages: [pre-push]

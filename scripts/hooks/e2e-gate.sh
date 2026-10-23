@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# e2e-gate.sh — pre-push E2E gate (opt-in), run by the pre-commit framework.
+#
+# E2E is a full-stack integration test requiring a deployed cluster with:
+# - Vault unsealed
+# - SPIRE issuing SVIDs
+# - discovery-agent running
+#
+# Because most development pushes don't have a deployed cluster, E2E is
+# opt-in by default: set GOUGH_RUN_E2E=1 to enable, or GOUGH_SKIP_E2E=1
+# to bypass this hook.
+#
+# Issue #19 tracks making E2E reliably runnable in CI; once resolved,
+# this hook can default to running (remove the if-guard).
+#
+# Migrated from .githooks/pre-push so the pre-commit framework (see
+# .pre-commit-config.yaml) manages all git hooks through one mechanism.
+set -euo pipefail
+
+# cd to repo root to ensure make targets work regardless of git's CWD
+cd "$(git rev-parse --show-toplevel)"
+
+# Skip guard: if explicitly requested, skip E2E
+if [ "${GOUGH_SKIP_E2E:-}" = "1" ]; then
+    echo "E2E test skipped (GOUGH_SKIP_E2E=1)"
+    exit 0
+fi
+
+# Opt-in guard: E2E is not run by default (requires deployed cluster)
+if [ "${GOUGH_RUN_E2E:-}" != "1" ]; then
+    cat <<EOF
+E2E tests are not run by default (requires deployed cluster: Vault, SPIRE, discovery-agent).
+See issue #19.
+
+To enable E2E before push:
+  GOUGH_RUN_E2E=1 git push
+
+To skip this hook:
+  GOUGH_SKIP_E2E=1 git push
+EOF
+    exit 0
+fi
+
+# Run E2E tests
+if ! make test-e2e; then
+    cat <<EOF
+E2E tests failed. Push blocked.
+
+To skip this hook and push anyway:
+  GOUGH_SKIP_E2E=1 git push
+
+See Makefile: test-e2e target
+EOF
+    exit 1
+fi
+
+exit 0
