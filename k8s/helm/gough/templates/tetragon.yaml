@@ -1,0 +1,46 @@
+{{- /*
+Tetragon exec allowlist per hub workload. Hooks the LSM point security_bprm_creds_for_exec,
+which runs for every execve AND execveat (and fexecve/memfd paths), with the resolved
+linux_binprm as argument - not the raw syscall filename, which is bypassable.
+Enforced: anything outside the allowlist, and any memfd-backed exec (/memfd:), is SIGKILLed.
+Requires Tetragon >= 1.1 (LSM hook support). Rendered only when tetragon.enabled=true.
+*/ -}}
+{{- if .Values.tetragon.enabled }}
+{{- range $name, $policy := .Values.tetragon.policies }}
+---
+apiVersion: cilium.io/v1alpha1
+kind: TracingPolicyNamespaced
+metadata:
+  name: gough-{{ $name }}-exec-allowlist
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "gough.labels" $ | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- toYaml $policy.selector | nindent 6 }}
+  kprobes:
+    - call: "security_bprm_creds_for_exec"
+      syscall: false
+      args:
+        - index: 0
+          type: "linux_binprm"
+      selectors:
+        # Deny anything not in the canonical-path allowlist.
+        - matchArgs:
+            - index: 0
+              operator: "NotEqual"
+              values:
+                {{- toYaml $policy.allowed | nindent 16 }}
+          matchActions:
+            - action: Sigkill
+        # Deny memfd-backed (fileless) execution.
+        - matchArgs:
+            - index: 0
+              operator: "Prefix"
+              values:
+                - "/memfd:"
+          matchActions:
+            - action: Sigkill
+{{- end }}
+{{- end }}

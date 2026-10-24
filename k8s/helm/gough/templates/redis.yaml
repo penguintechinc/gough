@@ -1,0 +1,131 @@
+{{- if .Values.redis.enabled }}
+# STATEFUL EXCEPTION (pending approval): in-chart Redis for non-prod only.
+# Valkey (Redis-protocol compatible, redis-py clients work unchanged).
+# Password comes from the api-manager-secret; it is written to a memory-backed
+# config file rather than passed on the process command line.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gough.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+spec:
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  ports:
+    - name: redis
+      port: 6379
+      targetPort: redis
+      protocol: TCP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gough.labels" . | nindent 4 }}
+    app.kubernetes.io/name: redis
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        {{- include "gough.labels" . | nindent 8 }}
+        app.kubernetes.io/name: redis
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: redis
+          image: "{{ .Values.redis.image.repository }}:{{ .Values.redis.image.tag }}@{{ .Values.redis.image.digest }}"
+          imagePullPolicy: {{ .Values.redis.image.pullPolicy }}
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 999
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          command: ["/bin/sh", "-c"]
+          args:
+            - >-
+              umask 077 &&
+              printf 'requirepass %s\nappendonly yes\ndir /data\n' "$REDIS_PASSWORD" > /run/redis/redis.conf &&
+              exec valkey-server /run/redis/redis.conf
+          ports:
+            - name: redis
+              containerPort: 6379
+              protocol: TCP
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-manager-secret
+                  key: redis-password
+            # valkey-cli reads VALKEYCLI_AUTH (REDISCLI_AUTH kept for redis-cli compatibility),
+            # so probes never put the password in argv.
+            - name: VALKEYCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: api-manager-secret
+                  key: redis-password
+            - name: REDISCLI_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: api-manager-secret
+                  key: redis-password
+          readinessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "valkey-cli ping | grep -q PONG"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command: ["/bin/sh", "-c", "valkey-cli ping | grep -q PONG"]
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.redis.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: run
+              mountPath: /run/redis
+      volumes:
+        - name: run
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        {{- with .Values.redis.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.redis.storageSize }}
+{{- end }}

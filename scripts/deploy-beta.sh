@@ -253,7 +253,7 @@ do_deploy() {
     for service in "${services_to_deploy[@]}"; do
         local chart_dir="$CHART_PATH/$service"
         local values_base="$chart_dir/values.yaml"
-        local values_beta="$chart_dir/values-beta.yaml"
+        local values_beta="$chart_dir/beta.yml"
 
         if [[ ! -f "$values_base" ]]; then
             log_error "Base values file not found: $values_base"

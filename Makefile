@@ -195,6 +195,13 @@ build-production: ## Build - Build for production with optimizations
 MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
 PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
 NPMRC_PATH ?= $(HOME)/.npmrc
+# Single source of truth for local alpha image names. Local-only: no registry prefix,
+# never pushed. Exported so deploy-alpha.sh imports exactly these references.
+# Resolved by containerd as docker.io/<prefix>/<svc>:<tag>, which the chart renders via global.imageRegistry.
+ALPHA_IMAGE_REGISTRY ?= localhost
+ALPHA_IMAGE_PREFIX ?= gough
+ALPHA_TAG ?= alpha-local
+export ALPHA_IMAGE_REGISTRY ALPHA_IMAGE_PREFIX ALPHA_TAG
 DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
 PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
 
@@ -206,7 +213,7 @@ docker-build: ## Docker - Build all service images locally (alpha); fails on fir
 	  case " $(PENGUIN_LIBS_SERVICES) " in *" $$svc "*) extra="--build-context penguin-libs=$(abspath $(PENGUIN_LIBS_DIR))";; esac; \
 	  if [ "$$svc" = "webui" ] && [ -f "$(NPMRC_PATH)" ]; then extra="$$extra --secret id=npmrc,src=$(NPMRC_PATH)"; fi; \
 	  echo "--> $$svc"; \
-	  docker build $$extra -t gough-$$svc:alpha services/$$svc || exit 1; \
+	  docker build $$extra -t $(ALPHA_IMAGE_REGISTRY)/$(ALPHA_IMAGE_PREFIX)/$$svc:$(ALPHA_TAG) services/$$svc || exit 1; \
 	done
 
 docker-push: ## Docker - Push Docker images to registry
@@ -515,16 +522,14 @@ test-discovery-agent: ## Testing - Run Go discovery-agent tests
 	@cd services/discovery-agent && go test -v -race -cover ./...
 	@echo "$(GREEN)Discovery-agent tests completed$(RESET)"
 
-deploy-alpha: ## Deploy - Deploy to local-alpha context (Kustomize)
-	@echo "$(BLUE)Deploying to alpha (local-alpha context)...$(RESET)"
-	@kubectl kustomize k8s/kustomize/overlays/alpha | kubectl apply --context local-alpha -f -
+deploy-alpha: ## Deploy - Helm install to local-alpha (images must be built; script imports them)
+	@echo "$(BLUE)Deploying gough to local-alpha via Helm...$(RESET)"
+	@./scripts/deploy-alpha.sh
 	@echo "$(GREEN)Alpha deployment complete$(RESET)"
 
-deploy-alpha-clean: ## Deploy - Clean deploy to alpha (delete namespace first)
-	@echo "$(RED)Cleaning alpha namespace...$(RESET)"
-	@kubectl delete namespace gough --context local-alpha --ignore-not-found=true
-	@sleep 2
-	@$(MAKE) deploy-alpha
+deploy-alpha-clean: ## Deploy - Helm clean deploy to local-alpha (deletes namespace first)
+	@echo "$(RED)Cleaning alpha namespace and redeploying...$(RESET)"
+	@./scripts/deploy-alpha.sh --clean
 
 deploy-dev: ## Deploy - Deploy to dev environment (alias to deploy-staging)
 	@$(MAKE) deploy-staging

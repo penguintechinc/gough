@@ -1,0 +1,78 @@
+# Alpha: local MicroK8s (context local-alpha). Images are local builds imported into MicroK8s.
+namespace: gough
+
+# Image registry and tag are NOT set here: scripts/deploy-alpha.sh passes
+# global.imageRegistry and global.imageTag from the Makefile (ALPHA_IMAGE_REGISTRY/PREFIX/TAG).
+
+api-manager:
+  # Pinned to 1: shell sessions are process-local (see https://github.com/penguintechinc/gough/issues/43).
+  replicaCount: 1
+  autoscaling:
+    enabled: false
+  image:
+    pullPolicy: IfNotPresent
+  configMapData:
+    release-mode: "false"
+    oidc-issuer: "https://gough.localhost.local"
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: gough.localhost.local
+        paths:
+          - path: /api/v1
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+webui:
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  ingress:
+    enabled: true
+    className: "nginx"
+    hosts:
+      - host: gough.localhost.local
+        paths:
+          - path: /
+            pathType: Prefix
+    tls: []
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+worker-ipxe:
+  # Disabled by default: the alpha lab installs via USB/MaaS, not gough PXE.
+  # To enable: set worker-ipxe.enabled=true and global.objectStorage.endpoint (+ credentials).
+  enabled: false
+  replicaCount: 1
+  image:
+    pullPolicy: IfNotPresent
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 250m
+      memory: 256Mi
+
+# Tetragon CRDs may be absent on local MicroK8s.
+tetragon:
+  enabled: false
+
+# In-chart data stores (alpha defaults in values.yaml; resources at alpha tier).
+postgresql:
+  enabled: true
+redis:
+  enabled: true

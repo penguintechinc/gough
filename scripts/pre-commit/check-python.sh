@@ -33,10 +33,6 @@ for pattern in "${EXCLUDE_PATTERNS[@]}"; do
 done
 
 # Find Python directories
-if [ -d "$PROJECT_ROOT/services/flask-backend" ]; then
-    PYTHON_DIRS+=("$PROJECT_ROOT/services/flask-backend")
-fi
-
 if [ -d "$PROJECT_ROOT/services/access-agent" ]; then
     PYTHON_DIRS+=("$PROJECT_ROOT/services/access-agent")
 fi

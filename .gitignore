@@ -230,3 +230,9 @@ coverage-*.out
 # Git worktrees (parallel development)
 .worktrees/
 .superpowers/
+
+# Helm: vendored subchart archives and local render scratch
+k8s/helm/gough/charts/
+k8s/helm/gough/Chart.lock.bak
+.rendered-*.yaml
+.err-*.txt

@@ -1,0 +1,64 @@
+# Default-deny for the hub namespace: any policy selecting endpoints switches them to
+# allowlist mode, so only the rules below are permitted. Cilium is the CNI on every cluster.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gough-default-deny-allow-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gough.labels" . | nindent 4 }}
+spec:
+  endpointSelector: {}
+  ingress:
+    - fromEndpoints:
+        - {}
+  egress:
+    # Same-namespace traffic (api-manager <-> postgres/redis, webui -> api-manager).
+    - toEndpoints:
+        - {}
+    # DNS via kube-dns.
+    - toEndpoints:
+        - matchLabels:
+            k8s:io.kubernetes.io/pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: "53"
+              protocol: UDP
+            - port: "53"
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: "*"
+    # HTTPS egress: license server, OIDC/upstream integrations. Narrow to FQDNs once known.
+    - toEntities:
+        - world
+      toPorts:
+        - ports:
+            - port: "443"
+              protocol: TCP
+---
+# Ingress controller -> api-manager (5000) and webui (3000) only.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: gough-allow-ingress-controller
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "gough.labels" . | nindent 4 }}
+spec:
+  endpointSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: ["api-manager", "webui"]
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io.cilium.k8s.namespace.labels.kubernetes.io/metadata.name: {{ .Values.ingressController.namespace | quote }}
+      toPorts:
+        - ports:
+            - port: "5000"
+              protocol: TCP
+            - port: "3000"
+              protocol: TCP

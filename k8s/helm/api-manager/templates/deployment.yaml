@@ -27,13 +27,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "api-manager.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
       - name: api-manager
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ include "api-manager.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
         - name: http
@@ -42,6 +43,10 @@ spec:
         - name: grpc
           containerPort: {{ .Values.service.grpcTargetPort }}
           protocol: TCP
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sleep", "5"]
         {{- with .Values.livenessProbe }}
         livenessProbe:
           {{- toYaml . | nindent 12 }}
@@ -55,12 +60,22 @@ spec:
           {{- toYaml . | nindent 12 }}
         {{- end }}
         env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
         {{- toYaml .Values.env | nindent 12 }}
-        {{- with .Values.volumeMounts }}
+        {{- $extra := fromJson (include "api-manager.extra" .) }}
+        {{- with $extra.env }}
+          {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- $mounts := concat (default (list) .Values.volumeMounts) (default (list) $extra.volumeMounts) }}
+        {{- with $mounts }}
         volumeMounts:
           {{- toYaml . | nindent 12 }}
         {{- end }}
-      {{- with .Values.volumes }}
+      {{- $vols := concat (default (list) .Values.volumes) (default (list) $extra.volumes) }}
+      {{- with $vols }}
       volumes:
         {{- toYaml . | nindent 8 }}
       {{- end }}

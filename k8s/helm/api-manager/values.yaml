@@ -3,7 +3,8 @@ replicaCount: 1
 image:
   repository: ghcr.io/penguintechinc/gough/api-manager
   pullPolicy: IfNotPresent
-  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+  # empty = use global.imageTag (umbrella chart) or Chart.AppVersion
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -16,10 +17,20 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Seconds kubelet waits after SIGTERM; preStop sleeps 5s first so the LB drains.
+terminationGracePeriodSeconds: 30
+
+# OTLP destination comes from standard OTEL_* env vars; empty = exporter disabled.
+otel:
+  endpoint: ""
+  serviceName: "api-manager"
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
 
 securityContext:
   runAsNonRoot: true
@@ -149,11 +160,17 @@ env:
         key: vault-addr
   - name: SPIRE_AGENT_SOCKET
     value: "unix:///run/spire/agent.sock"
+  # Redis URL carries the password, so it lives in the Secret (never a ConfigMap).
   - name: REDIS_URL
     valueFrom:
-      configMapKeyRef:
-        name: api-manager-config
+      secretKeyRef:
+        name: api-manager-secret
         key: redis-url
+  - name: ADMIN_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: api-manager-secret
+        key: admin-password
   # penguin-aaa ES256 OIDC token provider — gough is its own first-party
   # issuer/verifier (see services/api-manager/app/config.py). OIDC_ISSUER
   # MUST be the https URL of this environment's domain and is overridden
@@ -211,11 +228,10 @@ configMapData:
   db-name: "gough_api"
   db-pool-size: "5"
   vault-addr: "http://vault:8200"
-  redis-url: "redis://redis:6379"
   license-server-url: "https://license.penguintech.io"
   release-mode: "false"
-  # Placeholder — MUST be overridden per environment (see values-alpha.yaml,
-  # values-beta.yaml; gamma/production values files do not exist yet for this
+  # Placeholder — MUST be overridden per environment (see alpha.yml,
+  # beta.yml; gamma/production values files do not exist yet for this
   # chart, see chart README.md).
   oidc-issuer: "https://api-manager.example.com"
   oidc-audience: "gough-api"

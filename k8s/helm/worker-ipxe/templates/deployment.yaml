@@ -27,13 +27,14 @@ spec:
         {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ include "worker-ipxe.serviceAccountName" . }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds | default 30 }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
       - name: worker-ipxe
         securityContext:
           {{- toYaml .Values.securityContext | nindent 12 }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+        image: "{{ include "worker-ipxe.image" . }}"
         imagePullPolicy: {{ .Values.image.pullPolicy }}
         ports:
           {{- range .Values.service.ports }}
@@ -41,6 +42,10 @@ spec:
             containerPort: {{ .port }}
             protocol: {{ .protocol }}
           {{- end }}
+        lifecycle:
+          preStop:
+            exec:
+              command: ["/bin/sleep", "5"]
         {{- with .Values.livenessProbe }}
         livenessProbe:
           {{- toYaml . | nindent 12 }}
@@ -54,6 +59,10 @@ spec:
           {{- toYaml . | nindent 12 }}
         {{- end }}
         env:
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: {{ .Values.otel.endpoint | quote }}
+            - name: OTEL_SERVICE_NAME
+              value: {{ .Values.otel.serviceName | quote }}
         {{- toYaml .Values.env | nindent 12 }}
             - name: WORKER_API_KEY
               valueFrom:

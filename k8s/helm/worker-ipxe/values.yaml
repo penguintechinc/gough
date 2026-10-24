@@ -3,7 +3,8 @@ replicaCount: 1
 image:
   repository: ghcr.io/penguintechinc/gough/worker-ipxe
   pullPolicy: IfNotPresent
-  tag: "v0.0.0"  # override per-env; production requires an immutable vX.Y.Z tag or @sha256 digest
+  # empty = use global.imageTag (umbrella chart) or Chart.AppVersion
+  tag: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -16,10 +17,20 @@ serviceAccount:
 
 podAnnotations: {}
 
+# Seconds kubelet waits after SIGTERM; preStop sleeps 5s first so the LB drains.
+terminationGracePeriodSeconds: 30
+
+# OTLP destination comes from standard OTEL_* env vars; empty = exporter disabled.
+otel:
+  endpoint: ""
+  serviceName: "worker-ipxe"
+
 podSecurityContext:
   runAsNonRoot: true
   runAsUser: 1000
   fsGroup: 1000
+  seccompProfile:
+    type: RuntimeDefault
 
 # ROOT EXCEPTION (approved): worker-ipxe answers DHCP (67/udp) and TFTP
 # (69/udp) requests, both privileged (<1024) ports. Rather than running as
@@ -204,8 +215,8 @@ livenessProbe:
   failureThreshold: 3
 
 readinessProbe:
-  httpGet:
-    path: /health
+  # worker has no /ready route yet; TCP check keeps readiness distinct from liveness
+  tcpSocket:
     port: http
   initialDelaySeconds: 10
   periodSeconds: 5
@@ -231,7 +242,8 @@ configMapData:
   tftp-enabled: "true"
   tftp-port: "69"
   http-port: "8080"
-  storage-endpoint: "http://minio:9000"
+  # Set via umbrella global.objectStorage.endpoint (no in-cluster default).
+  storage-endpoint: ""
   storage-bucket-boot-images: "boot-images"
   storage-bucket-biomes: "biomes"
   storage-use-ssl: "false"
