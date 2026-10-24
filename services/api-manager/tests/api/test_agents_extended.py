@@ -34,7 +34,7 @@ def _passthrough_decorator(*dargs, **dkwargs):
 
 
 @pytest.fixture()
-def agents_client(dal, monkeypatch):
+def agents_client(dal, monkeypatch, request):
     """Create a Quart test client with agents API and real dal."""
     from penguin_dal import Field
 
@@ -62,6 +62,7 @@ def agents_client(dal, monkeypatch):
             Field("hostname", "string"),
             Field("ip_address", "string"),
             Field("enrollment_key_hash", "string"),
+            Field("node_id", "integer"),
             Field("enrollment_completed", "boolean", default=False),
             Field("status", "string", default="active"),
             Field("capabilities", "string"),
@@ -107,6 +108,10 @@ def agents_client(dal, monkeypatch):
     import app.api.agents as agents_mod
     agents_mod = importlib.reload(agents_mod)
     monkeypatch.setattr(agents_mod, "get_db", lambda: dal)
+    # Tenant isolation has dedicated tests (TestAgentTenantIsolation, real tenant_owns); every
+    # other test here inserts unstamped legacy rows and exercises non-tenant behaviour.
+    if getattr(request.cls, "__name__", "") != "TestAgentTenantIsolation":
+        monkeypatch.setattr(agents_mod, "tenant_owns", lambda _tenant: True)
 
     app = Quart(__name__)
     app.config["TESTING"] = True
