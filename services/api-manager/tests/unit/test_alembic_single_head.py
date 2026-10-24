@@ -55,7 +55,7 @@ def test_migration_chain_ends_at_bundle_cache_head() -> None:
     assert graph["20261022_1200_lxd_join_issuance"] == "20260821_1900_missing_cols"
     assert graph["20261022_1300_rename_k8s_primary_biome"] == "20261022_1200_lxd_join_issuance"
     assert graph["20261022_1400_biome_bundle_cache"] == "20261022_1300_rename_k8s_primary_biome"
-    assert _heads(graph) == {"20261022_1400_biome_bundle_cache"}
+    assert _heads(graph) == {"20261022_1600_agent_node_link_reservation_confirm"}
 
 
 @pytest.mark.parametrize("down", ["20260821_1900_missing_cols", "20260821_1600_merge_cloud_schema"])

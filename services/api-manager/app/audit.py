@@ -70,6 +70,9 @@ class AuditEventType(Enum):
     SHELL_SESSION_CREATE = "shell.session_create"
     SHELL_SESSION_TERMINATE = "shell.session_terminate"
     SHELL_COMMAND_EXECUTE = "shell.command_execute"
+    SHELL_SESSION_ATTACH = "shell.session_attach"
+    SHELL_ATTACH_DENIED = "shell.attach_denied"
+    SHELL_TICKET_ISSUED = "shell.ticket_issued"
 
     # Certificate events
     CERT_CSR_SUBMIT = "cert.csr_submit"
@@ -408,6 +411,43 @@ class AuditLogger:
                 "duration_seconds": duration_seconds,
                 **(details or {}),
             },
+        )
+
+    def log_shell_attach(
+        self,
+        session_id: str,
+        user_id: Optional[int],
+        outcome: str,
+        reason: str = "",
+        details: Optional[dict] = None,
+    ) -> AuditEvent:
+        """Log a WebSocket shell attach attempt (``outcome`` is ``attach``/``deny``)."""
+        denied = outcome != "attach"
+        return self.log(
+            event_type=(
+                AuditEventType.SHELL_ATTACH_DENIED
+                if denied
+                else AuditEventType.SHELL_SESSION_ATTACH
+            ),
+            message=f"Shell session {session_id} attach {outcome}: {reason}".rstrip(": "),
+            severity=AuditSeverity.WARNING if denied else AuditSeverity.INFO,
+            resource_type="shell_session",
+            resource_id=session_id,
+            user_id=user_id,
+            details={"session_id": session_id, "reason": reason, **(details or {})},
+        )
+
+    def log_shell_ticket_issued(
+        self, session_id: str, user_id: int, details: Optional[dict] = None
+    ) -> AuditEvent:
+        """Log minting of a single-use WebSocket shell ticket."""
+        return self.log(
+            event_type=AuditEventType.SHELL_TICKET_ISSUED,
+            message=f"Shell ticket issued for session {session_id}",
+            resource_type="shell_session",
+            resource_id=session_id,
+            user_id=user_id,
+            details={"session_id": session_id, **(details or {})},
         )
 
     # Certificate audit methods

@@ -10,6 +10,7 @@ import sys
 from penguintechinc_utils import get_logger
 from typing import Any, Dict
 
+from . import __version__
 from .auth import AgentAuth
 from .cert_validator import CertificateValidator
 from .config import AgentConfig
@@ -210,7 +211,14 @@ async def main() -> None:
 
 
 def run() -> None:
-    """Entry point for console script."""
+    """Console-script entry point; handles --help/--version without starting the agent."""
+    if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
+        print("usage: gough-agent [--version] [--help]\n"
+              "Configured via GOUGH_* environment variables (see README.md).")
+        return
+    if "--version" in sys.argv[1:]:
+        print(__version__)
+        return
     asyncio.run(main())
 
 

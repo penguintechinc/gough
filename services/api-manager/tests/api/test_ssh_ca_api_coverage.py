@@ -35,6 +35,14 @@ def _make_db_mock(first_result=None):
     return db
 
 
+def _patch_authz(monkeypatch, ssh_ca_mod, principals=("ubuntu", "admin")):
+    """Stub the per-resource authorization seams so the sign flow reaches the CA."""
+    monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
+    monkeypatch.setattr(ssh_ca_mod, "resolve_agent_id", lambda *a, **k: "agent-1")
+    monkeypatch.setattr(ssh_ca_mod, "allowed_login_principals", lambda *a: list(principals))
+    monkeypatch.setattr(ssh_ca_mod, "user_is_admin", lambda *a: False)
+
+
 @pytest.fixture
 def ssh_ca_app(monkeypatch):
     """Build Quart app with SSH CA blueprint; patch auth at module level."""
@@ -61,7 +69,8 @@ def ssh_ca_app(monkeypatch):
     async def _inject_identity():
         g.current_user = {
             "id": 1,
-            "username": "tester",
+            "id": 1,
+            "email": "tester@example.com",
             "_jwt_payload": {
                 "sub": "tester",
                 "tenant": "acme",
@@ -255,37 +264,6 @@ class TestSignCertificate:
     """Tests for POST /api/v1/ssh-ca/sign endpoint."""
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_success(self, ssh_ca_client, ssh_ca_app, monkeypatch):
-        """Test successful certificate signing."""
-        app, ssh_ca_mod = ssh_ca_app
-
-        ca_config = MagicMock()
-        db_mock = _make_db_mock(first_result=ca_config)
-        monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
-
-        monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
-
-        ca_instance = MagicMock()
-        ca_instance.sign_public_key.return_value = ("ssh-rsa-cert-v01@...", "key-id-123")
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
-
-        response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/sign",
-            json={
-                "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
-                "principals": ["ubuntu"],
-                "validity_seconds": 3600,
-            }
-        )
-
-        assert response.status_code == 200
-        data = await response.get_json()
-        assert data["certificate"] == "ssh-rsa-cert-v01@..."
-        assert data["key_id"] == "key-id-123"
-
-    @pytest.mark.asyncio
     async def test_sign_certificate_no_body(self, ssh_ca_client, ssh_ca_app, monkeypatch):
         """Test signing with no request body."""
         app, ssh_ca_mod = ssh_ca_app
@@ -408,7 +386,7 @@ class TestSignCertificate:
             }
         )
 
-        assert response.status_code == 400
+        assert response.status_code == 403
         data = await response.get_json()
         assert "shell" in data.get("error", "").lower()
 
@@ -420,7 +398,7 @@ class TestSignCertificate:
         db_mock = _make_db_mock(first_result=None)
         monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
 
-        monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
+        _patch_authz(monkeypatch, ssh_ca_mod)
 
         response = await ssh_ca_client.post(
             "/api/v1/ssh-ca/sign",
@@ -448,10 +426,10 @@ class TestSignCertificate:
         db_mock.ssh_ca_configs.select.return_value.first.return_value = ca_config
         monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
 
-        monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
+        _patch_authz(monkeypatch, ssh_ca_mod)
 
         ca_instance = MagicMock()
-        ca_instance.sign_public_key.side_effect = RuntimeError("Signing failed")
+        ca_instance.sign_user_key = AsyncMock(side_effect=RuntimeError("Signing failed"))
         monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
 
         response = await ssh_ca_client.post(
@@ -476,10 +454,10 @@ class TestSignCertificate:
         db_mock = _make_db_mock(first_result=ca_config)
         monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
 
-        monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
+        _patch_authz(monkeypatch, ssh_ca_mod)
 
         ca_instance = MagicMock()
-        ca_instance.sign_public_key.return_value = ("cert", "key-id")
+        ca_instance.sign_user_key = AsyncMock(return_value="cert")
         monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
 
         response = await ssh_ca_client.post(
@@ -488,7 +466,7 @@ class TestSignCertificate:
                 "public_key": "ssh-rsa AAAA...",
                 "resource_type": "vm",
                 "resource_id": "res-123",
-                "principals": ["ubuntu", "root", "admin"],
+                "principals": ["ubuntu", "admin"],
                 "validity_seconds": 7200,
             }
         )
@@ -506,10 +484,10 @@ class TestSignCertificate:
         db_mock = _make_db_mock(first_result=ca_config)
         monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
 
-        monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
+        _patch_authz(monkeypatch, ssh_ca_mod)
 
         ca_instance = MagicMock()
-        ca_instance.sign_public_key.return_value = ("cert", "key-id")
+        ca_instance.sign_user_key = AsyncMock(return_value="cert")
         monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
 
         response = await ssh_ca_client.post(

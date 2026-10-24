@@ -189,11 +189,11 @@ async def test_post_primary_replace_success(client, fake_etcd):
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    # Control-plane replace is unimplemented (no kubectl/etcdctl in hub image):
+    # flag OFF -> 404; it must never report success.
+    assert response.status_code == 404
     data = await response.get_json()
-    assert data["status"] == "success"
-    assert data["data"]["old_node_id"] == 1
-    assert data["data"]["new_node_id"] == 2
+    assert data["error"]["code"] == "feature_disabled"
 
 
 @pytest.mark.asyncio
@@ -277,10 +277,9 @@ async def test_post_primary_force_recover_success(client, fake_etcd, fake_etcdct
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 404
     data = await response.get_json()
-    assert data["status"] == "success"
-    assert data["data"]["surviving_node_id"] == 3
+    assert data["error"]["code"] == "feature_disabled"
 
 
 @pytest.mark.asyncio
@@ -710,7 +709,7 @@ async def test_scope_gough_cluster_admin_required_for_replace(client, fake_etcd)
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -736,7 +735,7 @@ async def test_scope_gough_cluster_superadmin_required_for_force_recover(
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -762,7 +761,7 @@ async def test_mfa_required_for_replace(client, fake_etcd):
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -785,7 +784,7 @@ async def test_mfa_required_for_force_recover(client, fake_etcd, fake_etcdctl):
             "Content-Type": "application/json",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 404
 
 
 @pytest.mark.asyncio

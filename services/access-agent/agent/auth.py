@@ -1,7 +1,8 @@
 """JWT authentication handling for Gough Access Agent."""
 
 import logging
-from datetime import datetime, timedelta
+import time
+from datetime import datetime
 from typing import Optional
 
 import jwt
@@ -10,6 +11,9 @@ from .config import AgentConfig
 from .enrollment import AgentEnrollment, EnrollmentError
 
 log = logging.getLogger(__name__)
+
+# Refresh the access token once it is within this many seconds of expiry.
+REFRESH_MARGIN_S = 300
 
 
 class AuthError(Exception):
@@ -73,8 +77,8 @@ class AgentAuth:
                 return True
 
             # Refresh if expires within 5 minutes
-            expiry = datetime.fromtimestamp(exp)
-            return datetime.utcnow() >= expiry - timedelta(minutes=5)
+            # exp is an absolute epoch instant; compare epoch-to-epoch so the host timezone is irrelevant.
+            return time.time() >= exp - REFRESH_MARGIN_S
 
         except jwt.InvalidTokenError:
             return True
@@ -108,7 +112,7 @@ class AgentAuth:
             if not exp:
                 return False
 
-            return datetime.fromtimestamp(exp) > datetime.utcnow()
+            return time.time() < exp
 
         except jwt.InvalidTokenError:
             return False

@@ -6,6 +6,7 @@ Uses PyDAL for database operations as required by CLAUDE.md.
 """
 
 import os
+import re
 import subprocess
 import tempfile
 from datetime import datetime
@@ -169,9 +170,18 @@ class SSHCertificateAuthority:
         public_key: str,
         principals: List[str],
         validity_seconds: int,
-        key_id: str
+        key_id: str,
+        host_ids: Optional[List[str]] = None,
+        source_address: Optional[str] = None,
+        force_command: Optional[str] = None,
+        *,
+        allow_root: bool = False,
     ) -> str:
         """Sign user SSH public key using ssh-keygen.
+
+        Access agents only honour a certificate carrying ``host:<agent_id>`` for their
+        own id (fail closed), so callers MUST pass ``host_ids``; ``source_address`` and
+        ``force_command`` become the matching critical options.
 
         Args:
             public_key: User's SSH public key in OpenSSH format
@@ -195,6 +205,21 @@ class SSHCertificateAuthority:
         if not principals:
             raise ValueError("At least one principal is required")
 
+        # Reserved principals are owned by the hub: callers may never request
+        # ``host:*`` / ``allow-root`` (or inject separators); the server adds
+        # them from host_ids / allow_root after its own authorization checks.
+        for p in principals:
+            validate_principal_syntax(p)
+        for h in host_ids or []:
+            validate_principal_syntax(h)
+        principals = [
+            *principals,
+            *(f"{HOST_PRINCIPAL_PREFIX}{h}" for h in (host_ids or [])),
+            *([ALLOW_ROOT_PRINCIPAL] if allow_root else []),
+        ]
+
+        if not re.fullmatch(r"[A-Za-z0-9_.:@=+/-]{1,256}", key_id or ""):
+            raise ValueError("invalid key_id")
         current_app.logger.info(
             f"Signing SSH key for principals {principals}, "
             f"validity {validity_seconds}s, key_id {key_id}"
@@ -224,6 +249,8 @@ class SSHCertificateAuthority:
                 "-I", key_id,
                 "-n", principals_str,
                 "-V", f"+{validity_seconds}s",
+                *(["-O", f"source-address={source_address}"] if source_address else []),
+                *(["-O", f"force-command={force_command}"] if force_command else []),
                 "-z", str(int(datetime.utcnow().timestamp())),
                 str(user_key_path)
             ]
@@ -243,6 +270,8 @@ class SSHCertificateAuthority:
                     f"ssh-keygen failed: {e.stderr}"
                 )
                 raise RuntimeError(f"Failed to sign SSH key: {e.stderr}")
+            except FileNotFoundError as e:
+                raise RuntimeError(f"ssh-keygen binary not found: {e}") from e
             except subprocess.TimeoutExpired:
                 raise RuntimeError("SSH key signing timed out")
 
@@ -282,6 +311,26 @@ class SSHCertificateAuthority:
             )
 
         return private_key_path
+
+
+HOST_PRINCIPAL_PREFIX = "host:"
+ALLOW_ROOT_PRINCIPAL = "allow-root"
+_PRINCIPAL_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_.@-]{0,63}$")
+
+
+def validate_principal_syntax(principal: str) -> None:
+    """Reject reserved (``host:``/``allow-root``) or malformed principals.
+
+    Raises:
+        ValueError: if the principal is reserved, or contains commas, whitespace,
+            control characters or anything outside a conservative login charset.
+    """
+    if not isinstance(principal, str):
+        raise ValueError("principal must be a string")
+    if principal.startswith(HOST_PRINCIPAL_PREFIX) or principal == ALLOW_ROOT_PRINCIPAL:
+        raise ValueError(f"principal {principal!r} is reserved")
+    if not _PRINCIPAL_RE.match(principal):
+        raise ValueError("principal contains invalid characters")
 
 
 def generate_key_id(user_email: str, resource_id: str) -> str:

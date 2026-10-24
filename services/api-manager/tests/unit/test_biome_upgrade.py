@@ -517,7 +517,8 @@ class TestDeployAndHealthCheck:
         db.commit()
 
         monkeypatch.setattr(biomes_mod, "get_db", lambda: db)
-        monkeypatch.setattr("subprocess.run", MagicMock())
+        migrate = MagicMock()
+        monkeypatch.setattr("app.clients.lxd_extra.live_migrate", migrate)
         monkeypatch.setattr("aiohttp.ClientSession", _FakeClientSession)
 
         result = await biomes_mod._deploy_and_health_check(
@@ -525,6 +526,55 @@ class TestDeployAndHealthCheck:
         )
 
         assert result is True
+        migrate.assert_called_once_with(f"test-lxc-biome-{node_id}", "node-1")
+
+    @pytest.mark.asyncio
+    async def test_option_injection_biome_name_rejected(
+        self, test_client, db, monkeypatch
+    ) -> None:
+        """Flag-like biome names never reach the LXD client (fail closed)."""
+        import app.api.biomes as biomes_mod
+
+        biome_id = db.biomes.insert(
+            name="--force", biome_kind="lxc", workload_type="container",
+            phase="post_deploy", tenant_id="__default__",
+        )
+        node_id = db.nodes.insert(
+            name="node-1", state="ready",
+            dmi_uuid="00000000-0000-0000-0000-000000000002",
+            primary_nic_mac="aa:bb:cc:dd:ee:02", tenant_id="__default__",
+        )
+        db.commit()
+        migrate = MagicMock()
+        monkeypatch.setattr(biomes_mod, "get_db", lambda: db)
+        monkeypatch.setattr("app.clients.lxd_extra.live_migrate", migrate)
+
+        assert await biomes_mod._deploy_and_health_check(
+            [str(node_id)], biome_id, "v1", "run-x"
+        ) is False
+        migrate.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_k8s_biome_fails_loudly_not_implemented(
+        self, test_client, db, monkeypatch
+    ) -> None:
+        """k8s rollout has no credentialed client: returns False, no shell-out."""
+        import app.api.biomes as biomes_mod
+
+        biome_id = db.biomes.insert(
+            name="web", biome_kind="k8s", workload_type="container",
+            phase="post_deploy", tenant_id="__default__",
+        )
+        node_id = db.nodes.insert(
+            name="node-1", state="ready",
+            dmi_uuid="00000000-0000-0000-0000-000000000003",
+            primary_nic_mac="aa:bb:cc:dd:ee:03", tenant_id="__default__",
+        )
+        db.commit()
+        monkeypatch.setattr(biomes_mod, "get_db", lambda: db)
+        assert await biomes_mod._deploy_and_health_check(
+            [str(node_id)], biome_id, "v1", "run-k"
+        ) is False
 
     @pytest.mark.asyncio
     async def test_returns_false_when_biome_not_found(
