@@ -229,18 +229,6 @@ docker-clean: ## Docker - Clean up Docker resources
 	@docker system prune -f
 
 # Kubernetes Commands
-k8s-deploy: ## Kubernetes - Deploy to K8s cluster (default registry)
-	@echo "$(BLUE)Deploying to Kubernetes...$(RESET)"
-	@./tests/k8s/deploy-k8s.sh
-
-k8s-deploy-custom: ## Kubernetes - Deploy to K8s with custom registry (usage: make k8s-deploy-custom REGISTRY=registry.example.com)
-	@echo "$(BLUE)Deploying to Kubernetes with custom registry...$(RESET)"
-	@./tests/k8s/deploy-k8s.sh $(REGISTRY)
-
-k8s-deploy-staging: ## Kubernetes - Deploy to staging namespace
-	@echo "$(BLUE)Deploying to staging...$(RESET)"
-	@./tests/k8s/deploy-k8s.sh registry.penguintech.io staging
-
 k8s-status: ## Kubernetes - Check deployment status
 	@echo "$(BLUE)Kubernetes deployment status:$(RESET)"
 	@kubectl get all -n gough

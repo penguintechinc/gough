@@ -35,7 +35,7 @@ vault kv put secret/gough/api-manager/oidc-keystore oidc_keys.json=@keys.json
 kubectl create secret generic api-manager-oidc-keystore \
   --from-file=oidc_keys.json=keys.json --dry-run=client -o yaml \
   | kubeseal --format yaml > sealed-oidc-keystore.yaml
-kubectl apply -f sealed-oidc-keystore.yaml
+# Ship via the Helm release (helm v4 only; no kubectl apply of raw manifests)
 
 # 3c. Manual (bootstrap only — prefer 3a/3b for anything long-lived)
 kubectl create secret generic api-manager-oidc-keystore \

@@ -21,12 +21,11 @@ Validate https://gough.penguintech.io
 **Run via**: `make smoke-test-beta`
 
 ### 3. K8s Deployment
-Build multi-arch images and deploy to cluster.
+Build images and deploy to cluster via the Helm umbrella chart `k8s/helm/gough`.
 
-**Run via**:
+**Run via** (Helm only; no raw manifests or kubectl apply):
 ```bash
-make k8s-deploy                         # Default
-make k8s-deploy-custom REGISTRY=<url>  # Custom
+make deploy-alpha                       # Helm upgrade --install to local-alpha
 ```
 
 ## Quick Reference
@@ -36,6 +35,6 @@ make k8s-deploy-custom REGISTRY=<url>  # Custom
 | Alpha (full) | `make smoke-test` | ~5 min |
 | Alpha (quick) | `make smoke-test-quick` | ~1 min |
 | Beta | `make smoke-test-beta` | ~30 sec |
-| K8s Deploy | `make k8s-deploy` | ~10 min |
+| K8s Deploy | `make deploy-alpha` | ~10 min |
 
-See tests/smoke/ and tests/k8s/ for details.
+See tests/smoke/ for details.

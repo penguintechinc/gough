@@ -48,7 +48,6 @@ apscheduler==3.10.4
 netifaces==0.11.0
 
 # Penguin shared libraries (published packages)
-penguin-libs==0.3.0
 penguin-licensing==0.1.0
 penguin-aaa==0.1.0
 penguin-utils==0.3.0
