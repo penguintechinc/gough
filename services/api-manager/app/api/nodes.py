@@ -434,6 +434,19 @@ async def discover_node():
     assert body is not None
 
     # ------------------------------------------------------------------
+    # 2b. Bind the report to the identity the token was minted for. The bootstrap token is
+    # handed out on an anonymous route, so a holder must not be able to report (and overwrite)
+    # some other machine: MAC must match the token's, and the dmi_uuid hint when present.
+    # ------------------------------------------------------------------
+    token_mac, token_dmi_hint = _token_identity(principal)
+    if not token_mac or _normalize_identity_mac(body.primary_nic_mac) != token_mac:
+        log.warning("discover refused: reported MAC does not match the bootstrap token")
+        return envelope_error("forbidden", "Reported identity does not match the bootstrap token", 403)
+    if token_dmi_hint is not None and body.dmi_uuid.strip().lower() != token_dmi_hint:
+        log.warning("discover refused: reported dmi_uuid does not match the bootstrap token hint")
+        return envelope_error("forbidden", "Reported identity does not match the bootstrap token", 403)
+
+    # ------------------------------------------------------------------
     # 3. Upsert the node row (match by dmi_uuid; detect identity conflicts)
     # ------------------------------------------------------------------
     db = get_db()
@@ -586,6 +599,13 @@ async def discover_node():
             tenant_id=tenant_id,
         )
 
+    if identity_conflict:
+        # Never hand node-specific data (id, SPIRE token, tunnel details) to a reporter whose
+        # identity contradicts what the hub already knows; the node is flagged for operator review.
+        return envelope_error(
+            "forbidden", "Identity conflict: node flagged for operator review", 403
+        )
+
     # ------------------------------------------------------------------
     # 5. Issue a SPIRE join token for the node (helper phase)
     # ------------------------------------------------------------------
@@ -657,8 +677,6 @@ async def discover_node():
     )
     control_tunnel_spiffe_id = f"spiffe://{trust_domain}/api-manager"
 
-    bmc_address, bmc_cert_sha256 = await run_db(lambda: _bmc_trust_for_node(node_id))
-
     return envelope_success(
         {
             "node_id": node_id,
@@ -666,40 +684,32 @@ async def discover_node():
             "spire_join_token": spire_join_token,
             "control_tunnel_endpoint": control_tunnel_endpoint,
             "control_tunnel_spiffe_id": control_tunnel_spiffe_id,
-            "bmc_address": bmc_address,
-            "bmc_cert_sha256": bmc_cert_sha256,
         },
         status_code=201,
     )
 
 
-#: Conservative BMC host (hostname / IPv4 / IPv6 characters only) accepted into the discover response.
-_BMC_HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.:-]{0,251}[A-Za-z0-9])?")
-_SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
+def _normalize_identity_mac(value: Any) -> str:
+    """Canonical lowercase colon-separated MAC for identity comparison ('' when not a string)."""
+    if not isinstance(value, str):
+        return ""
+    return value.strip().lower().replace("-", ":")
 
 
-def _bmc_trust_for_node(node_id: int) -> tuple[Optional[str], Optional[str]]:
-    """Return ``(bmc_address, bmc_cert_sha256)`` the hub holds for ``node_id`` (blocking DB call).
+def _token_identity(principal: Any) -> tuple[str, Optional[str]]:
+    """Return ``(mac, dmi_uuid_hint)`` bound into a verified bootstrap token.
 
-    Delivered only inside the authenticated /nodes/discover response -- never on anonymous iPXE
-    routes. The address is a bare host (URL scheme/port stripped); the pin is lowercase hex and is
-    returned only alongside an address. Missing or malformed stored values yield ``None``.
+    The MAC comes from the token's ``mac`` claim (falling back to the ``bootstrap:<mac>`` subject);
+    ``dmi_uuid_hint`` is None when the token carries none. Missing MAC yields ``""`` (callers refuse).
     """
-    from urllib.parse import urlsplit
-
-    db = get_db()
-    if "node_bmc" not in db.tables:
-        return None, None
-    row = db(db.node_bmc.node_id == node_id).select().first()
-    if row is None or not row.endpoint:
-        return None, None
-    host = str(row.endpoint).strip()
-    if "://" in host:
-        host = urlsplit(host).hostname or ""
-    if not _BMC_HOST_RE.fullmatch(host):
-        return None, None
-    pin = (row.cert_fingerprint or "").replace(":", "").strip().lower()
-    return host, (pin if _SHA256_HEX_RE.fullmatch(pin) else None)
+    claims = getattr(principal, "claims", None)
+    claims = claims if isinstance(claims, dict) else {}
+    mac = claims.get("mac")
+    if not isinstance(mac, str) or not mac:
+        sub = getattr(principal, "sub", "")
+        mac = sub.removeprefix("bootstrap:") if isinstance(sub, str) else ""
+    hint = claims.get("dmi_uuid_hint")
+    return _normalize_identity_mac(mac), (hint.strip().lower() if isinstance(hint, str) and hint.strip() else None)
 
 
 # ---------------------------------------------------------------------------

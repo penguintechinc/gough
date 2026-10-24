@@ -437,7 +437,7 @@ class TestDiscover:
             nodes_mod, "feature_enabled", AsyncMock(return_value=True)
         )
         mock_principal = MagicMock()
-        mock_principal.sub = "bootstrap:de:ad:be:ef:00:02"
+        mock_principal.sub = "bootstrap:de:ad:be:ef:00:01"
 
         with patch(
             "app.security.credentials.validate_one_time_bootstrap_token",
@@ -532,7 +532,7 @@ class TestDiscover:
         dal.commit()
 
         mock_principal = MagicMock()
-        mock_principal.sub = "bootstrap:conflict"
+        mock_principal.sub = "bootstrap:aa:bb:cc:dd:ee:ff"
 
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
@@ -547,9 +547,10 @@ class TestDiscover:
                     ),
                 )
 
-        assert resp.status_code == 201
-        data = await _json(resp)
-        node = dal(dal.nodes.id == data["data"]["node_id"]).select()[0]
+        # regression: node-specific data is never returned on an identity conflict
+        assert resp.status_code == 403
+        assert "node_id" not in (await resp.get_data(as_text=True))
+        node = dal(dal.nodes.dmi_uuid == "conflict-dmi-uuid").select()[0]
         assert node.posture == "identity_conflict"
 
     @pytest.mark.asyncio
@@ -1523,7 +1524,7 @@ class TestDiscoverEdgeCases:
         dal.commit()
 
         mock_principal = MagicMock()
-        mock_principal.sub = "bootstrap:new-mac"
+        mock_principal.sub = "bootstrap:aa:bb:cc:dd:ee:ff"
 
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
@@ -1538,10 +1539,71 @@ class TestDiscoverEdgeCases:
                     ),
                 )
 
-        assert resp.status_code == 201
-        data = await _json(resp)
-        node = dal(dal.nodes.id == data["data"]["node_id"]).select()[0]
+        assert resp.status_code == 403
+        assert "node_id" not in (await resp.get_data(as_text=True))
+        node = dal(dal.nodes.dmi_uuid == "same-dmi-uuid").select()[0]
         assert node.posture == "identity_conflict"
+
+
+class TestDiscoverIdentityBinding:
+    """The discover report must match the identity the bootstrap token was minted for."""
+
+    @staticmethod
+    def _principal(sub: str = "bootstrap:de:ad:be:ef:00:01", claims: dict | None = None) -> Any:
+        from types import SimpleNamespace
+
+        return SimpleNamespace(sub=sub, claims=claims if claims is not None else {})
+
+    async def _post(self, nodes_app, principal, **overrides) -> Any:
+        from unittest.mock import patch as mpatch
+
+        with mpatch(
+            "app.security.credentials.validate_one_time_bootstrap_token",
+            return_value=principal,
+        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="e-1"):
+            async with nodes_app.test_client() as client:
+                return await _post_discover(client, _discover_payload(**overrides))
+
+    @pytest.mark.asyncio
+    async def test_other_machines_mac_is_forbidden_and_writes_nothing(self, nodes_app, dal):
+        resp = await self._post(nodes_app, self._principal(), primary_nic_mac="aa:bb:cc:dd:ee:99")
+        assert resp.status_code == 403
+        assert len(dal(dal.nodes.id > 0).select()) == 0
+
+    @pytest.mark.asyncio
+    async def test_mac_claim_takes_precedence_and_is_normalized(self, nodes_app, dal):
+        principal = self._principal(sub="bootstrap:ignored", claims={"mac": "DE-AD-BE-EF-00-01"})
+        resp = await self._post(nodes_app, principal)
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_token_without_mac_is_forbidden(self, nodes_app, dal):
+        resp = await self._post(nodes_app, self._principal(sub="svc"))
+        assert resp.status_code == 403
+
+    @pytest.mark.asyncio
+    async def test_dmi_hint_mismatch_is_forbidden(self, nodes_app, dal):
+        principal = self._principal(claims={"dmi_uuid_hint": "AAAA-1111"})
+        resp = await self._post(nodes_app, principal, dmi_uuid="bbbb-2222")
+        assert resp.status_code == 403
+        assert len(dal(dal.nodes.id > 0).select()) == 0
+
+    @pytest.mark.asyncio
+    async def test_dmi_hint_match_is_case_insensitive(self, nodes_app, dal):
+        principal = self._principal(claims={"dmi_uuid_hint": "AAAA-1111"})
+        resp = await self._post(nodes_app, principal, dmi_uuid="aaaa-1111")
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_absent_dmi_hint_is_not_enforced(self, nodes_app, dal):
+        resp = await self._post(nodes_app, self._principal(claims={"dmi_uuid_hint": None}))
+        assert resp.status_code == 201
+
+    @pytest.mark.asyncio
+    async def test_response_has_no_bmc_fields(self, nodes_app, dal):
+        resp = await self._post(nodes_app, self._principal())
+        data = (await _json(resp))["data"]
+        assert "bmc_address" not in data and "bmc_cert_sha256" not in data
 
 
 class TestListNodesCursorPagination:

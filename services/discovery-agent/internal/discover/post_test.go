@@ -274,7 +274,7 @@ func TestRequest_JSON(t *testing.T) {
 }
 
 // TestResponseUnmarshal pins the hub's real response shape: a success envelope with a numeric node_id
-// and optional BMC trust, plus the legacy bare body with a string node_id.
+// plus the legacy bare body with a string node_id.
 func TestResponseUnmarshal(t *testing.T) {
 	tests := []struct {
 		name string
@@ -284,17 +284,15 @@ func TestResponseUnmarshal(t *testing.T) {
 		{
 			name: "hub envelope with numeric node_id and bmc",
 			body: `{"status":"success","data":{"node_id":42,"state":"probed","spire_join_token":null,` +
-				`"control_tunnel_endpoint":"grpcs://h:8443","control_tunnel_spiffe_id":"spiffe://x/api",` +
-				`"bmc_address":"10.1.2.3","bmc_cert_sha256":"` + strings.Repeat("ab", 32) + `"},"meta":{}}`,
+				`"control_tunnel_endpoint":"grpcs://h:8443","control_tunnel_spiffe_id":"spiffe://x/api"},"meta":{}}`,
 			want: discover.Response{
 				NodeID: "42", ControlTunnelEndpoint: "grpcs://h:8443", ControlTunnelSpiffeID: "spiffe://x/api",
-				BMCAddress: "10.1.2.3", BMCCertSHA256: strings.Repeat("ab", 32),
 			},
 		},
 		{
-			name: "envelope with null bmc fields",
-			body: `{"status":"success","data":{"node_id":7,"control_tunnel_endpoint":"e",` +
-				`"control_tunnel_spiffe_id":"s","bmc_address":null,"bmc_cert_sha256":null}}`,
+			name: "envelope with null spire token",
+			body: `{"status":"success","data":{"node_id":7,"spire_join_token":null,"control_tunnel_endpoint":"e",` +
+				`"control_tunnel_spiffe_id":"s"}}`,
 			want: discover.Response{NodeID: "7", ControlTunnelEndpoint: "e", ControlTunnelSpiffeID: "s"},
 		},
 		{

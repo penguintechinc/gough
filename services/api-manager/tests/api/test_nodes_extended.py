@@ -943,7 +943,7 @@ class TestBootstrapNonceStore:
 
         # Mock the bootstrap token validator to succeed
         mock_principal = MagicMock()
-        mock_principal.sub = "bootstrap:test:mac"
+        mock_principal.sub = "bootstrap:aa:bb:cc:dd:ee:ff"
 
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",

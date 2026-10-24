@@ -107,11 +107,6 @@ type Response struct {
 	ControlTunnelEndpoint string `json:"control_tunnel_endpoint"`
 	// ControlTunnelSpiffeID is the expected SPIFFE ID of the api-manager.
 	ControlTunnelSpiffeID string `json:"control_tunnel_spiffe_id"`
-	// BMCAddress is the BMC host the hub holds for this node, if any. It is delivered only in this
-	// authenticated response, never on the anonymous iPXE routes.
-	BMCAddress string `json:"bmc_address,omitempty"`
-	// BMCCertSHA256 is the hub's pinned BMC leaf-certificate SHA-256 (hex); set only with BMCAddress.
-	BMCCertSHA256 string `json:"bmc_cert_sha256,omitempty"`
 }
 
 // UnmarshalJSON decodes the hub's response, which wraps the body in a
@@ -132,8 +127,6 @@ func (r *Response) UnmarshalJSON(b []byte) error {
 		SpireJoinToken        string          `json:"spire_join_token"`
 		ControlTunnelEndpoint string          `json:"control_tunnel_endpoint"`
 		ControlTunnelSpiffeID string          `json:"control_tunnel_spiffe_id"`
-		BMCAddress            string          `json:"bmc_address"`
-		BMCCertSHA256         string          `json:"bmc_cert_sha256"`
 	}
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
@@ -147,8 +140,6 @@ func (r *Response) UnmarshalJSON(b []byte) error {
 		SpireJoinToken:        aux.SpireJoinToken,
 		ControlTunnelEndpoint: aux.ControlTunnelEndpoint,
 		ControlTunnelSpiffeID: aux.ControlTunnelSpiffeID,
-		BMCAddress:            aux.BMCAddress,
-		BMCCertSHA256:         aux.BMCCertSHA256,
 	}
 	return nil
 }

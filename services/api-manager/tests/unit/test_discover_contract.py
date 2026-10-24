@@ -13,7 +13,6 @@ import copy
 import json
 import uuid
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -147,81 +146,3 @@ async def test_golden_payload_posts_and_persists_hardware_json(nodes_app, dal) -
     assert len(hw["accelerators"]) == 3
     assert hw["numa_topology"]["nodes"] == 2
 
-
-async def _discover_response(nodes_app, bmc_trust) -> dict[str, Any]:
-    """POST the golden body with ``_bmc_trust_for_node`` stubbed; return the response ``data``."""
-    payload = copy.deepcopy(_load_golden())
-    payload["dmi_uuid"] = str(uuid.uuid4())
-    principal = MagicMock()
-    principal.sub = "bootstrap:aa:bb:cc:dd:ee:01"
-    with patch(
-        "app.security.credentials.validate_one_time_bootstrap_token", return_value=principal
-    ), patch("app.clients.spire.SpireClient.register_workload", return_value="entry-c1"), patch(
-        "app.api.nodes._bmc_trust_for_node", return_value=bmc_trust
-    ):
-        async with nodes_app.test_client() as client:
-            resp = await client.post(
-                "/api/v1/nodes/discover",
-                json=payload,
-                headers={"Authorization": "Bearer valid-token"},
-            )
-    assert resp.status_code == 201, await resp.get_data(as_text=True)
-    return json.loads(await resp.get_data(as_text=True))["data"]
-
-
-@pytest.mark.asyncio
-async def test_discover_response_carries_bmc_trust_when_hub_has_it(nodes_app, dal) -> None:  # noqa: F811
-    """The authenticated discover response delivers the BMC address and pin."""
-    data = await _discover_response(nodes_app, ("10.1.2.3", "cd" * 32))
-    assert data["bmc_address"] == "10.1.2.3"
-    assert data["bmc_cert_sha256"] == "cd" * 32
-
-
-@pytest.mark.asyncio
-async def test_discover_response_bmc_fields_null_when_unknown(nodes_app, dal) -> None:  # noqa: F811
-    """No BMC on file: both keys are present and null (stable response contract)."""
-    data = await _discover_response(nodes_app, (None, None))
-    assert data["bmc_address"] is None and data["bmc_cert_sha256"] is None
-
-
-def test_discover_response_schema_accepts_bmc_fields() -> None:
-    """DiscoverResponse models the optional BMC fields and defaults them to None."""
-    from app.api._schemas.nodes import DiscoverResponse
-
-    base = dict(
-        node_id=1, state="probed", spire_join_token=None,
-        control_tunnel_endpoint="grpcs://h:8443", control_tunnel_spiffe_id="spiffe://x/y",
-    )
-    assert DiscoverResponse(**base).bmc_address is None
-    full = DiscoverResponse(**base, bmc_address="h", bmc_cert_sha256="ab" * 32)
-    assert (full.bmc_address, full.bmc_cert_sha256) == ("h", "ab" * 32)
-
-
-def _db_with_bmc(row: Any, tables: tuple[str, ...] = ("nodes", "node_bmc")) -> MagicMock:
-    """DAL stand-in whose node_bmc lookup returns ``row``."""
-    db = MagicMock()
-    db.tables = list(tables)
-    db.return_value.select.return_value.first.return_value = row
-    return db
-
-
-@pytest.mark.parametrize(
-    ("row", "tables", "expected"),
-    [
-        (None, ("node_bmc",), (None, None)),
-        (SimpleNamespace(endpoint="x", cert_fingerprint=None), ("nodes",), (None, None)),
-        (SimpleNamespace(endpoint="https://10.1.2.3:443", cert_fingerprint=":".join(["AB"] * 32)),
-         ("node_bmc",), ("10.1.2.3", "ab" * 32)),
-        (SimpleNamespace(endpoint="bmc01.lab", cert_fingerprint=None), ("node_bmc",), ("bmc01.lab", None)),
-        (SimpleNamespace(endpoint="10.0.0.1", cert_fingerprint="AB:CD"), ("node_bmc",), ("10.0.0.1", None)),
-        (SimpleNamespace(endpoint="10.0.0.1 root=/dev/sda", cert_fingerprint=None), ("node_bmc",), (None, None)),
-        (SimpleNamespace(endpoint="", cert_fingerprint=None), ("node_bmc",), (None, None)),
-        (SimpleNamespace(endpoint="http://", cert_fingerprint=None), ("node_bmc",), (None, None)),
-    ],
-)
-def test_bmc_trust_for_node(row: Any, tables: tuple[str, ...], expected: tuple[Any, Any]) -> None:
-    """Only well-formed stored BMC data is returned; the pin never travels without an address."""
-    from app.api.nodes import _bmc_trust_for_node
-
-    with patch("app.api.nodes.get_db", return_value=_db_with_bmc(row, tables)):
-        assert _bmc_trust_for_node(7) == expected

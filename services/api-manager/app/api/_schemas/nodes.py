@@ -128,14 +128,6 @@ class DiscoverResponse(BaseModel):
     spire_join_token: Optional[str]
     control_tunnel_endpoint: str
     control_tunnel_spiffe_id: str
-    bmc_address: Optional[str] = Field(
-        default=None,
-        description="BMC host the hub holds for this node (authenticated response only)",
-    )
-    bmc_cert_sha256: Optional[str] = Field(
-        default=None,
-        description="Pinned BMC leaf-certificate SHA-256 (lowercase hex), only with bmc_address",
-    )
 
 
 # ---------------------------------------------------------------------------
