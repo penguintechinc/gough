@@ -264,7 +264,7 @@ class TestHelperEndpoint:
         with patch(
             "app.api.ipxe._find_node_or_machine_by_mac",
             return_value=_make_node_record(),
-        ):
+        ), patch("app.api.ipxe._bmc_cmdline_params", return_value=""):
             resp = await client.get("/api/v1/ipxe/helper/aa:bb:cc:dd:ee:ff")
         assert resp.status_code == 200
         assert resp.content_type.startswith("text/plain")
@@ -302,10 +302,28 @@ class TestHelperEndpoint:
         with patch(
             "app.api.ipxe._find_node_or_machine_by_mac",
             return_value=_make_node_record(),
-        ):
+        ), patch("app.api.ipxe._bmc_cmdline_params", return_value=""):
             resp = await client.get("/api/v1/ipxe/helper/aa:bb:cc:dd:ee:ff?fw=bios")
         body = (await resp.get_data()).decode()
         assert "helper-bios" in body
+
+
+class TestEndpointCmdlineWiring:
+    """Endpoints thread the boot token and the hub's BMC params into the kernel cmdline."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("path", ["helper", "deploy"])
+    async def test_boot_token_and_bmc_reach_script(self, client, path: str) -> None:
+        extra = "gough_bmc=10.0.0.9 gough_bmc_sha256=" + "cd" * 32
+        with patch(
+            "app.api.ipxe._find_node_or_machine_by_mac",
+            return_value=_make_node_record(),
+        ), patch("app.api.ipxe._bmc_cmdline_params", return_value=extra):
+            resp = await client.get(f"/api/v1/ipxe/{path}/aa:bb:cc:dd:ee:ff")
+        body = (await resp.get_data()).decode()
+        assert resp.status_code == 200
+        assert "gough_boot_token=${boot_token}" in body
+        assert extra in body
 
 
 class TestDeployEndpoint:
@@ -316,7 +334,7 @@ class TestDeployEndpoint:
         with patch(
             "app.api.ipxe._find_node_or_machine_by_mac",
             return_value=_make_node_record(),
-        ):
+        ), patch("app.api.ipxe._bmc_cmdline_params", return_value=""):
             resp = await client.get("/api/v1/ipxe/deploy/aa:bb:cc:dd:ee:ff")
         assert resp.status_code == 200
         assert resp.content_type.startswith("text/plain")

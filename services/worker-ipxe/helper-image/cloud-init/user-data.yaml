@@ -47,6 +47,23 @@ write_files:
         exit 1
       fi
 
+      # Report the "boot" stage to the worker. The per-boot token (iPXE ${boot_token}, carried on the
+      # cmdline) is single-use, so exactly one event is sent; it authenticates via X-Boot-Token.
+      GOUGH_BOOT_TOKEN=$(grep -oP 'gough_boot_token=\K[A-Za-z0-9_-]+' /proc/cmdline || echo "")
+      GOUGH_WORKER=$(grep -oP 'gough_worker=\K[^ ]+' /proc/cmdline || echo "")
+      GOUGH_MAC=$(grep -oP 'gough_mac=\K[^ ]+' /proc/cmdline || echo "")
+      if [ -n "$GOUGH_BOOT_TOKEN" ] && [ -n "$GOUGH_WORKER" ] && [ -n "$GOUGH_MAC" ]; then
+        if curl -fsS --max-time 5 -X POST "${GOUGH_WORKER%/}/boot-event" \
+             -H "X-Boot-Token: ${GOUGH_BOOT_TOKEN}" -H "Content-Type: application/json" \
+             -d "{\"mac\":\"${GOUGH_MAC}\",\"stage\":\"boot\"}"; then
+          echo "boot-event reported"
+        else
+          echo "WARN: boot-event report failed (non-fatal)" >&2
+        fi
+      else
+        echo "boot-event skipped: no gough_boot_token/gough_worker on cmdline"
+      fi
+
       # Zeroize the token from /proc/cmdline by overwriting kernel buffer
       # (kernel maintains the original; this is a best-effort user-space cleanup)
       echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] Starting discovery-agent"

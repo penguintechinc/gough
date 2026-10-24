@@ -624,3 +624,17 @@ def test_create_token_store_builds_lazy_redis_client() -> None:
     from worker.boot_tokens import create_token_store
 
     assert isinstance(create_token_store("redis://localhost:6379/0"), BootTokenStore)
+
+
+@pytest.mark.asyncio
+async def test_script_exports_worker_url_beside_boot_token(fake_redis: FakeRedis) -> None:
+    """Scripts set ${worker_url} next to ${boot_token} so hub cmdlines can address /boot-event."""
+    server = _server()
+    with respx.mock:
+        respx.get(f"{API}/api/v1/internal/boot-script/{MAC}").mock(return_value=httpx.Response(404))
+        resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
+        script = await resp.get_data(as_text=True)
+    lines = script.split("\n")
+    assert lines[0] == "#!ipxe"
+    assert lines[1].startswith("set boot_token ")
+    assert lines[2] == f"set worker_url {server.config.get_boot_url()}"

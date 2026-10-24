@@ -76,7 +76,8 @@ class IPXEHandler:
             ttl_seconds=DISCOVERY_TOKEN_TTL_SECONDS if discovery else None,
             stages=frozenset({"discovery"}) if discovery else None,
         )
-        line = f"set boot_token {token}\n"
+        # worker_url lets the booted machine address this worker's /boot-event (X-Boot-Token header).
+        line = f"set boot_token {token}\nset worker_url {self.config.get_boot_url()}\n"
         if script.startswith("#!ipxe"):
             head, _, rest = script.partition("\n")
             return f"{head}\n{line}{rest}"
