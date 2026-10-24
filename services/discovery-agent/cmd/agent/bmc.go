@@ -13,6 +13,7 @@ import (
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/cmdline"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/discover"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/probe"
+	"github.com/penguintechinc/gough/services/discovery-agent/internal/serial"
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/tags"
 )
 
@@ -116,4 +117,28 @@ func buildPayload(ctx context.Context, params cmdline.Params, hw tags.HardwareIn
 		return discover.Request{}, err
 	}
 	return req, nil
+}
+
+// validateHubBMC runs the BMC TLS validation for a BMC the hub reported in its
+// authenticated discover response, when none was configured at boot. The hub's
+// address/pin never travel on the anonymous iPXE cmdline. The discover POST is
+// single-shot (the bootstrap token is one-time), so the outcome is logged and
+// emitted on the serial console; reporting it back to the hub needs a follow-up
+// endpoint. It returns "" when there is nothing to validate.
+func validateHubBMC(ctx context.Context, params cmdline.Params, resp discover.Response) (string, error) {
+	if params.BMC != "" || resp.BMCAddress == "" {
+		return "", nil
+	}
+	params.BMC = resp.BMCAddress
+	params.BMCSHA256 = resp.BMCCertSHA256
+	var scratch discover.Request
+	if err := attachBMCStatus(ctx, &scratch, params); err != nil {
+		return "", err
+	}
+	slog.Info("hub-provided bmc validated", "bmc", resp.BMCAddress, "status", scratch.BMCTLSStatus)
+	serial.WriteEvent("info", "hub-provided bmc validated", map[string]any{
+		"bmc":    resp.BMCAddress,
+		"status": scratch.BMCTLSStatus,
+	})
+	return scratch.BMCTLSStatus, nil
 }

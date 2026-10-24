@@ -169,10 +169,8 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
                 )
             )
 
-            from app.api.ipxe import _bmc_cmdline_params
-            bmc_params = await asyncio.to_thread(_bmc_cmdline_params, record)
             script = await asyncio.to_thread(
-                _render_deploy_ipxe_script, normalized, token, primary_url, bmc_params
+                _render_deploy_ipxe_script, normalized, token, primary_url
             )
 
             return ipxe_pb2.ResolveBootScriptResponse(boot_script=script)

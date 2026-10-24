@@ -151,6 +151,11 @@ func run(ctx context.Context) error {
 	)
 	serial.WriteEvent("info", "discover POST succeeded", map[string]any{"node_id": discoverResp.NodeID})
 
+	// If the hub knows this node's BMC and none was configured at boot, validate it now.
+	if _, err := validateHubBMC(ctx, params, discoverResp); err != nil {
+		return err
+	}
+
 	// 8-9. Fetch SVID and open the persistent gRPC-mTLS control tunnel.
 	return openTunnel(ctx, discoverResp, spireSocket)
 }

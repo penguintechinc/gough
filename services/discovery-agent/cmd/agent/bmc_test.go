@@ -273,3 +273,66 @@ func TestBuildPayloadFatalOnBadTrust(t *testing.T) {
 		t.Fatal("buildPayload with malformed pin: expected error")
 	}
 }
+
+// TestValidateHubBMC covers validating the BMC the hub reports in its authenticated response.
+func TestValidateHubBMC(t *testing.T) {
+	bmc := startBMC(t)
+
+	t.Run("no hub bmc is a no-op", func(t *testing.T) {
+		clearBMCEnv(t)
+		status, err := validateHubBMC(context.Background(), baseParams(), discover.Response{})
+		if err != nil || status != "" {
+			t.Fatalf("got (%q, %v), want (\"\", nil)", status, err)
+		}
+		if bmc.conns.Load() != 0 {
+			t.Fatalf("BMC contacted with nothing to validate")
+		}
+	})
+
+	t.Run("cmdline-configured bmc is not re-probed", func(t *testing.T) {
+		clearBMCEnv(t)
+		p := baseParams()
+		p.BMC = "192.0.2.1"
+		status, err := validateHubBMC(context.Background(), p, discover.Response{BMCAddress: bmc.addr})
+		if err != nil || status != "" {
+			t.Fatalf("got (%q, %v), want (\"\", nil)", status, err)
+		}
+	})
+
+	t.Run("matching hub pin validates", func(t *testing.T) {
+		clearBMCEnv(t)
+		status, err := validateHubBMC(context.Background(), baseParams(),
+			discover.Response{BMCAddress: bmc.addr, BMCCertSHA256: bmc.sha})
+		if err != nil || status != bmcStatusOK {
+			t.Fatalf("got (%q, %v), want (%q, nil)", status, err, bmcStatusOK)
+		}
+	})
+
+	t.Run("wrong hub pin is a mismatch", func(t *testing.T) {
+		clearBMCEnv(t)
+		status, err := validateHubBMC(context.Background(), baseParams(),
+			discover.Response{BMCAddress: bmc.addr, BMCCertSHA256: strings.Repeat("00", 32)})
+		if err != nil || status != bmcStatusMismatch {
+			t.Fatalf("got (%q, %v), want (%q, nil)", status, err, bmcStatusMismatch)
+		}
+	})
+
+	t.Run("env pin outranks conflicting hub pin", func(t *testing.T) {
+		clearBMCEnv(t)
+		t.Setenv("GOUGH_BMC_CERT_SHA256", bmc.sha)
+		status, err := validateHubBMC(context.Background(), baseParams(),
+			discover.Response{BMCAddress: bmc.addr, BMCCertSHA256: strings.Repeat("11", 32)})
+		if err != nil || status != bmcStatusPinConflict {
+			t.Fatalf("got (%q, %v), want (%q, nil)", status, err, bmcStatusPinConflict)
+		}
+	})
+
+	t.Run("invalid env trust is an error", func(t *testing.T) {
+		clearBMCEnv(t)
+		t.Setenv("GOUGH_BMC_CERT_SHA256", "not-hex")
+		if _, err := validateHubBMC(context.Background(), baseParams(),
+			discover.Response{BMCAddress: bmc.addr}); err == nil {
+			t.Fatal("want error for malformed configured pin")
+		}
+	})
+}

@@ -657,6 +657,8 @@ async def discover_node():
     )
     control_tunnel_spiffe_id = f"spiffe://{trust_domain}/api-manager"
 
+    bmc_address, bmc_cert_sha256 = await run_db(lambda: _bmc_trust_for_node(node_id))
+
     return envelope_success(
         {
             "node_id": node_id,
@@ -664,9 +666,40 @@ async def discover_node():
             "spire_join_token": spire_join_token,
             "control_tunnel_endpoint": control_tunnel_endpoint,
             "control_tunnel_spiffe_id": control_tunnel_spiffe_id,
+            "bmc_address": bmc_address,
+            "bmc_cert_sha256": bmc_cert_sha256,
         },
         status_code=201,
     )
+
+
+#: Conservative BMC host (hostname / IPv4 / IPv6 characters only) accepted into the discover response.
+_BMC_HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.:-]{0,251}[A-Za-z0-9])?")
+_SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
+
+
+def _bmc_trust_for_node(node_id: int) -> tuple[Optional[str], Optional[str]]:
+    """Return ``(bmc_address, bmc_cert_sha256)`` the hub holds for ``node_id`` (blocking DB call).
+
+    Delivered only inside the authenticated /nodes/discover response -- never on anonymous iPXE
+    routes. The address is a bare host (URL scheme/port stripped); the pin is lowercase hex and is
+    returned only alongside an address. Missing or malformed stored values yield ``None``.
+    """
+    from urllib.parse import urlsplit
+
+    db = get_db()
+    if "node_bmc" not in db.tables:
+        return None, None
+    row = db(db.node_bmc.node_id == node_id).select().first()
+    if row is None or not row.endpoint:
+        return None, None
+    host = str(row.endpoint).strip()
+    if "://" in host:
+        host = urlsplit(host).hostname or ""
+    if not _BMC_HOST_RE.fullmatch(host):
+        return None, None
+    pin = (row.cert_fingerprint or "").replace(":", "").strip().lower()
+    return host, (pin if _SHA256_HEX_RE.fullmatch(pin) else None)
 
 
 # ---------------------------------------------------------------------------

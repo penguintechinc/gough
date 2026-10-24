@@ -13,7 +13,6 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import re
 import secrets
 import threading
 import time
@@ -21,7 +20,6 @@ import uuid
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Literal, Optional
-from urllib.parse import urlsplit
 
 import jwt
 from quart import Blueprint, Response, current_app, g, jsonify, request
@@ -1846,48 +1844,11 @@ def _mint_bootstrap_jwt(
 # Kernel cmdline helpers
 # -----------------------------------------------------------------------------
 
-#: Conservative BMC host: hostname / IPv4 / bracket-less IPv6 characters only, so a stored
-#: value can never smuggle extra kernel parameters (whitespace) into the cmdline.
-_BMC_HOST_RE = re.compile(r"[A-Za-z0-9]([A-Za-z0-9.:-]{0,251}[A-Za-z0-9])?")
-_SHA256_HEX_RE = re.compile(r"[0-9a-f]{64}")
-
 #: iPXE expands these at boot: the worker prepends ``set boot_token``/``set worker_url`` to every
 #: script it serves, so the booted machine can authenticate worker /boot-event callbacks.
+#: BMC address/pin are deliberately NOT placed on any anonymous iPXE route (anyone knowing a MAC
+#: could read them); the discovery agent receives them in the authenticated /nodes/discover response.
 _BOOT_TOKEN_CMDLINE = "gough_boot_token=${boot_token} gough_worker=${worker_url}"
-
-
-def _bmc_cmdline_params(record: Optional[dict]) -> str:
-    """Return ``gough_bmc=`` / ``gough_bmc_sha256=`` cmdline params, or ``""``.
-
-    Emitted only when the hub actually holds the data for the machine: a node's
-    ``node_bmc`` row (endpoint + optional pinned cert fingerprint) or the legacy
-    ``ipxe_machines.bmc_address``. The pin is emitted only alongside an address.
-    Malformed stored values are dropped, never forwarded. Blocking DB call.
-    """
-    if not record:
-        return ""
-    endpoint: Optional[str] = None
-    fingerprint: Optional[str] = None
-    db = get_db()
-    if record.get("source") == "nodes" and "node_bmc" in db.tables:
-        row = db(db.node_bmc.node_id == record["id"]).select().first()
-        if row is not None:
-            endpoint = row.endpoint
-            fingerprint = row.cert_fingerprint
-    elif record.get("source") == "ipxe_machines":
-        endpoint = (record.get("raw") or {}).get("bmc_address")
-    if not endpoint:
-        return ""
-    host = str(endpoint).strip()
-    if "://" in host:
-        host = urlsplit(host).hostname or ""
-    if not _BMC_HOST_RE.fullmatch(host):
-        return ""
-    params = f"gough_bmc={host}"
-    pin = (fingerprint or "").replace(":", "").strip().lower()
-    if _SHA256_HEX_RE.fullmatch(pin):
-        params += f" gough_bmc_sha256={pin}"
-    return params
 
 
 # -----------------------------------------------------------------------------
@@ -1900,7 +1861,6 @@ def _render_helper_ipxe_script(
     primary_url: str,
     *,
     firmware: Literal["bios", "uefi"],
-    extra_cmdline: str = "",
 ) -> str:
     """Render the Phase-1 helper iPXE script.
 
@@ -1909,7 +1869,6 @@ def _render_helper_ipxe_script(
       2. Boots the helper image with kernel cmdline:
            gough_token=<jwt> gough_primary=<url> gough_mac=<mac>
            gough_boot_token=${boot_token} gough_worker=${worker_url}
-           [gough_bmc=<host> [gough_bmc_sha256=<hex>]]   (``extra_cmdline``, only when known)
       3. Branches BIOS vs UEFI via iPXE ${platform} macro at runtime.
 
     `firmware` selects the default kernel/initrd artifact name; the script
@@ -1920,8 +1879,6 @@ def _render_helper_ipxe_script(
     helper_kernel = "helper-bios" if firmware == "bios" else "helper-efi"
     helper_initrd = "helper.initrd"
     cmdline = f"gough_token={jwt_token} gough_primary={base} gough_mac={mac} {_BOOT_TOKEN_CMDLINE}"
-    if extra_cmdline:
-        cmdline += f" {extra_cmdline}"
     script = (
         "#!ipxe\n"
         f"# Gough helper boot script (phase=helper, mac={mac}, firmware={firmware})\n"
@@ -1957,9 +1914,7 @@ def _render_helper_ipxe_script(
     return script
 
 
-def _render_deploy_ipxe_script(
-    mac: str, jwt_token: str, primary_url: str, extra_cmdline: str = ""
-) -> str:
+def _render_deploy_ipxe_script(mac: str, jwt_token: str, primary_url: str) -> str:
     """Render the Phase-2 deploy iPXE script.
 
     Renders a complete iPXE script for the deployment phase that:
@@ -1982,8 +1937,6 @@ def _render_deploy_ipxe_script(
         f"gough.bootstrap_token={jwt_token} gough.mac={mac} gough.phase=deploy "
         f"{_BOOT_TOKEN_CMDLINE}"
     )
-    if extra_cmdline:
-        cmdline += f" {extra_cmdline}"
     script = (
         "#!ipxe\n"
         f"# Gough deploy boot script (phase=deploy, mac={mac})\n"
@@ -2069,9 +2022,8 @@ async def get_helper_ipxe_script(mac: str):
         dmi_uuid_hint=record.get("dmi_uuid"),
     ))
 
-    bmc_params = await run_db(lambda: _bmc_cmdline_params(record))
     script = _render_helper_ipxe_script(
-        normalized, token, primary_url, firmware=firmware, extra_cmdline=bmc_params
+        normalized, token, primary_url, firmware=firmware
     )
 
     log.info(
@@ -2113,8 +2065,7 @@ async def get_deploy_ipxe_script(mac: str):
         dmi_uuid_hint=record.get("dmi_uuid"),
     ))
 
-    bmc_params = await run_db(lambda: _bmc_cmdline_params(record))
-    script = _render_deploy_ipxe_script(normalized, token, primary_url, bmc_params)
+    script = _render_deploy_ipxe_script(normalized, token, primary_url)
 
     log.info(
         f"iPXE deploy script issued mac={normalized} "

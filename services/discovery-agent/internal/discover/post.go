@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/penguintechinc/gough/services/discovery-agent/internal/metrics"
@@ -82,9 +83,9 @@ type NicInfo struct {
 
 // NumaTopology is the NUMA layout keyed by node id as a decimal string.
 type NumaTopology struct {
-	Nodes     int                `json:"nodes"`
-	CPUMap    map[string][]int   `json:"cpu_map"`
-	MemoryMB  map[string]int64   `json:"memory_mb"`
+	Nodes    int              `json:"nodes"`
+	CPUMap   map[string][]int `json:"cpu_map"`
+	MemoryMB map[string]int64 `json:"memory_mb"`
 }
 
 // AcceleratorInfo describes one PCI GPU or accelerator.
@@ -106,6 +107,50 @@ type Response struct {
 	ControlTunnelEndpoint string `json:"control_tunnel_endpoint"`
 	// ControlTunnelSpiffeID is the expected SPIFFE ID of the api-manager.
 	ControlTunnelSpiffeID string `json:"control_tunnel_spiffe_id"`
+	// BMCAddress is the BMC host the hub holds for this node, if any. It is delivered only in this
+	// authenticated response, never on the anonymous iPXE routes.
+	BMCAddress string `json:"bmc_address,omitempty"`
+	// BMCCertSHA256 is the hub's pinned BMC leaf-certificate SHA-256 (hex); set only with BMCAddress.
+	BMCCertSHA256 string `json:"bmc_cert_sha256,omitempty"`
+}
+
+// UnmarshalJSON decodes the hub's response, which wraps the body in a
+// {"status","data","meta"} envelope and returns node_id as a number. A bare
+// (unwrapped) body with a string node_id is still accepted.
+func (r *Response) UnmarshalJSON(b []byte) error {
+	var env struct {
+		Data json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(b, &env); err != nil {
+		return err
+	}
+	if len(env.Data) > 0 && string(env.Data) != "null" {
+		b = env.Data
+	}
+	var aux struct {
+		NodeID                json.RawMessage `json:"node_id"`
+		SpireJoinToken        string          `json:"spire_join_token"`
+		ControlTunnelEndpoint string          `json:"control_tunnel_endpoint"`
+		ControlTunnelSpiffeID string          `json:"control_tunnel_spiffe_id"`
+		BMCAddress            string          `json:"bmc_address"`
+		BMCCertSHA256         string          `json:"bmc_cert_sha256"`
+	}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	id := strings.Trim(string(aux.NodeID), `"`)
+	if id == "null" {
+		id = ""
+	}
+	*r = Response{
+		NodeID:                id,
+		SpireJoinToken:        aux.SpireJoinToken,
+		ControlTunnelEndpoint: aux.ControlTunnelEndpoint,
+		ControlTunnelSpiffeID: aux.ControlTunnelSpiffeID,
+		BMCAddress:            aux.BMCAddress,
+		BMCCertSHA256:         aux.BMCCertSHA256,
+	}
+	return nil
 }
 
 // StatusError reports a non-2xx response from the discover endpoint.

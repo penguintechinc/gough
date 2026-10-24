@@ -720,8 +720,7 @@ class TestBootstrapTokenEndpoints:
         with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
              patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, \
              patch("app.api.ipxe._mint_bootstrap_jwt") as mock_mint, \
-             patch("app.api.ipxe._render_helper_ipxe_script") as mock_render, \
-             patch("app.api.ipxe._bmc_cmdline_params", return_value=""):
+             patch("app.api.ipxe._render_helper_ipxe_script") as mock_render:
 
             mock_find.return_value = {
                 "id": 1,
@@ -757,8 +756,7 @@ class TestBootstrapTokenEndpoints:
         with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
              patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, \
              patch("app.api.ipxe._mint_bootstrap_jwt") as mock_mint, \
-             patch("app.api.ipxe._render_deploy_ipxe_script") as mock_render, \
-             patch("app.api.ipxe._bmc_cmdline_params", return_value=""):
+             patch("app.api.ipxe._render_deploy_ipxe_script") as mock_render:
 
             mock_find.return_value = {
                 "id": 1,
