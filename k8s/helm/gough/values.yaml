@@ -85,6 +85,15 @@ worker-ipxe:
   fullnameOverride: worker-ipxe
   image:
     pullPolicy: IfNotPresent
+  # WORKER_API_KEY and REDIS_URL come from the umbrella-generated Secret worker-ipxe-secret
+  # (worker-api-key, redis-url -> in-chart Valkey incl. its password, or externalRedisUrl).
+  workerApiKey:
+    generate: false
+    existingSecret: worker-ipxe-secret
+  configMapData:
+    # CIDRs of reverse proxies whose X-Forwarded-For the worker may trust. Booting hardware
+    # reaches the worker directly, so the default trusts none; set e.g. "10.0.0.0/8" if an LB fronts it.
+    trusted-proxies: ""
 
 # Tetragon TracingPolicyNamespaced exec allowlists (mandatory baseline).
 # Assumes Tetragon >= 1.1: policies hook security_bprm_creds_for_exec (LSM; covers execve + execveat)
