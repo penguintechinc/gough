@@ -20,6 +20,13 @@ from app.api import agents
 ENROLL_KEY = "ENROLL-TEST-KEY"
 
 
+class _Row(SimpleNamespace):
+    """DAL-style row: attribute and item access both work (the handler reads ``key["metadata"]``)."""
+
+    def __getitem__(self, name: str) -> Any:
+        return getattr(self, name)
+
+
 class _Cond:
     """Conjunction of (table, field, value) equality predicates."""
 
@@ -96,7 +103,7 @@ class FakeDAL:
     """Minimal stand-in for the release DAL: enrollment_keys rows plus commit/rollback."""
 
     def __init__(self, keys: list[dict[str, Any]]) -> None:
-        self.rows: dict[str, list[Any]] = {"enrollment_keys": [SimpleNamespace(**k) for k in keys]}
+        self.rows: dict[str, list[Any]] = {"enrollment_keys": [_Row(**k) for k in keys]}
         self.enrollment_keys = _Table(self, "enrollment_keys")
         self.commits = 0
 
@@ -138,6 +145,8 @@ async def test_revoke_handler_is_a_soft_delete(app: Quart, monkeypatch: pytest.M
     """Revoking sets revoked=True and keeps the row; nothing is deleted."""
     db = FakeDAL([_key_row(key_id=7)])
     monkeypatch.setattr(agents, "get_db", lambda: db)
+    # Tenant scoping has its own tests; this one pins the soft-delete behaviour.
+    monkeypatch.setattr(agents, "tenant_owns", lambda _tenant: True)
     handler = _innermost(agents.revoke_enrollment_key)
     assert inspect.iscoroutinefunction(handler)
 

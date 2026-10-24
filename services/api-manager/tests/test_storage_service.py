@@ -642,7 +642,10 @@ async def test_get_storage_service_by_id(monkeypatch, tmp_path):
         return mgr
 
     # get_secrets_manager is imported inside the function, patch at source module
-    with patch("app.secrets.get_secrets_manager", _mock_get_secrets_manager):
+    # The endpoint SSRF guard resolves the host; keep the test hermetic (no DNS).
+    with patch("app.secrets.get_secrets_manager", _mock_get_secrets_manager), patch(
+        "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+    ):
         # This should work - config exists and is active
         service = await get_storage_service(config_id=1)
     assert service.config.name == "test-s3"

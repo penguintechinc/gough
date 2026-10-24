@@ -501,5 +501,6 @@ class TestSignCertificate:
             }
         )
 
-        # regression: a 1-day certificate exceeds the 8h CA maximum and is refused
-        assert response.status_code == 400
+        # regression: a 1-day request is clamped to the API certificate maximum, never honoured
+        assert response.status_code == 200
+        assert ca_instance.sign_user_key.call_args.kwargs["validity_seconds"] <= ssh_ca_mod.MAX_API_CERT_VALIDITY_SECONDS

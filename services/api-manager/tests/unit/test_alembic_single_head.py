@@ -49,13 +49,14 @@ def test_exactly_one_head() -> None:
     assert len(heads) == 1, f"expected one alembic head, got {sorted(heads)}"
 
 
-def test_migration_chain_ends_at_bundle_cache_head() -> None:
-    """LXD join -> k8s-primary rename -> biome bundle cache: the cache revision is the head."""
+def test_migration_chain_ends_at_access_agents_tenant_head() -> None:
+    """LXD join -> k8s-primary rename -> biome bundle cache -> ... -> access-agent tenant: that is the head."""
     graph = _revisions()
     assert graph["20261022_1200_lxd_join_issuance"] == "20260821_1900_missing_cols"
     assert graph["20261022_1300_rename_k8s_primary_biome"] == "20261022_1200_lxd_join_issuance"
     assert graph["20261022_1400_biome_bundle_cache"] == "20261022_1300_rename_k8s_primary_biome"
-    assert _heads(graph) == {"20261022_1600_agent_node_link_reservation_confirm"}
+    assert graph["20261022_1700_access_agents_tenant"] == "20261022_1600_agent_node_link_reservation_confirm"
+    assert _heads(graph) == {"20261022_1700_access_agents_tenant"}
 
 
 @pytest.mark.parametrize("down", ["20260821_1900_missing_cols", "20260821_1600_merge_cloud_schema"])
