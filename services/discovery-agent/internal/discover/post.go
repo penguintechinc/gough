@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,35 +20,80 @@ import (
 )
 
 const (
-	discoverPath  = "/api/v1/nodes/discover"
-	httpTimeout   = 30 * time.Second
+	discoverPath = "/api/v1/nodes/discover"
+	httpTimeout  = 30 * time.Second
 )
 
-// Request is the JSON body sent to POST /api/v1/nodes/discover.
+// Request is the JSON body sent to POST /api/v1/nodes/discover. Its shape
+// mirrors the api-manager DiscoverRequest schema (services/api-manager/app/api/_schemas/nodes.py);
+// the golden fixture in testdata/ and the hub contract test pin it.
 type Request struct {
-	// MACAddress is the MAC of the primary boot interface.
-	MACAddress string `json:"mac_address"`
-	// Hostname is the current kernel hostname (may be "localhost" in helper image).
-	Hostname string `json:"hostname"`
-	// DMI fields.
-	ProductUUID string `json:"product_uuid"`
-	SysVendor   string `json:"sys_vendor"`
-	ProductName string `json:"product_name"`
-	BIOSVersion string `json:"bios_version"`
-	// Firmware type ("uefi" or "bios").
+	// DMIUUID is the DMI system UUID (api-manager dmi_uuid, required).
+	DMIUUID string `json:"dmi_uuid"`
+	// PrimaryNICMAC is the MAC of the provisioning NIC (required).
+	PrimaryNICMAC string `json:"primary_nic_mac"`
+	// FirmwareType is "bios" or "uefi".
 	FirmwareType string `json:"firmware_type"`
-	// Lshw is the raw lshw -json output forwarded verbatim.
-	Lshw json.RawMessage `json:"lshw,omitempty"`
-	// Lsblk is the raw lsblk --json -O output forwarded verbatim.
-	Lsblk json.RawMessage `json:"lsblk,omitempty"`
-	// SMART holds per-disk smartctl -a -j output.
-	SMART []json.RawMessage `json:"smart,omitempty"`
+	// Hostname is the kernel hostname at probe time; optional.
+	Hostname string `json:"hostname,omitempty"`
+	// SysVendor, ProductName and BIOSVersion are DMI strings; optional.
+	SysVendor   string `json:"sys_vendor,omitempty"`
+	ProductName string `json:"product_name,omitempty"`
+	BIOSVersion string `json:"bios_version,omitempty"`
+	// LshwJSON is the lshw -json object forwarded verbatim; omitted when lshw failed.
+	LshwJSON json.RawMessage `json:"lshw_json,omitempty"`
+	// LsblkJSON is the lsblk --json object forwarded verbatim; omitted when absent.
+	LsblkJSON json.RawMessage `json:"lsblk_json,omitempty"`
+	// SmartAttributes is the flattened ATA SMART table across all disks.
+	SmartAttributes []SmartAttribute `json:"smart_attributes"`
+	// Nics lists enumerated NICs; the provisioning NIC has IsPrimary set.
+	Nics []NicInfo `json:"nics"`
+	// NumaTopology is omitted when numactl reported no NUMA nodes.
+	NumaTopology *NumaTopology `json:"numa_topology,omitempty"`
+	// Accelerators lists PCI GPU/accelerator devices.
+	Accelerators []AcceleratorInfo `json:"accelerators"`
 	// HardwareTags is the auto-discovered tag set.
 	HardwareTags []string `json:"hardware_tags"`
-	// NumaJSON is the raw lstopo output if available.
-	NumaJSON json.RawMessage `json:"numa,omitempty"`
-	// AcceleratorJSON is the serialised accelerator probe.
-	AcceleratorJSON json.RawMessage `json:"accelerators,omitempty"`
+	// BMCTLSStatus is the BMC certificate verification outcome; omitted when the BMC was not probed.
+	BMCTLSStatus string `json:"bmc_tls_status,omitempty"`
+	// BMCCertSHA256 is the observed BMC leaf-certificate SHA-256 (lowercase hex); empty when no connection was made.
+	BMCCertSHA256 string `json:"bmc_cert_sha256,omitempty"`
+}
+
+// SmartAttribute is one ATA SMART table row, tagged with its disk.
+type SmartAttribute struct {
+	Device   string `json:"device,omitempty"`
+	ID       int    `json:"id"`
+	Name     string `json:"name"`
+	Value    int    `json:"value"`
+	Worst    int    `json:"worst"`
+	Thresh   int    `json:"thresh"`
+	RawValue *int64 `json:"raw_value,omitempty"`
+}
+
+// NicInfo describes one enumerated network interface.
+type NicInfo struct {
+	MAC       string `json:"mac"`
+	SpeedMbps *int64 `json:"speed_mbps,omitempty"`
+	PCISlot   string `json:"pci_slot,omitempty"`
+	IsPrimary bool   `json:"is_primary"`
+	Name      string `json:"name,omitempty"`
+}
+
+// NumaTopology is the NUMA layout keyed by node id as a decimal string.
+type NumaTopology struct {
+	Nodes     int                `json:"nodes"`
+	CPUMap    map[string][]int   `json:"cpu_map"`
+	MemoryMB  map[string]int64   `json:"memory_mb"`
+}
+
+// AcceleratorInfo describes one PCI GPU or accelerator.
+type AcceleratorInfo struct {
+	BusType    string `json:"bus_type"`
+	Vendor     string `json:"vendor"`
+	Model      string `json:"model"`
+	VRAMMB     *int64 `json:"vram_mb,omitempty"`
+	PCIAddress string `json:"pci_address,omitempty"`
 }
 
 // Response is the JSON body returned by POST /api/v1/nodes/discover on success.
@@ -60,6 +106,29 @@ type Response struct {
 	ControlTunnelEndpoint string `json:"control_tunnel_endpoint"`
 	// ControlTunnelSpiffeID is the expected SPIFFE ID of the api-manager.
 	ControlTunnelSpiffeID string `json:"control_tunnel_spiffe_id"`
+}
+
+// StatusError reports a non-2xx response from the discover endpoint.
+type StatusError struct {
+	// Code is the HTTP status code returned by the api-manager.
+	Code int
+	// URL is the full endpoint that was called.
+	URL string
+}
+
+// Error implements error.
+func (e *StatusError) Error() string {
+	return fmt.Sprintf("discover: unexpected status %d from %s", e.Code, e.URL)
+}
+
+// IsPermanent reports whether retrying the POST cannot succeed. 401 and 403
+// mean the bootstrap token was rejected; retrying only hammers the api-manager.
+func IsPermanent(err error) bool {
+	var se *StatusError
+	if !errors.As(err, &se) {
+		return false
+	}
+	return se.Code == http.StatusUnauthorized || se.Code == http.StatusForbidden
 }
 
 // SmartPreflight checks all SMART results and returns an error if any disk
@@ -93,6 +162,9 @@ func Post(ctx context.Context, primaryURL, jwt, caPEMPath string, req Request) (
 		Timeout:   httpTimeout,
 		Transport: &http.Transport{TLSClientConfig: tlsCfg},
 	}
+	// Each call owns its transport; release idle connections on return so
+	// retries do not accumulate sockets.
+	defer client.CloseIdleConnections()
 
 	url := primaryURL + discoverPath
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
@@ -106,10 +178,10 @@ func Post(ctx context.Context, primaryURL, jwt, caPEMPath string, req Request) (
 	if err != nil {
 		return Response{}, fmt.Errorf("discover: post %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK {
-		return Response{}, fmt.Errorf("discover: unexpected status %d from %s", resp.StatusCode, url)
+		return Response{}, &StatusError{Code: resp.StatusCode, URL: url}
 	}
 
 	var result Response

@@ -100,7 +100,7 @@ func parseNumactl(text string) NumactlOutput {
 
 		// available: 2 nodes (0-1)
 		if strings.HasPrefix(line, "available:") {
-			fmt.Sscanf(line, "available: %d", &out.Available)
+			_, _ = fmt.Sscanf(line, "available: %d", &out.Available)
 			continue
 		}
 

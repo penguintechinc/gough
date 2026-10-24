@@ -486,6 +486,12 @@ async def discover_node():
             "numa_topology": body.numa_topology.model_dump() if body.numa_topology else None,
             "accelerators": [a.model_dump() for a in body.accelerators],
             "smart_attributes": [s.model_dump() for s in body.smart_attributes],
+            "hostname": body.hostname,
+            "sys_vendor": body.sys_vendor,
+            "product_name": body.product_name,
+            "bios_version": body.bios_version,
+            "bmc_tls_status": body.bmc_tls_status,
+            "bmc_cert_sha256": body.bmc_cert_sha256,
         }
 
         try:

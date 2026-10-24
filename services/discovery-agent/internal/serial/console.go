@@ -33,9 +33,13 @@ type Console struct {
 	mu   sync.Mutex
 	file *os.File
 	open bool
+	// devPath is the tty to open; tests substitute a regular file.
+	devPath string
+	// configure applies the baud/framing settings to the opened device.
+	configure func(*os.File, int) error
 }
 
-var defaultConsole = &Console{}
+var defaultConsole = &Console{devPath: serialDev, configure: setSerial}
 
 // WriteEvent writes a structured event to the default serial console.
 func WriteEvent(level, msg string, fields any) {
@@ -69,13 +73,13 @@ func (c *Console) write(level, msg string, fields any) {
 // init opens /dev/ttyS0 and configures baud rate.
 // Must be called with c.mu held.
 func (c *Console) init() error {
-	f, err := os.OpenFile(serialDev, os.O_WRONLY|syscallNoctty, 0600)
+	f, err := os.OpenFile(c.devPath, os.O_WRONLY|syscallNoctty, 0600)
 	if err != nil {
-		return fmt.Errorf("open %s: %w", serialDev, err)
+		return fmt.Errorf("open %s: %w", c.devPath, err)
 	}
-	if err := setSerial(f, baudRate); err != nil {
-		f.Close()
-		return fmt.Errorf("set baud %s: %w", serialDev, err)
+	if err := c.configure(f, baudRate); err != nil {
+		_ = f.Close()
+		return fmt.Errorf("set baud %s: %w", c.devPath, err)
 	}
 	c.file = f
 	c.open = true
@@ -87,7 +91,7 @@ func (c *Console) Close() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.open && c.file != nil {
-		c.file.Close()
+		_ = c.file.Close()
 		c.open = false
 	}
 }

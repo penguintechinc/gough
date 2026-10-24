@@ -10,19 +10,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"os/signal"
 	"runtime"
-	"strings"
 	"syscall"
 	"time"
-	"unsafe"
-
-	"golang.org/x/sys/unix"
 
 	"github.com/golang-jwt/jwt/v5"
 
@@ -41,20 +38,20 @@ import (
 var Version = "dev"
 
 const (
-	caPEMPath     = "/etc/gough/ca.pem"
-	spireSocket   = "unix:///run/spire-agent/public/api.sock"
-	trustDomain   = "penguintech.io"
-	probeTimeout  = 5 * time.Minute
+	caPEMPath    = "/etc/gough/ca.pem"
+	spireSocket  = "unix:///run/spire-agent/public/api.sock"
+	trustDomain  = "penguintech.io"
+	probeTimeout = 5 * time.Minute
 )
 
-// readRawCmdline reads /proc/cmdline and returns the raw string for memory zeroing.
-// Actual parsing is delegated to the cmdline package.
-func readRawCmdline() (string, error) {
+// readRawCmdline reads /proc/cmdline into a mutable buffer so it can be zeroed
+// after parsing. Actual parsing is delegated to the cmdline package.
+func readRawCmdline() ([]byte, error) {
 	raw, err := os.ReadFile("/proc/cmdline")
 	if err != nil {
-		return "", fmt.Errorf("read /proc/cmdline: %w", err)
+		return nil, fmt.Errorf("read /proc/cmdline: %w", err)
 	}
-	return strings.TrimSpace(string(raw)), nil
+	return bytes.TrimSpace(raw), nil
 }
 
 func main() {
@@ -92,8 +89,8 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("JWT validation: %w", err)
 	}
 
-	// 3. Zero the raw cmdline buffer from our copy (best-effort).
-	zeroString(rawCmdline)
+	// 3. Zero the raw cmdline buffer (best-effort; the parsed token string is not wiped).
+	zeroBytes(rawCmdline)
 	runtime.GC()
 
 	slog.Info("cmdline parsed", "primary", params.Primary, "mac", params.MAC)
@@ -114,41 +111,37 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("smart preflight: %w", err)
 	}
 
-	// 7. Build discover request.
-	hostname, _ := os.Hostname()
-	req, err := buildDiscoverRequest(params.MAC, hostname, hw, hwTags)
+	// 7. Build discover request, including the BMC TLS probe result.
+	req, err := buildPayload(ctx, params, hw, hwTags)
 	if err != nil {
-		return fmt.Errorf("build request: %w", err)
+		return err
 	}
 
-	// 9. POST /api/v1/nodes/discover with retry on transient errors.
+	// 9. POST /api/v1/nodes/discover with exponential backoff on transient
+	// errors; 401/403 are permanent and abort immediately.
 	serial.WriteEvent("info", "posting discovery to api-manager", map[string]any{"primary": params.Primary})
-	var discoverResp discover.Response
 	var httpsFailedAt time.Time
 
-	for {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		discoverResp, err = discover.Post(ctx, params.Primary, params.Token, caPEMPath, req)
-		if err == nil {
-			break
-		}
-		slog.Warn("discover POST failed", "err", err)
-		if httpsFailedAt.IsZero() {
-			httpsFailedAt = time.Now()
-		}
-		if serial.ShouldUseFallback(httpsFailedAt) {
-			serial.WriteEvent("warn", "HTTPS unavailable >5m — continuing via serial console", map[string]any{
-				"primary": params.Primary,
-				"err":     err.Error(),
-			})
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(10 * time.Second):
-		}
+	discoverResp, err := postWithRetry(ctx,
+		func(c context.Context) (discover.Response, error) {
+			return discover.Post(c, params.Primary, params.Token, caPEMPath, req)
+		},
+		discoverRetry, rand.Float64, sleepCtx,
+		func(_ int, err error) {
+			slog.Warn("discover POST failed", "err", err)
+			if httpsFailedAt.IsZero() {
+				httpsFailedAt = time.Now()
+			}
+			if serial.ShouldUseFallback(httpsFailedAt) {
+				serial.WriteEvent("warn", "HTTPS unavailable >5m — continuing via serial console", map[string]any{
+					"primary": params.Primary,
+					"err":     err.Error(),
+				})
+			}
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("discover POST: %w", err)
 	}
 
 	slog.Info("discover POST succeeded",
@@ -158,8 +151,15 @@ func run(ctx context.Context) error {
 	)
 	serial.WriteEvent("info", "discover POST succeeded", map[string]any{"node_id": discoverResp.NodeID})
 
-	// 8. Fetch SVID via SPIRE Workload API.
-	spireClient, err := spire.NewClient(spireSocket)
+	// 8-9. Fetch SVID and open the persistent gRPC-mTLS control tunnel.
+	return openTunnel(ctx, discoverResp, spireSocket)
+}
+
+// openTunnel fetches an SVID from the SPIRE Workload API at socketPath and then
+// runs the control tunnel to the endpoint from the discover response. It blocks
+// until ctx is cancelled (tunnel.Run never returns otherwise).
+func openTunnel(ctx context.Context, discoverResp discover.Response, socketPath string) error {
+	spireClient, err := spire.NewClient(socketPath)
 	if err != nil {
 		return fmt.Errorf("spire client: %w", err)
 	}
@@ -170,7 +170,6 @@ func run(ctx context.Context) error {
 	}
 	slog.Info("SVID fetched", "spiffe_id", svidBundle.SPIFFEID)
 
-	// 9. Open persistent gRPC-mTLS control tunnel.
 	t := tunnel.New(tunnel.TunnelConfig{
 		Endpoint:  discoverResp.ControlTunnelEndpoint,
 		TLSConfig: svidBundle.TLSConfig,
@@ -183,7 +182,6 @@ func run(ctx context.Context) error {
 		"endpoint": discoverResp.ControlTunnelEndpoint,
 	})
 
-	// Run blocks until ctx is cancelled.
 	return t.Run(ctx)
 }
 
@@ -223,35 +221,25 @@ func validateToken(tokenStr, caPEMPath string) error {
 	return err
 }
 
-// zeroString overwrites the memory backing s with zeroes using the
-// string-to-bytes reinterpretation trick that is safe per the Go unsafe rules:
-// we copy the string header, extract the data pointer, and overwrite via the
-// resulting []byte.  unix.Madvise is used to advise the kernel to discard the
-// backing pages.  This is best-effort — the GC may have already moved the data.
-func zeroString(s string) {
-	if len(s) == 0 {
-		return
-	}
-	// Convert string to []byte without allocation by aliasing the header.
-	// unsafe.StringData is the correct Go 1.20+ way to get the backing pointer.
-	ptr := unsafe.StringData(s)
-	b := unsafe.Slice(ptr, len(s))
-
-	// Advise the kernel to discard the pages (best-effort).
-	_ = unix.Madvise(b, unix.MADV_DONTNEED)
-
-	// Overwrite with zeros.
-	for i := range b {
-		b[i] = 0
-	}
+// zeroBytes overwrites b with zeros. It is used on the raw kernel cmdline
+// buffer, which is kept as []byte from the moment it is read so it is mutable.
+// runtime.KeepAlive keeps the stores from being eliminated as dead. This is
+// best-effort: the parsed Params hold immutable string copies that cannot be wiped.
+func zeroBytes(b []byte) {
+	clear(b)
+	runtime.KeepAlive(b)
 }
 
-// collectProbes runs all hardware probes with a timeout.
+// collectProbes runs all hardware probes against the real host tools.
 func collectProbes(ctx context.Context) (tags.HardwareInput, error) {
+	return collectProbesWith(ctx, exec.OSRunner{})
+}
+
+// collectProbesWith runs all hardware probes with a timeout using runner for
+// external tool invocations. Sysfs-backed probes read the live host.
+func collectProbesWith(ctx context.Context, runner exec.Runner) (tags.HardwareInput, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
-
-	runner := exec.OSRunner{}
 
 	lshw, err := probe.RunLshw(ctx, runner)
 	if err != nil {
@@ -299,40 +287,19 @@ func collectProbes(ctx context.Context) (tags.HardwareInput, error) {
 	}, nil
 }
 
-// buildDiscoverRequest assembles the POST body from probe results.
+// buildDiscoverRequest assembles the hub-shaped POST body from probe results.
 func buildDiscoverRequest(mac, hostname string, hw tags.HardwareInput, hwTags []string) (discover.Request, error) {
-	req := discover.Request{
-		MACAddress:   mac,
+	return discover.BuildRequest(discover.Input{
+		MAC:          mac,
 		Hostname:     hostname,
-		ProductUUID:  hw.DMI.ProductUUID,
-		SysVendor:    hw.DMI.SysVendor,
-		ProductName:  hw.DMI.ProductName,
-		BIOSVersion:  hw.DMI.BIOSVersion,
-		FirmwareType: string(hw.Firmware),
+		DMI:          hw.DMI,
+		Firmware:     hw.Firmware,
+		Lshw:         hw.Lshw.Raw,
+		Lsblk:        hw.Lsblk.Raw,
+		NICs:         hw.NICs,
+		SMART:        hw.SMART,
+		NUMA:         hw.NUMA,
+		Accelerators: hw.Accelerators,
 		HardwareTags: hwTags,
-	}
-
-	if hw.Lshw.Raw != nil {
-		req.Lshw = hw.Lshw.Raw
-	}
-	if hw.Lsblk.Raw != nil {
-		req.Lsblk = hw.Lsblk.Raw
-	}
-
-	for _, s := range hw.SMART {
-		if s.Raw != nil {
-			req.SMART = append(req.SMART, s.Raw)
-		}
-	}
-
-	if hw.NUMA.Lstopo.Raw != nil {
-		req.NumaJSON = hw.NUMA.Lstopo.Raw
-	}
-
-	accelJSON, err := json.Marshal(hw.Accelerators)
-	if err == nil {
-		req.AcceleratorJSON = accelJSON
-	}
-
-	return req, nil
+	})
 }

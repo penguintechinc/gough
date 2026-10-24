@@ -1,0 +1,104 @@
+{
+  "dmi_uuid": "4c4c4544-0042-3510-8048-b1c04f4d5a32",
+  "primary_nic_mac": "aa:bb:cc:dd:ee:01",
+  "firmware_type": "uefi",
+  "hostname": "gough-node-01",
+  "sys_vendor": "Dell Inc.",
+  "product_name": "PowerEdge R640",
+  "bios_version": "2.19.1",
+  "lshw_json": {
+    "id": "system",
+    "class": "system",
+    "product": "PowerEdge R640"
+  },
+  "lsblk_json": {
+    "blockdevices": [
+      {
+        "name": "sda",
+        "type": "disk",
+        "size": "893.8G"
+      }
+    ]
+  },
+  "smart_attributes": [
+    {
+      "device": "sda",
+      "id": 5,
+      "name": "Reallocated_Sector_Ct",
+      "value": 100,
+      "worst": 100,
+      "thresh": 10,
+      "raw_value": 0
+    },
+    {
+      "device": "sda",
+      "id": 9,
+      "name": "Power_On_Hours",
+      "value": 96,
+      "worst": 96,
+      "thresh": 0,
+      "raw_value": 12345
+    }
+  ],
+  "nics": [
+    {
+      "mac": "aa:bb:cc:dd:ee:01",
+      "speed_mbps": 10000,
+      "pci_slot": "0000:3b:00.0",
+      "is_primary": true,
+      "name": "eno1"
+    },
+    {
+      "mac": "aa:bb:cc:dd:ee:02",
+      "is_primary": false,
+      "name": "eno2"
+    }
+  ],
+  "numa_topology": {
+    "nodes": 2,
+    "cpu_map": {
+      "0": [
+        0,
+        1,
+        2,
+        3
+      ],
+      "1": [
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    "memory_mb": {
+      "0": 65536,
+      "1": 65536
+    }
+  },
+  "accelerators": [
+    {
+      "bus_type": "pcie",
+      "vendor": "nvidia",
+      "model": "GA102 [GeForce RTX 3090]",
+      "pci_address": "3b:00.0"
+    },
+    {
+      "bus_type": "integrated",
+      "vendor": "intel",
+      "model": "Alder Lake-P GT2",
+      "pci_address": "00:02.0"
+    },
+    {
+      "bus_type": "embedded",
+      "vendor": "other",
+      "model": "vGPU",
+      "pci_address": "e1:00.0"
+    }
+  ],
+  "hardware_tags": [
+    "cpu:vendor:intel",
+    "disk:ssd"
+  ],
+  "bmc_tls_status": "ok",
+  "bmc_cert_sha256": "abababababababababababababababababababababababababababababababab"
+}
