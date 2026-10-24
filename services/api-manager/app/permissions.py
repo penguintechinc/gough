@@ -47,9 +47,10 @@ def check_team_access(
         required_idx = TEAM_ROLES.index(required_role)
         user_idx = TEAM_ROLES.index(user_role)
 
-        # Higher index means higher privilege
-        return user_idx >= required_idx
-    except (KeyError, AttributeError):
+        # TEAM_ROLES is ordered most-privileged first (owner=0 ... viewer=3),
+        # so a LOWER index means HIGHER privilege. Fail closed on unknown roles.
+        return user_idx <= required_idx
+    except (KeyError, AttributeError, ValueError):
         return False
 
 
@@ -145,7 +146,7 @@ def require_team_permission(required_role: str = "member") -> Callable:
 
             # Get team_id from kwargs (route param), JSON, or args
             team_id = kwargs.get("team_id")
-            if not team_id and await request.is_json:
+            if not team_id and request.is_json:
                 json_data = await request.get_json()
                 team_id = json_data.get("team_id")
             if not team_id:
@@ -191,12 +192,11 @@ def require_resource_permission(permission: str = "read") -> Callable:
                 kwargs.get("resource_type")
                 or request.args.get("resource_type")
             )
-            resource_id = (
-                kwargs.get("resource_id", type=int)
-                or request.args.get("resource_id", type=int)
+            resource_id = kwargs.get("resource_id") or request.args.get(
+                "resource_id", type=int
             )
 
-            if not await request.is_json:
+            if not request.is_json:
                 request_data = {}
             else:
                 request_data = await request.get_json() or {}

@@ -629,7 +629,6 @@ class TestRateLimitDecorator:
 class TestScopeRequired:
     """Test scope-based authorization decorator."""
 
-    @pytest.mark.xfail(strict=False)
     @pytest.mark.asyncio
     async def test_scope_required_with_principal(self, quart_app: Any) -> None:
         """Test authorization with proper OIDC principal."""
@@ -646,7 +645,6 @@ class TestScopeRequired:
                 result = await protected_handler()
                 assert result == "authorized"
 
-    @pytest.mark.xfail(strict=False)
     @pytest.mark.asyncio
     async def test_scope_required_insufficient_scope(self, quart_app: Any) -> None:
         """Test authorization denies insufficient scope."""
@@ -693,7 +691,6 @@ class TestScopeRequired:
                 result = await protected_handler()
                 assert result == "authorized"
 
-    @pytest.mark.xfail(strict=False)
     @pytest.mark.asyncio
     async def test_scope_required_legacy_viewer_denied(self, quart_app: Any) -> None:
         """Test legacy viewer role is denied."""

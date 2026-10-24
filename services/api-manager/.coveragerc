@@ -15,6 +15,9 @@ omit =
     # Dead code: shadowed by their package directories (Python resolves package over module)
     app/auth.py
     app/models.py
+    # Generated protobuf/gRPC stubs (protoc output, not hand-written logic)
+    app/grpc/*/*_pb2.py
+    app/grpc/*/*_pb2_grpc.py
 
 [report]
 exclude_lines =

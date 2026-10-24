@@ -142,7 +142,6 @@ def clouds_client(dal_with_clouds, monkeypatch):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="DAL query syntax error in app/api/clouds.py:46", strict=False)
 async def test_list_providers_empty(clouds_client):
     """Test GET / when no providers exist."""
     response = await clouds_client.get("/api/v1/clouds/")
@@ -153,7 +152,6 @@ async def test_list_providers_empty(clouds_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="DAL query syntax error in app/api/clouds.py:46", strict=False)
 async def test_list_providers_with_data(clouds_client, dal_with_clouds):
     """Test GET / with existing providers."""
     now = datetime.now(timezone.utc)
@@ -188,7 +186,6 @@ async def test_list_providers_with_data(clouds_client, dal_with_clouds):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="DAL query syntax error in app/api/clouds.py:46", strict=False)
 async def test_list_providers_config_redacted(clouds_client, dal_with_clouds):
     """Test GET / redacts config from all providers."""
     now = datetime.now(timezone.utc)
@@ -651,7 +648,6 @@ async def test_list_machines_provider_not_found(clouds_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="DAL query syntax error in app/api/clouds.py or list endpoint", strict=False)
 async def test_list_machines_from_database(clouds_client, dal_with_clouds):
     """Test GET /<id>/machines returns machines from database."""
     now = datetime.now(timezone.utc)
@@ -718,7 +714,6 @@ async def test_list_machines_refresh_from_api(clouds_client, dal_with_clouds):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="await request.args bug in app/api/clouds.py line 335", strict=False)
 async def test_list_machines_refresh_api_error(clouds_client, dal_with_clouds):
     """Test GET /<id>/machines?refresh=true handles API error (500)."""
     from app.clouds import CloudError

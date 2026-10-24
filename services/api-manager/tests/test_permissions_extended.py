@@ -69,7 +69,7 @@ class TestTeamAccessChecks:
         assert result is False
 
     def test_check_team_access_invalid_role(self, monkeypatch):
-        """Test raises ValueError when user has invalid role."""
+        """Unknown membership role fails closed (returns False, never raises)."""
         mock_db = MagicMock()
         mock_membership = Mock(role="invalid_role")
         mock_query = MagicMock()
@@ -78,9 +78,7 @@ class TestTeamAccessChecks:
 
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
-        # ValueError is raised when invalid role is not in TEAM_ROLES list
-        with pytest.raises(ValueError):
-            check_team_access(1, 1, "member")
+        assert check_team_access(1, 1, "member") is False
 
 
 class TestResourcePermissions:

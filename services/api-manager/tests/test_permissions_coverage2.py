@@ -29,10 +29,10 @@ class TestTeamAccessEdgeCases:
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
         result = check_team_access(1, 1, "member")
-        assert result is False  # admin(1) < member(2) index
+        assert result is True  # admin outranks member
 
     def test_check_team_access_member_to_viewer_fallback(self, monkeypatch):
-        """Test member cannot satisfy viewer requirement (102-104, read permission)."""
+        """Test member satisfies viewer requirement (102-104, read permission)."""
         mock_db = MagicMock()
         mock_query = MagicMock()
         mock_db.return_value = mock_query
@@ -42,10 +42,10 @@ class TestTeamAccessEdgeCases:
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
         result = check_team_access(1, 1, "viewer")
-        assert result is False  # member(2) < viewer(3) index
+        assert result is True  # member outranks viewer
 
     def test_check_team_access_index_comparison(self, monkeypatch):
-        """Test index >= comparison logic (51)."""
+        """Test privilege comparison: owner satisfies member (TEAM_ROLES lower index = higher privilege)."""
         mock_db = MagicMock()
         mock_query = MagicMock()
         mock_db.return_value = mock_query
@@ -54,9 +54,8 @@ class TestTeamAccessEdgeCases:
 
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
-        # Owner is index 0, member is 2, so 0 >= 2 is False
         result = check_team_access(1, 1, "member")
-        assert result is False
+        assert result is True
 
 
 class TestResourcePermissionFallback:
@@ -237,6 +236,5 @@ class TestGetCurrentUserEdgeCases:
 
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
-        # ValueError when trying to find None in TEAM_ROLES
-        with pytest.raises(ValueError):
-            check_team_access(1, 1, "member")
+        # None is not in TEAM_ROLES -> fail closed
+        assert check_team_access(1, 1, "member") is False
