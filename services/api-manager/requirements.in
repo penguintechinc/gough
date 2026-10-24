@@ -127,6 +127,7 @@ pytest-asyncio==0.24.0
 pytest-xdist==3.6.1  # Parallel test runs (-n auto); pytest-cov combines per-worker data
 pytest-benchmark==4.0.0  # Plan compiler performance benchmarks (50-egg p95 < 1s; 250-egg p95 < 5s)
 requests-mock==1.12.1  # LXD HTTPS API mocks for tests/clients/test_lxd_extra.py
+respx==0.23.1  # httpx transport mocks for LXD join API tests
 # tests/test_openapi_export.py has always imported this to validate the
 # generated OpenAPI 3.1 document, but it was never declared -- so that
 # assertion silently never ran.
