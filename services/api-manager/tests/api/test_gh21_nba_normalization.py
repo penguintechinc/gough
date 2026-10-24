@@ -60,6 +60,41 @@ def _seed_node(dal_db: Any, **overrides: Any) -> int:
     return int(dal_db.nodes.insert(**base))
 
 
+def _seed_fresh_snapshot(dal_db: Any, node_id: int) -> None:
+    """Record a fresh, healthy host-resources snapshot so the capacity guard has facts to fit against.
+
+    The deploy path reserves capacity through the guard, which refuses (409
+    ``stale_or_missing_snapshot``) any node with no recent snapshot -- the fixture seeds a real
+    one rather than stubbing the guard, because this test is about NBA normalisation, not placement.
+    """
+    from app import capacity_guard
+
+    gib = 1024**3
+    now = datetime.now(timezone.utc)
+    body = {
+        "schema": "gough.host_resources.v1",
+        "collected_at": now.isoformat(),
+        "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+        "memory": {"total_bytes": 64 * gib, "available_bytes": 40 * gib,
+                   "swap_total_bytes": 0, "swap_used_bytes": 0},
+        "pressure": {
+            "cpu": {"some_avg10": 1.0, "some_avg60": 1.0},
+            "memory": {"some_avg10": 0.0, "some_avg60": 1.0, "full_avg60": 0.0},
+            "io": {"some_avg60": 0.0, "full_avg60": 0.5},
+        },
+        "storage_pools": [{"name": "default", "driver": "zfs",
+                           "total_bytes": 1000 * gib, "used_bytes": 100 * gib}],
+        "host_root_fs": {"total_bytes": 100 * gib, "free_bytes": 60 * gib},
+        "committed": {"cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0},
+                      "instances": 0, "instances_without_limits": 0},
+        "errors": [],
+    }
+    snap = capacity_guard.parse_snapshot(body)
+    with dal_db.engine.begin() as conn:
+        outcome = capacity_guard.record_snapshot(conn, node_id, snap, now)
+    assert outcome is capacity_guard.SnapshotOutcome.STORED, outcome
+
+
 def _seed_biome(dal_db: Any, **overrides: Any) -> int:
     base: dict[str, Any] = dict(name=f"biome-{uuid.uuid4().hex[:8]}", tenant_id="acme")
     base.update(overrides)
@@ -285,6 +320,7 @@ class TestNodeDeployAssignRoundtrip:
         node_id = _seed_node(pg_db)
         biome_id = _seed_biome(pg_db, phase="post_deploy")
         pg_db.commit()
+        _seed_fresh_snapshot(pg_db, node_id)
 
         app = await self._build_app(pg_db, monkeypatch)
         client = app.test_client()

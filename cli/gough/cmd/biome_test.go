@@ -23,7 +23,7 @@ func TestBiomeListCmd_Empty(t *testing.T) {
 func TestBiomeListCmd_WithItems(t *testing.T) {
 	biomes := []client.Biome{
 		{
-			Name:         "k8s-primary",
+			Name:         "k8s-controller",
 			Version:      "1.28.0",
 			Kind:         "infrastructure",
 			Phase:        "post_deploy",
@@ -51,7 +51,7 @@ func TestBiomeListCmd_WithItems(t *testing.T) {
 func TestBiomeListCmd_Filters(t *testing.T) {
 	biomes := []client.Biome{
 		{
-			Name:         "k8s-primary",
+			Name:         "k8s-controller",
 			Version:      "1.28.0",
 			Kind:         "infrastructure",
 			Phase:        "post_deploy",
@@ -77,7 +77,7 @@ func TestBiomeListCmd_Filters(t *testing.T) {
 
 func TestBiomeShowCmd(t *testing.T) {
 	biome := &client.Biome{
-		Name:         "k8s-primary",
+		Name:         "k8s-controller",
 		Version:      "1.28.0",
 		Kind:         "infrastructure",
 		Phase:        "post_deploy",
@@ -87,13 +87,13 @@ func TestBiomeShowCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(biome)))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "show", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "show", "k8s-controller"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeShowCmd_WithVersion(t *testing.T) {
 	biome := &client.Biome{
-		Name:         "k8s-primary",
+		Name:         "k8s-controller",
 		Version:      "1.27.0",
 		Kind:         "infrastructure",
 		Phase:        "post_deploy",
@@ -103,7 +103,7 @@ func TestBiomeShowCmd_WithVersion(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(biome)))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "show", "k8s-primary", "--version", "1.27.0"})
+	rootCmd.SetArgs([]string{"biome", "show", "k8s-controller", "--version", "1.27.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -161,7 +161,7 @@ func TestBiomePromoteCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "promote", "k8s-primary", "1.28.0"})
+	rootCmd.SetArgs([]string{"biome", "promote", "k8s-controller", "1.28.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -170,13 +170,13 @@ func TestBiomeRollbackCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "rollback", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "rollback", "k8s-controller"})
 	_ = rootCmd.Execute()
 }
 
 func TestBiomeDiffCmd(t *testing.T) {
 	diffData := map[string]interface{}{
-		"name":    "k8s-primary",
+		"name":    "k8s-controller",
 		"v1":      "1.27.5",
 		"v2":      "1.28.0",
 		"changes": []string{"updated cloud-init", "new dependencies"},
@@ -184,7 +184,7 @@ func TestBiomeDiffCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(diffData)))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "diff", "k8s-primary", "1.27.5", "1.28.0"})
+	rootCmd.SetArgs([]string{"biome", "diff", "k8s-controller", "1.27.5", "1.28.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -193,7 +193,7 @@ func TestBiomeReSignCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "re-sign", "k8s-primary", "1.28.0"})
+	rootCmd.SetArgs([]string{"biome", "re-sign", "k8s-controller", "1.28.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -216,7 +216,7 @@ func TestBiomeUpgradeCmd(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary", "--to", "1.29.0"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller", "--to", "1.29.0"})
 	_ = rootCmd.Execute()
 }
 
@@ -365,7 +365,7 @@ func TestBiomeNewCmd_HooksExecutable(t *testing.T) {
 
 func TestBiomePromoteCmd_MissingArgs(t *testing.T) {
 	// biome promote requires exactly two arguments.
-	rootCmd.SetArgs([]string{"biome", "promote", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "promote", "k8s-controller"})
 
 	err := rootCmd.Execute()
 	// Error expected for missing second argument.
@@ -376,7 +376,7 @@ func TestBiomePromoteCmd_MissingArgs(t *testing.T) {
 
 func TestBiomeDiffCmd_MissingArgs(t *testing.T) {
 	// biome diff requires exactly three arguments.
-	rootCmd.SetArgs([]string{"biome", "diff", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "diff", "k8s-controller"})
 
 	err := rootCmd.Execute()
 	// Error expected for missing arguments.
@@ -391,7 +391,7 @@ func TestBiomeUpgradeCmd_MissingToFlag(t *testing.T) {
 	defer cleanup()
 
 	// biome upgrade requires --to flag.
-	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-primary"})
+	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller"})
 
 	err := rootCmd.Execute()
 	// Error expected for missing required flag.
@@ -417,7 +417,7 @@ func TestBiomeDeployCmd_KubeVIPMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-1",
 		"--frontend-mode", "kube-vip",
 		"--frontend-endpoint", "10.2.0.10:6443",
@@ -433,7 +433,7 @@ func TestBiomeDeployCmd_ExternalMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-2",
 		"--frontend-mode", "external",
 		"--frontend-endpoint", "nlb.example.com:6443",
@@ -447,7 +447,7 @@ func TestBiomeDeployCmd_NoneMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-3",
 		"--frontend-mode", "none",
 	})
@@ -460,7 +460,7 @@ func TestBiomeDeployCmd_DefaultFrontendMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-4",
 		"--frontend-endpoint", "10.2.0.11:6443",
 	})
@@ -473,7 +473,7 @@ func TestBiomeDeployCmd_MissingEndpoint(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-5",
 		"--frontend-mode", "kube-vip",
 	})
@@ -491,7 +491,7 @@ func TestBiomeDeployCmd_EndpointWithNoneMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-6",
 		"--frontend-mode", "none",
 		"--frontend-endpoint", "10.2.0.12:6443",
@@ -510,7 +510,7 @@ func TestBiomeDeployCmd_InvalidMode(t *testing.T) {
 	_, cleanup := setupTestEnv(t, jsonResponse(t, 200, resp))
 	defer cleanup()
 
-	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-primary",
+	rootCmd.SetArgs([]string{"biome", "deploy", "k8s-controller",
 		"--node", "node-7",
 		"--frontend-mode", "invalid-mode",
 		"--frontend-endpoint", "10.2.0.13:6443",

@@ -1,5 +1,5 @@
 {
-  "description": "Worked Example 1 — single node k8s-primary deploy",
+  "description": "Worked Example 1 — single node k8s-controller deploy",
   "node": {
     "id": 1,
     "name": "node-alpha-01",
@@ -17,7 +17,7 @@
   },
   "plan_request": {
     "cluster_id": "550e8400-e29b-41d4-a716-446655440001",
-    "reason": "Initial k8s-primary deploy",
+    "reason": "Initial k8s-controller deploy",
     "actor_sub": "operator@penguintech.io",
     "disk_plan": {
       "disk_device": "/dev/nvme0n1",
@@ -29,7 +29,7 @@
   "eggs": [
     {
       "id": 101,
-      "name": "k8s-primary",
+      "name": "k8s-controller",
       "version": "1.30.2",
       "phase": "post_deploy",
       "workload_type": "lxc",
@@ -41,8 +41,8 @@
       "consumes_joiner_secrets_from": [],
       "emits_joiner_secrets": true,
       "cloud_init": {
-        "write_files": [{"path": "/etc/gough/k8s-primary.conf", "content": "# k8s-primary config"}],
-        "runcmd": ["kubeadm init --config /etc/gough/k8s-primary.conf"]
+        "write_files": [{"path": "/etc/gough/k8s-controller.conf", "content": "# k8s-controller config"}],
+        "runcmd": ["kubeadm init --config /etc/gough/k8s-controller.conf"]
       },
       "storage_requirements_json": {"min_ram_mb": 8192, "min_disk_gb": 40}
     }

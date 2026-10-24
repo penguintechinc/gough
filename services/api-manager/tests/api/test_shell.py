@@ -332,6 +332,7 @@ class TestTerminateSession:
         # Mock session record
         fake_session = MagicMock()
         fake_session.user_id = 1
+        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
         fake_session.ended_at = None
         fake_session.started_at = datetime.utcnow() - timedelta(minutes=5)
         fake_session.resource_type = "vm"
@@ -380,6 +381,7 @@ class TestTerminateSession:
         # Mock session owned by different user
         fake_session = MagicMock()
         fake_session.user_id = 999  # Different user
+        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
         fake_session.ended_at = None
 
         def _db_call(*args, **kwargs):
@@ -405,6 +407,7 @@ class TestTerminateSession:
         # Mock already-terminated session
         fake_session = MagicMock()
         fake_session.user_id = 1
+        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
         fake_session.ended_at = datetime.utcnow() - timedelta(hours=1)
 
         def _db_call(*args, **kwargs):

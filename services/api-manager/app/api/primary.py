@@ -43,6 +43,7 @@ from ..db.run_db import run_db
 from ..licensing import feature_enabled
 from ..middleware import auth_required
 from ..models import get_db
+from ._helpers import request_is_cross_tenant, request_tenant_id
 
 log = logging.getLogger(__name__)
 
@@ -1114,20 +1115,35 @@ async def switch_frontend():
                 "message": "external mode requires new_endpoint parameter"},
         }), 422
 
-    # Validate external endpoint reachability
+    # Validate external endpoint reachability. ``new_endpoint`` is request input and this is an
+    # outbound TCP connect, so it goes through the SSRF guard first (resolve once, refuse
+    # loopback/link-local/metadata) and connects to the vetted literal IP, never the hostname.
     if target_mode == "external":
+        from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+
         try:
             host, port_str = new_endpoint.split(":", 1)
             port = int(port_str)
+            if not 0 < port < 65536:
+                raise ValueError("port out of range")
+            vetted = await _validate_discovery_endpoint(f"http://{host}:{port}")
             result = await asyncio.to_thread(
-                lambda: __import__("socket").create_connection((host, port), timeout=3)
+                lambda: __import__("socket").create_connection((vetted.pinned_ip, port), timeout=3)
             )
             result.close()
+        except (ValueError, ClusterDiscoveryUnavailable):
+            return jsonify({
+                "status": "error",
+                "error": {"code": "validation_failed",
+                    "message": "new_endpoint must be host:port and must not target loopback, "
+                               "link-local or metadata addresses"},
+            }), 422
         except Exception as e:
+            log.warning("external frontend endpoint unreachable: %s", e)
             return jsonify({
                 "status": "error",
                 "error": {"code": "endpoint_unreachable",
-                    "message": f"Cannot reach {new_endpoint}: {e}"},
+                    "message": "Cannot reach new_endpoint"},
             }), 400
 
     # Update endpoint everywhere. Regression: gh-22. Off the event loop via
@@ -1135,9 +1151,12 @@ async def switch_frontend():
     db = get_db()
 
     def _fetch_primary_node_ids() -> list[int]:
-        return [
-            row.id for row in db(db.nodes.state == "primary").select(db.nodes.id)
-        ]
+        # Tenant isolation: a tenant-scoped admin switches only its own primary nodes;
+        # only a cross-tenant super-admin token reaches every tenant's primaries.
+        cond = db.nodes.state == "primary"
+        if not request_is_cross_tenant():
+            cond = cond & (db.nodes.tenant_id == request_tenant_id())
+        return [row.id for row in db(cond).select(db.nodes.id)]
 
     try:
         node_ids = await run_db(_fetch_primary_node_ids)

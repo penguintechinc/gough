@@ -56,6 +56,7 @@ def agents_client(dal, monkeypatch):
     if "access_agents" not in getattr(dal, "tables", []):
         dal.define_table(
             "access_agents",
+            Field("tenant_id", "string"),
             Field("agent_id", "string", notnull=True),
             Field("hostname", "string"),
             Field("ip_address", "string"),
@@ -505,6 +506,7 @@ class TestAgentListing:
             dal.enrollment_keys.insert(key_hash=key_hash)
 
             dal.access_agents.insert(
+        tenant_id="default",
                 agent_id=f"agent-{i}",
                 hostname=f"host-{i}",
                 enrollment_key_hash=key_hash,
@@ -522,6 +524,7 @@ class TestAgentListing:
         # Create agents with different statuses
         for status in ["active", "inactive", "error"]:
             dal.access_agents.insert(
+        tenant_id="default",
                 agent_id=f"agent-{status}",
                 hostname=f"host-{status}",
                 status=status,
@@ -542,6 +545,7 @@ class TestAgentDetails:
     async def test_get_agent_success(self, agents_client, dal):
         """Get details of enrolled agent."""
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id="test-agent-123",
             hostname="test-host",
             status="active",
@@ -566,6 +570,7 @@ class TestAgentHeartbeat:
     async def test_heartbeat_success(self, agents_client, dal):
         """Agent heartbeat updates last_heartbeat."""
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
         )
@@ -593,6 +598,7 @@ class TestAgentTokenRefresh:
     async def test_refresh_token_success(self, agents_client, dal):
         """Refresh agent token with valid refresh token."""
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
         )
@@ -620,6 +626,7 @@ class TestAgentDeregistration:
     async def test_deregister_agent_success(self, agents_client, dal):
         """Suspend an enrolled agent."""
         dal.access_agents.insert(
+        tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
             status="active",
@@ -660,3 +667,22 @@ class TestAuthorizationEnforcement:
         # Decorator is stubbed, so this should succeed
         # In real deployment, non-admin would get 403
         assert response.status_code in (201, 200, 403)
+
+
+class TestAgentTenantIsolation:
+    """regression: agent endpoints must not expose or mutate another tenant's agents."""
+
+    async def test_foreign_and_unstamped_agents_are_invisible(self, agents_client, dal):
+        for agent_id, tenant in (("own-agent", "default"), ("foreign-agent", "globex"), ("legacy-agent", None)):
+            dal.access_agents.insert(agent_id=agent_id, hostname=agent_id, status="active", tenant_id=tenant)
+        dal.commit()
+
+        listing = await (await agents_client.get("/api/v1/agents/")).get_json()
+        assert [a["agent_id"] for a in listing["agents"]] == ["own-agent"]
+
+        for hidden in ("foreign-agent", "legacy-agent"):
+            assert (await agents_client.get(f"/api/v1/agents/{hidden}")).status_code == 404
+            assert (await agents_client.post(f"/api/v1/agents/{hidden}/suspend")).status_code == 404
+            assert (await agents_client.post(f"/api/v1/agents/{hidden}/resume")).status_code == 404
+            row = dal(dal.access_agents.agent_id == hidden).select().first()
+            assert row.status == "active"  # the cross-tenant suspend/resume never ran

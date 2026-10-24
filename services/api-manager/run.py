@@ -8,6 +8,7 @@ import asyncio
 
 from app import create_app
 from app.config import Config
+from app.lifecycle import build_hypercorn_config, serve_app
 
 
 def wait_for_database(max_retries: int = 30, retry_delay: int = 2) -> bool:
@@ -42,14 +43,16 @@ async def main():
     # Create Quart app
     app = await create_app()
 
-    # Get configuration
+    # Get configuration. Graceful shutdown window comes from GRACEFUL_SHUTDOWN_TIMEOUT
+    # (default 25s, must stay under the pod's 30s terminationGracePeriodSeconds).
     host = os.getenv("QUART_HOST", "0.0.0.0")
     port = int(os.getenv("QUART_PORT", "5000"))
-    debug = os.getenv("QUART_DEBUG", "false").lower() == "true"
+    server_config = build_hypercorn_config(f"{host}:{port}")
 
-    print(f"Starting Quart backend on {host}:{port}")
+    print(f"Starting Quart backend on {host}:{port} (graceful_timeout={server_config.graceful_timeout}s)")
 
-    await app.run_task(host=host, port=port, debug=debug)
+    # serve_app handles SIGINT/SIGTERM -> lifespan shutdown -> after_serving teardown.
+    await serve_app(app, server_config)
 
 
 if __name__ == "__main__":

@@ -120,8 +120,13 @@ async def test_post_migration_egg_missing_reason(client):
 
 
 @pytest.mark.asyncio
-async def test_post_migration_egg_safety_pass(client):
-    """Test POST /api/v1/migration/biome/{id} returns 202 on safety pass."""
+async def test_post_migration_egg_safety_pass(client, seed_fresh_snapshot):
+    """Test POST /api/v1/migration/biome/{id} returns 202 on safety pass.
+
+    Headroom fails closed without a fresh host snapshot, so both nodes get one.
+    """
+    seed_fresh_snapshot(1)
+    seed_fresh_snapshot(2)
     body = {
         "target_node_id": 2,
         "ignore_lock": False,

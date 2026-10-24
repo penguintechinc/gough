@@ -105,7 +105,7 @@ def test_m1_e2e_09_smart_warning(primary_cluster, sim_node_factory, api_client):
     # Try to assign an biome with strict health requirement
     egg_plan = {
         "node_id": node_id,
-        "biomes": [{"name": "k8s-primary", "min_disk_health": "healthy"}]
+        "biomes": [{"name": "k8s-controller", "min_disk_health": "healthy"}]
     }
 
     resp = api_client.post("/api/v1/plans", data=egg_plan, timeout=10)
@@ -333,7 +333,7 @@ def test_m1_e2e_14_ipv6_slaac(primary_cluster, sim_node_factory, api_client):
 
 def test_m1_e2e_15_joiner_secret_emit(primary_cluster, api_client):
     """
-    Test 15: Joiner secret emit (k8s-primary)
+    Test 15: Joiner secret emit (k8s-controller)
     Pass criteria:
       - `joiner_secrets` row created
       - Ciphertext is GCM

@@ -161,6 +161,7 @@ async def test_list_enrollment_keys_with_include_used_true(agents_client):
         {
             "id": 1,
             "created_by": "user123",
+            "metadata": "{\"tenant_id\": \"default\"}",
             "expires_at": datetime(2025, 12, 1, 12, 0),
             "is_used": True,
             "used_by_agent": 42,
@@ -187,6 +188,7 @@ async def test_list_enrollment_keys_with_include_used_false(agents_client):
         {
             "id": 1,
             "created_by": "user123",
+            "metadata": "{\"tenant_id\": \"default\"}",
             "expires_at": datetime(2025, 12, 1, 12, 0),
             "is_used": False,
             "used_by_agent": None,
@@ -230,6 +232,7 @@ async def test_list_enrollment_keys_null_dates(agents_client):
         {
             "id": 1,
             "created_by": "user123",
+            "metadata": "{\"tenant_id\": \"default\"}",
             "expires_at": None,
             "is_used": False,
             "used_by_agent": None,
@@ -257,11 +260,12 @@ async def test_revoke_enrollment_key_exception_path(agents_client):
 
     # Setup: key exists but delete raises exception
     mock_key = MagicMock()
+    mock_key.__getitem__ = lambda _s, _k: "{\"tenant_id\": \"default\"}"
     mock_db.enrollment_keys.return_value = mock_key
 
     delete_query = MagicMock()
     mock_db.return_value = delete_query
-    delete_query.delete.side_effect = RuntimeError("DB Delete failed")
+    delete_query.update.side_effect = RuntimeError("DB Delete failed")  # revoke is a soft-delete update
 
     response = await client.delete("/api/v1/agents/enrollment-keys/1")
 
@@ -361,6 +365,7 @@ async def test_enroll_agent_key_already_used(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.is_used = True
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)
 
@@ -385,6 +390,7 @@ async def test_enroll_agent_key_expired(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() - timedelta(hours=1)
 
@@ -410,6 +416,7 @@ async def test_enroll_agent_success(agents_client):
 
     # Setup: valid key
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.id = 1
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)
@@ -444,6 +451,7 @@ async def test_enroll_agent_exception_path(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_key = MagicMock()
+    mock_key.revoked = False
     mock_key.id = 1
     mock_key.is_used = False
     mock_key.expires_at = datetime.utcnow() + timedelta(hours=1)
@@ -574,6 +582,7 @@ async def test_refresh_agent_token_agent_inactive(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_agent.status = "suspended"
 
     mock_query = MagicMock()
@@ -603,6 +612,7 @@ async def test_refresh_agent_token_success(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_agent.status = "active"
     mock_agent.capabilities = '["ssh", "sftp"]'
 
@@ -708,6 +718,7 @@ async def test_list_agents_with_status_filter(agents_client):
     mock_agent = {
         "id": 1,
         "agent_id": "agent-uuid-1",
+        "tenant_id": "default",
         "hostname": "agent1",
         "ip_address": "192.168.1.1",
         "status": "active",
@@ -737,6 +748,7 @@ async def test_list_agents_no_filter(agents_client):
     mock_agent = {
         "id": 1,
         "agent_id": "agent-uuid-1",
+        "tenant_id": "default",
         "hostname": "agent1",
         "ip_address": "192.168.1.1",
         "status": "active",
@@ -765,6 +777,7 @@ async def test_list_agents_null_dates(agents_client):
     mock_agent = {
         "id": 1,
         "agent_id": "agent-uuid-1",
+        "tenant_id": "default",
         "hostname": "agent1",
         "ip_address": "192.168.1.1",
         "status": "active",
@@ -797,6 +810,7 @@ async def test_get_agent_found(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_agent.id = 1
     mock_agent.agent_id = "agent-uuid-1"
     mock_agent.hostname = "agent1"
@@ -842,6 +856,7 @@ async def test_get_agent_null_dates(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_agent.id = 1
     mock_agent.agent_id = "agent-uuid-1"
     mock_agent.hostname = "agent1"
@@ -893,6 +908,7 @@ async def test_suspend_agent_exception_path(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_query = MagicMock()
     mock_db.return_value = mock_query
 
@@ -900,6 +916,7 @@ async def test_suspend_agent_exception_path(agents_client):
     # Second call (in try block): update raises exception
     if_query = MagicMock()
     if_query.update.side_effect = RuntimeError("DB Update failed")
+    if_query.select.return_value.first.return_value = mock_agent
     mock_query.select.return_value.first.return_value = mock_agent
     mock_db.return_value = if_query
 
@@ -936,6 +953,7 @@ async def test_resume_agent_exception_path(agents_client):
     client, agents_mod, mock_db = agents_client
 
     mock_agent = MagicMock()
+    mock_agent.tenant_id = "default"
     mock_query = MagicMock()
     mock_db.return_value = mock_query
 
@@ -943,6 +961,7 @@ async def test_resume_agent_exception_path(agents_client):
     # Second call (in try block): update raises exception
     if_query = MagicMock()
     if_query.update.side_effect = RuntimeError("DB Update failed")
+    if_query.select.return_value.first.return_value = mock_agent
     mock_query.select.return_value.first.return_value = mock_agent
     mock_db.return_value = if_query
 

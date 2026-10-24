@@ -1,21 +1,70 @@
 """Seeds the four built-in biomes if they don't already exist.
 
 This module provides idempotent seeding of the standard Gough built-in biomes:
-- k8s-primary: Infrastructure biome for Kubernetes primary control plane
+- k8s-controller: Infrastructure biome for Kubernetes control plane (formerly k8s-primary)
 - k8s-worker: Infrastructure biome for Kubernetes worker nodes
 - nest-agent: Infrastructure agent for cluster observability
 - longhorn-agent: Application agent for distributed storage
 
 All built-in biomes are pre-marked as signature_verified=True since they are
 shipped with the product and validated at build time.
+
+Airgap: the Cilium chart, CRD bundle and registry are NOT referenced here by
+upstream URL. They come from operator mirrors configured in ``app.mirrors``.
+The digests below are the 1.20.1 multi-arch index digests (verified with
+``docker buildx imagetools inspect``) and are informational pins.
 """
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Mapping
+from datetime import datetime, timezone
+
+log = logging.getLogger(__name__)
+
+#: Cilium release pinned by the built-in CNI. Matches the biomes repo (``cilium_version``).
+CILIUM_VERSION = "1.20.1"
+
+#: Deprecated biome names accepted on input for one release. Maps to the canonical name.
+#: Airgap image digests for Cilium 1.20.1 (biomes repo airgap matrix, rendered with helm template).
+#: Keys are mirror image names. The operator key is the repository WITHOUT the "-generic"
+#: suffix: the chart appends it, so writing it twice would pull a non-existent image.
+CILIUM_IMAGE_DIGESTS: Mapping[str, str] = {
+    "cilium": "sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b",
+    "operator": "sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf",
+    "cilium-envoy": "sha256:75b8094c7127736a2ffd2dce3945e0931cb6df21b0372ff661940eca26730b91",
+    "hubble-relay": "sha256:59be0ae7d475ab9011a5e954618c0f27b5778b17140381425b308b55ba4917f4",
+    "certgen": "sha256:6213a4c54a1f36e14a9280765f058aaa2017550c28bc122f5b09ad146fd0da2b",
+}
+
+#: Envoy tag that matches the pinned digest (documentation; the digest is what is pulled).
+CILIUM_ENVOY_TAG = "v1.37.5-1786810558-766ccfb37260a43e9d228837aa84ce3faf9f64e7"
+
+LEGACY_BIOME_ALIASES: Mapping[str, str] = {"k8s-primary": "k8s-controller"}
+
+
+def canonical_biome_name(name: str) -> str:
+    """Return the canonical biome name, mapping deprecated aliases with a warning.
+
+    Input that is not a known alias is returned unchanged. A deprecated name is
+    accepted for one release so existing callers and stored rows keep working;
+    the warning makes the remaining callers visible for removal.
+    """
+    canonical = LEGACY_BIOME_ALIASES.get(name)
+    if canonical is None:
+        return name
+    log.warning(
+        "deprecated biome name %r accepted; use %r (alias removed in the next release)",
+        name,
+        canonical,
+    )
+    return canonical
+
 
 BUILTIN_BIOMES = [
     {
-        "name": "k8s-primary",
+        "name": "k8s-controller",
         "biome_kind": "infrastructure",
         "phase": "post_deploy",
         "lock_to_host": True,
@@ -27,12 +76,17 @@ BUILTIN_BIOMES = [
         },
         "default_cni": {
             "mode": "cilium",
-            "version": "1.19.1",
-            "chart_repo": "https://helm.cilium.io/",
+            "version": CILIUM_VERSION,
+            # Chart, CRD bundle and checksums come from hub mirror settings
+            # (GOUGH_CHART_MIRROR_URL, GOUGH_CILIUM_CHART_SHA256, GOUGH_CILIUM_CRDS_URL,
+            # GOUGH_CILIUM_CRDS_SHA256); no upstream chart repository is referenced.
+            "chart_source": "mirror",
             "image_digests": {
-                "cilium": "quay.io/cilium/cilium@sha256:41f1f74a0000de8656f1de4088ea00c8f2d49d6edea579034c73c5fd5fe01792",
-                "operator_generic": "quay.io/cilium/operator-generic@sha256:e7278d763e448bf6c184b0682cf98cdca078d58a27e1b2f3c906792670aa211a",
-                "hubble_relay": "quay.io/cilium/hubble-relay@sha256:d8c4e13bc36a56179292bb52bc6255379cb94cb873700d316ea3139b1bdb8165",
+                "cilium": f"quay.io/cilium/cilium@{CILIUM_IMAGE_DIGESTS['cilium']}",
+                "operator_generic": f"quay.io/cilium/operator-generic@{CILIUM_IMAGE_DIGESTS['operator']}",
+                "cilium_envoy": f"quay.io/cilium/cilium-envoy@{CILIUM_IMAGE_DIGESTS['cilium-envoy']}",
+                "hubble_relay": f"quay.io/cilium/hubble-relay@{CILIUM_IMAGE_DIGESTS['hubble-relay']}",
+                "certgen": f"quay.io/cilium/certgen@{CILIUM_IMAGE_DIGESTS['certgen']}",
                 "kubectl": "registry.k8s.io/kubectl@sha256:6e792b13c92ee7822f67e8dc22b51848af3ae0b43a1f0b8205bb727caa4ceefb",
             },
             "values": {
@@ -49,7 +103,6 @@ BUILTIN_BIOMES = [
                 "socketLB": {"enabled": True},
                 "nodePort": {"enabled": True},
                 "hostServices": {"enabled": True},
-                "enableCiliumEndpointSlice": True,
                 "envoyConfig": {"enabled": True},
                 "operator": {"replicas": 1},
                 "hubble": {"enabled": True, "relay": {"enabled": True}},
@@ -94,8 +147,6 @@ def seed_builtin_biomes(db: object) -> None:
     biomes table; they are provided in BUILTIN_BIOMES for reference and will be
     resolved at runtime via biome-specific configuration or defaults.
     """
-    from datetime import datetime, timezone
-
     for spec in BUILTIN_BIOMES:
         # Check if biome already exists by name
         existing = db(db.biomes.name == spec["name"]).select().first()

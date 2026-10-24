@@ -230,29 +230,33 @@ def test_cluster_id_used_when_provided():
     assert cid == explicit_id
 
 
-def test_cluster_json_atomic_write(tmp_path):
-    """cluster.json is written atomically via temp file."""
+def test_cluster_json_atomic_write(tmp_path, monkeypatch):
+    """cluster.json is written atomically (temp file + os.replace) into the target directory.
+
+    Uses a real tmp_path target: the previous version patched ``pathlib.Path`` (which the
+    module had already imported), so it hit the real /etc/gough and failed for non-root users.
+    """
+    import json
     from unittest.mock import patch
-    from scripts.gough_init import persist_cluster_json
 
-    target_path = tmp_path / "cluster.json"
-    with patch("pathlib.Path") as mock_path_class:
-        mock_path_obj = MagicMock()
-        mock_path_obj.parent.mkdir = MagicMock()
-        mock_path_class.return_value = mock_path_obj
+    import scripts.gough_init as gi
 
-        # Mock the actual write (test that temp file is used)
-        with patch("tempfile.NamedTemporaryFile") as mock_temp:
-            mock_file = MagicMock()
-            mock_file.__enter__ = MagicMock(return_value=mock_file)
-            mock_file.__exit__ = MagicMock(return_value=False)
-            mock_file.name = "/tmp/cluster.tmp"
-            mock_temp.return_value = mock_file
+    target = tmp_path / "etc" / "gough" / "cluster.json"
+    monkeypatch.setattr(gi, "CLUSTER_JSON_PATH", target)
 
-            with patch("os.replace") as mock_replace:
-                persist_cluster_json("test-cluster", "5.21/stable", "bare-metal")
-                # Verify atomic rename was called
-                mock_replace.assert_called_once()
+    with patch("os.replace", wraps=__import__("os").replace) as replace:
+        gi.persist_cluster_json("test-cluster", "5.21/stable", "bare-metal")
+
+    replace.assert_called_once()
+    assert replace.call_args.args[1] == target
+    assert target.parent.joinpath(replace.call_args.args[0]).name.endswith(".tmp") or str(
+        replace.call_args.args[0]
+    ).endswith(".tmp")
+    data = json.loads(target.read_text())
+    assert data["cluster_id"] == "test-cluster"
+    assert data["lxd_channel"] == "5.21/stable"
+    assert data["host_tier"] == "bare-metal"
+    assert [p.name for p in target.parent.iterdir()] == ["cluster.json"]  # no temp file left behind
 
 
 def test_summary_includes_required_fields(capsys):

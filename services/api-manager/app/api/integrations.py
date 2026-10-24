@@ -176,8 +176,8 @@ def _safe_credentials_view(creds: Credentials) -> dict[str, Any]:
         "account_id": creds.account_id,
         "client_id": creds.client_id,
         "client_secret_masked": (
-            f"{creds.client_secret[:4]}...{creds.client_secret[-4:]}"
-            if len(creds.client_secret) > 8
+            f"****{creds.client_secret[-4:]}"
+            if len(creds.client_secret) >= 16
             else "****"
         ),
         "scopes": creds.scopes,

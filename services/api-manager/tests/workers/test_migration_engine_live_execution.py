@@ -73,6 +73,13 @@ def dal(tmp_path: Any) -> Any:
         Field("state", "string", default="ready"),
         migrate=True,
     )
+    # The capacity guard tables are read by the headroom loader (created by migration in prod).
+    from app.models_m1 import CapacityReservation, NodeResourceSnapshot
+    from app.models_sqlalchemy import Base
+
+    Base.metadata.create_all(
+        db.engine, tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__]
+    )
     db.define_table(
         "biomes",
         Field("name", "string"),

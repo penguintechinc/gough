@@ -1,5 +1,5 @@
 {
-  "description": "k8s-primary version 1.30 satisfies >= 1.29 constraint",
+  "description": "k8s-controller version 1.30 satisfies >= 1.29 constraint",
   "node": {
     "id": 60,
     "name": "node-ver-60",
@@ -17,7 +17,7 @@
   "eggs": [
     {
       "id": 1001,
-      "name": "k8s-primary",
+      "name": "k8s-controller",
       "version": "1.30.2",
       "phase": "post_deploy",
       "workload_type": "lxc",

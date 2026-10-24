@@ -84,7 +84,7 @@ func devSeedCmd() *cobra.Command {
 
 Biomes are deployed to the first available simulated node.
 
-Example: gough dev seed --biomes k8s-primary,nest-agent,tobogganing`,
+Example: gough dev seed --biomes k8s-controller,nest-agent,tobogganing`,
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()

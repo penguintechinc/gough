@@ -7,10 +7,12 @@ Admin-only access for all operations.
 from __future__ import annotations
 
 import logging
+import re
 
 from quart import Blueprint, current_app, jsonify, request
 
 from ..middleware import auth_required, roles_required
+from ._helpers import request_is_cross_tenant, request_tenant_id
 from ..secrets import (
     BACKEND_REGISTRY,
     get_secrets_manager,
@@ -21,6 +23,33 @@ from ..secrets import (
 log = logging.getLogger(__name__)
 
 secrets_bp = Blueprint("secrets", __name__)
+
+_TENANT_NS = "tenants"
+
+#: A tenant id usable as ONE path segment: no separator, no traversal, bounded length.
+_TENANT_SEGMENT_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_.:-]{0,127}")
+
+
+def _scoped_path(path: str) -> str | None:
+    """Map a caller-supplied secret path into the caller's tenant namespace.
+
+    The secrets store is one platform-wide keyspace (database, cloud and storage credentials
+    live in it), so a tenant-scoped admin is confined to ``tenants/<tenant>/<path>`` and can
+    never name another tenant's -- or a platform -- secret. Only a cross-tenant super-admin
+    token addresses raw paths. Returns None for a malformed path (empty segment, ``.``/``..``,
+    backslash, NUL) which the caller must reject with 400.
+    """
+    if path != path.strip("/") and path:
+        path = path.strip("/")
+    parts = path.split("/") if path else []
+    if any(p in ("", ".", "..") or "\\" in p or "\x00" in p for p in parts):
+        return None
+    if request_is_cross_tenant():
+        return path
+    tenant = request_tenant_id()
+    if not _TENANT_SEGMENT_RE.fullmatch(tenant) or ".." in tenant:
+        return None  # a tenant id that could escape its namespace never reaches the backend
+    return "/".join([_TENANT_NS, tenant, *parts])
 
 
 @secrets_bp.route("/backends", methods=["GET"])
@@ -159,10 +188,13 @@ async def get_secret(secret_path: str):
     """
     if not secret_path:
         return jsonify({"error": "Secret path required"}), 400
+    scoped = _scoped_path(secret_path)
+    if scoped is None:
+        return jsonify({"error": "Invalid secret path"}), 400
 
     try:
         manager = await get_secrets_manager()
-        secret_data = await manager.get_secret(secret_path)
+        secret_data = await manager.get_secret(scoped)
 
         return jsonify({
             "path": secret_path,
@@ -173,7 +205,7 @@ async def get_secret(secret_path: str):
         return jsonify({"error": f"Secret not found: {secret_path}"}), 404
     except SecretsManagerError as e:
         log.error(f"Error retrieving secret {secret_path}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Secrets backend error"}), 500
 
 
 @secrets_bp.route("/<path:secret_path>", methods=["POST", "PUT"])
@@ -196,6 +228,9 @@ async def set_secret(secret_path: str):
     """
     if not secret_path:
         return jsonify({"error": "Secret path required"}), 400
+    scoped = _scoped_path(secret_path)
+    if scoped is None:
+        return jsonify({"error": "Invalid secret path"}), 400
 
     data = await request.get_json()
 
@@ -216,13 +251,13 @@ async def set_secret(secret_path: str):
         # Check if secret exists to determine status code
         exists = False
         try:
-            await manager.get_secret(secret_path)
+            await manager.get_secret(scoped)
             exists = True
         except SecretNotFoundError:
             pass
 
         # Store the secret
-        await manager.set_secret(secret_path, secret_data)
+        await manager.set_secret(scoped, secret_data)
 
         log.info(f"Secret {'updated' if exists else 'created'} at path: {secret_path}")
 
@@ -233,7 +268,7 @@ async def set_secret(secret_path: str):
 
     except SecretsManagerError as e:
         log.error(f"Error storing secret {secret_path}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Secrets backend error"}), 500
 
 
 @secrets_bp.route("/<path:secret_path>", methods=["DELETE"])
@@ -252,10 +287,13 @@ async def delete_secret(secret_path: str):
     """
     if not secret_path:
         return jsonify({"error": "Secret path required"}), 400
+    scoped = _scoped_path(secret_path)
+    if scoped is None:
+        return jsonify({"error": "Invalid secret path"}), 400
 
     try:
         manager = await get_secrets_manager()
-        deleted = await manager.delete_secret(secret_path)
+        deleted = await manager.delete_secret(scoped)
 
         if not deleted:
             return jsonify({"error": f"Secret not found: {secret_path}"}), 404
@@ -269,7 +307,7 @@ async def delete_secret(secret_path: str):
 
     except SecretsManagerError as e:
         log.error(f"Error deleting secret {secret_path}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Secrets backend error"}), 500
 
 
 @secrets_bp.route("/", methods=["GET"])
@@ -286,10 +324,20 @@ async def list_secrets():
         500: Backend error
     """
     path = request.args.get("path", "")
+    scoped = _scoped_path(path)
+    if scoped is None:
+        return jsonify({"error": "Invalid secret path"}), 400
 
     try:
         manager = await get_secrets_manager()
-        secrets = await manager.list_secrets(path)
+        if request_is_cross_tenant():
+            secrets = await manager.list_secrets(scoped)
+        else:
+            # Trailing separator: tenant "a" must never match tenant "ab"'s keys. Anything the
+            # backend returns outside the caller's prefix is DROPPED, never passed through.
+            prefix = f"{_TENANT_NS}/{request_tenant_id()}/"
+            listed = await manager.list_secrets(scoped + "/")
+            secrets = [x[len(prefix):] for x in listed if isinstance(x, str) and x.startswith(prefix)]
 
         return jsonify({
             "path": path or "/",
@@ -299,4 +347,4 @@ async def list_secrets():
 
     except SecretsManagerError as e:
         log.error(f"Error listing secrets at {path}: {e}")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "Secrets backend error"}), 500

@@ -200,7 +200,7 @@ def test_validate_combination_non_int_min_healthy():
 
 def test_violates_headroom_insufficient_cpu():
     """Check insufficient CPU headroom returns violation."""
-    node = NodeSnapshot(
+    node = NodeSnapshot(telemetry_fresh=True, 
         node_id=1,
         state="ready",
         cpu_free_pct=10.0,
@@ -245,7 +245,7 @@ def test_violates_headroom_insufficient_cpu():
 
 def test_violates_headroom_insufficient_memory():
     """Check insufficient memory headroom returns violation."""
-    node = NodeSnapshot(
+    node = NodeSnapshot(telemetry_fresh=True, 
         node_id=1,
         state="ready",
         cpu_free_pct=50.0,
@@ -289,7 +289,7 @@ def test_violates_headroom_insufficient_memory():
 
 def test_violates_headroom_insufficient_disk():
     """Check insufficient disk headroom returns violation."""
-    node = NodeSnapshot(
+    node = NodeSnapshot(telemetry_fresh=True, 
         node_id=1,
         state="ready",
         cpu_free_pct=50.0,
@@ -333,7 +333,7 @@ def test_violates_headroom_insufficient_disk():
 
 def test_violates_headroom_sufficient():
     """Check sufficient headroom returns None."""
-    node = NodeSnapshot(
+    node = NodeSnapshot(telemetry_fresh=True, 
         node_id=1,
         state="ready",
         cpu_free_pct=50.0,
@@ -382,7 +382,7 @@ def test_violates_headroom_sufficient():
 def test_evaluate_cluster_unhealthy():
     """Evaluate should reject unhealthy cluster."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="failed",
             cpu_free_pct=50.0,
@@ -436,7 +436,7 @@ def test_evaluate_cluster_unhealthy():
 def test_evaluate_too_many_concurrent():
     """Evaluate should reject if too many migrations in flight."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,
@@ -446,7 +446,7 @@ def test_evaluate_too_many_concurrent():
             forecast_mem_free_pct=50.0,
             forecast_disk_free_pct=50.0,
         ),
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=2,
             state="ready",
             cpu_free_pct=50.0,
@@ -500,7 +500,7 @@ def test_evaluate_too_many_concurrent():
 def test_evaluate_network_partition_forbidden():
     """Evaluate should reject during network partition if forbidden."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,
@@ -510,7 +510,7 @@ def test_evaluate_network_partition_forbidden():
             forecast_mem_free_pct=50.0,
             forecast_disk_free_pct=50.0,
         ),
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=2,
             state="ready",
             cpu_free_pct=50.0,
@@ -565,7 +565,7 @@ def test_evaluate_network_partition_forbidden():
 def test_evaluate_maintenance_window_forbidden():
     """Evaluate should reject during maintenance if forbidden."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,
@@ -575,7 +575,7 @@ def test_evaluate_maintenance_window_forbidden():
             forecast_mem_free_pct=50.0,
             forecast_disk_free_pct=50.0,
         ),
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=2,
             state="ready",
             cpu_free_pct=50.0,
@@ -630,7 +630,7 @@ def test_evaluate_maintenance_window_forbidden():
 def test_evaluate_biome_locked():
     """Evaluate should reject biome locked to host."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,
@@ -640,7 +640,7 @@ def test_evaluate_biome_locked():
             forecast_mem_free_pct=50.0,
             forecast_disk_free_pct=50.0,
         ),
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=2,
             state="ready",
             cpu_free_pct=50.0,
@@ -694,7 +694,7 @@ def test_evaluate_biome_locked():
 def test_evaluate_biome_locked_ignore():
     """Evaluate should allow migration if ignore_lock=true."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,
@@ -704,7 +704,7 @@ def test_evaluate_biome_locked_ignore():
             forecast_mem_free_pct=50.0,
             forecast_disk_free_pct=50.0,
         ),
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=2,
             state="ready",
             cpu_free_pct=50.0,
@@ -758,7 +758,7 @@ def test_evaluate_biome_locked_ignore():
 def test_evaluate_no_viable_candidates():
     """Evaluate should reject if no candidate nodes."""
     nodes = (
-        NodeSnapshot(
+        NodeSnapshot(telemetry_fresh=True, 
             node_id=1,
             state="ready",
             cpu_free_pct=50.0,

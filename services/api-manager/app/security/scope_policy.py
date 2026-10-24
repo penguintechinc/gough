@@ -72,6 +72,8 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Nodes endpoints
     ("GET", "/api/v1/nodes"): frozenset({"gough.nodes.read"}),
     ("GET", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.read"}),
+    ("GET", "/api/v1/nodes/<int:node_id>/capacity"): frozenset({"gough.nodes.read"}),
+    ("PUT", "/api/v1/agents/<string:agent_id>/node"): frozenset({"gough.nodes.provision"}),
     ("PATCH", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/deploy"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/reject"): frozenset({"gough.nodes.provision"}),
@@ -124,6 +126,8 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # Cluster LXD endpoints
     ("GET", "/api/v1/clusters/<uuid:cluster_id>/lxd/members"): frozenset({"gough.cluster.read"}),
     ("POST", "/api/v1/clusters/<uuid:cluster_id>/lxd/join"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/lxd/node-join-keys"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/biomes/cache/imports"): frozenset({"gough.cluster.admin"}),
 
     # Cluster network endpoints
     ("GET", "/api/v1/clusters/<uuid:cluster_id>/network-pools"): frozenset({"gough.cluster.read"}),
@@ -181,7 +185,208 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # read the API surface documentation.
     ("GET", "/api/v1/openapi.json"): frozenset(),
     ("GET", "/api/v1/openapi.yaml"): frozenset(),
+    # Endpoints that previously had NO entry (and so were denied 403 by the fail-closed
+    # middleware). Reads map to the matching *.read scope, writes to the matching
+    # write/admin scope; secrets, users, shell and agent management are admin-only.
+    ("DELETE", "/api/v1/agents/enrollment-keys/<int:key_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/clouds/<int:provider_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/ipxe/machines/<string:machine_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/joiner-secrets/clusters/<uuid:cluster_id>/joiner-secrets/<uuid:js_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/shell/sessions/<session_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/storage/configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/storage/objects/<path:object_key>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/teams/<int:team_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/teams/<int:team_id>/members/<int:user_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/teams/<int:team_id>/resources/<int:assignment_id>"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/agents"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/agents/<agent_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/agents/enrollment-keys"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/biomes/<int:biome_id>/upgrade-runs/<run_id>"): frozenset({"gough.biomes.read"}),
+    ("GET", "/api/v1/biomes/deployments"): frozenset({"gough.biomes.read"}),
+    ("GET", "/api/v1/biomes/deployments/<string:deployment_id>"): frozenset({"gough.biomes.read"}),
+    ("GET", "/api/v1/biomes/deployments/<string:deployment_id>/logs"): frozenset({"gough.biomes.read"}),
+    ("GET", "/api/v1/clouds"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>/images"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>/regions"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clouds/<int:provider_id>/sizes"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/clusters/<cluster_id>/lxd/status"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/clusters/<cluster_id>/network-baseline-topology"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/disks/<int:node_id>/disks"): frozenset({"gough.disks.read"}),
+    ("GET", "/api/v1/hello"): frozenset(),
+    ("GET", "/api/v1/hello/protected"): frozenset({"gough.nodes.provision"}),
+    ("GET", "/api/v1/integrations/<product>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/boot-configs"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>/preview"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/config"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/elder/status"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/images"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/machines"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ipxe/machines/<string:machine_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/joiner-secrets/clusters/<uuid:cluster_id>/joiner-secrets"): frozenset({"gough.joiner.read"}),
+    ("GET", "/api/v1/nodes/<int:node_id>/cloud-init"): frozenset({"gough.nodes.read"}),
+    ("GET", "/api/v1/secrets"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/secrets/backends"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/shell/sessions"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/ssh-ca/public-key"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/storage/buckets"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/storage/configs"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/storage/configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/storage/objects"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/storage/quotas"): frozenset({"gough.storage.read"}),
+    ("GET", "/api/v1/teams"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/teams/<int:team_id>"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/teams/<int:team_id>/members"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/teams/<int:team_id>/resources"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/users"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/users/roles"): frozenset({"gough.cluster.admin"}),
+    ("PATCH", "/api/v1/clusters/<cluster_id>/network-baseline-topology"): frozenset({"gough.cluster.admin"}),
+    ("PATCH", "/api/v1/disks/<int:node_id>/disks/<int:disk_id>"): frozenset({"gough.disks.plan"}),
+    ("PATCH", "/api/v1/teams/<int:team_id>"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/agents/<agent_id>/resume"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/agents/<agent_id>/suspend"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/agents/enrollment-keys"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/biomes/deployments/<string:deployment_id>/cancel"): frozenset({"gough.biomes.deploy"}),
+    ("POST", "/api/v1/clouds"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/reboot"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/start"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/stop"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/clouds/<int:provider_id>/test"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/disks/<int:node_id>/disks/<int:disk_id>/plan"): frozenset({"gough.disks.plan"}),
+    ("POST", "/api/v1/disks/<int:node_id>/disks/<int:disk_id>/smart-recheck"): frozenset({"gough.disks.plan"}),
+    ("POST", "/api/v1/integrations/<product>/compromise-response"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/integrations/<product>/validate-scope"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/boot-configs"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/images"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/commission"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/deploy"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/power/<string:action>"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/release"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/sync-elder"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/joiner-secrets/clusters/<uuid:cluster_id>/joiner-secrets/<uuid:js_id>/rotate"): frozenset({"gough.joiner.rotate"}),
+    ("POST", "/api/v1/nodes/<int:node_id>/lxd/join"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/primary/frontend-switch"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/primary/rotate-ca"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/secrets/backends"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/shell/sessions"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ssh-ca/initialize"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/ssh-ca/sign"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/buckets"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/configs"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/configs/<int:config_id>/set-default"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/configs/<int:config_id>/test"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/objects/<path:object_key>/presigned-url"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/storage/quota-request"): frozenset({"gough.storage.configure"}),
+    ("POST", "/api/v1/teams"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/teams/<int:team_id>/members"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/teams/<int:team_id>/resources"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/users"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/clouds/<int:provider_id>"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/ipxe/config"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/ipxe/elder/config"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/ipxe/machines/<string:machine_id>/biomes"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/storage/configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
+    ("PUT", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.admin"}),
 }
+
+
+# Routes whose handlers were NEVER reachable (the fail-closed middleware 403'd them) until
+# 385dd0f gave them a scope, so they were never security-reviewed. They operate on
+# deployment-global tables with no tenant column (users, teams, cloud providers, storage
+# configs, iPXE inventory, shell/SSH-CA) or on a shared CA, so a tenant-scoped admin can touch
+# other tenants' data until a platform-scope design (system tenant / per-row tenant_id) lands.
+# Every entry is held at ``gough.cluster.admin`` as the interim containment. This list must
+# only SHRINK: tests/security/test_scope_policy_route_coverage.py fails if it grows or if an
+# entry drops below cluster.admin. Remove an entry only after the handler is tenant-scoped and
+# reviewed (see services/api-manager route audit).
+UNREVIEWED_ROUTES: frozenset[tuple[str, str]] = frozenset({
+    ("DELETE", "/api/v1/clouds/<int:provider_id>"),
+    ("DELETE", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"),
+    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"),
+    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"),
+    ("DELETE", "/api/v1/ipxe/machines/<string:machine_id>"),
+    ("DELETE", "/api/v1/storage/configs/<int:config_id>"),
+    ("DELETE", "/api/v1/storage/objects/<path:object_key>"),
+    ("DELETE", "/api/v1/teams/<int:team_id>"),
+    ("DELETE", "/api/v1/teams/<int:team_id>/members/<int:user_id>"),
+    ("DELETE", "/api/v1/teams/<int:team_id>/resources/<int:assignment_id>"),
+    ("DELETE", "/api/v1/users/<int:user_id>"),
+    ("GET", "/api/v1/clouds"),
+    ("GET", "/api/v1/clouds/<int:provider_id>"),
+    ("GET", "/api/v1/clouds/<int:provider_id>/images"),
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines"),
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"),
+    ("GET", "/api/v1/clouds/<int:provider_id>/regions"),
+    ("GET", "/api/v1/clouds/<int:provider_id>/sizes"),
+    ("GET", "/api/v1/integrations/<product>"),
+    ("GET", "/api/v1/ipxe/boot-configs"),
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>"),
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>/preview"),
+    ("GET", "/api/v1/ipxe/config"),
+    ("GET", "/api/v1/ipxe/elder/status"),
+    ("GET", "/api/v1/ipxe/images"),
+    ("GET", "/api/v1/ipxe/images/<int:image_id>"),
+    ("GET", "/api/v1/ipxe/machines"),
+    ("GET", "/api/v1/ipxe/machines/<string:machine_id>"),
+    ("GET", "/api/v1/storage/buckets"),
+    ("GET", "/api/v1/storage/configs"),
+    ("GET", "/api/v1/storage/configs/<int:config_id>"),
+    ("GET", "/api/v1/storage/objects"),
+    ("GET", "/api/v1/users"),
+    ("GET", "/api/v1/users/<int:user_id>"),
+    ("GET", "/api/v1/users/roles"),
+    ("PATCH", "/api/v1/teams/<int:team_id>"),
+    ("POST", "/api/v1/clouds"),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines"),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/reboot"),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/start"),
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/stop"),
+    ("POST", "/api/v1/clouds/<int:provider_id>/test"),
+    ("POST", "/api/v1/integrations/<product>/validate-scope"),
+    ("POST", "/api/v1/ipxe/boot-configs"),
+    ("POST", "/api/v1/ipxe/images"),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/commission"),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/deploy"),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/power/<string:action>"),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/release"),
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/sync-elder"),
+    ("POST", "/api/v1/shell/sessions"),
+    ("POST", "/api/v1/ssh-ca/initialize"),
+    ("POST", "/api/v1/ssh-ca/sign"),
+    ("POST", "/api/v1/storage/buckets"),
+    ("POST", "/api/v1/storage/configs"),
+    ("POST", "/api/v1/storage/configs/<int:config_id>/set-default"),
+    ("POST", "/api/v1/storage/configs/<int:config_id>/test"),
+    ("POST", "/api/v1/storage/objects/<path:object_key>/presigned-url"),
+    ("POST", "/api/v1/teams"),
+    ("POST", "/api/v1/teams/<int:team_id>/members"),
+    ("POST", "/api/v1/teams/<int:team_id>/resources"),
+    ("POST", "/api/v1/users"),
+    ("PUT", "/api/v1/clouds/<int:provider_id>"),
+    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"),
+    ("PUT", "/api/v1/ipxe/config"),
+    ("PUT", "/api/v1/ipxe/elder/config"),
+    ("PUT", "/api/v1/ipxe/images/<int:image_id>"),
+    ("PUT", "/api/v1/ipxe/machines/<string:machine_id>/biomes"),
+    ("PUT", "/api/v1/storage/configs/<int:config_id>"),
+    ("PUT", "/api/v1/users/<int:user_id>"),
+})
 
 
 # ==============================================================================
@@ -214,6 +419,8 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/api/v1/auth/reset-password"),
     # Public status endpoint (hello.status; no auth by design).
     ("GET", "/api/v1/status"),
+    # Auth service liveness probe (no secrets; mirrors /health).
+    ("GET", "/api/v1/auth/health"),
     # Endpoints that authenticate with a NON-OIDC scheme inside the handler
     # (regression: gh-31 -- the ES256 ASGI gate must skip these or their real
     # callers can never reach the handler that runs their own auth check).
@@ -228,6 +435,16 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/api/v1/nodes/<int:node_id>/events"),
     # Public webhook JWKS (verification keys for a tenant).
     ("GET", "/api/v1/webhooks/keys/<string:tenant>"),
+    # LXD cluster join: HS256 agent_access bearer validated in the handler
+    # (app.api.lxd_cluster._authenticate_agent); agent must hold a join-eligible key.
+    ("POST", "/api/v1/lxd/cluster-join-tokens"),
+    # Biome bundle file read: HS256 agent_access bearer validated in the handler
+    # (app.api.biome_cache); agent must be active; path traversal rejected in-handler.
+    ("GET", "/api/v1/biomes/cache/<string:version>/<string:biome>/<path:path>"),
+    # Installer distribution: the script and its sha256 are public by design
+    # (rate-limited in app.api.install). Nothing else under /install is anonymous.
+    ("GET", "/api/v1/install/gough-install.py"),
+    ("GET", "/api/v1/install/gough-install.py.sha256"),
 })
 
 
@@ -325,10 +542,18 @@ def _expand_roles_to_scopes(role_names: list[str]) -> list[str]:
 
 
 def _anon_template_to_regex(policy_path: str) -> re.Pattern[str]:
-    """Compile a Flask ``<type:name>`` template path into a concrete-path regex."""
-    parts = re.split(r"<[^>]+>", policy_path)
-    pattern = r"[^/]+".join(re.escape(p) for p in parts)
-    return re.compile(r"^" + pattern + r"$")
+    """Compile a Flask ``<type:name>`` template path into a concrete-path regex.
+
+    ``<path:...>`` converters span slashes (nested biome file paths); every other
+    converter matches a single segment. Handlers validate the captured value.
+    """
+    out: list[str] = []
+    for token in re.split(r"(<[^>]+>)", policy_path):
+        if token.startswith("<") and token.endswith(">"):
+            out.append(r".+" if token.startswith("<path:") else r"[^/]+")
+        else:
+            out.append(re.escape(token))
+    return re.compile(r"^" + "".join(out) + r"$")
 
 
 _ANON_EXACT_PATHS: frozenset[str] = frozenset(

@@ -28,6 +28,7 @@ M1 deferrals, both now flag-gated (default OFF) M2 real executions:
 from __future__ import annotations
 
 import json
+import asyncio
 import logging
 import time
 import uuid
@@ -864,7 +865,8 @@ async def lxd_members(cluster_id: str):
 async def lxd_status(cluster_id: str):
     """Return a health summary for the LXD cluster."""
     try:
-        status = lxd_extra.get_cluster_status(cluster_id=cluster_id)
+        # Blocking HTTP client: keep it off the event loop.
+        status = await asyncio.to_thread(lxd_extra.get_cluster_status, cluster_id=cluster_id)
         online = sum(1 for m in status.members if m.status == "Online")
         member_count = len(status.members)
         quorum_status = status.quorum_status
@@ -1077,7 +1079,8 @@ async def patch_baseline_topology(cluster_id: str):
         lambda: _save_cluster_doc(cluster_id, "network_baseline_topology", topology)
     )
     if not saved:
-        return jsonify({"status": "success", "data": {"cluster_id": cluster_id, "topology": {}, "note": "accepted"}}), 200
+        # Fail loudly: reporting success for a document that was never persisted is a lie.
+        return jsonify({"error": "cluster_config_unavailable"}), 503
     log.info("network-baseline-topology patched cluster_id=%s actor=%s",
              cluster_id, _principal_sub())
     return jsonify({"status": "success", "data": {"cluster_id": cluster_id, "topology": topology}}), 200

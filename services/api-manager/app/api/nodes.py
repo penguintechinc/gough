@@ -37,6 +37,7 @@ from typing import Any, Optional
 
 from quart import Blueprint, Response, g, request, current_app
 
+from .. import capacity_guard
 from .. import metrics as _metrics
 from ..db.run_db import run_db
 from ..licensing import ACTIVE_NODE_STATES, count_active_nodes, feature_enabled, node_allowance
@@ -867,6 +868,28 @@ async def get_node(node_id: int):
     return envelope_success({"node": _serialize_node(node)})
 
 
+@nodes_bp.route("/<int:node_id>/capacity", methods=["GET"])
+@auth_required
+async def get_node_capacity(node_id: int):
+    """Return the node's capacity guard view: capacity, reserve, committed, pending,
+    allocatable, pressure and snapshot age. Read-only; never places work."""
+    from .. import capacity_guard
+
+    db = get_db()
+
+    def _fetch_node() -> Any:
+        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+
+    node = await run_db(_fetch_node)
+    if not node:
+        return err_not_found(f"Node {node_id} not found")
+    if not _is_cross_tenant() and _g(node, "tenant_id", "__default__") != _current_tenant_id():
+        return err_not_found(f"Node {node_id} not found")
+
+    view = await run_db(lambda: capacity_guard.get_capacity_view(db.engine, node_id))
+    return envelope_success({"capacity": view.to_dict()})
+
+
 # ---------------------------------------------------------------------------
 # PATCH /api/v1/nodes/{id} — JSON Merge Patch (RFC 7396)
 # ---------------------------------------------------------------------------
@@ -1082,6 +1105,61 @@ def _get_assignments_table(db: Any) -> tuple[Optional[Any], Optional[str]]:
 # ---------------------------------------------------------------------------
 
 
+def _reserve_deploy_capacity(
+    db: Any,
+    node_id: int,
+    biome_ids: list[int],
+    assign_tbl: Any,
+    biome_field: str,
+) -> tuple[str | None, tuple[str, ...] | None]:
+    """Reserve the summed minimums (RAM/disk) of the NEW assignments on ``node_id``.
+
+    Biomes already pending/deploying/ready/draining on the node (no insert will
+    happen) and unknown biomes (the assignment step reports them) hold no capacity;
+    when nothing is new no reservation is made. Returns ``(reservation_id, None)`` on
+    success (id None when nothing new or under the kill switch), or ``(None, reasons)``
+    when the guard refuses (stale/missing snapshot, no fit, pressure).
+    """
+    ram_mb = 0
+    disk_gb = 0
+    new_found = False
+    for biome_id in dict.fromkeys(biome_ids):
+        biome = db(db.biomes.id == biome_id).select().first() if hasattr(db, "biomes") else None
+        if biome is None:
+            continue
+        already = db(
+            (assign_tbl.node_id == node_id)
+            & (getattr(assign_tbl, biome_field) == biome_id)
+            & (assign_tbl.status.belongs(["pending", "deploying", "ready", "draining"]))
+        ).select().first()
+        if already:
+            continue
+        new_found = True
+        ram_mb += _safe_min(_g(biome, "min_ram_mb", 0))
+        disk_gb += _safe_min(_g(biome, "min_disk_gb", 0))
+    if not new_found:
+        return None, None
+    pol = capacity_guard.policy_from_env()
+    outcome = capacity_guard.reserve(
+        db.engine,
+        node_id,
+        capacity_guard.FitRequest(0.0, ram_mb * 1024 * 1024, disk_gb * 1024**3, pol.default_pool),
+    )
+    if not outcome.fit.ok:
+        return None, outcome.fit.reasons
+    return outcome.reservation_id, None
+
+
+def _safe_min(value: object) -> int:
+    """Coerce a biome minimum to a non-negative int; 0 when absent or malformed."""
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        return 0
+    try:
+        return max(0, int(value))
+    except ValueError:
+        return 0
+
+
 @nodes_bp.route("/<int:node_id>/deploy", methods=["POST"])
 @auth_required
 async def deploy_node(node_id: int):
@@ -1176,6 +1254,21 @@ async def deploy_node(node_id: int):
     if not assign_tbl:
         return err_internal("node_egg_assignments table not available")
 
+    # Capacity guard (fail-closed): the target node is explicit here, so reserve the
+    # declared minimums of the NEW assignments on it before any row exists. Refusal -> 409.
+    # From here the reservation is settled exactly once: confirmed when rows were
+    # inserted, released on every other path (nothing new, failure, exception).
+    reservation_id, fit_refusal = await run_db(
+        lambda: _reserve_deploy_capacity(
+            db, node_id, [s.biome_id for s in body.biome_assignments], assign_tbl, biome_field
+        )
+    )
+    if fit_refusal is not None:
+        return err_conflict(
+            f"Node {node_id} cannot take this deployment: {', '.join(fit_refusal)}",
+            details={"node_id": node_id, "reasons": list(fit_refusal)},
+        )
+
     # Regression: gh-22. The per-spec validate/insert loop + commit is one
     # unit of work -- a penguin-dal connection checkout isn't safe to
     # resume on a different thread hop, so it stays in one run_db()
@@ -1184,6 +1277,7 @@ async def deploy_node(node_id: int):
     # builds the actual err_*() response after awaiting, per house rule.
     def _create_assignments() -> dict[str, Any]:
         ids: list[int] = []
+        inserted = 0
         try:
             for spec in body.biome_assignments:
                 biome = db(db.biomes.id == spec.biome_id).select().first() if hasattr(db, "biomes") else None
@@ -1221,14 +1315,30 @@ async def deploy_node(node_id: int):
                 }
                 new_id = assign_tbl.insert(**insert_data)
                 ids.append(int(new_id))
+                inserted += 1
 
             db.commit()
-            return {"ok": True, "assignment_ids": ids}
+            return {"ok": True, "assignment_ids": ids, "inserted": inserted}
         except Exception as exc:  # noqa: BLE001
             log.exception("Error creating biome assignments for node %s: %s", node_id, exc)
             return {"ok": False, "kind": "internal_error", "error": exc}
 
-    result = await run_db(_create_assignments)
+    settled = reservation_id is None
+    try:
+        result = await run_db(_create_assignments)
+        if reservation_id:
+            held = reservation_id
+            keep = bool(result["ok"]) and result.get("inserted", 0) > 0
+            await run_db(
+                lambda: capacity_guard.confirm(db.engine, held)
+                if keep
+                else capacity_guard.release(db.engine, held)
+            )
+            settled = True
+    finally:
+        if not settled and reservation_id:
+            # Exception between reserve and settlement: never leak the hold.
+            capacity_guard.release(db.engine, reservation_id)
     if not result["ok"]:
         if result["kind"] == "biome_not_found":
             return err_not_found(f"Biome {result['biome_id']} not found")
@@ -2163,7 +2273,7 @@ async def get_node_cloud_init(node_id: int) -> Any:
         )
     except Exception as exc:  # noqa: BLE001
         log.exception("cloud-init template substitution failed for node %s: %s", node_id, exc)
-        return err_internal(f"Template render error: {exc}")
+        return err_internal("Template render error")
 
     return Response(rendered, status=200, content_type="text/plain; charset=utf-8")
 
@@ -2173,32 +2283,84 @@ async def get_node_cloud_init(node_id: int) -> Any:
 # ---------------------------------------------------------------------------
 
 
+_LXD_NODE_PORT = 8443
+
+
+def _lxd_leader_address() -> str:
+    """Return the cluster leader ``host:port`` from operator config (``LXD_API_URL``), never input."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(os.environ.get("LXD_API_URL", "https://localhost:8443"))
+    return f"{parsed.hostname or 'localhost'}:{parsed.port or _LXD_NODE_PORT}"
+
+
+def _parse_ip(raw: Any) -> Any:
+    """Return an ``ipaddress`` object for ``raw`` or None when it is not a literal IP."""
+    import ipaddress
+
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        return ipaddress.ip_address(raw.strip())
+    except ValueError:
+        return None
+
+
+def _node_lxd_address(node: Any, agent_ip: Any = None) -> tuple[Optional[str], Optional[str]]:
+    """Derive the node's LXD ``host:port``; returns ``(address, refusal_reason)``.
+
+    ``ipv4_static`` is operator-editable, so it is never trusted alone for an outbound call
+    that carries a join token. The address the node's enrolled, tenant-linked access agent
+    reported is preferred; when both it and the registered address exist they MUST agree.
+    Whatever is chosen must pass the SSRF blocklist (loopback, link-local, cloud metadata)
+    and be a routable unicast address. Never taken from the request.
+    """
+    from ..clients.cluster_discovery import _is_blocked_ip
+
+    registered = _parse_ip(_g(node, "ipv4_static") or _g(node, "ipv4"))
+    reported = _parse_ip(agent_ip)
+    if reported is not None and registered is not None and reported != registered:
+        return None, "node registered address does not match the address its agent reported"
+    chosen = reported or registered
+    if chosen is None:
+        return None, "no registered IP address to join from"
+    if _is_blocked_ip(chosen) or chosen.is_unspecified or chosen.is_multicast:
+        return None, "node address is loopback, link-local, metadata or otherwise not routable"
+    return f"{chosen}:{_LXD_NODE_PORT}", None
+
+
 @nodes_bp.route("/<int:node_id>/lxd/join", methods=["POST"])
 @auth_required
 async def node_lxd_join(node_id: int) -> Any:
     """Join a node to an LXD cluster and record membership.
 
-    Request body:
-        cluster_id: LXD cluster ID (required)
-        api_url:    node's LXD API URL (required)
-        member_name: cluster member name (required)
+    Scope ``gough.cluster.admin`` (parity with ``/clusters/<id>/lxd/join``).
 
-    Reuses lxd_extra join orchestration and inserts an lxd_cluster_members row.
+    Request body:
+        cluster_id: LXD cluster ID the caller's tenant owns (required)
+        member_name: cluster member name, RFC 1123 hostname (required)
+
+    The node's LXD address is derived from its registered ``ipv4_static``/``ipv4``;
+    an ``api_url`` in the body is rejected, never honoured.
     """
+    from .lxd_cluster import is_valid_hostname
+
     raw = await request.get_json(silent=True)
-    if raw is None:
+    if not isinstance(raw, dict):
         return err_bad_request("JSON body required")
 
-    cluster_id_raw = (raw.get("cluster_id") or "")
-    api_url = (raw.get("api_url") or "").strip()
-    member_name = (raw.get("member_name") or "").strip()
+    if "api_url" in raw:
+        return err_bad_request("api_url is not accepted; the node's registered address is used")
 
-    if not cluster_id_raw:
+    cluster_id_raw = raw.get("cluster_id") or ""
+    member_name = (raw.get("member_name") or "").strip() if isinstance(raw.get("member_name"), str) else ""
+
+    if not cluster_id_raw or not isinstance(cluster_id_raw, str):
         return err_bad_request("cluster_id is required")
-    if not api_url:
-        return err_bad_request("api_url is required")
     if not member_name:
         return err_bad_request("member_name is required")
+    if not is_valid_hostname(member_name):
+        return err_validation("member_name must be a valid RFC 1123 hostname")
 
     db = get_db()
     # Regression: gh-22. Off the event loop via run_db() instead of
@@ -2214,6 +2376,39 @@ async def node_lxd_join(node_id: int) -> Any:
         if _g(node, "tenant_id", "__default__") != _current_tenant_id():
             return err_not_found(f"Node {node_id} not found")
 
+    # Cluster ownership: fail closed -- no clusters table, unknown id or foreign tenant all refuse.
+    def _check_cluster() -> Optional[bool]:
+        if "clusters" not in getattr(db, "tables", []):
+            return None
+        row = db(db.clusters.id == cluster_id_raw).select().first()
+        if row is None:
+            return False
+        return _is_cross_tenant() or _g(row, "tenant_id", "__default__") == _current_tenant_id()
+
+    cluster_ok = await run_db(_check_cluster)
+    if cluster_ok is None:
+        return envelope_error("cluster_registry_unavailable", "cluster registry unavailable", 503)
+    if not cluster_ok:
+        return err_not_found(f"Cluster {cluster_id_raw} not found")
+
+    # The enrolled agent linked to THIS node (same tenant, active) is the authenticated source of
+    # the node's address; its report is cross-checked against the registered address.
+    def _linked_agent_ip() -> Any:
+        if "access_agents" not in getattr(db, "tables", []):
+            return None
+        rows = db(
+            (db.access_agents.node_id == node_id) & (db.access_agents.status == "active")
+        ).select()
+        for row in rows:
+            if _g(row, "tenant_id") == _g(node, "tenant_id", "__default__"):
+                return _g(row, "ip_address")
+        return None
+
+    agent_ip = await run_db(_linked_agent_ip)
+    api_url, refusal = _node_lxd_address(node, agent_ip)
+    if api_url is None:
+        return err_conflict(f"Node {node_id}: {refusal}")
+
     from ..clients import lxd_extra
 
     try:
@@ -2223,7 +2418,7 @@ async def node_lxd_join(node_id: int) -> Any:
         lxd_extra.cluster_join(
             node_address=api_url,
             join_token=token.token,
-            server_address=api_url,
+            server_address=_lxd_leader_address(),
             cluster_id=str(cluster_id_raw),
         )
     except lxd_extra.LXDError as exc:

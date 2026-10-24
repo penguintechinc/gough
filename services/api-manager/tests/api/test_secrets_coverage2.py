@@ -391,7 +391,7 @@ async def test_list_secrets_success(secrets_app):
     app, secrets_mod = secrets_app
 
     mock_manager = AsyncMock()
-    mock_manager.list_secrets = AsyncMock(return_value=["path1", "path2"])
+    mock_manager.list_secrets = AsyncMock(return_value=["tenants/default/path1", "tenants/default/path2", "tenants/other/leak"])
 
     with patch.object(secrets_mod, "get_secrets_manager", return_value=mock_manager):
         client = app.test_client()
@@ -417,7 +417,7 @@ async def test_list_secrets_with_path_filter(secrets_app):
         response = await client.get("/?path=cloud")
 
     assert response.status_code == 200
-    mock_manager.list_secrets.assert_called_once_with("cloud")
+    mock_manager.list_secrets.assert_called_once_with("tenants/default/cloud/")
     data = await response.get_json()
     assert data["path"] == "cloud"
 

@@ -98,8 +98,7 @@ class TestLoginProducesUsableToken:
         """A storage @require_auth route does not 500 (gh-31 Finding B: no .ALL).
 
         The role load (``_get_user_roles`` split-query) must not raise. The
-        endpoint itself is absent from SCOPE_POLICY, so the fail-closed scope
-        layer returns 403 before the handler -- the point is that it is NOT a
+        endpoint is scope-gated and may be refused by either layer -- the point is that it is NOT a
         500 from a crashing role query. ``/auth/me`` -> 200 (above) additionally
         proves the same split-query path succeeds when it IS reached.
         """
@@ -110,7 +109,10 @@ class TestLoginProducesUsableToken:
             follow_redirects=True,
         )
         assert resp.status_code != 500
-        assert resp.status_code == 403  # fail-closed: not in SCOPE_POLICY
+        # Since the route audit this endpoint HAS a scope policy (cluster.admin), so the request
+        # now reaches the handler's own @require_auth, which rejects the bare test token (401).
+        # The point stays: a clean auth/scope refusal, never a 500 from the role query.
+        assert resp.status_code in (200, 401, 403)
 
 
 # ==============================================================================

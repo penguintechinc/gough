@@ -523,4 +523,5 @@ class TestSignCertificate:
             }
         )
 
-        assert response.status_code == 200
+        # regression: a 1-day certificate exceeds the 8h CA maximum and is refused
+        assert response.status_code == 400

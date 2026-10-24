@@ -510,6 +510,20 @@ async def get_storage_service(
 
     config = StorageConfig.from_row(config_row)
 
+    # SSRF guard: endpoint_url is admin-supplied free text that boto3 will fetch. Reject
+    # loopback/link-local/cloud-metadata targets (private ranges stay allowed: MinIO/Ceph
+    # live on the operator's network) before any client is built.
+    if config.endpoint_url:
+        from ..clients.cluster_discovery import (
+            ClusterDiscoveryUnavailable,
+            _validate_discovery_endpoint,
+        )
+
+        try:
+            await _validate_discovery_endpoint(config.endpoint_url)
+        except ClusterDiscoveryUnavailable as exc:
+            raise StorageValidationError(f"storage endpoint refused: {exc}") from exc
+
     if not config.credentials_path:
         raise StorageAccessError(
             f"No credentials path configured for storage {config.name}"

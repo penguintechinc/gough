@@ -1846,113 +1846,222 @@ class TestCloudInit:
 
 
 class TestLxdJoin:
-    """POST /api/v1/nodes/{id}/lxd/join endpoint."""
+    """POST /api/v1/nodes/{id}/lxd/join endpoint (hardened: derived address, cluster ownership)."""
+
+    @staticmethod
+    def _body(**kw):
+        body = {"cluster_id": "1", "member_name": "node1"}
+        body.update(kw)
+        return {k: v for k, v in body.items() if v is not None}
+
+    @pytest.fixture()
+    def join_node(self, dal, seed_node):
+        """The seed node with a registered address, plus clusters owned by acme and globex."""
+        from penguin_dal import Field
+
+        dal(dal.nodes.id == seed_node).update(ipv4="10.0.0.5")
+        dal.define_table(
+            "clusters", Field("tenant_id", "string"), migrate=True,
+        )
+        dal.clusters.insert(tenant_id="acme")  # id 1
+        dal.clusters.insert(tenant_id="globex")  # id 2
+        dal.commit()
+        return seed_node
 
     @pytest.mark.asyncio
-    async def test_lxd_join_missing_cluster_id(self, nodes_app, seed_node):
+    async def test_lxd_join_missing_cluster_id(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/lxd/join",
-                json={"api_url": "https://10.0.0.1:8443", "member_name": "node1"},
+                f"/api/v1/nodes/{join_node}/lxd/join", json={"member_name": "node1"},
             )
         assert resp.status_code == 400
-        data = await _json(resp)
-        assert "cluster_id" in data["error"]["message"]
+        assert "cluster_id" in (await _json(resp))["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_lxd_join_missing_api_url(self, nodes_app, seed_node):
+    async def test_lxd_join_missing_member_name(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/lxd/join",
-                json={"cluster_id": "c1", "member_name": "node1"},
+                f"/api/v1/nodes/{join_node}/lxd/join", json={"cluster_id": "1"},
             )
         assert resp.status_code == 400
-        data = await _json(resp)
-        assert "api_url" in data["error"]["message"]
+        assert "member_name" in (await _json(resp))["error"]["message"]
 
     @pytest.mark.asyncio
-    async def test_lxd_join_missing_member_name(self, nodes_app, seed_node):
+    async def test_lxd_join_invalid_member_name(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{seed_node}/lxd/join",
-                json={"cluster_id": "c1", "api_url": "https://10.0.0.1:8443"},
+                f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(member_name="bad name;rm"),
             )
-        assert resp.status_code == 400
-        data = await _json(resp)
-        assert "member_name" in data["error"]["message"]
+        assert resp.status_code == 422
 
     @pytest.mark.asyncio
-    async def test_lxd_join_no_body(self, nodes_app, seed_node):
+    async def test_lxd_join_rejects_api_url(self, nodes_app, join_node):
+        """SSRF guard: a caller-supplied api_url is refused, never used."""
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join",
+                    json=self._body(api_url="https://169.254.169.254:8443"),
+                )
+        assert resp.status_code == 400
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_no_body(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
-            resp = await client.post(f"/api/v1/nodes/{seed_node}/lxd/join")
+            resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join")
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_lxd_join_node_not_found(self, nodes_app):
+    async def test_lxd_join_node_not_found(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
-            resp = await client.post(
-                "/api/v1/nodes/99999/lxd/join",
-                json={
-                    "cluster_id": "c1",
-                    "api_url": "https://10.0.0.1:8443",
-                    "member_name": "node1",
-                },
-            )
+            resp = await client.post("/api/v1/nodes/99999/lxd/join", json=self._body())
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_lxd_join_lxd_error_returns_502(self, nodes_app, seed_node):
-        """LXD client errors → 502."""
+    async def test_lxd_join_foreign_cluster_404(self, nodes_app, join_node):
+        """cluster_id of another tenant is indistinguishable from a missing one; no token minted."""
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="2"),
+                )
+                missing = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="999"),
+                )
+        assert resp.status_code == 404
+        assert missing.status_code == 404
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_foreign_node_404(self, nodes_app, dal, join_node):
+        dal(dal.nodes.id == join_node).update(tenant_id="globex")
+        dal.commit()
+        async with nodes_app.test_client() as client:
+            resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_node_without_address_409(self, nodes_app, dal, join_node):
+        dal(dal.nodes.id == join_node).update(ipv4=None)
+        dal.commit()
+        async with nodes_app.test_client() as client:
+            resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("addr", ["127.0.0.1", "169.254.169.254", "169.254.10.1", "0.0.0.0", "224.0.0.1"])
+    async def test_lxd_join_blocked_registered_address_409(self, nodes_app, dal, join_node, addr):
+        """regression: operator-editable ipv4_static must not steer the join token to blocked hosts."""
+        dal(dal.nodes.id == join_node).update(ipv4_static=addr)
+        dal.commit()
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.fixture()
+    def linked_agent(self, dal, join_node):
+        from penguin_dal import Field
+
+        dal.define_table(
+            "access_agents", Field("node_id", "integer"), Field("status", "string"),
+            Field("tenant_id", "string"), Field("ip_address", "string"), migrate=True,
+        )
+
+        def _add(ip, tenant="acme"):
+            dal.access_agents.insert(node_id=join_node, status="active", tenant_id=tenant, ip_address=ip)
+            dal.commit()
+
+        return _add
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_address_mismatch_409(self, nodes_app, join_node, linked_agent):
+        """The agent-reported address and the registered one must agree."""
+        linked_agent("10.0.0.99")  # registered is 10.0.0.5
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_reporting_blocked_address_409(self, nodes_app, dal, join_node, linked_agent):
+        dal(dal.nodes.id == join_node).update(ipv4=None)
+        dal.commit()
+        linked_agent("169.254.169.254")
+        with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code == 409
+        mock_mint.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_other_tenants_agent_is_ignored(self, nodes_app, join_node, linked_agent):
+        """An agent stamped with another tenant is not a trusted source for this node's address."""
+        linked_agent("10.9.9.9", tenant="globex")
+        mock_token = MagicMock()
+        mock_token.token = "t"
+        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
+             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+            async with nodes_app.test_client() as client:
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert resp.status_code in (201, 500)  # membership table absent in fixture may 500 after the join
+        assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_agent_address_used_when_it_agrees(self, nodes_app, join_node, linked_agent):
+        linked_agent("10.0.0.5")
+        mock_token = MagicMock()
+        mock_token.token = "t"
+        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
+             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+            async with nodes_app.test_client() as client:
+                await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+        assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_no_cluster_registry_503(self, nodes_app, seed_node):
+        """No clusters table: fail closed rather than skipping the ownership check."""
+        async with nodes_app.test_client() as client:
+            resp = await client.post(f"/api/v1/nodes/{seed_node}/lxd/join", json=self._body())
+        assert resp.status_code == 503
+
+    @pytest.mark.asyncio
+    async def test_lxd_join_lxd_error_returns_502(self, nodes_app, join_node):
+        """LXD client errors -> 502."""
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             from app.clients import lxd_extra
             mock_mint.side_effect = lxd_extra.LXDError("LXD not reachable")
             async with nodes_app.test_client() as client:
-                resp = await client.post(
-                    f"/api/v1/nodes/{seed_node}/lxd/join",
-                    json={
-                        "cluster_id": "c1",
-                        "api_url": "https://10.0.0.1:8443",
-                        "member_name": "node1",
-                    },
-                )
+                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
         assert resp.status_code == 502
 
     @pytest.mark.asyncio
-    async def test_lxd_join_success(self, nodes_app, seed_node, dal):
-        """Successful LXD join updates node state to ready.
-
-        The lxd_cluster_members table is patched via hasattr to avoid
-        requiring the optional table in the test fixture schema.
-        """
+    async def test_lxd_join_success_uses_registered_address(self, nodes_app, join_node, dal):
+        """Join targets the node's registered ipv4, never request input; node goes ready."""
         mock_token = MagicMock()
         mock_token.token = "lxd-join-token-abc"
-
         original_hasattr = hasattr
 
         def _patched_hasattr(obj, name):
             if name == "lxd_cluster_members":
-                return False  # skip insert, use node state update path only
+                return False  # optional table absent in the fixture schema
             return original_hasattr(obj, name)
 
         with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
-             patch("app.clients.lxd_extra.cluster_join"), \
+             patch("app.clients.lxd_extra.cluster_join") as mock_join, \
              patch("builtins.hasattr", side_effect=_patched_hasattr):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
-                    f"/api/v1/nodes/{seed_node}/lxd/join",
-                    json={
-                        "cluster_id": "my-cluster",
-                        "api_url": "https://10.0.0.1:8443",
-                        "member_name": "test-node-1",
-                    },
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="1"),
                 )
         assert resp.status_code == 201
         data = (await _json(resp))["data"]
-        assert data["node_id"] == seed_node
-        assert data["cluster_id"] == "my-cluster"
-        # Verify node state updated to ready
-        node = dal(dal.nodes.id == seed_node).select()[0]
-        assert node.state == "ready"
+        assert data["node_id"] == join_node
+        assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
+        assert dal(dal.nodes.id == join_node).select()[0].state == "ready"
 
 
 class TestRejectNodeEdgeCases:

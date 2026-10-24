@@ -8,7 +8,9 @@ Provides comprehensive audit logging for:
 - All security-relevant operations
 """
 
+import asyncio
 import json
+import logging
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -18,6 +20,39 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from quart import current_app, g, request
+
+from .metrics import audit_nats_publish_failures_total
+
+_module_log = logging.getLogger(__name__)
+
+# Strong references to in-flight NATS audit publish tasks (see _publish_audit_event_nats).
+_PENDING_PUBLISH_TASKS: set["asyncio.Task[None]"] = set()
+
+
+def _log_for(app: object) -> logging.Logger:
+    """Return the Quart app logger when available, else the module logger."""
+    logger = getattr(app, "logger", None)
+    return logger if logger is not None else _module_log
+
+
+async def drain_audit_publish_tasks(timeout: float = 5.0) -> None:
+    """Wait up to ``timeout`` seconds for pending audit publishes, then cancel the rest.
+
+    Called from the app's after_serving hook so shutdown does not drop audit
+    events that are already in flight, while bounding how long shutdown waits.
+    """
+    pending = set(_PENDING_PUBLISH_TASKS)
+    if not pending:
+        return
+    _, still_pending = await asyncio.wait(pending, timeout=timeout)
+    for task in still_pending:
+        task.cancel()
+    if still_pending:
+        await asyncio.gather(*still_pending, return_exceptions=True)
+        _module_log.warning(
+            "cancelled %d audit NATS publish task(s) still pending at shutdown",
+            len(still_pending),
+        )
 
 
 class AuditEventType(Enum):
@@ -273,24 +308,37 @@ class AuditLogger:
                 "timestamp": event.timestamp.isoformat(),
             }
 
+            # Resolve the request tenant here, while the request ContextVar is still
+            # set; the task below copies the context only at creation time.
+            from .db.rls import get_current_tenant
+
+            tenant_id = get_current_tenant() or "__default__"
+
             # Schedule async publish as a fire-and-forget task
-            async def _publish_async():
+            async def _publish_async() -> None:
+                """Publish one audit event; failures are counted and logged, never raised."""
                 try:
+                    # NatsClient (app/clients/nats.py) takes a dict payload and tenant_id kwarg.
                     await nats_client.publish(
                         subject="gough.audit.entry-written",
                         payload=payload,
-                        tenant_id="__default__",
+                        tenant_id=tenant_id,
                     )
                 except Exception as exc:  # noqa: BLE001
-                    if self.app:
-                        self.app.logger.warning("NATS audit publish failed: %s", exc)
+                    audit_nats_publish_failures_total.inc()
+                    _log_for(self.app).warning("NATS audit publish failed: %s", exc)
 
             # Try to schedule in event loop if available
+            coro = _publish_async()
             try:
-                asyncio.create_task(_publish_async())
+                task = asyncio.create_task(coro)
             except RuntimeError:
                 # No event loop available, skip async publish
-                pass
+                coro.close()
+                return
+            # The loop holds only weak refs to tasks; keep a strong ref until done.
+            _PENDING_PUBLISH_TASKS.add(task)
+            task.add_done_callback(_PENDING_PUBLISH_TASKS.discard)
         except Exception as exc:  # noqa: BLE001
             # Swallow all errors in NATS publishing
             if self.app:

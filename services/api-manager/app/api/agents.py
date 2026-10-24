@@ -11,16 +11,25 @@ import json
 import logging
 import secrets
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import jwt
+from pydantic import ValidationError
 from quart import Blueprint, current_app, g, jsonify, request
 
+from .. import capacity_guard
 from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
 from ..models import get_db
+from ._helpers import (
+    request_is_cross_tenant,
+    request_tenant_id,
+    resolve_node_id_by_name,
+    tenant_owns,
+)
+from .lxd_cluster import parse_metadata
 
 log = logging.getLogger(__name__)
 
@@ -75,6 +84,11 @@ async def create_enrollment_key():
     data = await request.get_json() or {}
     expires_in_hours = data.get("expires_in_hours", 24)
     metadata = data.get("metadata")
+    if metadata is not None and not isinstance(metadata, dict):
+        return jsonify({"error": "metadata must be an object"}), 400
+    # The key's tenant is stamped from the creating admin's token, never the body:
+    # it scopes the agent<->node link made at enrollment.
+    metadata = {**(metadata or {}), "tenant_id": request_tenant_id()}
 
     db = get_db()
 
@@ -100,7 +114,7 @@ async def create_enrollment_key():
                 key_hash=key_hash,
                 created_by=current_user["id"],
                 expires_at=expires_at,
-                metadata=str(metadata) if metadata else None,
+                metadata=json.dumps(metadata),
             )
             db.commit()
             return True, key_id
@@ -155,6 +169,9 @@ async def list_enrollment_keys():
 
     keys_data = []
     for key in keys:
+        # Tenant isolation: a key is owned by the tenant stamped into its metadata at creation.
+        if not tenant_owns(parse_metadata(key.get("metadata")).get("tenant_id")):
+            continue
         keys_data.append({
             "id": key["id"],
             "created_by": key["created_by"],
@@ -192,10 +209,11 @@ async def revoke_enrollment_key(key_id: int):
     # app/db/run_db.py), single rollback point inside the closure.
     def _revoke() -> tuple[str, Any]:
         key = db.enrollment_keys(key_id)
-        if not key:
+        if not key or not tenant_owns(parse_metadata(key["metadata"]).get("tenant_id")):
             return "not_found", None
         try:
-            db(db.enrollment_keys.id == key_id).delete()
+            # Soft-delete: keep the row so a revoked key can never be re-seeded or re-used.
+            db(db.enrollment_keys.id == key_id).update(revoked=True)
             db.commit()
             return "ok", None
         except Exception as e:
@@ -263,6 +281,9 @@ async def enroll_agent():
     if not key_record:
         return jsonify({"error": "Invalid enrollment key"}), 401
 
+    if key_record.revoked:
+        return jsonify({"error": "Enrollment key revoked"}), 401
+
     if key_record.is_used:
         return jsonify({"error": "Enrollment key already used"}), 409
 
@@ -280,6 +301,31 @@ async def enroll_agent():
     ):
         return jsonify({"error": "capabilities must be a list of strings"}), 400
     caps = raw_capabilities
+
+    # Server-side agent<->node link. The enrollment key (not the request body)
+    # carries the intended hostname; when present the agent must match it, and the
+    # node is resolved from it. The capacity guard trusts only this link.
+
+    key_meta = parse_metadata(key_record["metadata"])
+    intended_raw = key_meta.get("intended_hostname")
+    intended = intended_raw if isinstance(intended_raw, str) and intended_raw else None
+    if intended is not None and hostname != intended:
+        log.warning("enrollment refused: hostname does not match key intended_hostname")
+        return jsonify({"error": "Hostname does not match enrollment key"}), 403
+    link_node_id = (
+        await run_db(lambda: _resolve_enrollment_link(db, key_meta, intended))
+        if intended is not None
+        else None
+    )
+    if intended is not None and link_node_id is None:
+        capacity_guard.agent_enroll_unlinked.labels(
+            "no_tenant" if not key_meta.get("tenant_id") else "no_unique_node"
+        ).inc()
+        log.warning(
+            "agent enrolled UNLINKED (no capacity ingest): key has no tenant_id or no unique "
+            "tenant-scoped node named %s",
+            intended,
+        )
 
     # Generate agent ID + JWT tokens (non-DB, pure/local)
     agent_id = str(uuid.uuid4())
@@ -300,6 +346,7 @@ async def enroll_agent():
             claimed = db(
                 (db.enrollment_keys.id == key_record.id)
                 & (db.enrollment_keys.is_used == False)  # noqa: E712 -- DAL idiom
+                & (db.enrollment_keys.revoked == False)  # noqa: E712 -- DAL idiom
             ).update(is_used=True)
             if not claimed:
                 db.commit()
@@ -308,6 +355,8 @@ async def enroll_agent():
             agent_db_id = db.access_agents.insert(
                 agent_id=agent_id,
                 hostname=hostname,
+                node_id=link_node_id,
+                tenant_id=key_meta.get("tenant_id") if isinstance(key_meta.get("tenant_id"), str) else None,
                 ip_address=data.get("ip_address"),
                 enrollment_key_hash=key_hash,
                 enrollment_completed=True,
@@ -374,6 +423,65 @@ async def enroll_agent():
             "heartbeat_interval": 30,
         },
     }), 201
+
+
+def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -> int | None:
+    """Resolve the node an enrolling agent is bound to, from server-side key metadata.
+
+    Requires the key's stamped ``tenant_id``: a key without one (e.g. issued before
+    tenant stamping; re-link such agents with ``PUT /agents/{id}/node``) yields None and
+    NEVER triggers an unscoped, cross-tenant name lookup. The node must be the unique
+    node named ``intended_hostname`` within that tenant, and equal an explicit
+    ``node_id`` in the metadata when one is present.
+    """
+    tenant = key_meta.get("tenant_id")
+    if not isinstance(tenant, str) or not tenant:
+        return None
+    node_id = resolve_node_id_by_name(db, intended, tenant)
+    explicit = key_meta.get("node_id")
+    if isinstance(explicit, int) and not isinstance(explicit, bool):
+        return node_id if node_id == explicit else None
+    return node_id
+
+
+@agents_bp.route("/<string:agent_id>/node", methods=["PUT"])
+@auth_required
+@roles_required("admin")
+async def link_agent_node(agent_id: str):
+    """Link an enrolled agent to the node it reports capacity for (admin only).
+
+    Body: ``{"node_id": <int>}``. The binding is server-side and is the only way the
+    capacity guard maps heartbeat snapshots to a node.
+
+    Returns:
+        200: linked; 400: bad body; 404: agent or node unknown;
+        409: node already linked to another active agent.
+    """
+    body = await request.get_json(silent=True)
+    node_id = body.get("node_id") if isinstance(body, dict) else None
+    if not isinstance(node_id, int) or isinstance(node_id, bool) or node_id < 1:
+        return jsonify({"error": "node_id must be a positive integer"}), 400
+    db = get_db()
+
+    # Tenant-scoped admins may only link nodes of their own tenant; only a
+    # cross-tenant super-admin token may link across tenants.
+    expected_tenant = None if request_is_cross_tenant() else request_tenant_id()
+
+    def _link() -> str | None:
+        with db.engine.begin() as conn:
+            return capacity_guard.link_agent_to_node(
+                conn, agent_id, node_id, expected_tenant=expected_tenant
+            )
+
+    refusal = await run_db(_link)
+    if refusal in ("agent_not_found", "node_not_found", "tenant_mismatch"):
+        # all three look identical to the caller: no cross-tenant existence leak
+        # tenant_mismatch reports as not-found: never confirm another tenant's node exists.
+        return jsonify({"error": "not_found"}), 404
+    if refusal is not None:
+        return jsonify({"error": refusal}), 409
+    log.info("agent %s linked to node %s", agent_id, node_id)
+    return jsonify({"agent_id": agent_id, "node_id": node_id}), 200
 
 
 # ============================================================================
@@ -485,6 +593,15 @@ async def agent_heartbeat():
     # single rollback point inside the closure.
     def _update_heartbeat() -> tuple[bool, Any]:
         try:
+            stored = db(db.access_agents.agent_id == agent_id).select().first()
+            if stored is not None and stored.status != "active":
+                # A revoked/inactive agent can never re-activate itself by claiming
+                # "active" in its own heartbeat body.
+                db(db.access_agents.agent_id == agent_id).update(
+                    last_heartbeat=datetime.utcnow(),
+                )
+                db.commit()
+                return True, None
             db(db.access_agents.agent_id == agent_id).update(
                 last_heartbeat=datetime.utcnow(),
                 status=data.get("status", "active"),
@@ -500,6 +617,18 @@ async def agent_heartbeat():
     if not ok:
         return jsonify({"error": str(err)}), 500
 
+    # The heartbeat is recorded above even when the resource snapshot is rejected.
+    raw_snapshot = data.get("resource_snapshot")
+    if raw_snapshot is not None:
+        snapshot_error = await run_db(
+            lambda: _ingest_resource_snapshot(db, agent_id, raw_snapshot)
+        )
+        if snapshot_error is not None:
+            return jsonify({
+                "status": "heartbeat_recorded",
+                "error": snapshot_error,
+            }), 400
+
     # Check for pending commands (future feature)
     commands = []
 
@@ -507,6 +636,46 @@ async def agent_heartbeat():
         "status": "ok",
         "commands": commands,
     }), 200
+
+
+def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None:
+    """Validate and persist a heartbeat's ``resource_snapshot`` for the agent's node.
+
+    The node comes ONLY from the server-side ``access_agents.node_id`` link; the
+    agent's self-reported hostname is never consulted. Refused when the agent is not
+    active, is unlinked, or shares its node with another active agent. The hub's own
+    clock is the ordering and freshness anchor; future-dated, replayed or already
+    stale snapshots are rejected.
+
+    Args:
+        db: penguin-dal handle; its SQLAlchemy engine is used for the write.
+        agent_id: Authenticated agent identifier from the access token.
+        raw: Untrusted ``resource_snapshot`` value from the request body.
+
+    Returns:
+        None on success; a short error string when refused (-> 400).
+    """
+    try:
+        snap = capacity_guard.parse_snapshot(raw)
+    except ValidationError as exc:
+        details = "; ".join(
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+        )
+        log.warning("rejected resource_snapshot from agent %s: %s", agent_id, details)
+        return f"invalid resource_snapshot: {details}"
+
+    with db.engine.begin() as conn:
+        link = capacity_guard.resolve_agent_node(conn, agent_id)
+        if link.node_id is None:
+            log.warning("resource_snapshot refused for agent %s: %s", agent_id, link.reason)
+            return f"resource_snapshot refused: {link.reason}"
+        outcome = capacity_guard.record_snapshot(
+            conn, link.node_id, snap, datetime.now(timezone.utc)
+        )
+    if outcome is not capacity_guard.SnapshotOutcome.STORED:
+        log.warning("resource_snapshot from agent %s not stored: %s", agent_id, outcome.name)
+        return f"resource_snapshot rejected: {outcome.name.lower()}"
+    return None
 
 
 # ============================================================================
@@ -542,6 +711,9 @@ async def list_agents():
 
     agents_data = []
     for agent in agents:
+        # Tenant isolation: unstamped legacy agents are visible to cross-tenant callers only.
+        if not tenant_owns(agent.get("tenant_id")):
+            continue
         agents_data.append({
             "id": agent["id"],
             "agent_id": agent["agent_id"],
@@ -582,7 +754,7 @@ async def get_agent(agent_id: str):
     agent = await run_db(
         lambda: db(db.access_agents.agent_id == agent_id).select().first()
     )
-    if not agent:
+    if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
         return jsonify({"error": "Agent not found"}), 404
 
     return jsonify({
@@ -624,7 +796,7 @@ async def suspend_agent(agent_id: str):
     # app/db/run_db.py), single rollback point inside the closure.
     def _suspend() -> tuple[str, Any]:
         agent = db(db.access_agents.agent_id == agent_id).select().first()
-        if not agent:
+        if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
             return "not_found", None
         try:
             db(db.access_agents.agent_id == agent_id).update(
@@ -669,7 +841,7 @@ async def resume_agent(agent_id: str):
     # app/db/run_db.py), single rollback point inside the closure.
     def _resume() -> tuple[str, Any]:
         agent = db(db.access_agents.agent_id == agent_id).select().first()
-        if not agent:
+        if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
             return "not_found", None
         try:
             db(db.access_agents.agent_id == agent_id).update(

@@ -29,6 +29,7 @@ working without rewrites.
 """
 
 import hmac
+import time
 from collections.abc import Awaitable
 from functools import wraps
 from http.cookies import CookieError, SimpleCookie
@@ -479,21 +480,39 @@ async def install_security_middleware(app) -> None:
 wire_middleware = install_security_middleware
 
 
+async def _mark_request_start() -> None:
+    """Stamp the request start (perf_counter) on ``g`` for latency observation."""
+    g.request_started_at = time.perf_counter()
+
+
 async def _record_request_metrics(response):
-    """Record per-request latency and error metrics."""
-    from .metrics import api_request_latency_seconds, api_error_total
-    from quart import request
+    """Record per-request latency and error metrics.
+
+    Labels use the matched route template (bounded cardinality); unmatched
+    requests (404s) are labelled ``unmatched``. Metric failures never fail the
+    response: they are logged at DEBUG and counted in gough_metrics_record_errors_total.
+    """
+    from quart import current_app, request
+    from .metrics import (
+        api_error_total,
+        api_request_latency_seconds,
+        metrics_record_errors_total,
+    )
+
     try:
         method = request.method
-        # Normalize path: replace numeric segments with {id}
-        import re
-        endpoint = re.sub(r"/\d+", "/{id}", request.path)
+        rule = request.url_rule
+        endpoint = rule.rule if rule is not None else "unmatched"
         status = str(response.status_code)
-        # latency — use X-Request-Start header if set by load balancer, else 0
-        elapsed = float(response.headers.get("X-Response-Time-Seconds", 0))
-        api_request_latency_seconds.labels(method=method, endpoint=endpoint, status_code=status).observe(elapsed)
+        started = getattr(g, "request_started_at", None)
+        if started is not None:
+            elapsed = time.perf_counter() - started
+            api_request_latency_seconds.labels(
+                method=method, endpoint=endpoint, status_code=status
+            ).observe(elapsed)
         if response.status_code >= 400:
             api_error_total.labels(method=method, endpoint=endpoint, status_code=status).inc()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 -- metrics must never fail a response
+        metrics_record_errors_total.inc()
+        current_app.logger.debug("request metrics recording failed: %s", exc, exc_info=True)
     return response

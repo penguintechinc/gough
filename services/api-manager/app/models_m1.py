@@ -1292,6 +1292,81 @@ class BootEvent(Base):
 
 
 # =============================================================================
+# Host Resource Snapshots & Capacity Reservations (capacity guard)
+# =============================================================================
+
+#: Reservation status int codes (house rule: int enum codes, not strings).
+RESERVATION_ACTIVE = 1
+RESERVATION_RELEASED = 2
+RESERVATION_EXPIRED = 3
+#: Placement succeeded; the reservation stays pending until a snapshot accounts for it.
+RESERVATION_CONFIRMED = 4
+
+
+class NodeResourceSnapshot(Base):
+    """Latest host resource snapshot reported by a node's access agent.
+
+    One row per node, upserted on each heartbeat carrying ``resource_snapshot``.
+    The full ``gough.host_resources.v1`` payload is kept in ``payload``; scalar
+    columns are denormalised for queries and gauges. Consumed by
+    ``app/capacity_guard.py``, which fails closed when the row is stale.
+    """
+
+    __tablename__ = "node_resource_snapshots"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, unique=True)
+    received_at = Column(DateTime(timezone=True), nullable=False)
+    collected_at = Column(DateTime(timezone=True), nullable=False)
+    schema_version = Column(String(64), nullable=False)
+    payload = Column(JSON, nullable=False)
+    logical_cores = Column(Integer, nullable=False)
+    cpu_usage_pct = Column(Float, nullable=True)
+    memory_total_bytes = Column(BigInteger, nullable=False)
+    memory_available_bytes = Column(BigInteger, nullable=False)
+    committed_cpu_cores = Column(Float, nullable=False)
+    committed_memory_bytes = Column(BigInteger, nullable=False)
+    instances_without_limits = Column(Integer, nullable=False, server_default="0")
+    psi_available = Column(Boolean, nullable=False, server_default="0")
+
+    __table_args__ = (
+        Index("ix_node_resource_snapshots_received_at", "received_at"),
+        {"extend_existing": True},
+    )
+
+
+class CapacityReservation(Base):
+    """Placement reservation held against a node's allocatable capacity.
+
+    Created inside the node-locked check+insert transaction in
+    ``capacity_guard.reserve``. ACTIVE until the placement succeeds (then
+    CONFIRMED with ``confirmed_at``); a CONFIRMED reservation is released when a
+    snapshot taken after confirmation shows committed usage grew by at least its
+    size. Failed placements release explicitly; everything expires at ``expires_at``.
+    """
+
+    __tablename__ = "capacity_reservations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    public_id = Column(String(36), nullable=False, unique=True)
+    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    cpu_cores = Column(Float, nullable=False)
+    memory_bytes = Column(BigInteger, nullable=False)
+    disk_bytes = Column(BigInteger, nullable=False)
+    pool = Column(String(255), nullable=False)
+    status = Column(Integer, nullable=False, server_default=str(RESERVATION_ACTIVE))
+    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    released_at = Column(DateTime(timezone=True), nullable=True)
+    confirmed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_capacity_reservations_node_status", "node_id", "status"),
+        {"extend_existing": True},
+    )
+
+
+# =============================================================================
 # Backward-compat aliases
 # =============================================================================
 

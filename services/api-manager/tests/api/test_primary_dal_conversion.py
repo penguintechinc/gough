@@ -198,7 +198,7 @@ def _build_app(*, dal_db: Any, monkeypatch: pytest.MonkeyPatch) -> tuple[Quart, 
     async def _inject_auth() -> None:
         g.current_user = {
             "_jwt_payload": {
-                "tenant": "default",
+                "tenant": "acme",
                 "scope": (
                     "gough.cluster.read gough.cluster.admin "
                     "gough.cluster.superadmin"
@@ -252,6 +252,33 @@ class TestFrontendSwitchPrimaryNodeLookup:
         )
         assert resp.status_code == 200
         assert sorted(captured["node_ids"]) == sorted([primary_a, primary_b])
+
+    async def test_other_tenants_primary_nodes_untouched(
+        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """regression: a tenant-scoped admin must never switch another tenant's primaries."""
+        mine = _seed_node(pg_db, name="mine", state="primary")
+        _seed_node(pg_db, name="theirs", state="primary", tenant_id="globex")
+
+        captured: dict[str, Any] = {}
+
+        async def fake_update_endpoint(new_endpoint: str, node_ids: list) -> dict:
+            captured["node_ids"] = node_ids
+            return {nid: {"success": True, "error": None} for nid in node_ids}
+
+        async def fake_arp(*args: Any, **kwargs: Any) -> dict:
+            return {}
+
+        app, primary_mod = _build_app(dal_db=pg_db, monkeypatch=monkeypatch)
+        monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+        monkeypatch.setattr(primary_mod, "_emit_gracious_arp", fake_arp)
+
+        resp = await app.test_client().post(
+            "/api/v1/primary/frontend-switch",
+            json={"target_mode": "kube-vip", "new_endpoint": "10.0.0.1:6443"},
+        )
+        assert resp.status_code == 200
+        assert captured["node_ids"] == [mine]
 
     async def test_empty_result_when_no_primary_nodes(
         self, pg_db: Any, monkeypatch: pytest.MonkeyPatch

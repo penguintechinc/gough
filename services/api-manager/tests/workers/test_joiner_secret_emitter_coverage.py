@@ -56,7 +56,7 @@ def _seed_biome(dal_db: Any, **overrides: Any) -> int:
     base: dict[str, Any] = dict(
         tenant_id="test-tenant",
         name=f"biome-{uuid.uuid4().hex[:8]}",
-        biome_kind="k8s-primary",
+        biome_kind="k8s-controller",
     )
     base.update(overrides)
     return int(dal_db.biomes.insert(**base))

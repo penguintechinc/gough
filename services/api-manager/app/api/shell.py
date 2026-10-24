@@ -17,6 +17,7 @@ from ..middleware import auth_required, get_current_user, user_has_role
 from ..audit import get_audit_logger
 from ..db.run_db import run_db
 from ..models import get_db
+from ._helpers import request_is_cross_tenant, request_tenant_id, tenant_owns
 
 log = logging.getLogger(__name__)
 
@@ -161,9 +162,12 @@ async def create_session():
     # This is a simplified version - real implementation would need
     # to match agents based on resource location, network, etc.
     def _fetch_agent() -> Any:
-        return db(
-            (db.access_agents.status == "active")
-        ).select(orderby=db.access_agents.last_heartbeat).first()
+        # Tenant isolation: a session is only ever routed through an access agent enrolled
+        # by the caller's own tenant (never another tenant's agent, never an unstamped one).
+        cond = db.access_agents.status == "active"
+        if not request_is_cross_tenant():
+            cond = cond & (db.access_agents.tenant_id == request_tenant_id())
+        return db(cond).select(orderby=db.access_agents.last_heartbeat).first()
 
     agent = await run_db(_fetch_agent)
 
@@ -223,7 +227,7 @@ async def create_session():
 
     ok, err = await run_db(_create_session)
     if not ok:
-        return jsonify({"error": str(err)}), 500
+        return jsonify({"error": "Failed to create shell session"}), 500
 
     # Generate WebSocket URL
     # In production, this would be the actual WebSocket endpoint
@@ -254,9 +258,10 @@ async def list_sessions():
     # the event loop via run_db() instead of blocking the request
     # coroutine inline.
     def _fetch() -> Any:
+        # ``== None`` is the DAL IS-NULL idiom; ``is None`` evaluated to a constant False.
         return db(
             (db.shell_sessions.user_id == current_user["id"]) & (
-                db.shell_sessions.ended_at is None)
+                db.shell_sessions.ended_at == None)  # noqa: E711 -- DAL idiom
         ).select(orderby=~db.shell_sessions.started_at).as_list()
 
     sessions = await run_db(_fetch)
@@ -312,7 +317,14 @@ async def terminate_session(session_id: str):
     # Find session. Regression: gh-22. Off the event loop via run_db()
     # instead of blocking the request coroutine inline.
     def _fetch_session() -> Any:
-        return db(db.shell_sessions.session_id == session_id).select().first()
+        row = db(db.shell_sessions.session_id == session_id).select().first()
+        if row is None:
+            return None
+        # Tenant isolation: the session belongs to the tenant of the access agent carrying it.
+        agent = db(db.access_agents.id == row.agent_id).select().first()
+        if agent is None or not tenant_owns(getattr(agent, "tenant_id", None)):
+            return None
+        return row
 
     session = await run_db(_fetch_session)
 
@@ -371,7 +383,7 @@ async def terminate_session(session_id: str):
 
     ok, result = await run_db(_terminate)
     if not ok:
-        return jsonify({"error": str(result)}), 500
+        return jsonify({"error": "Failed to terminate shell session"}), 500
 
     return jsonify({
         "message": "Session terminated successfully",
