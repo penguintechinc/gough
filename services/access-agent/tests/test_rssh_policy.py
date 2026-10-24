@@ -205,20 +205,96 @@ def test_shell_problem_cases(tmp_path: Any) -> None:
     assert "cannot read" in (rssh.shell_problem(str(ok_shell), str(tmp_path / "absent")) or "")
 
 
-def test_account_locked(tmp_path: Any) -> None:
-    """'!' password field is locked; hashes/'*' are not; unreadable shadow is skipped."""
-    sh = tmp_path / "shadow"
-    sh.write_text("a:!$6$x:1::\nb:$6$hash:1::\nc:*:1::\nd:!:1::\nbad\n")
-    f = str(sh)
-    assert rssh.account_locked("a", f) and rssh.account_locked("d", f)
-    assert not rssh.account_locked("b", f) and not rssh.account_locked("c", f)
-    assert not rssh.account_locked("zzz", f)
-    assert not rssh.account_locked("a", str(tmp_path / "absent"))
+class _FakePam:
+    """Stand-in for the libpam CDLL; ``acct_rc`` is what pam_acct_mgmt returns."""
+
+    def __init__(self, acct_rc: int = 0, start_rc: int = 0) -> None:
+        self.acct_rc, self.start_rc, self.ended = acct_rc, start_rc, 0
+        self.service: bytes | None = None
+        self.user: bytes | None = None
+        # Plain functions (not bound methods) so ctypes-style argtypes/restype can be set.
+        self.pam_start = lambda *a: self._start(*a)
+        self.pam_acct_mgmt = lambda *a: self._acct(*a)
+        self.pam_end = lambda *a: self._end(*a)
+        self.pam_set_item = lambda *a: self._set(*a)
+        self.items: dict[int, bytes] = {}
+        self.set_rc = 0
+
+    def _set(self, handle: Any, item: int, value: bytes) -> int:
+        self.items[item] = value
+        return self.set_rc
+
+    def _start(self, svc: bytes, user: bytes, conv: Any, handle: Any) -> int:
+        self.service, self.user = svc, user
+        return self.start_rc
+
+    def _acct(self, handle: Any, flags: int) -> int:
+        return self.acct_rc
+
+    def _end(self, handle: Any, rc: int) -> int:
+        self.ended += 1
+        return 0
+
+
+@pytest.mark.parametrize(
+    ("rc", "ok"),
+    [(0, True), (13, False), (12, False), (7, False), (10, False)],  # ok/expired/newtok/denied/acct
+)
+def test_account_permitted_maps_pam_codes(monkeypatch: pytest.MonkeyPatch, rc: int, ok: bool) -> None:
+    """Only PAM_SUCCESS permits; expired / authtok-required / denied reject; handle is ended."""
+    fake = _FakePam(acct_rc=rc)
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
+    assert rssh.account_permitted("alice", "10.1.2.3") is ok
+    assert fake.user == b"alice" and fake.ended == 1
+
+
+def test_account_permitted_fails_closed_when_libpam_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unloadable libpam rejects (never skips)."""
+
+    def boom() -> None:
+        raise OSError("no libpam")
+
+    monkeypatch.setattr(rssh, "_load_libpam", boom)
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
+
+
+def test_account_permitted_fails_closed_on_pam_start_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """pam_start failure rejects."""
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: _FakePam(start_rc=4))
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
+
+
+def test_pam_service_falls_back_to_sshd(monkeypatch: pytest.MonkeyPatch) -> None:
+    """gough-agent is used only when its pam.d file exists."""
+    monkeypatch.setattr(os.path, "exists", lambda p: False)
+    assert rssh.pam_service_name() == "sshd"
+    monkeypatch.setattr(os.path, "exists", lambda p: p.endswith("/gough-agent"))
+    assert rssh.pam_service_name() == "gough-agent"
+
+
+def test_no_prompt_conv_refuses_prompts() -> None:
+    """The conversation callback never answers a prompt."""
+    assert rssh._no_prompt_conv(1, None, None, None) == rssh.PAM_CONV_ERR
+
+
+@pytest.mark.skipif(os.geteuid() != 0, reason="real PAM call needs root")
+def test_real_pam_call_for_current_user() -> None:
+    """A real libpam round trip returns a bool without crashing."""
+    assert isinstance(rssh.account_permitted(CURRENT_USER, "127.0.0.1"), bool)
+
+
+def test_real_libpam_loader_is_ctypes_cdll() -> None:
+    """The real loader either returns a CDLL or raises OSError (handled fail-closed)."""
+    try:
+        lib = rssh._load_libpam()
+    except OSError:
+        return
+    assert hasattr(lib, "pam_acct_mgmt")
 
 
 @pytest.mark.parametrize(
     ("patch", "value"),
-    [("shell_problem", "locking shell"), ("account_locked", True)],
+    [("shell_problem", "locking shell"), ("account_permitted", False)],
 )
 def test_authorize_rejects_bad_shell_or_locked(
     monkeypatch: pytest.MonkeyPatch, patch: str, value: Any
@@ -247,3 +323,31 @@ def test_empty_pw_shell_falls_back_to_bin_sh(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(rssh.threading, "Thread", lambda **k: MagicMock())
     srv._start_shell(session, CURRENT_USER)
     assert calls == [["/bin/sh", "-c", "id"]]
+
+
+def test_pam_context_items_are_set_before_acct_mgmt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PAM_RHOST, PAM_TTY (and PAM_RUSER) are set so host-based PAM rules can apply."""
+    fake = _FakePam()
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
+    assert rssh.account_permitted("alice", "10.1.2.3", "key-1") is True
+    assert fake.items == {rssh.PAM_RHOST: b"10.1.2.3", rssh.PAM_TTY: b"ssh", rssh.PAM_RUSER: b"key-1"}
+    fake2 = _FakePam()
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake2)
+    rssh.account_permitted("alice", "10.1.2.3")
+    assert rssh.PAM_RUSER not in fake2.items
+
+
+def test_pam_set_item_failure_fails_closed_and_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing pam_set_item rejects and still calls pam_end."""
+    fake = _FakePam()
+    fake.set_rc = 7
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
+    assert rssh.account_permitted("alice", "10.1.2.3") is False
+    assert fake.ended == 1
+
+
+@pytest.mark.parametrize("peer", [None, ""])
+def test_pam_unknown_peer_fails_closed(monkeypatch: pytest.MonkeyPatch, peer: str | None) -> None:
+    """No peer address means no PAM context: reject without calling PAM."""
+    monkeypatch.setattr(rssh, "_load_libpam", lambda: pytest.fail("must not load"))
+    assert rssh.account_permitted("alice", peer) is False

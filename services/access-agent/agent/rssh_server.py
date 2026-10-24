@@ -5,6 +5,7 @@ signed by the Gough SSH CA. Spawns PTY sessions for shell access.
 """
 
 import base64
+import ctypes
 import ipaddress
 import os
 from penguintechinc_utils import get_logger
@@ -55,7 +56,6 @@ _TERM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
 
 LOCKING_SHELLS = frozenset({"/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"})
 SHELLS_FILE = "/etc/shells"
-SHADOW_FILE = "/etc/shadow"
 
 
 def shell_problem(shell: str, shells_file: str = SHELLS_FILE) -> Optional[str]:
@@ -82,27 +82,124 @@ def shell_problem(shell: str, shells_file: str = SHELLS_FILE) -> Optional[str]:
     return None if shell in listed else "shell not in /etc/shells"
 
 
-def account_locked(username: str, shadow_file: str = SHADOW_FILE) -> bool:
-    """Report whether the account's password field is locked (starts with ``!``).
+PAM_SERVICE = "gough-agent"
+PAM_FALLBACK_SERVICE = "sshd"
+PAM_SUCCESS = 0
+PAM_CONV_ERR = 19
+PAM_TTY = 3
+PAM_RHOST = 4
+PAM_RUSER = 8
 
-    Skips gracefully (returns False, logged) when the shadow file is unreadable.
+
+class _PamMessage(ctypes.Structure):
+    """C ``struct pam_message``."""
+
+    _fields_ = [("msg_style", ctypes.c_int), ("msg", ctypes.c_char_p)]
+
+
+class _PamResponse(ctypes.Structure):
+    """C ``struct pam_response``."""
+
+    _fields_ = [("resp", ctypes.c_char_p), ("resp_retcode", ctypes.c_int)]
+
+
+_CONV_FUNC = ctypes.CFUNCTYPE(
+    ctypes.c_int,
+    ctypes.c_int,
+    ctypes.POINTER(ctypes.POINTER(_PamMessage)),
+    ctypes.POINTER(ctypes.POINTER(_PamResponse)),
+    ctypes.c_void_p,
+)
+
+
+class _PamConv(ctypes.Structure):
+    """C ``struct pam_conv``."""
+
+    _fields_ = [("conv", _CONV_FUNC), ("appdata_ptr", ctypes.c_void_p)]
+
+
+def _no_prompt_conv(n: int, msg: Any, resp: Any, data: Any) -> int:
+    """PAM conversation callback that never answers prompts (account mgmt needs none)."""
+    return PAM_CONV_ERR
+
+
+def _load_libpam() -> Any:
+    """Load libpam via ctypes; raises OSError when unavailable."""
+    return ctypes.CDLL("libpam.so.0")
+
+
+def pam_service_name() -> str:
+    """Pick the PAM service: ``gough-agent`` if its file is installed, else ``sshd``."""
+    for d in ("/etc/pam.d", "/usr/lib/pam.d"):
+        if os.path.exists(os.path.join(d, PAM_SERVICE)):
+            return PAM_SERVICE
+    return PAM_FALLBACK_SERVICE
+
+
+def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str] = None) -> bool:
+    """Run PAM account management (``pam_acct_mgmt``) for ``username``.
+
+    Covers locked, expired, time/host-restricted and NSS/LDAP/SSSD accounts. Anything
+    other than PAM_SUCCESS (expired, new-authtok-required, denied, ...) rejects, and an
+    unloadable libpam FAILS CLOSED. Install /etc/pam.d/gough-agent (installer follow-up);
+    until then the ``sshd`` service stack is used.
 
     Args:
-        username: Account name.
-        shadow_file: Path of the shadow database.
+        username: Resolved local account name.
+        peer_ip: Connecting peer address, set as PAM_RHOST (None fails closed).
+        ruser: Optional remote identity (cert key id), set as PAM_RUSER.
 
     Returns:
-        True only when the account is positively known to be locked.
+        True only when PAM returns PAM_SUCCESS.
     """
+    if not peer_ip:
+        log.error("Unknown peer address, PAM check failing closed")
+        return False
     try:
-        with open(shadow_file) as f:
-            for line in f:
-                parts = line.rstrip("\n").split(":")
-                if parts[0] == username and len(parts) > 1:
-                    return parts[1].startswith("!")
-    except OSError:
-        log.warning("Shadow file unreadable; locked-account check skipped")
-    return False
+        libpam = _load_libpam()
+        start = libpam.pam_start
+        start.argtypes = [
+            ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(_PamConv),
+            ctypes.POINTER(ctypes.c_void_p),
+        ]
+        start.restype = ctypes.c_int
+        acct = libpam.pam_acct_mgmt
+        acct.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        acct.restype = ctypes.c_int
+        set_item = libpam.pam_set_item
+        set_item.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_char_p]
+        set_item.restype = ctypes.c_int
+        end = libpam.pam_end
+        end.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        end.restype = ctypes.c_int
+    except (OSError, AttributeError) as e:
+        log.error(f"libpam unavailable, failing closed: {e}")
+        return False
+
+    conv = _PamConv(_CONV_FUNC(_no_prompt_conv), None)
+    handle = ctypes.c_void_p()
+    rc = start(pam_service_name().encode(), username.encode(), ctypes.byref(conv),
+               ctypes.byref(handle))
+    if rc != PAM_SUCCESS:
+        log.error(f"pam_start failed rc={rc}, failing closed")
+        return False
+    rc = PAM_CONV_ERR
+    try:
+        items = [(PAM_RHOST, peer_ip), (PAM_TTY, "ssh")]
+        if ruser:
+            items.append((PAM_RUSER, ruser))
+        for item_type, value in items:
+            item_rc = set_item(handle, item_type, value.encode())
+            if item_rc != PAM_SUCCESS:
+                log.error(f"pam_set_item({item_type}) failed rc={item_rc}, failing closed")
+                return False
+        rc = acct(handle, 0)
+    finally:
+        end(handle, rc)
+    if rc != PAM_SUCCESS:
+        log.warning(f"PAM account check denied {username!r} (rc={rc})")
+        return False
+    return True
 
 
 def host_principals(agent_id: Optional[str]) -> List[str]:
@@ -274,8 +371,8 @@ class SSHServerInterface(ServerInterface):
         if problem:
             log.warning(f"Rejecting login for {username!r}: {problem}")
             return False
-        if account_locked(username):
-            log.warning(f"Rejecting login for {username!r}: account locked")
+        peer = self.client_addr[0] if self.client_addr else None
+        if not account_permitted(username, peer, info.key_id):
             return False
         if pw.pw_uid == 0 and ALLOW_ROOT_PRINCIPAL not in info.principals:
             log.warning("Root login requires the allow-root principal")

@@ -77,6 +77,7 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         host_key_file=str(tmp_path / "host_key"),
         agent_id=AGENT_ID,
     )
+    monkeypatch.setattr(rssh, "account_permitted", lambda *_a, **_k: True)  # PAM stack is host-specific
     monkeypatch.setenv("GOUGH_AGENT_SECRET", "s3cret-agent-token")
     env = SSHEnv(server=None, port=0, ca=ca, user=user, tmp=tmp_path)  # type: ignore[arg-type]
     server = rssh.RSSHServer(
