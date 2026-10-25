@@ -1,5 +1,5 @@
 {{- if .Values.redis.enabled }}
-# STATEFUL EXCEPTION (pending approval): in-chart Redis for non-prod only.
+# STATEFUL EXCEPTION (approved): in-chart Redis for non-prod only.
 # Valkey (Redis-protocol compatible, redis-py clients work unchanged).
 # Password comes from the api-manager-secret; it is written to a memory-backed
 # config file rather than passed on the process command line.
@@ -43,6 +43,10 @@ spec:
         {{- include "gough.labels" . | nindent 8 }}
         app.kubernetes.io/name: redis
     spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       securityContext:

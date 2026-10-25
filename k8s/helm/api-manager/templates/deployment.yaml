@@ -22,7 +22,8 @@ spec:
       labels:
         {{- include "api-manager.selectorLabels" . | nindent 8 }}
     spec:
-      {{- with .Values.imagePullSecrets }}
+      {{- $pullSecrets := concat (.Values.imagePullSecrets | default list) ((.Values.global | default dict).imagePullSecrets | default list) }}
+      {{- with $pullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}

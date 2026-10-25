@@ -25,7 +25,7 @@ Build images and deploy to cluster via the Helm umbrella chart `k8s/helm/gough`.
 
 **Run via** (Helm only; no raw manifests or kubectl apply):
 ```bash
-make deploy-alpha                       # Helm upgrade --install to local-alpha
+make deploy-alpha                       # push images to ghcr.io + Helm upgrade --install to dal2alpha
 ```
 
 ## Quick Reference

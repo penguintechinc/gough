@@ -6,9 +6,12 @@ global:
   # Image tag for every gough service (ghcr.io/penguintechinc/gough/<svc>:<tag>).
   # REQUIRED: set per env in the env file or via --set global.imageTag=<tag>.
   imageTag: ""
-  # Replaces the registry+org of every service image (e.g. localhost/gough for alpha).
+  # Replaces the registry+org of every service image (e.g. ghcr.io/penguintechinc/gough for alpha).
   # Empty = subchart repository defaults (ghcr.io/penguintechinc/gough/<svc>) for beta/gamma/prod.
   imageRegistry: ""
+  # Pull secrets attached to every hub pod spec (api-manager, webui, worker-ipxe, postgres, redis).
+  # Alpha (dal2alpha): ghcr.io pulls need the `ghcr-pull` dockerconfigjson Secret (created by scripts/deploy-alpha.sh).
+  imagePullSecrets: []
   # LXD cluster primary used by api-manager's cluster-join endpoint. Empty apiUrl = endpoint returns 503.
   # Must be https://. Client cert Secret must hold tls.crt and tls.key (mounted read-only at /etc/gough/lxd).
   lxd:
@@ -152,7 +155,7 @@ tetragon:
 # In-chart PostgreSQL (StatefulSet). Non-prod only - production uses a managed
 # database: set postgresql.enabled=false, fill externalDatabase, and set
 # api-manager.configMapData.db-host to the external host.
-# STATEFUL EXCEPTION (pending approval)
+# STATEFUL EXCEPTION (approved)
 postgresql:
   enabled: true
   image:
@@ -175,7 +178,7 @@ postgresql:
 
 # In-chart cache (Valkey, Redis-protocol compatible; redis-py clients work unchanged).
 # Keys stay `redis.*` for compatibility with the api-manager env wiring.
-# STATEFUL EXCEPTION (pending approval)
+# STATEFUL EXCEPTION (approved)
 redis:
   enabled: true
   image:

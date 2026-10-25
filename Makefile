@@ -195,12 +195,12 @@ build-production: ## Build - Build for production with optimizations
 MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
 PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
 NPMRC_PATH ?= $(HOME)/.npmrc
-# Single source of truth for local alpha image names. Local-only: no registry prefix,
-# never pushed. Exported so deploy-alpha.sh imports exactly these references.
-# Resolved by containerd as docker.io/<prefix>/<svc>:<tag>, which the chart renders via global.imageRegistry.
-ALPHA_IMAGE_REGISTRY ?= localhost
-ALPHA_IMAGE_PREFIX ?= gough
-ALPHA_TAG ?= alpha-local
+# Single source of truth for alpha image names (dal2alpha). docker-build tags these refs and
+# deploy-alpha.sh pushes exactly them to ghcr.io; the chart renders them via global.imageRegistry.
+# Tag defaults to the short HEAD SHA (override: make deploy-alpha ALPHA_TAG=<tag>).
+ALPHA_IMAGE_REGISTRY ?= ghcr.io
+ALPHA_IMAGE_PREFIX ?= penguintechinc/gough
+ALPHA_TAG ?= $(shell git rev-parse --short=8 HEAD)
 export ALPHA_IMAGE_REGISTRY ALPHA_IMAGE_PREFIX ALPHA_TAG
 DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
 PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
@@ -510,12 +510,12 @@ test-discovery-agent: ## Testing - Run Go discovery-agent tests
 	@cd services/discovery-agent && go test -v -race -cover ./...
 	@echo "$(GREEN)Discovery-agent tests completed$(RESET)"
 
-deploy-alpha: ## Deploy - Helm install to local-alpha (images must be built; script imports them)
-	@echo "$(BLUE)Deploying gough to local-alpha via Helm...$(RESET)"
+deploy-alpha: ## Deploy - Push alpha images to ghcr.io and Helm install to dal2alpha
+	@echo "$(BLUE)Deploying gough to dal2alpha via Helm...$(RESET)"
 	@./scripts/deploy-alpha.sh
 	@echo "$(GREEN)Alpha deployment complete$(RESET)"
 
-deploy-alpha-clean: ## Deploy - Helm clean deploy to local-alpha (deletes namespace first)
+deploy-alpha-clean: ## Deploy - Push alpha images and Helm clean deploy to dal2alpha (deletes namespace first)
 	@echo "$(RED)Cleaning alpha namespace and redeploying...$(RESET)"
 	@./scripts/deploy-alpha.sh --clean
 

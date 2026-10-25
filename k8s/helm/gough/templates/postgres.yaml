@@ -1,5 +1,5 @@
 {{- if .Values.postgresql.enabled }}
-# STATEFUL EXCEPTION (pending approval): in-chart PostgreSQL for non-prod only.
+# STATEFUL EXCEPTION (approved): in-chart PostgreSQL for non-prod only.
 # Rootless (uid 999), read-only root filesystem, all capabilities dropped.
 apiVersion: v1
 kind: Service
@@ -41,6 +41,10 @@ spec:
         {{- include "gough.labels" . | nindent 8 }}
         app.kubernetes.io/name: postgres
     spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       automountServiceAccountToken: false
       terminationGracePeriodSeconds: 60
       securityContext:

@@ -1,4 +1,6 @@
-# Alpha: local MicroK8s (context local-alpha). Images are local builds imported into MicroK8s.
+# Alpha: remote dal2alpha cluster (kubeadm + Cilium, kube context dal2alpha). Images are local
+# builds pushed to ghcr.io/penguintechinc/gough/<svc>:<tag>; pulled via the ghcr-pull Secret
+# (global.imagePullSecrets, set by scripts/deploy-alpha.sh).
 namespace: gough
 
 # Image registry and tag are NOT set here: scripts/deploy-alpha.sh passes

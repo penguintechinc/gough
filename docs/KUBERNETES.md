@@ -16,15 +16,15 @@ k8s/helm/
 
 Values per environment: `alpha.yml`, `beta.yml`, `gamma.yml`, `production.yml` (`values.yaml` is the base).
 
-## Alpha (local-alpha context)
+## Alpha (dal2alpha context)
 
 ```bash
-make docker-build            # build images locally (tag alpha-local)
-make deploy-alpha            # imports images, helm upgrade --install gough -n gough
+make docker-build            # build images locally, tagged ghcr.io/penguintechinc/gough/<svc>:<git-sha8>
+make deploy-alpha            # docker push to ghcr.io, helm upgrade --install gough -n gough
 make deploy-alpha-clean      # same, after deleting namespace gough
 ```
 
-`scripts/deploy-alpha.sh` always passes `--kube-context local-alpha` and is non-interactive. The ES256 OIDC keystore, DB/Redis and admin credentials are generated in-chart and kept across upgrades.
+`scripts/deploy-alpha.sh` targets kube context `dal2alpha` (override: `GOUGH_KUBE_CONTEXT`), is non-interactive, and attaches the `ghcr-pull` imagePullSecret. The secret is created once per namespace from a read:packages token: `GHCR_PULL_USER=<user> GHCR_PULL_TOKEN_FILE=<file> make deploy-alpha` (token read from file, piped via stdin, never in argv). The ES256 OIDC keystore, DB/Redis and admin credentials are generated in-chart and kept across upgrades.
 
 ## Validation
 
