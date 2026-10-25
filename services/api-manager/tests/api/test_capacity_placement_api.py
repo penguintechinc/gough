@@ -135,7 +135,6 @@ def guard_app(dal, monkeypatch):
     for name in ("auth_required", "roles_required", "roles_accepted"):
         monkeypatch.setattr(mw_mod, name, _passthrough)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
-    monkeypatch.setattr(models_mod, "get_db", lambda: dal)
     import app.audit as audit_mod
 
     monkeypatch.setattr(audit_mod, "get_audit_logger", lambda: None)
@@ -147,6 +146,11 @@ def guard_app(dal, monkeypatch):
     agents_mod = importlib.reload(agents_mod)
     nodes_mod = importlib.reload(nodes_mod)
     clouds_mod = importlib.reload(clouds_mod)
+    # Patch app.models.get_db only AFTER the reloads: a reload re-executes
+    # `from ..models import get_db`, so patching first makes the reloaded module
+    # capture this test's DAL lambda and monkeypatch restores that stale lambda
+    # permanently (regression: cookie-auth tests failed after this file ran).
+    monkeypatch.setattr(models_mod, "get_db", lambda: dal)
     for mod in (agents_mod, nodes_mod, clouds_mod):
         monkeypatch.setattr(mod, "get_db", lambda: dal)
 
