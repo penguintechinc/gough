@@ -72,7 +72,7 @@ google-cloud-secret-manager==2.20.2
 pyghmi==1.5.77  # IPMI 2.0 over LAN; cipher suite 17 enforced in app/clients/ipmi.py
 
 # Cloud Provider SDKs
-pylxd==2.3.2
+pylxd==2.4.2
 google-cloud-compute==1.19.2
 # app/clouds/azure.py imports from all four of these. Pinning azure-mgmt-compute
 # alone left AZURE_AVAILABLE=False at runtime (azure.identity / azure.mgmt.network
