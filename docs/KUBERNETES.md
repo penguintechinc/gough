@@ -24,7 +24,7 @@ make deploy-alpha            # docker push to ghcr.io, helm upgrade --install go
 make deploy-alpha-clean      # same, after deleting namespace gough
 ```
 
-`scripts/deploy-alpha.sh` targets kube context `dal2alpha` (override: `GOUGH_KUBE_CONTEXT`), is non-interactive, and attaches the `ghcr-pull` imagePullSecret. The secret is created once per namespace from a read:packages token: `GHCR_PULL_USER=<user> GHCR_PULL_TOKEN_FILE=<file> make deploy-alpha` (token read from file, piped via stdin, never in argv). The ES256 OIDC keystore, DB/Redis and admin credentials are generated in-chart and kept across upgrades.
+`scripts/deploy-alpha.sh` targets kube context `dal2alpha` (override: `GOUGH_KUBE_CONTEXT`), is non-interactive, and attaches the `ghcr-pull` imagePullSecret when that Secret exists. The ghcr packages are public, so the pull secret is optional: to create it once per namespace from a read:packages token, run `GHCR_PULL_USER=<user> GHCR_PULL_TOKEN_FILE=<file> make deploy-alpha` (set both or neither; token read from file, piped via stdin, never in argv). The ES256 OIDC keystore, DB/Redis and admin credentials are generated in-chart and kept across upgrades.
 
 ## Validation
 
