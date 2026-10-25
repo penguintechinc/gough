@@ -28,7 +28,7 @@ export default function UserDetail() {
           is_active: userData.is_active,
         });
         setError(null);
-      } catch (err) {
+      } catch {
         setError('Failed to load user');
       } finally {
         setIsLoading(false);
@@ -46,7 +46,7 @@ export default function UserDetail() {
     try {
       await usersApi.update(parseInt(id, 10), formData);
       navigate('/users');
-    } catch (err) {
+    } catch {
       setError('Failed to update user');
     } finally {
       setIsSaving(false);

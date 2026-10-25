@@ -172,7 +172,7 @@ grubx64.efi`;
     ? configs
     : configs.filter(config => config.boot_type === activeTab);
 
-  const renderScriptPreview = (script: string, type: string) => {
+  const renderScriptPreview = (script: string) => {
     const lines = script.split('\n');
     return (
       <div className="bg-dark-900 rounded-lg p-4 font-mono text-sm overflow-x-auto">
@@ -425,7 +425,7 @@ grubx64.efi`;
                 </div>
               )}
             </div>
-            {renderScriptPreview(selectedConfig.script, selectedConfig.boot_type)}
+            {renderScriptPreview(selectedConfig.script)}
             <div className="mt-4 flex justify-end">
               <Button
                 variant="secondary"

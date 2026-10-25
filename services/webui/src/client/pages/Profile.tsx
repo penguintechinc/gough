@@ -41,7 +41,7 @@ export default function Profile() {
       setIsEditing(false);
       setFormData({ ...formData, current_password: '', new_password: '', confirm_password: '' });
       checkAuth(); // Refresh user data
-    } catch (err) {
+    } catch {
       setError('Failed to update profile');
     } finally {
       setIsSaving(false);

@@ -6,7 +6,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 
-interface HardwareTagFilterProps {
+export interface HardwareTagFilterProps {
   selectedTags: string[];
   onTagsChange: (tags: string[]) => void;
   vocabulary: string[];

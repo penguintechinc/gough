@@ -103,7 +103,7 @@ export const JoinerSecretsPage: React.FC = () => {
     }
   };
 
-  const isSuperAdmin = user?.role === 'Admin' && user?.scope?.includes('admin');
+  const isSuperAdmin = user?.role === 'admin';
 
   const isExpired = (secret: JoinerSecret) => {
     return secret.expires_at && new Date(secret.expires_at) < new Date();

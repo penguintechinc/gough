@@ -19,7 +19,7 @@ interface EggWithEligibility extends Biome {
 export const BiomesPageExtended: React.FC = () => {
   const navigate = useNavigate();
   const [biomes, setEggs] = useState<EggWithEligibility[]>([]);
-  const [machines, setMachines] = useState<Machine[]>([]);
+  const [, setMachines] = useState<Machine[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 

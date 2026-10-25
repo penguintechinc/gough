@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { usersApi } from '../hooks/useApi';
 import Card from '../components/Card';
 import Button from '../components/Button';
-import type { User } from '../types';
+import type { User, UserRole } from '../types';
 
 export default function Users() {
   const [users, setUsers] = useState<User[]>([]);
@@ -16,7 +16,7 @@ export default function Users() {
     email: '',
     password: '',
     full_name: '',
-    role: 'viewer' as const,
+    role: 'viewer' as UserRole,
   });
   const [createLoading, setCreateLoading] = useState(false);
 
@@ -26,7 +26,7 @@ export default function Users() {
       const response = await usersApi.list();
       setUsers(response.items);
       setError(null);
-    } catch (err) {
+    } catch {
       setError('Failed to load users');
     } finally {
       setIsLoading(false);
@@ -45,7 +45,7 @@ export default function Users() {
       setShowCreateModal(false);
       setNewUser({ email: '', password: '', full_name: '', role: 'viewer' });
       fetchUsers();
-    } catch (err) {
+    } catch {
       setError('Failed to create user');
     } finally {
       setCreateLoading(false);
@@ -57,7 +57,7 @@ export default function Users() {
     try {
       await usersApi.delete(id);
       fetchUsers();
-    } catch (err) {
+    } catch {
       setError('Failed to delete user');
     }
   };

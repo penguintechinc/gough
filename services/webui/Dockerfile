@@ -2,27 +2,18 @@
 # WebUI Dockerfile
 # Node.js backend + React frontend shell
 #
-# @penguintechinc/* packages come from npm.pkg.github.com (auth required).
-# Pass the registry credentials as a BuildKit secret, never as a build arg or layer:
-#   docker build --secret id=npmrc,src=$HOME/.npmrc ...
+# @penguintechinc/* packages are consumed from the public npm registry (registry.npmjs.org),
+# pinned exactly in package.json and locked with integrity hashes in package-lock.json.
+# No registry credentials are required at build time.
 
 # Build stage
 FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS builder
 
 WORKDIR /app
 
-# Copy react-libs from local source (until published to GitHub Packages)
-COPY --from=penguin-libs packages/react-libs /tmp/react-libs
-
-# Copy package files
+# Install from the committed lockfile
 COPY package*.json ./
-
-# Rewrite @penguintechinc/react-libs to local file reference and install
-# Remove this block once the package is published to GitHub Packages
-RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
-    sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
-    rm -f package-lock.json && \
-    npm install
+RUN npm ci
 
 # Copy source code
 COPY . .
@@ -40,19 +31,9 @@ WORKDIR /app
 # Create non-root user
 RUN groupadd -r webui && useradd -r -g webui webui
 
-# Copy react-libs from local source (until published to GitHub Packages)
-COPY --from=penguin-libs packages/react-libs /tmp/react-libs
-
-# Copy package files for production dependencies
+# Install production dependencies from the committed lockfile
 COPY package*.json ./
-
-# Rewrite @penguintechinc/react-libs to local file reference and install
-# Remove this block once the package is published to GitHub Packages
-RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
-    sed -i 's|"@penguintechinc/react-libs": "[^"]*"|"@penguintechinc/react-libs": "file:/tmp/react-libs"|' package.json && \
-    rm -f package-lock.json && \
-    npm install --omit=dev && npm cache clean --force && \
-    rm -rf /tmp/react-libs
+RUN npm ci --omit=dev && npm cache clean --force
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist

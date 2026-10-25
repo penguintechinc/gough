@@ -159,8 +159,6 @@ services:
     build:
       context: ./services/webui
       dockerfile: Dockerfile
-      additional_contexts:
-        penguin-libs: ../penguin-libs
     container_name: gough-webui
     environment:
       - NODE_ENV=${NODE_ENV:-production}

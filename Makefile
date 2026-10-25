@@ -194,7 +194,6 @@ build-production: ## Build - Build for production with optimizations
 # Main checkout = parent of the shared .git dir, so worktrees resolve the same sibling as the main checkout.
 MAIN_CHECKOUT := $(patsubst %/.git,%,$(shell git rev-parse --path-format=absolute --git-common-dir 2>/dev/null))
 PENGUIN_LIBS_DIR ?= $(abspath $(MAIN_CHECKOUT)/../penguin-libs)
-NPMRC_PATH ?= $(HOME)/.npmrc
 # Single source of truth for alpha image names (dal2alpha). docker-build tags these refs and
 # deploy-alpha.sh pushes exactly them to ghcr.io; the chart renders them via global.imageRegistry.
 # Tag defaults to the short HEAD SHA (override: make deploy-alpha ALPHA_TAG=<tag>).
@@ -203,7 +202,7 @@ ALPHA_IMAGE_PREFIX ?= penguintechinc/gough
 ALPHA_TAG ?= $(shell git rev-parse --short=8 HEAD)
 export ALPHA_IMAGE_REGISTRY ALPHA_IMAGE_PREFIX ALPHA_TAG
 DOCKER_BUILD_SERVICES := api-manager worker-ipxe access-agent discovery-agent webui
-PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent webui
+PENGUIN_LIBS_SERVICES := api-manager worker-ipxe access-agent
 
 docker-build: ## Docker - Build all service images locally (alpha); fails on first error
 	@echo "$(BLUE)Building Docker images...$(RESET)"
@@ -211,7 +210,6 @@ docker-build: ## Docker - Build all service images locally (alpha); fails on fir
 	@for svc in $(DOCKER_BUILD_SERVICES); do \
 	  extra=""; \
 	  case " $(PENGUIN_LIBS_SERVICES) " in *" $$svc "*) extra="--build-context penguin-libs=$(abspath $(PENGUIN_LIBS_DIR))";; esac; \
-	  if [ "$$svc" = "webui" ] && [ -f "$(NPMRC_PATH)" ]; then extra="$$extra --secret id=npmrc,src=$(NPMRC_PATH)"; fi; \
 	  echo "--> $$svc"; \
 	  docker build $$extra -t $(ALPHA_IMAGE_REGISTRY)/$(ALPHA_IMAGE_PREFIX)/$$svc:$(ALPHA_TAG) services/$$svc || exit 1; \
 	done

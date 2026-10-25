@@ -31,9 +31,7 @@ interface ShellAccessInfo {
 export const ShellAccessButton: React.FC<ShellAccessButtonProps> = ({
   resourceType,
   resourceId,
-  resourceName,
   sessionType = 'ssh',
-  principals = ['ubuntu'],
   className = '',
   disabled = false,
 }) => {

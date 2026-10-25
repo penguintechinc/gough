@@ -6,7 +6,7 @@
 
 import React from 'react';
 
-interface SmartHealthBadgeProps {
+export interface SmartHealthBadgeProps {
   status: 'healthy' | 'warning' | 'critical' | 'unknown';
   temperature?: number;
   powerOnHours?: number;

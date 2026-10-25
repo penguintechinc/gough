@@ -36,7 +36,6 @@ type Tab = 'members' | 'resources';
  */
 export const TeamDetails: React.FC<TeamDetailsProps> = ({
   teamId,
-  onBack,
   onEdit,
   onDelete,
 }) => {

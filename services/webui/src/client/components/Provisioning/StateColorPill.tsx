@@ -6,7 +6,7 @@
 
 import React from 'react';
 
-interface StateColorPillProps {
+export interface StateColorPillProps {
   state: string;
   size?: 'sm' | 'md' | 'lg';
 }

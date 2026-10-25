@@ -206,11 +206,7 @@ go get github.com/penguintechinc/penguin-libs/packages/go-common
 
 ### Using React/Node.js Library
 
-Requires `.npmrc` with GitHub Packages auth:
-```
-@penguintechinc:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
-```
+Installed from public npm (`registry.npmjs.org`); no `.npmrc` or registry token is needed.
 
 Then install:
 ```bash

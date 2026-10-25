@@ -6,10 +6,10 @@
 
 import React from 'react';
 
-interface LicenseGatedFeatureProps {
+export interface LicenseGatedFeatureProps {
   featureName: string;
   licensed: boolean;
-  licenseError?: string;
+  licenseError?: string | null;
   httpStatus?: number;
   children: React.ReactNode;
 }

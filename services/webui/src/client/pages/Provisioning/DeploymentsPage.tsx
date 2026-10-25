@@ -70,7 +70,7 @@ export const DeploymentsPage: React.FC = () => {
     try {
       const response = await api.get(`/deployments/${deploymentId}/logs`);
       setLogs(response.data.logs || 'No logs available');
-    } catch (err: any) {
+    } catch {
       setLogs('Failed to fetch logs');
     }
   }, []);

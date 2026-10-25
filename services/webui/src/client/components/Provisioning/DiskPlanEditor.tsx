@@ -7,7 +7,7 @@
 import React, { useState } from 'react';
 import { Partition } from '../../types/provisioning';
 
-interface DiskPlanEditorProps {
+export interface DiskPlanEditorProps {
   machineId: string;
   partitions: Partition[];
   onSave: (partitions: Partition[]) => Promise<void>;
@@ -15,7 +15,6 @@ interface DiskPlanEditorProps {
 }
 
 export const DiskPlanEditor: React.FC<DiskPlanEditorProps> = ({
-  machineId,
   partitions: initialPartitions,
   onSave,
   isLoading = false,

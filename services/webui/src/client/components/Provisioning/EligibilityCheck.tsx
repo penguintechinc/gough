@@ -12,7 +12,7 @@ interface Requirement {
   reason?: string;
 }
 
-interface EligibilityCheckProps {
+export interface EligibilityCheckProps {
   requirements: Requirement[];
   title?: string;
   compact?: boolean;
