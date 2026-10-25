@@ -21,7 +21,7 @@
     "@xterm/addon-fit": "0.10.0",
     "@xterm/addon-web-links": "0.11.0",
     "@xterm/xterm": "5.5.0",
-    "axios": "1.7.9",
+    "axios": "1.20.0",
     "express": "4.21.2",
     "http-proxy-middleware": "3.0.3",
     "react": "18.3.1",
@@ -46,5 +46,10 @@
     "tsx": "4.19.2",
     "typescript": "5.7.2",
     "vite": "6.0.3"
+  },
+  "overrides": {
+    "@remix-run/router": "1.23.2",
+    "body-parser": "1.20.9",
+    "path-to-regexp": "0.1.13"
   }
 }

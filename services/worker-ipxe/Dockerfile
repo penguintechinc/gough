@@ -1,5 +1,5 @@
 # Stage 1: builder — compile and install dependencies
-FROM python:3.13-slim-bookworm@sha256:01f42367a0a94ad4bc17111776fd66e3500c1d87c15bbd6055b7371d39c124fb AS builder
+FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530 AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -27,7 +27,9 @@ RUN pip install --no-cache-dir \
     rm -rf /tmp/penguin-libs
 
 # Stage 2: runtime — minimal image with installed packages only (no build tools)
-FROM python:3.13-slim-bookworm@sha256:01f42367a0a94ad4bc17111776fd66e3500c1d87c15bbd6055b7371d39c124fb
+FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530
+
+LABEL org.opencontainers.image.source="https://github.com/penguintechinc/gough"
 
 # ROOT EXCEPTION (approved): requires CAP_NET_BIND_SERVICE for DHCP/TFTP low ports (67/udp, 69/udp)
 # Process runs as non-root UID; kernel capability CAP_NET_BIND_SERVICE is granted via K8s securityContext.
@@ -47,9 +49,20 @@ RUN mkdir -p /var/lib/ipxe/tftp && \
     cp /usr/lib/ipxe/ipxe.efi /var/lib/ipxe/tftp/ && \
     chmod 644 /var/lib/ipxe/tftp/*
 
+# Drop base-image packaging tooling the runtime never uses: setuptools/wheel/jaraco.context
+# and pip itself (pip vendors its own urllib3/msgpack copies, which carry CVEs). The app
+# runs from /opt/venv and never invokes pip. Absolute path: ENV PATH may point at the venv.
+RUN /usr/local/bin/python -m pip uninstall -y setuptools wheel jaraco.context && \
+    rm -rf /usr/local/lib/python3.13/site-packages/pip /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+           /usr/local/lib/python3.13/ensurepip/_bundled
+
 # Copy virtual environment from builder (contains all installed Python packages)
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
+# Remove pip from the copied venv too (its vendored urllib3/msgpack carry CVEs; runtime never pip-installs).
+RUN rm -rf /opt/venv/lib/python3.13/site-packages/pip /opt/venv/lib/python3.13/site-packages/pip-*.dist-info /opt/venv/bin/pip /opt/venv/bin/pip3 /opt/venv/bin/pip3.13
+
 
 WORKDIR /app
 

@@ -2,7 +2,7 @@
 # Target: <15 MB, statically linked, runs in Ubuntu 24.04 initrd helper image.
 #
 # SHA256 digest pinning for external images — pin via Renovate (pinDigests: true).
-# Builder: golang:1.24-bookworm  (sha256 digest — pin via Renovate)
+# Builder: golang:1.26-bookworm  (sha256 digest — pin via Renovate)
 # Runtime: debian:bookworm-slim  (sha256 digest — pin via Renovate)
 #
 # Build arguments:
@@ -12,7 +12,7 @@
 # ── Stage 1: builder ──────────────────────────────────────────────────────────
 
 # TODO: pin digest via Renovate
-FROM golang:1.24-bookworm@sha256:1a6d4452c65dea36aac2e2d606b01b4a029ec90cc1ae53890540ce6173ea77ac AS builder
+FROM golang:1.26-bookworm@sha256:632dff7351799a5a9954a48dc06670ade72ee44e8c351cdc0e5a57af2fea21af AS builder
 
 ARG VERSION=dev
 ARG XDP_BUILD_TAGS=noxdp,netgo

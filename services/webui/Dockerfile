@@ -33,6 +33,8 @@ RUN npm run build
 # Production stage
 FROM node:22-bookworm-slim@sha256:de170b39439eb0e5a3444ad7d60b015614a381e10fecae2e30ec9e735122f38d AS production
 
+LABEL org.opencontainers.image.source="https://github.com/penguintechinc/gough"
+
 WORKDIR /app
 
 # Create non-root user
@@ -54,6 +56,11 @@ RUN --mount=type=secret,id=npmrc,target=/root/.npmrc \
 
 # Copy built assets from builder
 COPY --from=builder /app/dist ./dist
+
+# Runtime needs only node; drop the bundled npm/corepack toolchain (and its transitive
+# deps, e.g. pacote/sigstore) so their advisories never ship in the production image.
+RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
 
 # Set ownership
 RUN chown -R webui:webui /app

@@ -1,0 +1,23 @@
+# Build-context hygiene: tests, caches, local envs, keys and VCS metadata never ship in images.
+**/tests/
+**/test/
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.benchmarks/
+**/.coverage
+**/.coverage.*
+**/.coveragerc
+**/htmlcov/
+**/.venv/
+**/venv/
+**/.env
+**/.env.*
+**/*.pem
+**/*.key
+**/.git/
+**/.github/
+**/*.md

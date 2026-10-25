@@ -1,12 +1,13 @@
 # Gough Access Agent Dockerfile
 # Provides rssh server for remote shell access to managed resources
 
-FROM python:3.13-slim-bookworm@sha256:01f42367a0a94ad4bc17111776fd66e3500c1d87c15bbd6055b7371d39c124fb
+FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530
 
 # Labels
 LABEL maintainer="Penguin Tech Inc <support@penguintech.io>"
 LABEL description="Gough Access Agent - rssh server for remote shell access"
 LABEL version="1.0.0"
+LABEL org.opencontainers.image.source="https://github.com/penguintechinc/gough"
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -37,6 +38,14 @@ RUN pip install --no-cache-dir \
         /tmp/penguin-libs/python-licensing && \
     pip install --no-cache-dir -r requirements.txt && \
     rm -rf /tmp/penguin-libs
+
+# Drop base-image packaging tooling the runtime never uses: setuptools/wheel/jaraco.context
+# and pip itself (pip vendors its own urllib3/msgpack copies, which carry CVEs). The app
+# runs from /opt/venv and never invokes pip. Absolute path: ENV PATH may point at the venv.
+RUN /usr/local/bin/python -m pip uninstall -y setuptools wheel jaraco.context && \
+    rm -rf /usr/local/lib/python3.13/site-packages/pip /usr/local/lib/python3.13/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.13 \
+           /usr/local/lib/python3.13/ensurepip/_bundled
 
 # Copy application code
 COPY agent/ ./agent/
