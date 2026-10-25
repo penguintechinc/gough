@@ -6,6 +6,7 @@
 # ── Variables ──────────────────────────────────────────────────────────────────
 
 SERVICE        := discovery-agent
+COVERAGE_MIN   := 90
 MODULE         := github.com/penguintechinc/gough/services/discovery-agent
 VERSION        := $(shell cat ../../.version 2>/dev/null || echo "dev")
 BUILD_EPOCH    := $(shell date +%s)
@@ -34,9 +35,14 @@ build-arm64: ## Build the static binary for linux/arm64
 
 # ── Test ───────────────────────────────────────────────────────────────────────
 
-test: ## Run all unit tests with coverage
-	go test -tags noxdp -v -race -count=1 -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | grep total
+test: ## Run all unit tests with coverage (excludes generated internal/grpcgen; fails below COVERAGE_MIN)
+	@PKGS=$$(go list -tags noxdp ./... | grep -v /internal/grpcgen); \
+	[ -n "$$PKGS" ] || { echo "FAIL: no packages found"; exit 1; }; \
+	COVPKG=$$(echo "$$PKGS" | paste -sd, -); \
+	go test -tags noxdp -v -race -count=1 -coverpkg="$$COVPKG" -coverprofile=coverage.out $$PKGS || exit 1; \
+	TOTAL=$$(go tool cover -func=coverage.out | awk '/^total:/ {sub("%","",$$NF); print $$NF}'); \
+	echo "coverage total (excl. internal/grpcgen): $$TOTAL% (min $(COVERAGE_MIN)%)"; \
+	awk -v t="$$TOTAL" -v m="$(COVERAGE_MIN)" 'BEGIN { exit !(t+0 >= m+0) }' || { echo "FAIL: coverage $$TOTAL% below $(COVERAGE_MIN)%"; exit 1; }
 
 test-coverage: test ## Open HTML coverage report
 	go tool cover -html=coverage.out -o coverage.html
