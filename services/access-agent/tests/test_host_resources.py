@@ -2,7 +2,10 @@
 
 import asyncio
 import json
+import shutil
+import tempfile
 import time
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -145,9 +148,17 @@ def proc_root(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
-def lxd_socket(tmp_path: Path) -> str:
-    """Socket path under tmp_path; nothing listens unless a test starts one."""
-    return str(tmp_path / "lxd.sock")
+def lxd_socket() -> Iterator[str]:
+    """Unix socket path in a short private dir (AF_UNIX paths cap near 108 bytes).
+
+    tmp_path can exceed that limit under a long TMPDIR, so the socket lives in
+    a short mkdtemp directory that is removed at teardown.
+    """
+    sock_dir = tempfile.mkdtemp(dir="/tmp", prefix="ga")
+    try:
+        yield str(Path(sock_dir) / "lxd.sock")
+    finally:
+        shutil.rmtree(sock_dir, ignore_errors=True)
 
 
 def test_parse_psi_normal() -> None:
