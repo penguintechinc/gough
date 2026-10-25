@@ -12,15 +12,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import app.security.credentials as creds
 import jwt
 import pytest
-from cryptography import x509
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519
-from cryptography.x509.oid import NameOID
-from quart import Quart, g
-
-import app.security.credentials as creds
 from app.security.credentials import (
     CredentialType,
     InvalidCredentialError,
@@ -30,9 +24,16 @@ from app.security.credentials import (
     credentials_middleware,
 )
 from app.security.scope_policy import ANONYMOUS_PATHS
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.asymmetric import dsa, ec, ed25519
+from cryptography.x509.oid import NameOID
+from quart import Quart, g
 
 
-def _build_cert(subject_key: Any, issuer_key: Any, *, hash_alg: Any) -> x509.Certificate:
+def _build_cert(
+    subject_key: Any, issuer_key: Any, *, hash_alg: Any
+) -> x509.Certificate:
     """Self-describing leaf/CA certificate for ``subject_key`` signed by ``issuer_key``."""
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test")])
     now = datetime.now(timezone.utc)
@@ -51,7 +52,9 @@ def _build_cert(subject_key: Any, issuer_key: Any, *, hash_alg: Any) -> x509.Cer
 def test_verify_signature_ec_ca_accepts_matching_chain() -> None:
     """A leaf signed by the EC CA verifies against that CA's public key."""
     ca_key = ec.generate_private_key(ec.SECP256R1())
-    leaf = _build_cert(ec.generate_private_key(ec.SECP256R1()), ca_key, hash_alg=hashes.SHA256())
+    leaf = _build_cert(
+        ec.generate_private_key(ec.SECP256R1()), ca_key, hash_alg=hashes.SHA256()
+    )
 
     _verify_x509_signature(leaf, ca_key.public_key())  # must not raise
 
@@ -60,7 +63,9 @@ def test_verify_signature_ec_ca_rejects_foreign_signer() -> None:
     """A leaf signed by a different EC key is rejected with InvalidCredentialError."""
     ca_key = ec.generate_private_key(ec.SECP256R1())
     other_key = ec.generate_private_key(ec.SECP256R1())
-    leaf = _build_cert(ec.generate_private_key(ec.SECP256R1()), other_key, hash_alg=hashes.SHA256())
+    leaf = _build_cert(
+        ec.generate_private_key(ec.SECP256R1()), other_key, hash_alg=hashes.SHA256()
+    )
 
     with pytest.raises(InvalidCredentialError, match="signature verification failed"):
         _verify_x509_signature(leaf, ca_key.public_key())
@@ -90,7 +95,9 @@ def test_verify_signature_unsupported_ca_key_type_rejected() -> None:
     leaf = _build_cert(signer, signer, hash_alg=hashes.SHA256())
     dsa_pub = dsa.generate_private_key(key_size=2048).public_key()
 
-    with pytest.raises(InvalidCredentialError, match="Unsupported CA key type: DSAPublicKey"):
+    with pytest.raises(
+        InvalidCredentialError, match="Unsupported CA key type: DSAPublicKey"
+    ):
         _verify_x509_signature(leaf, dsa_pub)
 
 
@@ -109,7 +116,9 @@ def cred_app() -> Quart:
 
 def _principal(cred_type: CredentialType, sub: str = "x") -> Principal:
     """Build a minimal Principal of ``cred_type`` for stubbed validators to return."""
-    return Principal(cred_type=cred_type, sub=sub, tenant_id="t1", scopes=frozenset({"a:b"}))
+    return Principal(
+        cred_type=cred_type, sub=sub, tenant_id="t1", scopes=frozenset({"a:b"})
+    )
 
 
 def _bearer(payload: dict[str, Any]) -> str:
@@ -126,7 +135,9 @@ async def _run(
     peer_cert_pem: str | None = None,
 ) -> Any:
     """Invoke credentials_middleware inside a request context; return its result."""
-    async with cred_app.test_request_context(path, method=method, headers=headers or {}) as ctx:
+    async with cred_app.test_request_context(
+        path, method=method, headers=headers or {}
+    ) as ctx:
         ctx.request.peer_cert_pem = peer_cert_pem  # type: ignore[attr-defined]
         return await credentials_middleware(
             ctx.request,
@@ -162,8 +173,12 @@ async def test_peer_cert_without_pem_value_is_rejected(
 ) -> None:
     """SVID routing with an empty peer PEM is refused before the validator runs."""
     called = []
-    monkeypatch.setattr(creds, "validate_service_svid", lambda *a, **k: called.append(a))
-    monkeypatch.setattr(creds, "detect_credential_type", lambda h, p: CredentialType.SERVICE_SVID)
+    monkeypatch.setattr(
+        creds, "validate_service_svid", lambda *a, **k: called.append(a)
+    )
+    monkeypatch.setattr(
+        creds, "detect_credential_type", lambda h, p: CredentialType.SERVICE_SVID
+    )
 
     with pytest.raises(InvalidCredentialError, match="requires peer certificate"):
         await _run(cred_app, peer_cert_pem=None)
@@ -174,7 +189,9 @@ async def test_service_svid_dispatches_to_svid_validator(
     cred_app: Quart, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """mTLS request routes to validate_service_svid with bundle + allowlist, and sets g.principal."""
-    expected = _principal(CredentialType.SERVICE_SVID, sub="spiffe://penguintech.io/dev/x")
+    expected = _principal(
+        CredentialType.SERVICE_SVID, sub="spiffe://penguintech.io/dev/x"
+    )
     seen: dict[str, Any] = {}
 
     def _fake(pem: str, bundle: str, allowed: frozenset[str]) -> Principal:
@@ -200,7 +217,9 @@ async def test_bootstrap_token_uses_configured_signing_secret(
     expected = _principal(CredentialType.ONE_TIME_BOOTSTRAP)
     captured: dict[str, Any] = {}
 
-    def _fake(token: str, vault: Any, redis: Any, *, signing_secret: str | None) -> Principal:
+    def _fake(
+        token: str, vault: Any, redis: Any, *, signing_secret: str | None
+    ) -> Principal:
         captured.update(token=token, vault=vault, redis=redis, secret=signing_secret)
         return expected
 
@@ -211,12 +230,19 @@ async def test_bootstrap_token_uses_configured_signing_secret(
         "/api/v1/things", method="POST", headers={"Authorization": header}
     ) as ctx:
         result = await credentials_middleware(
-            ctx.request, "VAULT", "REDIS", "bundle", frozenset(), [], "gough", "https://auth"
+            ctx.request,
+            "VAULT",
+            "REDIS",
+            "bundle",
+            frozenset(),
+            [],
+            "gough",
+            "https://auth",
         )
         assert g.get("principal") is expected
 
     assert result is expected
-    assert captured["token"] == header[len("Bearer "):]
+    assert captured["token"] == header[len("Bearer ") :]
     assert captured["vault"] == "VAULT" and captured["redis"] == "REDIS"
     assert captured["secret"] == "unit-test-secret"
 
@@ -234,7 +260,9 @@ async def test_machine_jwt_routes_to_machine_validator(
 
     monkeypatch.setattr(creds, "validate_machine_jwt", _fake)
     monkeypatch.setattr(
-        creds, "validate_user_jwt", lambda *a, **k: pytest.fail("user validator must not run")
+        creds,
+        "validate_user_jwt",
+        lambda *a, **k: pytest.fail("user validator must not run"),
     )
     header = _bearer({"sub": "machine:agent"})
 
@@ -251,7 +279,9 @@ async def test_plain_subject_routes_to_user_validator(
     expected = _principal(CredentialType.USER_JWT, sub="alice")
     monkeypatch.setattr(creds, "validate_user_jwt", lambda *a, **k: expected)
     monkeypatch.setattr(
-        creds, "validate_machine_jwt", lambda *a, **k: pytest.fail("machine validator must not run")
+        creds,
+        "validate_machine_jwt",
+        lambda *a, **k: pytest.fail("machine validator must not run"),
     )
 
     result, principal = await _run(

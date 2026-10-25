@@ -21,7 +21,11 @@ def _revisions() -> dict[str, object]:
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         values: dict[str, object] = {}
         for node in tree.body:
-            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+            ):
                 name = node.targets[0].id
                 if name in {"revision", "down_revision"}:
                     values[name] = ast.literal_eval(node.value)
@@ -53,13 +57,24 @@ def test_migration_chain_ends_at_access_agents_tenant_head() -> None:
     """LXD join -> k8s-primary rename -> biome bundle cache -> ... -> access-agent tenant: that is the head."""
     graph = _revisions()
     assert graph["20261022_1200_lxd_join_issuance"] == "20260821_1900_missing_cols"
-    assert graph["20261022_1300_rename_k8s_primary_biome"] == "20261022_1200_lxd_join_issuance"
-    assert graph["20261022_1400_biome_bundle_cache"] == "20261022_1300_rename_k8s_primary_biome"
-    assert graph["20261022_1700_access_agents_tenant"] == "20261022_1600_agent_node_link_reservation_confirm"
+    assert (
+        graph["20261022_1300_rename_k8s_primary_biome"]
+        == "20261022_1200_lxd_join_issuance"
+    )
+    assert (
+        graph["20261022_1400_biome_bundle_cache"]
+        == "20261022_1300_rename_k8s_primary_biome"
+    )
+    assert (
+        graph["20261022_1700_access_agents_tenant"]
+        == "20261022_1600_agent_node_link_reservation_confirm"
+    )
     assert _heads(graph) == {"20261022_1700_access_agents_tenant"}
 
 
-@pytest.mark.parametrize("down", ["20260821_1900_missing_cols", "20260821_1600_merge_cloud_schema"])
+@pytest.mark.parametrize(
+    "down", ["20260821_1900_missing_cols", "20260821_1600_merge_cloud_schema"]
+)
 def test_every_down_revision_resolves(down: str) -> None:
     """Known ancestors exist in the graph, so the chain is not dangling."""
     assert down in _revisions()

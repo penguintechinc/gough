@@ -6,7 +6,6 @@ import signal
 
 import pytest
 import structlog
-
 from worker import main as main_mod
 from worker.config import WorkerConfig
 from worker.main import WorkerIPXE, main
@@ -33,7 +32,9 @@ def _cfg(**overrides: object) -> WorkerConfig:
 class FakeService:
     """Stand-in for a service class: records init/start/stop and blocks in start until stopped."""
 
-    def __init__(self, name: str, events: Events, fail_with: Exception | None = None) -> None:
+    def __init__(
+        self, name: str, events: Events, fail_with: Exception | None = None
+    ) -> None:
         """Remember the event log and optional failure to raise from start()."""
         self.name = name
         self.events = events
@@ -151,8 +152,15 @@ async def test_stop_order_is_heartbeat_dhcp_http_tftp_then_tasks_cancelled(
     """Stop tears down heartbeat, then DHCP, then HTTP, then TFTP, and drains all service tasks."""
     events: Events = []
     _install_fakes(monkeypatch, events)
-    worker = WorkerIPXE(_cfg(dhcp_mode="full", dhcp_subnet="10.0.0.0/24", dhcp_range_start="10.0.0.2",
-                             dhcp_range_end="10.0.0.9", dhcp_gateway="10.0.0.1"))
+    worker = WorkerIPXE(
+        _cfg(
+            dhcp_mode="full",
+            dhcp_subnet="10.0.0.0/24",
+            dhcp_range_start="10.0.0.2",
+            dhcp_range_end="10.0.0.9",
+            dhcp_gateway="10.0.0.1",
+        )
+    )
     _wire_heartbeat(worker, events)
 
     await worker.start()
@@ -185,7 +193,9 @@ async def test_enrollment_failure_exits_before_starting_anything(
 
 
 @pytest.mark.asyncio
-async def test_metrics_disabled_skips_prometheus_server(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_metrics_disabled_skips_prometheus_server(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """METRICS_ENABLED=false never starts the Prometheus HTTP endpoint."""
     events: Events = []
     _install_fakes(monkeypatch, events)
@@ -199,7 +209,9 @@ async def test_metrics_disabled_skips_prometheus_server(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_tftp_disabled_and_dhcp_disabled_start_only_http(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tftp_disabled_and_dhcp_disabled_start_only_http(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """With TFTP and DHCP disabled only the HTTP boot server (and heartbeat) start."""
     events: Events = []
     _install_fakes(monkeypatch, events)
@@ -218,7 +230,9 @@ async def test_tftp_disabled_and_dhcp_disabled_start_only_http(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_stop_on_unstarted_worker_is_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_on_unstarted_worker_is_safe(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Stopping a worker that never started does not touch any service and does not raise."""
     events: Events = []
     _install_fakes(monkeypatch, events)
@@ -231,7 +245,9 @@ async def test_stop_on_unstarted_worker_is_safe(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_failed_service_task_stops_worker_and_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_failed_service_task_stops_worker_and_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A service crashing on its own triggers shutdown of everything else and a RuntimeError."""
     events: Events = []
     _install_fakes(monkeypatch, events, fail={"tftp": OSError("port 69 busy")})
@@ -248,7 +264,9 @@ async def test_failed_service_task_stops_worker_and_raises(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_service_exiting_normally_is_also_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_service_exiting_normally_is_also_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A service whose start() returns on its own is treated as unexpected exit, not silent success."""
     events: Events = []
     _install_fakes(monkeypatch, events)
@@ -262,7 +280,9 @@ async def test_service_exiting_normally_is_also_reported(monkeypatch: pytest.Mon
             """Return straight away, as a broken serve loop would."""
             self.events.append(f"{self.name}.start")
 
-    monkeypatch.setattr(main_mod, "HTTPBootServer", lambda cfg, enr, **kw: QuietHTTP("http", events))
+    monkeypatch.setattr(
+        main_mod, "HTTPBootServer", lambda cfg, enr, **kw: QuietHTTP("http", events)
+    )
 
     with pytest.raises(RuntimeError, match="service task exited unexpectedly"):
         await worker.run()
@@ -293,12 +313,21 @@ async def test_run_shuts_down_on_sigterm(monkeypatch: pytest.MonkeyPatch) -> Non
         loop.remove_signal_handler(signal.SIGTERM)
         loop.remove_signal_handler(signal.SIGINT)
 
-    assert events == ["enroll", "metrics:9191", "heartbeat.start", "http.init", "http.start",
-                      "heartbeat.stop", "http.stop"]
+    assert events == [
+        "enroll",
+        "metrics:9191",
+        "heartbeat.start",
+        "http.init",
+        "http.start",
+        "heartbeat.stop",
+        "http.stop",
+    ]
     assert worker.running is False
 
 
-def test_main_exits_one_on_invalid_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_exits_one_on_invalid_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """main() maps a configuration ValueError to exit status 1 before any service work."""
     monkeypatch.setenv("DHCP_MODE", "bogus")
 
@@ -342,7 +371,9 @@ def test_main_exits_one_when_worker_run_fails(monkeypatch: pytest.MonkeyPatch) -
     assert excinfo.value.code == 1
 
 
-def test_main_runs_worker_and_returns_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_main_runs_worker_and_returns_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A clean run() lets main() return normally and passes the parsed config into WorkerIPXE."""
     monkeypatch.setenv("DHCP_MODE", "disabled")
     monkeypatch.setenv("LOG_LEVEL", "warning")

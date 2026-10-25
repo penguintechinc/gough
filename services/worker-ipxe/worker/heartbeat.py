@@ -5,10 +5,10 @@ Sends periodic heartbeats to api-manager to report health and status.
 """
 
 import asyncio
-import structlog
-import httpx
 from datetime import datetime
 
+import httpx
+import structlog
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 

@@ -8,16 +8,16 @@ Tests FIX 3: Fail-closed secret validation at startup
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+from unittest.mock import MagicMock, patch
+
 import jwt
 import pytest
-from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock, patch
-from quart import Quart, g
+from app.config import Config, DevelopmentConfig, ProductionConfig
 from app.security.credentials import (
-    validate_one_time_bootstrap_token,
     InvalidCredentialError,
+    validate_one_time_bootstrap_token,
 )
-from app.config import Config, ProductionConfig, DevelopmentConfig
 
 
 class TestBootstrapTokenSignatureVerification:
@@ -112,7 +112,7 @@ class TestBootstrapTokenSignatureVerification:
         now = datetime.now(timezone.utc)
         expires = now + timedelta(minutes=5)
 
-        payload = {
+        {
             "nonce": "nonce-for-alg-test",
             "mac": "aa:bb:cc:dd:ee:ff",
             "phase": "helper",
@@ -129,7 +129,9 @@ class TestBootstrapTokenSignatureVerification:
                 invalid_token, vault_mock, redis_mock, signing_secret=secret
             )
 
-    def test_bootstrap_token_hs256_without_secret_fails_closed(self, redis_mock, vault_mock):
+    def test_bootstrap_token_hs256_without_secret_fails_closed(
+        self, redis_mock, vault_mock
+    ):
         """An HS256 token with no signing_secret is REJECTED (no unverified decode).
 
         Regression: gh-SECURITY-FIX-1. The old code fell through to
@@ -169,9 +171,11 @@ class TestBootstrapTokenSignatureVerification:
         }
 
         def _seg(obj):
-            return _b64.urlsafe_b64encode(
-                _json.dumps(obj, separators=(",", ":")).encode()
-            ).rstrip(b"=").decode()
+            return (
+                _b64.urlsafe_b64encode(_json.dumps(obj, separators=(",", ":")).encode())
+                .rstrip(b"=")
+                .decode()
+            )
 
         sig_seg = _b64.urlsafe_b64encode(b"vault:v1:fakesig").rstrip(b"=").decode()
         token = f"{_seg(header)}.{_seg(payload)}.{sig_seg}"
@@ -190,7 +194,10 @@ class TestBootstrapTokenSignatureVerification:
         bad_vault.transit_verify_signature = MagicMock(return_value=False)
         with pytest.raises(InvalidCredentialError):
             validate_one_time_bootstrap_token(
-                token, vault_client=bad_vault, redis_client=redis_mock, signing_secret=None
+                token,
+                vault_client=bad_vault,
+                redis_client=redis_mock,
+                signing_secret=None,
             )
 
 
@@ -214,19 +221,19 @@ class TestNodeEventAuthBypassRemoved:
         source = nodes_file.read_text(encoding="utf-8")
 
         # The bypass should NOT be in the source
-        assert "X-Gough-Test-Bypass-Auth" not in source, (
-            "X-Gough-Test-Bypass-Auth bypass header should be removed from nodes.py"
-        )
+        assert (
+            "X-Gough-Test-Bypass-Auth" not in source
+        ), "X-Gough-Test-Bypass-Auth bypass header should be removed from nodes.py"
 
         # The endpoint should still have the mTLS validation logic
-        assert "peer_cert_pem" in source, (
-            "post_node_event should still validate mTLS peer certificate"
-        )
+        assert (
+            "peer_cert_pem" in source
+        ), "post_node_event should still validate mTLS peer certificate"
 
         # Should return 401 when no peer cert
-        assert "unauthorized" in source.lower(), (
-            "post_node_event should return 401 unauthorized when no peer cert"
-        )
+        assert (
+            "unauthorized" in source.lower()
+        ), "post_node_event should return 401 unauthorized when no peer cert"
 
 
 class TestConfigValidationFailClosed:
@@ -245,7 +252,9 @@ class TestConfigValidationFailClosed:
                     "SECRET_KEY",
                     "dev-secret-key-change-in-production",
                 ):
-                    with pytest.raises(RuntimeError, match="SECRET_KEY is set to dev default"):
+                    with pytest.raises(
+                        RuntimeError, match="SECRET_KEY is set to dev default"
+                    ):
                         ProductionConfig.validate_secrets()
 
     def test_production_config_with_dev_jwt_secret_raises(self):
@@ -255,13 +264,17 @@ class TestConfigValidationFailClosed:
         """
         with patch.object(ProductionConfig, "DEBUG", False):
             with patch.object(ProductionConfig, "TESTING", False):
-                with patch.object(ProductionConfig, "SECRET_KEY", "prod-secret-key-xyz"):
+                with patch.object(
+                    ProductionConfig, "SECRET_KEY", "prod-secret-key-xyz"
+                ):
                     with patch.object(
                         ProductionConfig,
                         "JWT_SECRET_KEY",
                         "dev-secret-key-change-in-production",
                     ):
-                        with pytest.raises(RuntimeError, match="JWT_SECRET_KEY is set to dev default"):
+                        with pytest.raises(
+                            RuntimeError, match="JWT_SECRET_KEY is set to dev default"
+                        ):
                             ProductionConfig.validate_secrets()
 
     def test_production_config_with_dev_password_salt_raises(self):
@@ -271,7 +284,9 @@ class TestConfigValidationFailClosed:
         """
         with patch.object(ProductionConfig, "DEBUG", False):
             with patch.object(ProductionConfig, "TESTING", False):
-                with patch.object(ProductionConfig, "SECRET_KEY", "prod-secret-key-xyz"):
+                with patch.object(
+                    ProductionConfig, "SECRET_KEY", "prod-secret-key-xyz"
+                ):
                     with patch.object(
                         ProductionConfig, "JWT_SECRET_KEY", "prod-jwt-secret-xyz"
                     ):
@@ -281,7 +296,8 @@ class TestConfigValidationFailClosed:
                             "dev-salt-change-in-production",
                         ):
                             with pytest.raises(
-                                RuntimeError, match="SECURITY_PASSWORD_SALT is set to dev default"
+                                RuntimeError,
+                                match="SECURITY_PASSWORD_SALT is set to dev default",
                             ):
                                 ProductionConfig.validate_secrets()
 
@@ -292,8 +308,12 @@ class TestConfigValidationFailClosed:
         """
         with patch.object(ProductionConfig, "DEBUG", False):
             with patch.object(ProductionConfig, "TESTING", False):
-                with patch.object(ProductionConfig, "SECRET_KEY", "real-prod-secret-abc123"):
-                    with patch.object(ProductionConfig, "JWT_SECRET_KEY", "real-jwt-secret-def456"):
+                with patch.object(
+                    ProductionConfig, "SECRET_KEY", "real-prod-secret-abc123"
+                ):
+                    with patch.object(
+                        ProductionConfig, "JWT_SECRET_KEY", "real-jwt-secret-def456"
+                    ):
                         with patch.object(
                             ProductionConfig,
                             "SECURITY_PASSWORD_SALT",

@@ -27,20 +27,16 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from quart import Quart, g
-
-from app.api.webhooks import (
-    MAX_EVENT_FILTER_PATTERNS,
-    MAX_URL_LENGTH,
-)
+from app.api.webhooks import MAX_EVENT_FILTER_PATTERNS, MAX_URL_LENGTH
 from app.security.webhook_keys import (
     ECDSA_P256_SHA256,
     ED25519,
     HMAC_SHA256,
     WebhookKeyManager,
 )
-from tests._webhook_fakes import FakeVaultClient
+from quart import Quart, g
 
+from tests._webhook_fakes import FakeVaultClient
 
 # =============================================================================
 # Fixtures / helpers
@@ -140,7 +136,9 @@ def _build_app(
                 set_current_tenant(None)
                 return response
 
-    application.register_blueprint(webhooks_mod.webhooks_bp, url_prefix="/api/v1/webhooks")
+    application.register_blueprint(
+        webhooks_mod.webhooks_bp, url_prefix="/api/v1/webhooks"
+    )
 
     @application.before_request
     async def inject_user() -> None:
@@ -163,14 +161,19 @@ def _build_app(
 @pytest.mark.asyncio
 class TestListWebhooks:
     async def test_lists_empty(
-        self, pg_db: Any, pg_db_scoped: Any, vault: FakeVaultClient,
+        self,
+        pg_db: Any,
+        pg_db_scoped: Any,
+        vault: FakeVaultClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Empty-result case: no rows for this tenant."""
         _seed_webhook(pg_db, tenant_id="other-tenant")
         app, _ = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch,
-            dal_db=pg_db_scoped, rls_scoped=True,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db_scoped,
+            rls_scoped=True,
         )
         client = app.test_client()
         resp = await client.get("/api/v1/webhooks")
@@ -179,20 +182,28 @@ class TestListWebhooks:
         assert data["endpoints"] == []
 
     async def test_lists_webhooks(
-        self, pg_db: Any, pg_db_scoped: Any, vault: FakeVaultClient,
+        self,
+        pg_db: Any,
+        pg_db_scoped: Any,
+        vault: FakeVaultClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Filter case: only the caller's tenant's rows are returned."""
         wid = _seed_webhook(
-            pg_db, tenant_id="acme", url="https://example.com/hook",
-            signing_mode=ED25519, event_filter=["gough.cluster.*"],
+            pg_db,
+            tenant_id="acme",
+            url="https://example.com/hook",
+            signing_mode=ED25519,
+            event_filter=["gough.cluster.*"],
             retry_policy={"mode": "standard"},
         )
         _seed_webhook(pg_db, tenant_id="other-tenant")
 
         app, _ = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch,
-            dal_db=pg_db_scoped, rls_scoped=True,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db_scoped,
+            rls_scoped=True,
         )
         client = app.test_client()
         resp = await client.get("/api/v1/webhooks")
@@ -206,7 +217,10 @@ class TestListWebhooks:
         assert ep["event_filter"] == ["gough.cluster.*"]
 
     async def test_list_rls_isolates_two_tenants(
-        self, pg_db: Any, pg_db_scoped: Any, vault: FakeVaultClient,
+        self,
+        pg_db: Any,
+        pg_db_scoped: Any,
+        vault: FakeVaultClient,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """End-to-end smoke test through the real endpoint + scoped role.
@@ -224,8 +238,11 @@ class TestListWebhooks:
         _seed_webhook(pg_db, tenant_id="tenant-b", url="https://b.example.com/hook")
 
         app_a, _ = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch, tenant="tenant-a",
-            dal_db=pg_db_scoped, rls_scoped=True,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            tenant="tenant-a",
+            dal_db=pg_db_scoped,
+            rls_scoped=True,
         )
         resp_a = await app_a.test_client().get("/api/v1/webhooks")
         assert resp_a.status_code == 200
@@ -234,8 +251,11 @@ class TestListWebhooks:
         assert body_a["endpoints"][0]["url"] == "https://a.example.com/hook"
 
         app_b, _ = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch, tenant="tenant-b",
-            dal_db=pg_db_scoped, rls_scoped=True,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            tenant="tenant-b",
+            dal_db=pg_db_scoped,
+            rls_scoped=True,
         )
         resp_b = await app_b.test_client().get("/api/v1/webhooks")
         assert resp_b.status_code == 200
@@ -252,7 +272,10 @@ class TestListWebhooks:
 @pytest.mark.asyncio
 class TestCreateWebhook:
     async def test_creates_webhook(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Valid payload creates webhook and provisions key."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -277,20 +300,27 @@ class TestCreateWebhook:
         assert row.url == "https://example.com/hook"
 
     async def test_defaults_to_ed25519(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """signing_mode defaults to ed25519 if omitted."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
         resp = await client.post(
-            "/api/v1/webhooks", json={"url": "https://example.com/hook"},
+            "/api/v1/webhooks",
+            json={"url": "https://example.com/hook"},
         )
         assert resp.status_code == 201
         data = await resp.get_json()
         assert data["signing_mode"] == ED25519
 
     async def test_all_signing_modes(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """All three modes accepted."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -305,7 +335,9 @@ class TestCreateWebhook:
             assert data["signing_mode"] == mode
 
     async def test_invalid_signing_mode(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Invalid signing_mode rejected before any DB access."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
@@ -319,7 +351,9 @@ class TestCreateWebhook:
         assert "signing_mode must be one of" in data["error"]
 
     async def test_invalid_url(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Invalid URL rejected."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
@@ -330,7 +364,9 @@ class TestCreateWebhook:
         assert "url" in data["error"].lower()
 
     async def test_url_too_long(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """URL exceeding max length rejected."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
@@ -342,7 +378,10 @@ class TestCreateWebhook:
         assert resp.status_code == 400
 
     async def test_event_filter_validation(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Valid event filter patterns accepted and persisted."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -359,7 +398,9 @@ class TestCreateWebhook:
         assert set(data["event_filter"]) == {"gough.cluster.*", "gough.biome.created"}
 
     async def test_event_filter_too_many(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Event filter exceeding max patterns rejected."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
@@ -368,7 +409,9 @@ class TestCreateWebhook:
             "/api/v1/webhooks",
             json={
                 "url": "https://example.com/hook",
-                "event_filter": [f"pattern_{i}" for i in range(MAX_EVENT_FILTER_PATTERNS + 1)],
+                "event_filter": [
+                    f"pattern_{i}" for i in range(MAX_EVENT_FILTER_PATTERNS + 1)
+                ],
             },
         )
         assert resp.status_code == 400
@@ -376,7 +419,9 @@ class TestCreateWebhook:
         assert "too many patterns" in data["error"]
 
     async def test_invalid_event_filter_pattern(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Invalid characters in pattern rejected."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
@@ -388,20 +433,27 @@ class TestCreateWebhook:
         assert resp.status_code == 400
 
     async def test_retry_policy_defaults(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Retry policy defaults to standard mode."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
         resp = await client.post(
-            "/api/v1/webhooks", json={"url": "https://example.com/hook"},
+            "/api/v1/webhooks",
+            json={"url": "https://example.com/hook"},
         )
         assert resp.status_code == 201
         data = await resp.get_json()
         assert data["retry_policy"]["mode"] == "standard"
 
     async def test_retry_policy_none_mode(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Retry policy mode=none accepted."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -423,7 +475,10 @@ class TestCreateWebhook:
 @pytest.mark.asyncio
 class TestDeleteWebhook:
     async def test_deletes_webhook(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Valid webhook ID, owned by the caller's tenant, deletes."""
         wid = _seed_webhook(pg_db, tenant_id="acme")
@@ -434,7 +489,10 @@ class TestDeleteWebhook:
         assert pg_db(pg_db.webhook_endpoints.id == wid).select().first() is None
 
     async def test_not_found(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Non-existent (but numeric) webhook ID returns 404."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -445,7 +503,10 @@ class TestDeleteWebhook:
         assert data["error"] == "not_found"
 
     async def test_non_numeric_id_returns_not_found(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """``id`` is an integer PK -- a non-numeric path segment is a normal
         404, not a 500 (regression guard for the str->int PK conversion)."""
@@ -455,12 +516,18 @@ class TestDeleteWebhook:
         assert resp.status_code == 404
 
     async def test_cross_tenant_delete_denied(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Webhook owned by another tenant is not deletable (app-level filter)."""
         wid = _seed_webhook(pg_db, tenant_id="other-tenant")
         app, _ = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch, tenant="acme", dal_db=pg_db,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            tenant="acme",
+            dal_db=pg_db,
         )
         client = app.test_client()
         resp = await client.delete(f"/api/v1/webhooks/{wid}")
@@ -477,15 +544,21 @@ class TestDeleteWebhook:
 @pytest.mark.asyncio
 class TestTestWebhook:
     async def test_sends_synthetic_event(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Test endpoint sends gough.webhook.test event."""
         wid = _seed_webhook(pg_db, tenant_id="acme", url="https://example.com/hook")
         app, webhooks_mod = _build_app(
-            vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db,
+            vault_client=vault,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
         )
 
         from app.workers.webhook_dispatcher import DeliveryResult
+
         fake_result = DeliveryResult(
             endpoint_id=str(wid),
             event_id=str(uuid.uuid4()),
@@ -510,7 +583,10 @@ class TestTestWebhook:
         assert len(data["results"]) > 0
 
     async def test_not_found(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Non-existent webhook returns 404."""
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
@@ -519,7 +595,10 @@ class TestTestWebhook:
         assert resp.status_code == 404
 
     async def test_non_numeric_id_returns_not_found(
-        self, pg_db: Any, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
@@ -537,7 +616,9 @@ class TestWebhookJWKS:
     """Anonymous, never touches the DB -- no ``pg_db`` needed."""
 
     async def test_jwks_anonymous(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
         client = app.test_client()
@@ -549,7 +630,9 @@ class TestWebhookJWKS:
             assert isinstance(data["keys"], list)
 
     async def test_jwks_empty_tenant(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
         client = app.test_client()
@@ -558,7 +641,9 @@ class TestWebhookJWKS:
             assert resp.status_code in (200, 400, 404)
 
     async def test_jwks_includes_ed25519(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
         mgr = WebhookKeyManager(vault)
@@ -575,7 +660,9 @@ class TestWebhookJWKS:
             assert len(ed_keys) > 0
 
     async def test_jwks_includes_ecdsa(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
         mgr = WebhookKeyManager(vault)
@@ -591,7 +678,9 @@ class TestWebhookJWKS:
             assert len(ec_keys) > 0
 
     async def test_jwks_never_includes_hmac(
-        self, vault: FakeVaultClient, monkeypatch: pytest.MonkeyPatch,
+        self,
+        vault: FakeVaultClient,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, _ = _build_app(vault_client=vault, monkeypatch=monkeypatch)
         mgr = WebhookKeyManager(vault)
@@ -603,5 +692,9 @@ class TestWebhookJWKS:
             assert resp.status_code == 200
             data = await resp.get_json()
             keys = data["keys"]
-            hmac_keys = [k for k in keys if k.get("kty") == "HMAC" or k.get("mode") == HMAC_SHA256]
+            hmac_keys = [
+                k
+                for k in keys
+                if k.get("kty") == "HMAC" or k.get("mode") == HMAC_SHA256
+            ]
             assert len(hmac_keys) == 0

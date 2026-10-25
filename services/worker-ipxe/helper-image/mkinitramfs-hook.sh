@@ -13,6 +13,7 @@ case $1 in
     prereqs) echo "$PREREQ"; exit 0 ;;
 esac
 
+# shellcheck source=/dev/null  # provided by initramfs-tools at build time
 . /usr/share/initramfs-tools/hook-functions
 
 # Copy discovery-agent binary into the initramfs

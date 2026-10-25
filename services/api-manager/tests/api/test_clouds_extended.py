@@ -9,12 +9,12 @@ Targets uncovered branches in:
 """
 
 import importlib
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
 import pytest
 from quart import Quart, g
-from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch, PropertyMock
-from datetime import datetime, timezone
-import json
 
 
 def _passthrough(*dargs, **dkwargs):
@@ -85,6 +85,7 @@ def dal_with_clouds(dal):
 def clouds_client(dal_with_clouds, monkeypatch):
     """Create a test client with clouds blueprint registered."""
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal_with_clouds)
 
     import app.middleware as mw_mod
@@ -96,6 +97,7 @@ def clouds_client(dal_with_clouds, monkeypatch):
     monkeypatch.setattr(mw_mod, "roles_accepted", _passthrough)
 
     import app.api.clouds as clouds_mod
+
     clouds_mod = importlib.reload(clouds_mod)
     monkeypatch.setattr(clouds_mod, "get_db", lambda: dal_with_clouds)
 
@@ -678,10 +680,11 @@ async def test_list_machines_from_database(clouds_client, dal_with_clouds):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="await request.args bug in app/api/clouds.py line 335", strict=False)
+@pytest.mark.xfail(
+    reason="await request.args bug in app/api/clouds.py line 335", strict=False
+)
 async def test_list_machines_refresh_from_api(clouds_client, dal_with_clouds):
     """Test GET /<id>/machines?refresh=true fetches from cloud API."""
-    from app.clouds import MachineSpec
 
     now = datetime.now(timezone.utc)
     provider_id = dal_with_clouds.cloud_providers.insert(
@@ -1231,9 +1234,7 @@ async def test_list_sizes_success(clouds_client, dal_with_clouds):
 
     with patch("app.api.clouds.get_cloud_provider") as mock_get:
         mock_provider = MagicMock()
-        mock_provider.list_sizes.return_value = [
-            {"id": "t2.micro", "name": "Micro"}
-        ]
+        mock_provider.list_sizes.return_value = [{"id": "t2.micro", "name": "Micro"}]
         mock_get.return_value = mock_provider
 
         response = await clouds_client.get(f"/api/v1/clouds/{provider_id}/sizes")
@@ -1310,8 +1311,13 @@ class TestSyncMachinesToDbBatching:
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config_data={}, status="connected",
-            is_active=True, created_at=now, updated_at=now,
+            name="Test",
+            provider_type="aws",
+            config_data={},
+            status="connected",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.commit()
 
@@ -1331,17 +1337,28 @@ class TestSyncMachinesToDbBatching:
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config_data={}, status="connected",
-            is_active=True, created_at=now, updated_at=now,
+            name="Test",
+            provider_type="aws",
+            config_data={},
+            status="connected",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, external_id="i-1", hostname="old-name",
-            status="stopped", created_at=now, updated_at=now,
+            provider_id=provider_id,
+            external_id="i-1",
+            hostname="old-name",
+            status="stopped",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.commit()
 
         clouds_mod._sync_machines_to_db(
-            dal_with_clouds, provider_id, [_make_machine(machine_id="i-1", name="new-name")]
+            dal_with_clouds,
+            provider_id,
+            [_make_machine(machine_id="i-1", name="new-name")],
         )
 
         rows = dal_with_clouds(
@@ -1356,26 +1373,42 @@ class TestSyncMachinesToDbBatching:
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config_data={}, status="connected",
-            is_active=True, created_at=now, updated_at=now,
+            name="Test",
+            provider_type="aws",
+            config_data={},
+            status="connected",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, external_id="i-gone-1", hostname="gone-1",
-            created_at=now, updated_at=now,
+            provider_id=provider_id,
+            external_id="i-gone-1",
+            hostname="gone-1",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, external_id="i-gone-2", hostname="gone-2",
-            created_at=now, updated_at=now,
+            provider_id=provider_id,
+            external_id="i-gone-2",
+            hostname="gone-2",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, external_id="i-stays", hostname="stays",
-            created_at=now, updated_at=now,
+            provider_id=provider_id,
+            external_id="i-stays",
+            hostname="stays",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.commit()
 
         # Cloud API now reports only "i-stays" -- both "i-gone-*" rows are stale.
         clouds_mod._sync_machines_to_db(
-            dal_with_clouds, provider_id, [_make_machine(machine_id="i-stays", name="stays")]
+            dal_with_clouds,
+            provider_id,
+            [_make_machine(machine_id="i-stays", name="stays")],
         )
 
         rows = dal_with_clouds(
@@ -1388,12 +1421,20 @@ class TestSyncMachinesToDbBatching:
 
         now = datetime.now(timezone.utc)
         provider_id = dal_with_clouds.cloud_providers.insert(
-            name="Test", provider_type="aws", config_data={}, status="connected",
-            is_active=True, created_at=now, updated_at=now,
+            name="Test",
+            provider_type="aws",
+            config_data={},
+            status="connected",
+            is_active=True,
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.cloud_machines.insert(
-            provider_id=provider_id, external_id="i-1", hostname="host-1",
-            created_at=now, updated_at=now,
+            provider_id=provider_id,
+            external_id="i-1",
+            hostname="host-1",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_clouds.commit()
 

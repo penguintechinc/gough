@@ -6,10 +6,9 @@ Tests cover happy-path + error cases with mocked external dependencies
 
 from __future__ import annotations
 
+import importlib
 import sys
-import uuid
-from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import pytest_asyncio
@@ -20,16 +19,15 @@ pytestmark = pytest.mark.skip(
 )
 
 # Mock etcd3 module before any imports that use it
-sys.modules['etcd3'] = MagicMock()
+sys.modules["etcd3"] = MagicMock()
 
-from app.api.primary import (
-    force_recover_quorum,
-    replace_primary,
-    rotate_ipxe_ca,
-    switch_frontend,
-)
-from app.audit import AuditEventType, AuditLogger
-
+_mod_app_api_primary = importlib.import_module("app.api.primary")
+force_recover_quorum = _mod_app_api_primary.force_recover_quorum
+replace_primary = _mod_app_api_primary.replace_primary
+rotate_ipxe_ca = _mod_app_api_primary.rotate_ipxe_ca
+switch_frontend = _mod_app_api_primary.switch_frontend
+_mod_app_audit = importlib.import_module("app.audit")
+AuditLogger = _mod_app_audit.AuditLogger
 
 # =============================================================================
 # Fixtures
@@ -81,11 +79,11 @@ async def test_replace_primary_success(auth_context):
             "reason": "node-1 failed hardware",
         },
     ):
-        with patch("app.api.primary.get_db") as mock_db, \
-             patch("etcd3.client") as mock_etcd, \
-             patch("app.api.primary._check_etcd_quorum", return_value=True) as mock_quorum, \
-             patch("app.api.primary._get_joiner_secrets", return_value={}) as mock_secrets, \
-             patch("app.api.primary.asyncio.to_thread") as mock_thread:
+        with patch("app.api.primary.get_db"), patch("etcd3.client") as mock_etcd, patch(
+            "app.api.primary._check_etcd_quorum", return_value=True
+        ), patch("app.api.primary._get_joiner_secrets", return_value={}), patch(
+            "app.api.primary.asyncio.to_thread"
+        ) as mock_thread:
 
             # Mock etcd member list to simulate new node joining
             mock_client = MagicMock()
@@ -145,9 +143,9 @@ async def test_replace_primary_quorum_loss(auth_context):
             "reason": "test",
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("etcd3.client"), \
-             patch("app.api.primary._check_etcd_quorum", return_value=False):
+        with patch("app.api.primary.get_db"), patch("etcd3.client"), patch(
+            "app.api.primary._check_etcd_quorum", return_value=False
+        ):
 
             g.principal = MagicMock(
                 scopes={"gough.cluster.admin"},
@@ -176,10 +174,12 @@ async def test_force_recover_success(auth_context):
             "typed_cluster_name_confirmation": cluster_id,
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("etcd3.client") as mock_etcd, \
-             patch("app.api.primary.asyncio.to_thread") as mock_thread, \
-             patch("app.api.primary._etcd_snapshot_restore", return_value="/var/lib/etcd-recovered"):
+        with patch("app.api.primary.get_db"), patch("etcd3.client") as mock_etcd, patch(
+            "app.api.primary.asyncio.to_thread"
+        ) as mock_thread, patch(
+            "app.api.primary._etcd_snapshot_restore",
+            return_value="/var/lib/etcd-recovered",
+        ):
 
             mock_client = MagicMock()
             mock_client.status.return_value = MagicMock(leader=1)
@@ -258,9 +258,9 @@ async def test_switch_frontend_kube_vip(auth_context):
             "new_endpoint": "10.0.0.5:6443",
         },
     ):
-        with patch("app.api.primary.get_db") as mock_db, \
-             patch("app.api.primary._update_endpoint_on_nodes", return_value=True), \
-             patch("app.api.primary._emit_gracious_arp", return_value=True):
+        with patch("app.api.primary.get_db") as mock_db, patch(
+            "app.api.primary._update_endpoint_on_nodes", return_value=True
+        ), patch("app.api.primary._emit_gracious_arp", return_value=True):
 
             mock_db.return_value.query.return_value = [(1,), (2,), (3,)]
 
@@ -287,9 +287,9 @@ async def test_switch_frontend_external(auth_context):
             "new_endpoint": "lb.example.com:6443",
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("app.api.primary._update_endpoint_on_nodes", return_value=True), \
-             patch("app.api.primary.asyncio.to_thread") as mock_thread:
+        with patch("app.api.primary.get_db"), patch(
+            "app.api.primary._update_endpoint_on_nodes", return_value=True
+        ), patch("app.api.primary.asyncio.to_thread") as mock_thread:
 
             # Mock successful TCP connect
             def thread_side_effect(fn, *args):
@@ -351,8 +351,9 @@ async def test_switch_frontend_legacy_vip_mode(auth_context):
             "new_endpoint": "10.0.0.5:6443",
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("app.api.primary._update_endpoint_on_nodes", return_value=True):
+        with patch("app.api.primary.get_db"), patch(
+            "app.api.primary._update_endpoint_on_nodes", return_value=True
+        ):
 
             g.principal = MagicMock(
                 scopes={"gough.cluster.admin"},
@@ -380,9 +381,11 @@ async def test_rotate_ipxe_ca_success(auth_context):
             "new_ca_validity_days": 365,
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("app.api.primary._issue_pki_ca") as mock_pki, \
-             patch("app.api.primary._publish_helper_artifact", return_value=True):
+        with patch("app.api.primary.get_db"), patch(
+            "app.api.primary._issue_pki_ca"
+        ) as mock_pki, patch(
+            "app.api.primary._publish_helper_artifact", return_value=True
+        ):
 
             mock_pki.return_value = {
                 "cert": "-----BEGIN CERTIFICATE-----...",
@@ -477,11 +480,11 @@ async def test_replace_primary_timeout(auth_context):
             "reason": "test",
         },
     ):
-        with patch("app.api.primary.get_db"), \
-             patch("etcd3.client") as mock_etcd, \
-             patch("app.api.primary._check_etcd_quorum", return_value=True), \
-             patch("app.api.primary.asyncio.sleep", side_effect=lambda x: None) as mock_sleep, \
-             patch("app.api.primary.asyncio.get_event_loop") as mock_loop:
+        with patch("app.api.primary.get_db"), patch("etcd3.client") as mock_etcd, patch(
+            "app.api.primary._check_etcd_quorum", return_value=True
+        ), patch("app.api.primary.asyncio.sleep", side_effect=lambda x: None), patch(
+            "app.api.primary.asyncio.get_event_loop"
+        ) as mock_loop:
 
             mock_client = MagicMock()
             # Simulate node never joining

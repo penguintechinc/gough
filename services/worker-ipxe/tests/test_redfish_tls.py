@@ -9,7 +9,6 @@ from pathlib import Path
 
 import pytest
 import pytest_asyncio
-
 from certs import make_cert
 from worker.services import power_manager as pm
 from worker.services.power_manager import BMCCredentials, PowerManager
@@ -25,7 +24,9 @@ _RESPONSE = (
 class _Bmc:
     """A running test BMC: port, certificate and the request heads it has served."""
 
-    def __init__(self, port: int, cert_pem: bytes, der: bytes, requests: list[bytes]) -> None:
+    def __init__(
+        self, port: int, cert_pem: bytes, der: bytes, requests: list[bytes]
+    ) -> None:
         """Record the listening port, certificate and request log."""
         self.port = port
         self.cert_pem = cert_pem
@@ -44,7 +45,9 @@ async def bmc(tmp_path: Path) -> AsyncIterator[_Bmc]:
     ctx.load_cert_chain(cert_file, key_file)
     requests: list[bytes] = []
 
-    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         """Read one request head and reply."""
         try:
             requests.append(await reader.readuntil(b"\r\n\r\n"))
@@ -67,17 +70,24 @@ async def bmc(tmp_path: Path) -> AsyncIterator[_Bmc]:
 def _creds(bmc: _Bmc, fingerprint: str | None = None) -> BMCCredentials:
     """Credentials aimed at the local test BMC."""
     return BMCCredentials(
-        address=f"127.0.0.1:{bmc.port}", username="admin", password="pw-from-test",
-        power_type="redfish", cert_fingerprint=fingerprint,
+        address=f"127.0.0.1:{bmc.port}",
+        username="admin",
+        password="pw-from-test",
+        power_type="redfish",
+        cert_fingerprint=fingerprint,
     )
 
 
 @pytest.mark.asyncio
-async def test_pinned_fingerprint_match_allows_request(bmc: _Bmc, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_pinned_fingerprint_match_allows_request(
+    bmc: _Bmc, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """The matching leaf fingerprint lets the request (with credentials) through."""
     monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
 
-    ok, state = await PowerManager().power_control(_creds(bmc, bmc.fingerprint.lower()), "status")
+    ok, state = await PowerManager().power_control(
+        _creds(bmc, bmc.fingerprint.lower()), "status"
+    )
 
     assert (ok, state) == (True, "On")
     assert len(bmc.requests) == 1
@@ -85,7 +95,9 @@ async def test_pinned_fingerprint_match_allows_request(bmc: _Bmc, monkeypatch: p
 
 
 @pytest.mark.asyncio
-async def test_pinned_fingerprint_mismatch_sends_nothing(bmc: _Bmc, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_pinned_fingerprint_mismatch_sends_nothing(
+    bmc: _Bmc, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A different certificate is refused after the handshake, before any HTTP bytes (credentials) are sent."""
     monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
 
@@ -99,7 +111,9 @@ async def test_pinned_fingerprint_mismatch_sends_nothing(bmc: _Bmc, monkeypatch:
 @pytest.mark.asyncio
 async def test_malformed_pin_is_refused(bmc: _Bmc) -> None:
     """A corrupt stored pin fails closed with a clear error and no connection."""
-    ok, msg = await PowerManager().power_control(_creds(bmc, "not-a-fingerprint"), "status")
+    ok, msg = await PowerManager().power_control(
+        _creds(bmc, "not-a-fingerprint"), "status"
+    )
 
     assert ok is False
     assert "Invalid stored fingerprint format" in msg
@@ -107,7 +121,9 @@ async def test_malformed_pin_is_refused(bmc: _Bmc) -> None:
 
 
 @pytest.mark.asyncio
-async def test_ca_bundle_verifies_chain_and_hostname(bmc: _Bmc, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_ca_bundle_verifies_chain_and_hostname(
+    bmc: _Bmc, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """With REDFISH_CA_FILE trusting the BMC certificate, a normal verified request succeeds."""
     ca = tmp_path / "ca.pem"
     ca.write_bytes(bmc.cert_pem)
@@ -119,7 +135,9 @@ async def test_ca_bundle_verifies_chain_and_hostname(bmc: _Bmc, monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_untrusted_cert_with_other_ca_is_rejected(bmc: _Bmc, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+async def test_untrusted_cert_with_other_ca_is_rejected(
+    bmc: _Bmc, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A CA bundle that does not trust the BMC certificate fails verification; nothing is sent."""
     other = tmp_path / "other.pem"
     other.write_bytes(make_cert("someone-else")[0])
@@ -132,7 +150,9 @@ async def test_untrusted_cert_with_other_ca_is_rejected(bmc: _Bmc, monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_neither_ca_nor_pin_refuses_with_clear_error(bmc: _Bmc, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_neither_ca_nor_pin_refuses_with_clear_error(
+    bmc: _Bmc, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """No CA bundle and no pin: refuse, no insecure fallback (BMC_ALLOW_INSECURE_TLS is ignored)."""
     monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
     monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
@@ -144,8 +164,13 @@ async def test_neither_ca_nor_pin_refuses_with_clear_error(bmc: _Bmc, monkeypatc
     assert bmc.requests == []
 
 
-@pytest.mark.parametrize("content, expect", [(None, "does not exist"), (b"garbage", "not a usable CA bundle")])
-def test_bad_ca_file_is_refused(monkeypatch: pytest.MonkeyPatch, content: bytes | None, expect: str) -> None:
+@pytest.mark.parametrize(
+    "content, expect",
+    [(None, "does not exist"), (b"garbage", "not a usable CA bundle")],
+)
+def test_bad_ca_file_is_refused(
+    monkeypatch: pytest.MonkeyPatch, content: bytes | None, expect: str
+) -> None:
     """A missing or unparseable REDFISH_CA_FILE raises a descriptive RuntimeError."""
     path = Path(tempfile.mkdtemp()) / "ca.pem"
     if content is not None:
@@ -177,7 +202,12 @@ async def test_pinned_stream_delegates_io_and_missing_cert_fails() -> None:
             """Record close."""
             self.closed = True
 
-        async def start_tls(self, ctx: object, server_hostname: str | None = None, timeout: float | None = None) -> "Inner":
+        async def start_tls(
+            self,
+            ctx: object,
+            server_hostname: str | None = None,
+            timeout: float | None = None,
+        ) -> "Inner":
             """Return self as the TLS stream."""
             return self
 

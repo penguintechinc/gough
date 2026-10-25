@@ -5,9 +5,9 @@ Targets missed lines 52-53 (ImportError handling).
 
 from __future__ import annotations
 
-import pytest
-import sys
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 class TestGCPSecretsManagerImportError:

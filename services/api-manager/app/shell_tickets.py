@@ -32,6 +32,7 @@ log = logging.getLogger(__name__)
 class TicketStoreUnavailable(RuntimeError):
     """Raised when the Redis/Valkey ticket backend is missing or unreachable."""
 
+
 TICKET_TTL_SECONDS = 60
 ATTACH_TTL_SECONDS = 12 * 3600
 _TICKET_PREFIX = "gough:shell:ticket:"
@@ -73,7 +74,10 @@ class ShellTicketStore:
             except Exception as exc:  # noqa: BLE001 -- recorded, surfaced as 503
                 self._connect_error = f"{type(exc).__name__}: {exc}"
         if self._redis is None:
-            log.error("Shell ticket store unavailable (%s); failing closed", self._connect_error)
+            log.error(
+                "Shell ticket store unavailable (%s); failing closed",
+                self._connect_error,
+            )
             shell_ticket_store_up.set(0)
         else:
             shell_ticket_store_up.set(1)
@@ -101,7 +105,9 @@ class ShellTicketStore:
         payload = json.dumps(
             {"u": claims.user_id, "s": claims.session_id, "t": claims.tenant}
         )
-        self._guard(lambda r: r.set(_TICKET_PREFIX + key, payload, ex=TICKET_TTL_SECONDS))
+        self._guard(
+            lambda r: r.set(_TICKET_PREFIX + key, payload, ex=TICKET_TTL_SECONDS)
+        )
         return ticket
 
     def _consume_sync(self, ticket: str) -> TicketClaims | None:

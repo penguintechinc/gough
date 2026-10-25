@@ -16,12 +16,10 @@ window per the cryptographic algorithm defaults in the platform spec.
 from __future__ import annotations
 
 import base64
-import dataclasses
 import datetime as _dt
-import os
 import secrets
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 # Public valid signing modes -- mirrored in app/api/webhooks.py.
 HMAC_SHA256: str = "hmac_sha256"
@@ -219,7 +217,9 @@ class WebhookKeyManager:
     def _ensure_transit_key(self, tenant_id: str, mode: str) -> KeyId:
         name = f"{tenant_id}/webhook-{mode}"
         try:
-            read = self._vault.secrets.transit.read_key(name=name, mount_point=_TRANSIT_MOUNT)
+            read = self._vault.secrets.transit.read_key(
+                name=name, mount_point=_TRANSIT_MOUNT
+            )
             data = (read.get("data") or {}) if isinstance(read, dict) else {}
             latest_version = data.get("latest_version") or 1
             created_at = self._parse_transit_creation_time(data, latest_version)
@@ -246,7 +246,9 @@ class WebhookKeyManager:
         self._ensure_transit_key(tenant_id, mode)
         name = f"{tenant_id}/webhook-{mode}"
         self._vault.secrets.transit.rotate_key(name=name, mount_point=_TRANSIT_MOUNT)
-        read = self._vault.secrets.transit.read_key(name=name, mount_point=_TRANSIT_MOUNT)
+        read = self._vault.secrets.transit.read_key(
+            name=name, mount_point=_TRANSIT_MOUNT
+        )
         data = (read.get("data") or {}) if isinstance(read, dict) else {}
         latest_version = data.get("latest_version") or 1
         created = self._parse_transit_creation_time(data, latest_version)
@@ -263,7 +265,9 @@ class WebhookKeyManager:
         """Return ``[(kid, public_pem, created_at), ...]`` for all versions."""
         name = f"{tenant_id}/webhook-{mode}"
         try:
-            read = self._vault.secrets.transit.read_key(name=name, mount_point=_TRANSIT_MOUNT)
+            read = self._vault.secrets.transit.read_key(
+                name=name, mount_point=_TRANSIT_MOUNT
+            )
         except Exception as exc:  # pragma: no cover - defensive
             raise _KeyNotFound(str(exc))
         data = (read.get("data") or {}) if isinstance(read, dict) else {}
@@ -323,10 +327,8 @@ class WebhookKeyManager:
     ) -> Optional[dict[str, str]]:
         try:
             from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.primitives.asymmetric import (
-                ec as _ec,
-                ed25519 as _ed25519,
-            )
+            from cryptography.hazmat.primitives.asymmetric import ec as _ec
+            from cryptography.hazmat.primitives.asymmetric import ed25519 as _ed25519
         except Exception:  # pragma: no cover - cryptography is required
             return None
 

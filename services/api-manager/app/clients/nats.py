@@ -44,9 +44,16 @@ import nats
 from nats.aio.client import Client as NatsAioClient
 from nats.aio.msg import Msg
 from nats.aio.subscription import Subscription as NatsSubscription
-from nats.errors import ConnectionClosedError, NoServersError, TimeoutError as NatsTimeoutError
+from nats.errors import ConnectionClosedError, NoServersError
+from nats.errors import TimeoutError as NatsTimeoutError
 from nats.js import JetStreamContext
-from nats.js.api import ConsumerConfig, DeliverPolicy, RetentionPolicy, StorageType, StreamConfig
+from nats.js.api import (
+    ConsumerConfig,
+    DeliverPolicy,
+    RetentionPolicy,
+    StorageType,
+    StreamConfig,
+)
 from nats.js.errors import NotFoundError as JsNotFoundError
 
 from .vault import VaultClient, VaultError
@@ -239,7 +246,9 @@ class NatsClient:
             # Write creds to a private temp file - nats-py wants a file path.
             import tempfile
 
-            creds_fd, creds_path = tempfile.mkstemp(prefix="gough-nats-", suffix=".creds")
+            creds_fd, creds_path = tempfile.mkstemp(
+                prefix="gough-nats-", suffix=".creds"
+            )
             os.close(creds_fd)
             os.chmod(creds_path, 0o600)
             with open(creds_path, "w", encoding="utf-8") as fh:
@@ -263,7 +272,9 @@ class NatsClient:
             self._js = self._nc.jetstream()
             await self._ensure_streams()
             logger.info(
-                "NATS connected cluster_id=%s servers=%s", self.cluster_id, self.server_urls
+                "NATS connected cluster_id=%s servers=%s",
+                self.cluster_id,
+                self.server_urls,
             )
 
     async def _ensure_streams(self) -> None:
@@ -369,7 +380,9 @@ class NatsClient:
             NatsConnectionError: Not connected.
         """
         if self._js is None or self._nc is None or not self._nc.is_connected:
-            raise NatsConnectionError("NATS client is not connected; call connect() first")
+            raise NatsConnectionError(
+                "NATS client is not connected; call connect() first"
+            )
 
         if not subject.startswith(EVENTS_SUBJECT_PREFIX + "."):
             full_subject = f"{EVENTS_SUBJECT_PREFIX}.{subject}"
@@ -414,7 +427,9 @@ class NatsClient:
             except (ConnectionClosedError, NatsTimeoutError, NoServersError) as exc:
                 # Audit failure is logged but does not roll back the primary
                 # publish - the audit lane is a best-effort compliance mirror.
-                logger.error("Audit mirror publish failed for %s: %s", audit_subject, exc)
+                logger.error(
+                    "Audit mirror publish failed for %s: %s", audit_subject, exc
+                )
 
         logger.info(
             "Published event subject=%s seq=%d id=%s audit=%s",
@@ -461,11 +476,13 @@ class NatsClient:
             Subscription wrapper - call ``unsubscribe()`` to stop.
         """
         if self._js is None or self._nc is None or not self._nc.is_connected:
-            raise NatsConnectionError("NATS client is not connected; call connect() first")
+            raise NatsConnectionError(
+                "NATS client is not connected; call connect() first"
+            )
 
-        if not subject.startswith(EVENTS_SUBJECT_PREFIX + ".") and not subject.startswith(
-            AUDIT_SUBJECT_PREFIX + "."
-        ):
+        if not subject.startswith(
+            EVENTS_SUBJECT_PREFIX + "."
+        ) and not subject.startswith(AUDIT_SUBJECT_PREFIX + "."):
             full_subject = f"{EVENTS_SUBJECT_PREFIX}.{subject}"
         else:
             full_subject = subject
@@ -502,7 +519,10 @@ class NatsClient:
             config=config,
         )
         logger.info(
-            "Subscribed subject=%s durable=%s queue=%s", full_subject, durable_name, queue
+            "Subscribed subject=%s durable=%s queue=%s",
+            full_subject,
+            durable_name,
+            queue,
         )
         return Subscription(
             subject=full_subject, durable_name=durable_name, _nats_subscription=sub
@@ -518,9 +538,11 @@ class NatsClient:
         return {
             "name": info.config.name,
             "subjects": list(info.config.subjects or []),
-            "retention": info.config.retention.value
-            if hasattr(info.config.retention, "value")
-            else str(info.config.retention),
+            "retention": (
+                info.config.retention.value
+                if hasattr(info.config.retention, "value")
+                else str(info.config.retention)
+            ),
             "max_age_ns": info.config.max_age,
             "messages": info.state.messages,
             "bytes": info.state.bytes,

@@ -12,13 +12,13 @@ import re
 from quart import Blueprint, current_app, jsonify, request
 
 from ..middleware import auth_required, roles_required
-from ._helpers import request_is_cross_tenant, request_tenant_id
 from ..secrets import (
     BACKEND_REGISTRY,
-    get_secrets_manager,
     SecretNotFoundError,
     SecretsManagerError,
+    get_secrets_manager,
 )
+from ._helpers import request_is_cross_tenant, request_tenant_id
 
 log = logging.getLogger(__name__)
 
@@ -67,7 +67,9 @@ async def list_backends():
     for name, backend_class in BACKEND_REGISTRY.items():
         backend_info = {
             "name": name,
-            "description": backend_class.__doc__.split("\n")[0] if backend_class.__doc__ else "",
+            "description": (
+                backend_class.__doc__.split("\n")[0] if backend_class.__doc__ else ""
+            ),
             "is_configured": name == configured_backend,
         }
 
@@ -103,10 +105,15 @@ async def list_backends():
 
         backends.append(backend_info)
 
-    return jsonify({
-        "current_backend": configured_backend,
-        "backends": backends,
-    }), 200
+    return (
+        jsonify(
+            {
+                "current_backend": configured_backend,
+                "backends": backends,
+            }
+        ),
+        200,
+    )
 
 
 @secrets_bp.route("/backends", methods=["POST"])
@@ -137,10 +144,15 @@ async def configure_backend():
         return jsonify({"error": "Backend name required"}), 400
 
     if backend_name not in BACKEND_REGISTRY:
-        return jsonify({
-            "error": f"Unknown backend: {backend_name}",
-            "available": list(BACKEND_REGISTRY.keys()),
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Unknown backend: {backend_name}",
+                    "available": list(BACKEND_REGISTRY.keys()),
+                }
+            ),
+            400,
+        )
 
     # Validate by attempting to instantiate and connect
     try:
@@ -151,25 +163,40 @@ async def configure_backend():
         # For most backends, listing is a safe test
         manager.list_secrets("")
 
-        return jsonify({
-            "message": f"Backend '{backend_name}' configuration is valid",
-            "backend": backend_name,
-            "status": "connected",
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": f"Backend '{backend_name}' configuration is valid",
+                    "backend": backend_name,
+                    "status": "connected",
+                }
+            ),
+            200,
+        )
 
     except SecretsManagerError as e:
-        return jsonify({
-            "error": f"Backend configuration error: {e}",
-            "backend": backend_name,
-            "status": "error",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Backend configuration error: {e}",
+                    "backend": backend_name,
+                    "status": "error",
+                }
+            ),
+            400,
+        )
     except Exception as e:
         log.exception(f"Unexpected error validating backend {backend_name}")
-        return jsonify({
-            "error": f"Unexpected error: {e}",
-            "backend": backend_name,
-            "status": "error",
-        }), 500
+        return (
+            jsonify(
+                {
+                    "error": f"Unexpected error: {e}",
+                    "backend": backend_name,
+                    "status": "error",
+                }
+            ),
+            500,
+        )
 
 
 @secrets_bp.route("/<path:secret_path>", methods=["GET"])
@@ -196,10 +223,15 @@ async def get_secret(secret_path: str):
         manager = await get_secrets_manager()
         secret_data = await manager.get_secret(scoped)
 
-        return jsonify({
-            "path": secret_path,
-            "data": secret_data,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "path": secret_path,
+                    "data": secret_data,
+                }
+            ),
+            200,
+        )
 
     except SecretNotFoundError:
         return jsonify({"error": f"Secret not found: {secret_path}"}), 404
@@ -261,10 +293,12 @@ async def set_secret(secret_path: str):
 
         log.info(f"Secret {'updated' if exists else 'created'} at path: {secret_path}")
 
-        return jsonify({
-            "message": f"Secret {'updated' if exists else 'created'} successfully",
-            "path": secret_path,
-        }), 200 if exists else 201
+        return jsonify(
+            {
+                "message": f"Secret {'updated' if exists else 'created'} successfully",
+                "path": secret_path,
+            }
+        ), (200 if exists else 201)
 
     except SecretsManagerError as e:
         log.error(f"Error storing secret {secret_path}: {e}")
@@ -300,10 +334,15 @@ async def delete_secret(secret_path: str):
 
         log.info(f"Secret deleted at path: {secret_path}")
 
-        return jsonify({
-            "message": "Secret deleted successfully",
-            "path": secret_path,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Secret deleted successfully",
+                    "path": secret_path,
+                }
+            ),
+            200,
+        )
 
     except SecretsManagerError as e:
         log.error(f"Error deleting secret {secret_path}: {e}")
@@ -337,13 +376,22 @@ async def list_secrets():
             # backend returns outside the caller's prefix is DROPPED, never passed through.
             prefix = f"{_TENANT_NS}/{request_tenant_id()}/"
             listed = await manager.list_secrets(scoped + "/")
-            secrets = [x[len(prefix):] for x in listed if isinstance(x, str) and x.startswith(prefix)]
+            secrets = [
+                x[len(prefix) :]
+                for x in listed
+                if isinstance(x, str) and x.startswith(prefix)
+            ]
 
-        return jsonify({
-            "path": path or "/",
-            "secrets": secrets,
-            "count": len(secrets),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "path": path or "/",
+                    "secrets": secrets,
+                    "count": len(secrets),
+                }
+            ),
+            200,
+        )
 
     except SecretsManagerError as e:
         log.error(f"Error listing secrets at {path}: {e}")

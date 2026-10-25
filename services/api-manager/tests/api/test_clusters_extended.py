@@ -9,13 +9,12 @@ Targets uncovered branches in:
 """
 
 import importlib
+import uuid
+from datetime import datetime, timezone
+from types import SimpleNamespace
+
 import pytest
 from quart import Quart, g
-from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
-from datetime import datetime, timezone
-import uuid
-import json
 
 
 def _passthrough(*dargs, **dkwargs):
@@ -29,8 +28,6 @@ def _passthrough(*dargs, **dkwargs):
 def dal_with_clusters(dal):
     """Extend dal with storage_backends, network_baseline, identity_plane tables."""
     from penguin_dal import Field
-
-    now = datetime.now(timezone.utc)
 
     # Define storage_backends table
     if "storage_backends" not in dal._metadata.tables:
@@ -94,6 +91,7 @@ def dal_with_clusters(dal):
 def clusters_client(dal_with_clusters, monkeypatch):
     """Create a test client with clusters blueprint registered."""
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal_with_clusters)
 
     import app.middleware as mw_mod
@@ -103,6 +101,7 @@ def clusters_client(dal_with_clusters, monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.clusters as clusters_mod
+
     clusters_mod = importlib.reload(clusters_mod)
     monkeypatch.setattr(clusters_mod, "get_db", lambda: dal_with_clusters)
 
@@ -142,7 +141,9 @@ def clusters_client(dal_with_clusters, monkeypatch):
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="SQLite datatype mismatch with UUID id field", strict=False)
-async def test_patch_storage_backend_nonexistent_table(clusters_client, dal_with_clusters):
+async def test_patch_storage_backend_nonexistent_table(
+    clusters_client, dal_with_clusters
+):
     """Test PATCH when storage_backends table doesn't exist (schema not initialized)."""
     # Drop the table to simulate schema not initialized
     if "storage_backends" in dal_with_clusters._metadata.tables:
@@ -167,7 +168,9 @@ async def test_patch_storage_backend_invalid_kind(clusters_client):
     )
     assert response.status_code == 422
     data = await response.get_json()
-    assert "invalid_kind" in data.get("details", {}).get("violations", [{}])[0].get("code", "")
+    assert "invalid_kind" in data.get("details", {}).get("violations", [{}])[0].get(
+        "code", ""
+    )
 
 
 @pytest.mark.asyncio
@@ -195,7 +198,9 @@ async def test_patch_storage_backend_inline_secret_forbidden(clusters_client):
     )
     assert response.status_code == 422
     data = await response.get_json()
-    assert "inline_secret_forbidden" in data.get("details", {}).get("violations", [{}])[0].get("code", "")
+    assert "inline_secret_forbidden" in data.get("details", {}).get("violations", [{}])[
+        0
+    ].get("code", "")
 
 
 @pytest.mark.asyncio
@@ -217,7 +222,9 @@ async def test_patch_storage_backend_vault_path_allowed(clusters_client):
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="SQLite datatype mismatch with UUID id field", strict=False)
-async def test_patch_storage_backend_create_with_is_default_true(clusters_client, dal_with_clusters):
+async def test_patch_storage_backend_create_with_is_default_true(
+    clusters_client, dal_with_clusters
+):
     """Test PATCH creates backend and sets is_default, clears others."""
     # Insert an existing default backend
     now = datetime.now(timezone.utc)
@@ -248,10 +255,14 @@ async def test_patch_storage_backend_create_with_is_default_true(clusters_client
     assert data["data"]["is_default"] is True
 
     # Verify old default was unset
-    old = dal_with_clusters(
-        (dal_with_clusters.storage_backends.cluster_id == "default")
-        & (dal_with_clusters.storage_backends.name == "existing")
-    ).select().first()
+    old = (
+        dal_with_clusters(
+            (dal_with_clusters.storage_backends.cluster_id == "default")
+            & (dal_with_clusters.storage_backends.name == "existing")
+        )
+        .select()
+        .first()
+    )
     assert old.is_default is False
 
 
@@ -357,19 +368,31 @@ async def test_switch_primary_storage_target_not_found(clusters_client):
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="SQLite datatype mismatch with UUID id field", strict=False)
-async def test_switch_primary_storage_with_current_and_next(clusters_client, dal_with_clusters):
+async def test_switch_primary_storage_with_current_and_next(
+    clusters_client, dal_with_clusters
+):
     """Test POST switch-primary with both current and next primary."""
     now = datetime.now(timezone.utc)
 
-    rid1 = dal_with_clusters.storage_backends.insert(
-        cluster_id="default", name="current", kind="longhorn",
-        is_default=True, config_json={}, status="ready",
-        created_at=now, updated_at=now,
+    dal_with_clusters.storage_backends.insert(
+        cluster_id="default",
+        name="current",
+        kind="longhorn",
+        is_default=True,
+        config_json={},
+        status="ready",
+        created_at=now,
+        updated_at=now,
     )
     rid2 = dal_with_clusters.storage_backends.insert(
-        cluster_id="default", name="next", kind="ceph",
-        is_default=False, config_json={}, status="ready",
-        created_at=now, updated_at=now,
+        cluster_id="default",
+        name="next",
+        kind="ceph",
+        is_default=False,
+        config_json={},
+        status="ready",
+        created_at=now,
+        updated_at=now,
     )
     dal_with_clusters.commit()
 
@@ -392,7 +415,9 @@ async def test_switch_primary_storage_with_current_and_next(clusters_client, dal
 
 
 @pytest.mark.asyncio
-async def test_get_network_baseline_topology_defaults(clusters_client, dal_with_clusters):
+async def test_get_network_baseline_topology_defaults(
+    clusters_client, dal_with_clusters
+):
     """Test GET returns default baseline topology when not configured."""
     response = await clusters_client.get(
         "/api/v1/clusters/default/network-baseline-topology",
@@ -405,7 +430,9 @@ async def test_get_network_baseline_topology_defaults(clusters_client, dal_with_
 
 
 @pytest.mark.asyncio
-async def test_patch_network_baseline_topology_custom(clusters_client, dal_with_clusters):
+async def test_patch_network_baseline_topology_custom(
+    clusters_client, dal_with_clusters
+):
     """Test PATCH updates baseline topology."""
     custom_config = {
         "networks": {
@@ -446,7 +473,12 @@ async def test_patch_network_pools_custom(clusters_client):
         "/api/v1/clusters/default/network-pools",
         json={
             "pools": [
-                {"name": "custom", "cidr": "10.20.0.0/24", "vlan": 100, "managed_by": "custom"}
+                {
+                    "name": "custom",
+                    "cidr": "10.20.0.0/24",
+                    "vlan": 100,
+                    "managed_by": "custom",
+                }
             ]
         },
     )
@@ -604,7 +636,9 @@ async def test_post_adopt_cluster_requires_superadmin(clusters_client):
 
 @pytest.mark.asyncio
 @pytest.mark.xfail(reason="SQLite datatype mismatch with UUID id field", strict=False)
-async def test_list_storage_backends_redacts_credentials(clusters_client, dal_with_clusters):
+async def test_list_storage_backends_redacts_credentials(
+    clusters_client, dal_with_clusters
+):
     """Test GET storage backends redacts credential fields."""
     now = datetime.now(timezone.utc)
 

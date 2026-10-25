@@ -10,6 +10,7 @@ Rate limiting strategies:
 - Token bucket
 """
 
+import asyncio
 import hashlib
 import time
 from dataclasses import dataclass
@@ -18,8 +19,7 @@ from enum import Enum
 from functools import wraps
 from typing import Any, Callable, Optional, Tuple
 
-import asyncio
-from quart import Quart, current_app, g, request, jsonify
+from quart import Quart, current_app, g, jsonify, request
 
 from .lifecycle import redis_client_kwargs
 from .metrics import rate_limit_degraded
@@ -159,7 +159,9 @@ class RateLimiter:
     def __init__(self, app: Quart = None):
         self.app = app
         self._storage = None
-        self._redis_client = None  # sync redis client owned by this limiter, closed on shutdown
+        self._redis_client = (
+            None  # sync redis client owned by this limiter, closed on shutdown
+        )
         self._default_limits: list[Tuple[int, int]] = []  # (requests, seconds)
         self._enabled = True
 
@@ -186,7 +188,9 @@ class RateLimiter:
             import redis
 
             try:
-                redis_client = redis.from_url(redis_url, **redis_client_kwargs(app.config))
+                redis_client = redis.from_url(
+                    redis_url, **redis_client_kwargs(app.config)
+                )
                 redis_client.ping()
             except Exception as e:
                 if not app.config.get("RATE_LIMIT_ALLOW_MEMORY_FALLBACK", False):
@@ -224,11 +228,13 @@ class RateLimiter:
         # Register error handler
         @app.errorhandler(RateLimitExceeded)
         async def handle_rate_limit_exceeded(error):
-            response = jsonify({
-                "error": "rate_limit_exceeded",
-                "message": str(error),
-                "retry_after": error.retry_after,
-            })
+            response = jsonify(
+                {
+                    "error": "rate_limit_exceeded",
+                    "message": str(error),
+                    "retry_after": error.retry_after,
+                }
+            )
             response.status_code = 429
             response.headers["Retry-After"] = str(error.retry_after)
             response.headers["X-RateLimit-Limit"] = str(error.limit)
@@ -297,9 +303,7 @@ class RateLimiter:
             RateLimitExceeded: If rate limit is exceeded
         """
         if not self._enabled:
-            return RateLimitInfo(
-                limit=0, remaining=0, reset_at=datetime.utcnow()
-            )
+            return RateLimitInfo(limit=0, remaining=0, reset_at=datetime.utcnow())
 
         limits = limits or self._default_limits
         identifier = await self._get_identifier()
@@ -307,9 +311,7 @@ class RateLimiter:
 
         # Check each limit tier
         for max_requests, window_seconds in limits:
-            key_str = (
-                f"{key_prefix}:{identifier}:{endpoint_key}:{window_seconds}"
-            )
+            key_str = f"{key_prefix}:{identifier}:{endpoint_key}:{window_seconds}"
             key = hashlib.sha256(key_str.encode()).hexdigest()[:32]
 
             current_count = await asyncio.to_thread(
@@ -333,18 +335,12 @@ class RateLimiter:
 
         # Return info for the primary (first) limit
         max_requests, window_seconds = limits[0]
-        key_str = (
-            f"{key_prefix}:{identifier}:{endpoint_key}:{window_seconds}"
-        )
+        key_str = f"{key_prefix}:{identifier}:{endpoint_key}:{window_seconds}"
         key = hashlib.sha256(key_str.encode()).hexdigest()[:32]
 
         data = await asyncio.to_thread(self._storage.get, key)
         current_count = data.get("count", 0) if data else 0
-        expires_at = (
-            data.get("expires_at")
-            if data
-            else time.time() + window_seconds
-        )
+        expires_at = data.get("expires_at") if data else time.time() + window_seconds
         reset_at = datetime.fromtimestamp(expires_at)
 
         return RateLimitInfo(
@@ -384,14 +380,14 @@ def rate_limit(
             limiter = get_rate_limiter()
             if not limiter:
                 result = func(*args, **kwargs)
-                if hasattr(result, '__await__'):
+                if hasattr(result, "__await__"):
                     return await result
                 return result
 
             # Check exemption
             if exempt_when and exempt_when():
                 result = func(*args, **kwargs)
-                if hasattr(result, '__await__'):
+                if hasattr(result, "__await__"):
                     return await result
                 return result
 
@@ -406,13 +402,11 @@ def rate_limit(
                 key_prefix = key_func()
 
             # Check rate limit
-            info = await limiter.check_rate_limit(
-                limits=limits, key_prefix=key_prefix
-            )
+            info = await limiter.check_rate_limit(limits=limits, key_prefix=key_prefix)
 
             # Execute function
             response = func(*args, **kwargs)
-            if hasattr(response, '__await__'):
+            if hasattr(response, "__await__"):
                 response = await response
 
             # Add rate limit headers to response

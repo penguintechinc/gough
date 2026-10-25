@@ -7,7 +7,7 @@ access.
 from functools import wraps
 from typing import Callable
 
-from quart import g, jsonify
+from quart import jsonify
 
 from .middleware import get_current_user
 from .models import get_db
@@ -35,10 +35,14 @@ def check_team_access(
     db = get_db()
     try:
         # Find team membership record
-        membership = db(
-            (db.team_members.user_id == user_id)
-            & (db.team_members.team_id == team_id)
-        ).select(db.team_members.role).first()
+        membership = (
+            db(
+                (db.team_members.user_id == user_id)
+                & (db.team_members.team_id == team_id)
+            )
+            .select(db.team_members.role)
+            .first()
+        )
 
         if not membership:
             return False
@@ -87,11 +91,15 @@ def check_resource_permission(
         # Check team permissions if resource is team-scoped
         if hasattr(resource, "team_id"):
             team_id = resource.team_id
-            perms = db(
-                (db.resource_permissions.user_id == user_id)
-                & (db.resource_permissions.resource_type == resource_type)
-                & (db.resource_permissions.resource_id == resource_id)
-            ).select(db.resource_permissions.permission).first()
+            perms = (
+                db(
+                    (db.resource_permissions.user_id == user_id)
+                    & (db.resource_permissions.resource_type == resource_type)
+                    & (db.resource_permissions.resource_id == resource_id)
+                )
+                .select(db.resource_permissions.permission)
+                .first()
+            )
 
             if perms and permission in (perms.permission or "").split(","):
                 return True
@@ -109,9 +117,7 @@ def check_resource_permission(
         return False
 
 
-def check_shell_access(
-    user_id: int, resource_type: str, resource_id: int
-) -> bool:
+def check_shell_access(user_id: int, resource_type: str, resource_id: int) -> bool:
     """Shortcut for checking shell permission on resource.
 
     Args:
@@ -122,9 +128,7 @@ def check_shell_access(
     Returns:
         True if user has shell permission
     """
-    return check_resource_permission(
-        user_id, resource_type, resource_id, "shell"
-    )
+    return check_resource_permission(user_id, resource_type, resource_id, "shell")
 
 
 def require_team_permission(required_role: str = "member") -> Callable:
@@ -160,7 +164,7 @@ def require_team_permission(required_role: str = "member") -> Callable:
                 return jsonify({"error": "Forbidden"}), 403
 
             result = fn(*args, **kwargs)
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             return result
 
@@ -188,9 +192,8 @@ def require_resource_permission(permission: str = "read") -> Callable:
             from quart import request
 
             # Get resource identifiers from kwargs or request
-            resource_type = (
-                kwargs.get("resource_type")
-                or request.args.get("resource_type")
+            resource_type = kwargs.get("resource_type") or request.args.get(
+                "resource_type"
             )
             resource_id = kwargs.get("resource_id") or request.args.get(
                 "resource_id", type=int
@@ -214,7 +217,7 @@ def require_resource_permission(permission: str = "read") -> Callable:
                 return jsonify({"error": "Forbidden"}), 403
 
             result = fn(*args, **kwargs)
-            if hasattr(result, '__await__'):
+            if hasattr(result, "__await__"):
                 return await result
             return result
 

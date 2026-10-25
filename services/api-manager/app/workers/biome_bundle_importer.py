@@ -24,10 +24,10 @@ from ..models import get_db
 from ..services.biome_bundle import (
     MAX_BUNDLE_BYTES,
     BundleError,
-    VerifiedBundle,
-    extract_bundle,
     Resolver,
+    VerifiedBundle,
     allowed_bundle_hosts,
+    extract_bundle,
     fetch_vetted,
     validate_version,
     verify_cosign_blob,
@@ -94,7 +94,11 @@ def _db_store_bundle(
             version=bundle.version,
             source_sha256=bundle.sha256,
             source_url=source_url,
-            signature_status=SIGNATURE_VERIFIED if bundle.signature_verified else SIGNATURE_NOT_REQUIRED,
+            signature_status=(
+                SIGNATURE_VERIFIED
+                if bundle.signature_verified
+                else SIGNATURE_NOT_REQUIRED
+            ),
             file_count=len(bundle.files),
             imported_by=imported_by,
             imported_at=imported_at,
@@ -120,11 +124,15 @@ def _db_get_file(version: str, biome: str, path: str) -> Optional[CachedFile]:
     imp = db(db.biome_bundle_imports.version == version).select().first()
     if imp is None:
         return None
-    row = db(
-        (db.biome_bundle_files.import_id == imp.id)
-        & (db.biome_bundle_files.biome == biome)
-        & (db.biome_bundle_files.path == path)
-    ).select().first()
+    row = (
+        db(
+            (db.biome_bundle_files.import_id == imp.id)
+            & (db.biome_bundle_files.biome == biome)
+            & (db.biome_bundle_files.path == path)
+        )
+        .select()
+        .first()
+    )
     if row is None:
         return None
     return CachedFile(content=bytes(row.content), sha256=str(row.sha256))
@@ -155,18 +163,28 @@ async def import_biome_bundle(
     validate_version(version)
     allowed = allowed_bundle_hosts()
     data = await fetch_vetted(
-        bundle_url, allowed=allowed, max_bytes=MAX_BUNDLE_BYTES, transport=transport, resolver=resolver
+        bundle_url,
+        allowed=allowed,
+        max_bytes=MAX_BUNDLE_BYTES,
+        transport=transport,
+        resolver=resolver,
     )
     digest = verify_sha256(data, bundle_sha256)
 
     key_id = _cosign_key()
     if signature_url and key_id is None:
-        raise BundleError(f"signature_url given but {_COSIGN_KEY_ENV} is not configured")
+        raise BundleError(
+            f"signature_url given but {_COSIGN_KEY_ENV} is not configured"
+        )
     if key_id is not None and not signature_url:
-        raise BundleError(f"signature_url is required when {_COSIGN_KEY_ENV} is configured")
+        raise BundleError(
+            f"signature_url is required when {_COSIGN_KEY_ENV} is configured"
+        )
 
     if await run_db(lambda: _db_version_exists(version)):
-        raise BundleVersionConflictError(f"biomes version {version!r} is already imported")
+        raise BundleVersionConflictError(
+            f"biomes version {version!r} is already imported"
+        )
 
     with tempfile.TemporaryDirectory(prefix="biome-bundle-") as tmp:
         workdir = Path(tmp)
@@ -175,7 +193,11 @@ async def import_biome_bundle(
             blob_path = workdir / "bundle.tar.gz"
             blob_path.write_bytes(data)
             signature = await fetch_vetted(
-                signature_url, allowed=allowed, max_bytes=64 * 1024, transport=transport, resolver=resolver
+                signature_url,
+                allowed=allowed,
+                max_bytes=64 * 1024,
+                transport=transport,
+                resolver=resolver,
             )
             await verify_cosign_blob(blob_path, signature, key_id, workdir)
             signature_verified = True
@@ -208,7 +230,9 @@ async def import_biome_bundle(
         version=version,
         sha256=digest,
         file_count=len(files),
-        signature_status=SIGNATURE_VERIFIED if signature_verified else SIGNATURE_NOT_REQUIRED,
+        signature_status=(
+            SIGNATURE_VERIFIED if signature_verified else SIGNATURE_NOT_REQUIRED
+        ),
     )
 
 

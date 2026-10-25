@@ -73,7 +73,7 @@ class VaultSecretsManager(BaseSecretsManager):
                 await asyncio.to_thread(
                     self._client.auth.approle.login,
                     role_id=role_id,
-                    secret_id=secret_id
+                    secret_id=secret_id,
                 )
                 log.info("Authenticated with Vault using AppRole")
             except hvac.exceptions.InvalidRequest as e:
@@ -90,9 +90,7 @@ class VaultSecretsManager(BaseSecretsManager):
 
         # Verify authentication
         try:
-            is_authenticated = await asyncio.to_thread(
-                self._client.is_authenticated
-            )
+            is_authenticated = await asyncio.to_thread(self._client.is_authenticated)
             if not is_authenticated:
                 raise SecretsManagerError("Vault authentication failed")
         except hvac.exceptions.VaultDown:
@@ -107,7 +105,7 @@ class VaultSecretsManager(BaseSecretsManager):
             result = await asyncio.to_thread(
                 self.client.secrets.kv.v2.read_secret_version,
                 path=path,
-                mount_point=self.mount_point
+                mount_point=self.mount_point,
             )
             return result["data"]["data"]
         except hvac.exceptions.InvalidPath:
@@ -125,7 +123,7 @@ class VaultSecretsManager(BaseSecretsManager):
                 self.client.secrets.kv.v2.create_or_update_secret,
                 path=path,
                 secret=data,
-                mount_point=self.mount_point
+                mount_point=self.mount_point,
             )
             log.info(f"Secret stored in Vault at path: {path}")
             return True
@@ -142,7 +140,7 @@ class VaultSecretsManager(BaseSecretsManager):
             await asyncio.to_thread(
                 self.client.secrets.kv.v2.delete_metadata_and_all_versions,
                 path=path,
-                mount_point=self.mount_point
+                mount_point=self.mount_point,
             )
             log.info(f"Secret deleted from Vault at path: {path}")
             return True
@@ -160,7 +158,7 @@ class VaultSecretsManager(BaseSecretsManager):
             result = await asyncio.to_thread(
                 self.client.secrets.kv.v2.list_secrets,
                 path=path,
-                mount_point=self.mount_point
+                mount_point=self.mount_point,
             )
             keys = result["data"]["keys"]
 
@@ -181,7 +179,7 @@ class VaultSecretsManager(BaseSecretsManager):
             result = await asyncio.to_thread(
                 self.client.secrets.kv.v2.read_secret_metadata,
                 path=path,
-                mount_point=self.mount_point
+                mount_point=self.mount_point,
             )
             return result["data"]
         except hvac.exceptions.InvalidPath:

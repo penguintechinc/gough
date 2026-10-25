@@ -6,10 +6,9 @@ Comprehensive coverage for app/api/ssh_ca.py endpoints:
 - POST /api/v1/ssh-ca/sign (any auth user)
 """
 
-from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock
-from types import SimpleNamespace
 import importlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -18,8 +17,10 @@ def _passthrough_decorator(*dargs, **dkwargs):
     """Support both styles: @auth_required and @require_scopes("...")."""
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         return dargs[0]
+
     def _wrap(fn):
         return fn
+
     return _wrap
 
 
@@ -39,7 +40,9 @@ def _patch_authz(monkeypatch, ssh_ca_mod, principals=("ubuntu", "admin")):
     """Stub the per-resource authorization seams so the sign flow reaches the CA."""
     monkeypatch.setattr(ssh_ca_mod, "check_shell_access", lambda *a: True)
     monkeypatch.setattr(ssh_ca_mod, "resolve_agent_id", lambda *a, **k: "agent-1")
-    monkeypatch.setattr(ssh_ca_mod, "allowed_login_principals", lambda *a: list(principals))
+    monkeypatch.setattr(
+        ssh_ca_mod, "allowed_login_principals", lambda *a: list(principals)
+    )
     monkeypatch.setattr(ssh_ca_mod, "user_is_admin", lambda *a: False)
 
 
@@ -47,6 +50,7 @@ def _patch_authz(monkeypatch, ssh_ca_mod, principals=("ubuntu", "admin")):
 def ssh_ca_app(monkeypatch):
     """Build Quart app with SSH CA blueprint; patch auth at module level."""
     import sys
+
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
 
@@ -55,9 +59,12 @@ def ssh_ca_app(monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
     if "app.api.ssh_ca" in sys.modules:
-        monkeypatch.setitem(sys.modules, "app.api.ssh_ca", sys.modules["app.api.ssh_ca"])
+        monkeypatch.setitem(
+            sys.modules, "app.api.ssh_ca", sys.modules["app.api.ssh_ca"]
+        )
 
     import app.api.ssh_ca as ssh_ca_mod
+
     ssh_ca_mod = importlib.reload(ssh_ca_mod)
 
     from quart import Quart, g
@@ -112,11 +119,12 @@ class TestInitializeCA:
         ca_instance = MagicMock()
         ca_instance.initialize.return_value = None
         ca_instance.get_public_key.return_value = "ssh-rsa AAAA..."
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/initialize",
-            json={"ca_name": "Test CA"}
+            "/api/v1/ssh-ca/initialize", json={"ca_name": "Test CA"}
         )
 
         assert response.status_code == 201
@@ -124,7 +132,9 @@ class TestInitializeCA:
         assert data["ca_name"] == "Test CA"
 
     @pytest.mark.asyncio
-    async def test_initialize_ca_already_exists(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_initialize_ca_already_exists(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test CA initialization when CA already exists."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -133,8 +143,7 @@ class TestInitializeCA:
         monkeypatch.setattr(ssh_ca_mod, "get_db", lambda: db_mock)
 
         response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/initialize",
-            json={"ca_name": "Test CA"}
+            "/api/v1/ssh-ca/initialize", json={"ca_name": "Test CA"}
         )
 
         assert response.status_code == 409
@@ -142,7 +151,9 @@ class TestInitializeCA:
         assert "already" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_initialize_ca_ssh_exception(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_initialize_ca_ssh_exception(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test CA initialization with exception during initialize."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -151,17 +162,20 @@ class TestInitializeCA:
 
         ca_instance = MagicMock()
         ca_instance.initialize.side_effect = RuntimeError("CA init failed")
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/initialize",
-            json={"ca_name": "Test CA"}
+            "/api/v1/ssh-ca/initialize", json={"ca_name": "Test CA"}
         )
 
         assert response.status_code == 500
 
     @pytest.mark.asyncio
-    async def test_initialize_ca_default_name(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_initialize_ca_default_name(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test CA initialization with default name."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -171,19 +185,20 @@ class TestInitializeCA:
         ca_instance = MagicMock()
         ca_instance.initialize.return_value = None
         ca_instance.get_public_key.return_value = "ssh-rsa AAAA..."
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
-
-        response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/initialize",
-            json={}
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
         )
+
+        response = await ssh_ca_client.post("/api/v1/ssh-ca/initialize", json={})
 
         assert response.status_code == 201
         data = await response.get_json()
         assert data["ca_name"] == "Gough SSH CA"
 
     @pytest.mark.asyncio
-    async def test_initialize_ca_missing_ca_name_field(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_initialize_ca_missing_ca_name_field(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test CA initialization with missing ca_name but allows default."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -193,7 +208,9 @@ class TestInitializeCA:
         ca_instance = MagicMock()
         ca_instance.initialize.return_value = None
         ca_instance.get_public_key.return_value = "ssh-rsa AAAA..."
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post("/api/v1/ssh-ca/initialize")
 
@@ -227,7 +244,9 @@ class TestGetPublicKey:
         assert data["ca_name"] == "Test CA"
 
     @pytest.mark.asyncio
-    async def test_get_public_key_not_initialized(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_get_public_key_not_initialized(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test public key retrieval when CA not initialized."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -241,7 +260,9 @@ class TestGetPublicKey:
         assert "not initialized" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_get_public_key_exception(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_get_public_key_exception(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test public key retrieval with exception."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -264,7 +285,9 @@ class TestSignCertificate:
     """Tests for POST /api/v1/ssh-ca/sign endpoint."""
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_no_body(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_no_body(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with no request body."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -275,13 +298,14 @@ class TestSignCertificate:
         assert "request" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_missing_fields(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_missing_fields(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with missing required fields."""
         app, ssh_ca_mod = ssh_ca_app
 
         response = await ssh_ca_client.post(
-            "/api/v1/ssh-ca/sign",
-            json={"public_key": "ssh-rsa AAAA..."}
+            "/api/v1/ssh-ca/sign", json={"public_key": "ssh-rsa AAAA..."}
         )
 
         assert response.status_code == 400
@@ -289,7 +313,9 @@ class TestSignCertificate:
         assert "required" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_principals_not_list(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_principals_not_list(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with principals as non-list."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -301,7 +327,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": "ubuntu",
                 "validity_seconds": 3600,
-            }
+            },
         )
 
         assert response.status_code == 400
@@ -309,7 +335,9 @@ class TestSignCertificate:
         assert "principals" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_principals_empty_list(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_principals_empty_list(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with empty principals list."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -321,7 +349,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": [],
                 "validity_seconds": 3600,
-            }
+            },
         )
 
         assert response.status_code == 400
@@ -329,7 +357,9 @@ class TestSignCertificate:
         assert "principals" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_validity_seconds_not_int(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_validity_seconds_not_int(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with validity_seconds as non-int."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -341,7 +371,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": "3600",
-            }
+            },
         )
 
         assert response.status_code == 400
@@ -349,7 +379,9 @@ class TestSignCertificate:
         assert "validity" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_validity_seconds_non_positive(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_validity_seconds_non_positive(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with non-positive validity_seconds."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -361,7 +393,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": 0,
-            }
+            },
         )
 
         assert response.status_code == 400
@@ -369,7 +401,9 @@ class TestSignCertificate:
         assert "validity" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_no_shell_access(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_no_shell_access(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing without shell access."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -383,7 +417,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
-            }
+            },
         )
 
         assert response.status_code == 403
@@ -391,7 +425,9 @@ class TestSignCertificate:
         assert "shell" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_ca_not_initialized(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_ca_not_initialized(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing when CA not initialized."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -408,7 +444,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
-            }
+            },
         )
 
         assert response.status_code == 404
@@ -416,7 +452,9 @@ class TestSignCertificate:
         assert "not initialized" in data.get("error", "").lower()
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_ssh_exception(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_ssh_exception(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with exception during sign."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -429,8 +467,12 @@ class TestSignCertificate:
         _patch_authz(monkeypatch, ssh_ca_mod)
 
         ca_instance = MagicMock()
-        ca_instance.sign_user_key = AsyncMock(side_effect=RuntimeError("Signing failed"))
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        ca_instance.sign_user_key = AsyncMock(
+            side_effect=RuntimeError("Signing failed")
+        )
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post(
             "/api/v1/ssh-ca/sign",
@@ -440,13 +482,15 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
-            }
+            },
         )
 
         assert response.status_code == 500
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_multiple_principals(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_multiple_principals(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with multiple principals."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -458,7 +502,9 @@ class TestSignCertificate:
 
         ca_instance = MagicMock()
         ca_instance.sign_user_key = AsyncMock(return_value="cert")
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post(
             "/api/v1/ssh-ca/sign",
@@ -468,7 +514,7 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu", "admin"],
                 "validity_seconds": 7200,
-            }
+            },
         )
 
         assert response.status_code == 200
@@ -476,7 +522,9 @@ class TestSignCertificate:
         assert "certificate" in data
 
     @pytest.mark.asyncio
-    async def test_sign_certificate_long_validity(self, ssh_ca_client, ssh_ca_app, monkeypatch):
+    async def test_sign_certificate_long_validity(
+        self, ssh_ca_client, ssh_ca_app, monkeypatch
+    ):
         """Test signing with long validity period."""
         app, ssh_ca_mod = ssh_ca_app
 
@@ -488,7 +536,9 @@ class TestSignCertificate:
 
         ca_instance = MagicMock()
         ca_instance.sign_user_key = AsyncMock(return_value="cert")
-        monkeypatch.setattr(ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance)
+        monkeypatch.setattr(
+            ssh_ca_mod, "SSHCertificateAuthority", lambda *a, **kw: ca_instance
+        )
 
         response = await ssh_ca_client.post(
             "/api/v1/ssh-ca/sign",
@@ -498,9 +548,12 @@ class TestSignCertificate:
                 "resource_id": "res-123",
                 "principals": ["ubuntu"],
                 "validity_seconds": 86400,  # 1 day
-            }
+            },
         )
 
         # regression: a 1-day request is clamped to the API certificate maximum, never honoured
         assert response.status_code == 200
-        assert ca_instance.sign_user_key.call_args.kwargs["validity_seconds"] <= ssh_ca_mod.MAX_API_CERT_VALIDITY_SECONDS
+        assert (
+            ca_instance.sign_user_key.call_args.kwargs["validity_seconds"]
+            <= ssh_ca_mod.MAX_API_CERT_VALIDITY_SECONDS
+        )

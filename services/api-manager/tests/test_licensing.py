@@ -13,9 +13,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
-from quart import Quart
-
 from app import licensing as L
+from quart import Quart
 
 
 @pytest.fixture(autouse=True)

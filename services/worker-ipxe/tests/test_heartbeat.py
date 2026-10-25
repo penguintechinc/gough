@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import httpx
 import pytest
 import respx
-
 from worker import heartbeat as heartbeat_mod
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
@@ -113,7 +112,9 @@ async def test_success_after_failures_resets_counter() -> None:
     """One success after failures clears the consecutive failure count."""
     hb = _make()
     with respx.mock:
-        respx.post(HB_URL).mock(side_effect=[httpx.Response(500), httpx.Response(200, json={})])
+        respx.post(HB_URL).mock(
+            side_effect=[httpx.Response(500), httpx.Response(200, json={})]
+        )
         await hb.send_heartbeat()
         assert hb.consecutive_failures == 1
         await hb.send_heartbeat()
@@ -122,7 +123,9 @@ async def test_success_after_failures_resets_counter() -> None:
 
 
 @pytest.mark.asyncio
-async def test_loop_reenrolls_after_five_consecutive_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_loop_reenrolls_after_five_consecutive_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Five consecutive failures mark the worker unenrolled, re-run enrollment and reset the counter."""
     hb = _make()
     enroll_seen_enrolled: list[bool] = []
@@ -154,7 +157,9 @@ async def test_loop_reenrolls_after_five_consecutive_failures(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
-async def test_loop_does_not_reenroll_while_healthy(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_loop_does_not_reenroll_while_healthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A healthy loop never triggers enrollment and sleeps the configured interval."""
     hb = _make(heartbeat_interval=7)
     enroll_calls: list[int] = []

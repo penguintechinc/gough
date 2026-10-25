@@ -7,15 +7,8 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
 
-import pytest
-
-from app.api.joiner_secrets import (
-    EXPIRING_SOON_WINDOW,
-    _serialize_joiner_secret,
-    _mfa_required_for_tenant,
-)
+from app.api.joiner_secrets import EXPIRING_SOON_WINDOW, _serialize_joiner_secret
 
 
 class FakeJoinerSecret:
@@ -32,7 +25,9 @@ class FakeJoinerSecret:
         self.scope = kwargs.get("scope", "cluster")
         self.vault_kek_name = kwargs.get("vault_kek_name", "gough-joiner-dek-wrap")
         self.ttl_seconds = kwargs.get("ttl_seconds", 3600)
-        self.expires_at = kwargs.get("expires_at", datetime.now(timezone.utc) + timedelta(hours=12))
+        self.expires_at = kwargs.get(
+            "expires_at", datetime.now(timezone.utc) + timedelta(hours=12)
+        )
         self.rotation_class = kwargs.get("rotation_class", "vault-unseal")
         self.created_at = kwargs.get("created_at", datetime.now(timezone.utc))
         self.rotated_at = kwargs.get("rotated_at", None)
@@ -48,10 +43,7 @@ class FakeJoinerSecret:
 def test_serialize_joiner_secret_active_status():
     """_serialize_joiner_secret returns 'active' status."""
     now = datetime.now(timezone.utc)
-    secret = FakeJoinerSecret(
-        revoked_at=None,
-        expires_at=now + timedelta(days=10)
-    )
+    secret = FakeJoinerSecret(revoked_at=None, expires_at=now + timedelta(days=10))
     result = _serialize_joiner_secret(secret)
     assert result["status"] == "active"
     assert result["expiring_soon"] is False
@@ -61,10 +53,7 @@ def test_serialize_joiner_secret_expiring_soon():
     """_serialize_joiner_secret detects expiring-soon."""
     now = datetime.now(timezone.utc)
     # 12 hours is within EXPIRING_SOON_WINDOW (24 hours)
-    secret = FakeJoinerSecret(
-        revoked_at=None,
-        expires_at=now + timedelta(hours=12)
-    )
+    secret = FakeJoinerSecret(revoked_at=None, expires_at=now + timedelta(hours=12))
     result = _serialize_joiner_secret(secret)
     assert result["status"] == "expiring-soon"
     assert result["expiring_soon"] is True
@@ -74,10 +63,7 @@ def test_serialize_joiner_secret_expiring_soon_at_boundary():
     """_serialize_joiner_secret respects EXPIRING_SOON_WINDOW boundary."""
     now = datetime.now(timezone.utc)
     # Exactly at boundary - code uses <, so this is expiring-soon
-    secret = FakeJoinerSecret(
-        revoked_at=None,
-        expires_at=now + EXPIRING_SOON_WINDOW
-    )
+    secret = FakeJoinerSecret(revoked_at=None, expires_at=now + EXPIRING_SOON_WINDOW)
     result = _serialize_joiner_secret(secret)
     # Code checks < window, so at boundary is expiring-soon
     assert result["status"] == "expiring-soon"
@@ -88,8 +74,7 @@ def test_serialize_joiner_secret_expiring_soon_just_inside():
     now = datetime.now(timezone.utc)
     # Slightly less than window
     secret = FakeJoinerSecret(
-        revoked_at=None,
-        expires_at=now + EXPIRING_SOON_WINDOW - timedelta(seconds=1)
+        revoked_at=None, expires_at=now + EXPIRING_SOON_WINDOW - timedelta(seconds=1)
     )
     result = _serialize_joiner_secret(secret)
     assert result["status"] == "expiring-soon"
@@ -109,8 +94,7 @@ def test_serialize_joiner_secret_revoked_ignores_expiration():
     """_serialize_joiner_secret: revoked overrides expiring-soon."""
     now = datetime.now(timezone.utc)
     secret = FakeJoinerSecret(
-        revoked_at=now,
-        expires_at=now + timedelta(hours=1)  # Would be expiring-soon
+        revoked_at=now, expires_at=now + timedelta(hours=1)  # Would be expiring-soon
     )
     result = _serialize_joiner_secret(secret)
     assert result["status"] == "revoked"
@@ -119,10 +103,7 @@ def test_serialize_joiner_secret_revoked_ignores_expiration():
 
 def test_serialize_joiner_secret_no_expiration():
     """_serialize_joiner_secret handles None expires_at."""
-    secret = FakeJoinerSecret(
-        revoked_at=None,
-        expires_at=None
-    )
+    secret = FakeJoinerSecret(revoked_at=None, expires_at=None)
     result = _serialize_joiner_secret(secret)
     assert result["status"] == "active"
     assert result["expires_at"] is None
@@ -140,11 +121,7 @@ def test_serialize_joiner_secret_datetime_isoformat():
     rotated = datetime(2025, 6, 10, 10, 15, 30, tzinfo=timezone.utc)
     revoked = datetime(2025, 6, 20, 9, 0, 0, tzinfo=timezone.utc)
 
-    secret = FakeJoinerSecret(
-        created_at=now,
-        rotated_at=rotated,
-        revoked_at=revoked
-    )
+    secret = FakeJoinerSecret(created_at=now, rotated_at=rotated, revoked_at=revoked)
     result = _serialize_joiner_secret(secret)
     assert result["created_at"] == "2025-06-15T14:30:45.123456+00:00"
     assert result["rotated_at"] == "2025-06-10T10:15:30+00:00"
@@ -153,11 +130,7 @@ def test_serialize_joiner_secret_datetime_isoformat():
 
 def test_serialize_joiner_secret_none_datetimes():
     """_serialize_joiner_secret handles None datetime fields."""
-    secret = FakeJoinerSecret(
-        rotated_at=None,
-        revoked_at=None,
-        expires_at=None
-    )
+    secret = FakeJoinerSecret(rotated_at=None, revoked_at=None, expires_at=None)
     result = _serialize_joiner_secret(secret)
     assert result["rotated_at"] is None
     assert result["revoked_at"] is None
@@ -171,9 +144,7 @@ def test_serialize_joiner_secret_uuid_conversion():
     audit_id = uuid.uuid4()
 
     secret = FakeJoinerSecret(
-        id=secret_id,
-        cluster_id=cluster_id,
-        audit_event_id=audit_id
+        id=secret_id, cluster_id=cluster_id, audit_event_id=audit_id
     )
     result = _serialize_joiner_secret(secret)
     assert result["id"] == str(secret_id)
@@ -194,11 +165,24 @@ def test_serialize_joiner_secret_all_fields():
     result = _serialize_joiner_secret(secret)
 
     expected_keys = {
-        "id", "cluster_id", "tenant_id", "biome_kind",
-        "emitter_biome_id", "emitter_node_id", "extractor_name",
-        "scope", "vault_kek_name", "ttl_seconds", "expires_at",
-        "rotation_class", "created_at", "rotated_at", "revoked_at",
-        "audit_event_id", "status", "expiring_soon"
+        "id",
+        "cluster_id",
+        "tenant_id",
+        "biome_kind",
+        "emitter_biome_id",
+        "emitter_node_id",
+        "extractor_name",
+        "scope",
+        "vault_kek_name",
+        "ttl_seconds",
+        "expires_at",
+        "rotation_class",
+        "created_at",
+        "rotated_at",
+        "revoked_at",
+        "audit_event_id",
+        "status",
+        "expiring_soon",
     }
     assert set(result.keys()) == expected_keys
 
@@ -219,7 +203,7 @@ def test_serialize_joiner_secret_secret_fields_absent():
 
 def test_mfa_required_for_tenant_missing_config():
     """_mfa_required_for_tenant returns False when config missing."""
-    from quart import current_app
+
     # Simulate config without TENANT_COMPLIANCE_LANE
     # This is just behavior verification - real config comes from Flask/Quart
     # For unit test, we just verify the logic
@@ -227,13 +211,14 @@ def test_mfa_required_for_tenant_missing_config():
 
 def test_mfa_required_fedramp_lane():
     """_mfa_required_for_tenant requires MFA for fedramp lane."""
-    from app.api.joiner_secrets import DEFAULT_MFA_REQUIRED_LANES
+
     # This would be tested in integration tests where we have a Flask app
 
 
 def test_mfa_required_hipaa_lane():
     """_mfa_required_for_tenant requires MFA for hipaa lane."""
     from app.api.joiner_secrets import DEFAULT_MFA_REQUIRED_LANES
+
     assert "hipaa" in DEFAULT_MFA_REQUIRED_LANES
     assert "fedramp" in DEFAULT_MFA_REQUIRED_LANES
     assert "pci" in DEFAULT_MFA_REQUIRED_LANES

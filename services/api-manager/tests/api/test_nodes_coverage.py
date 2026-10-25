@@ -15,13 +15,10 @@ import importlib
 import json
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures (copy from test_nodes.py with minimal overlap)
@@ -331,9 +328,7 @@ def nodes_app_super_admin(dal, monkeypatch):
                 "scope": "gough.cluster.admin",
             },
         }
-        g.tenant_context = SimpleNamespace(
-            tenant_id="acme", cross_tenant=True
-        )
+        g.tenant_context = SimpleNamespace(tenant_id="acme", cross_tenant=True)
 
     return application
 
@@ -344,7 +339,9 @@ def nodes_app_super_admin(dal, monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_list_nodes_filter_by_single_state(nodes_app_regular_user, seed_nodes_varied):
+async def test_list_nodes_filter_by_single_state(
+    nodes_app_regular_user, seed_nodes_varied
+):
     """Test filtering by single state."""
     async with nodes_app_regular_user.test_client() as client:
         resp = await client.get("/api/v1/nodes/?state=probed")
@@ -361,9 +358,7 @@ async def test_list_nodes_filter_by_multiple_states(
 ):
     """Test filtering by multiple states (OR logic)."""
     async with nodes_app_regular_user.test_client() as client:
-        resp = await client.get(
-        "/api/v1/nodes/?state=probed&state=ready&state=new"
-    )
+        resp = await client.get("/api/v1/nodes/?state=probed&state=ready&state=new")
     assert resp.status_code == 200
     data = await _json(resp)
     # Should have probed + ready + new nodes in 'acme'
@@ -392,9 +387,7 @@ async def test_list_nodes_filter_by_tags(nodes_app_regular_user, seed_nodes_vari
     """Test filtering by hardware tags (AND logic across multiple tags)."""
     client = nodes_app_regular_user.test_client()
     # Only node-ready-1 has both cpu:cores:16 and mem:total-gb:64
-    resp = await client.get(
-        "/api/v1/nodes/?tag=cpu:cores:16&tag=mem:total-gb:64"
-    )
+    resp = await client.get("/api/v1/nodes/?tag=cpu:cores:16&tag=mem:total-gb:64")
     assert resp.status_code == 200
     data = await _json(resp)
     assert len(data["data"]["nodes"]) == 1
@@ -448,8 +441,8 @@ async def test_list_nodes_combined_filters(nodes_app_regular_user, seed_nodes_va
     """Test combining state + tag filters."""
     async with nodes_app_regular_user.test_client() as client:
         resp = await client.get(
-        "/api/v1/nodes/?state=ready&state=probed&tag=cpu:cores:8"
-    )
+            "/api/v1/nodes/?state=ready&state=probed&tag=cpu:cores:8"
+        )
     assert resp.status_code == 200
     data = await _json(resp)
     valid_states = {"ready", "probed"}
@@ -633,8 +626,6 @@ async def test_list_nodes_db_error_returns_500(
 ):
     """Test that DB errors during query are caught and return 500."""
     import app.api.nodes as nodes_mod
-
-    original_get_db = nodes_mod.get_db
 
     def mock_get_db_error():
         # Return a broken DB that will fail on select()

@@ -2,16 +2,11 @@
 
 import json
 from datetime import datetime
-from unittest.mock import Mock, patch
 
 import pytest
-from flask import Flask
-from flask_security import Security
-
 from gough.services.flask_backend.app import create_app
 from gough.services.flask_backend.app.config import Config
 from gough.services.flask_backend.app.models import get_db
-from gough.services.flask_backend.app.security_datastore import PyDALUserDatastore
 
 
 class TestConfig(Config):
@@ -53,7 +48,7 @@ def auth_headers(app, client):
             db.auth_role.insert(
                 name="admin",
                 description="Administrator",
-                permissions=json.dumps(["all"])
+                permissions=json.dumps(["all"]),
             )
             db.commit()
 
@@ -70,24 +65,21 @@ def auth_headers(app, client):
             email=test_email,
             password=test_password,
             active=True,
-            confirmed_at=datetime.utcnow()
+            confirmed_at=datetime.utcnow(),
         )
         db.commit()
 
         # Assign admin role
         admin_role = db(db.auth_role.name == "admin").select().first()
         if admin_role:
-            db.auth_user_roles.insert(
-                user_id=user.id,
-                role_id=admin_role.id
-            )
+            db.auth_user_roles.insert(user_id=user.id, role_id=admin_role.id)
             db.commit()
 
     # Login and get token
     response = client.post(
         "/api/v1/auth/login",
         json={"email": test_email, "password": test_password},
-        content_type="application/json"
+        content_type="application/json",
     )
 
     if response.status_code == 200:
@@ -111,7 +103,7 @@ def mock_agent(app):
             ip_address="192.168.1.100",
             status="active",
             capabilities=json.dumps(["ssh", "kubectl", "docker", "cloud_cli"]),
-            last_heartbeat=datetime.utcnow()
+            last_heartbeat=datetime.utcnow(),
         )
         db.commit()
 
@@ -126,27 +118,21 @@ def mock_resource(app):
 
         # Create a team
         team = db.resource_teams.insert(
-            name="test-team",
-            description="Test team for shell sessions",
-            created_by=1
+            name="test-team", description="Test team for shell sessions", created_by=1
         )
 
         # Create resource assignment with shell permission
-        assignment = db.resource_assignments.insert(
+        db.resource_assignments.insert(
             team_id=team,
             resource_type="vm",
             resource_id="test-vm-001",
             permissions=json.dumps(["shell", "read", "write"]),
-            assigned_by=1
+            assigned_by=1,
         )
 
         db.commit()
 
-        return {
-            "team_id": team,
-            "resource_type": "vm",
-            "resource_id": "test-vm-001"
-        }
+        return {"team_id": team, "resource_type": "vm", "resource_id": "test-vm-001"}
 
 
 @pytest.fixture(scope="function")
@@ -162,7 +148,7 @@ def admin_user(app):
             admin_role = db.auth_role.insert(
                 name="admin",
                 description="Administrator",
-                permissions=json.dumps(["all"])
+                permissions=json.dumps(["all"]),
             )
             db.commit()
 
@@ -177,14 +163,11 @@ def admin_user(app):
             email=admin_email,
             password="AdminPassword123!",
             active=True,
-            confirmed_at=datetime.utcnow()
+            confirmed_at=datetime.utcnow(),
         )
 
         # Assign admin role
-        db.auth_user_roles.insert(
-            user_id=admin.id,
-            role_id=admin_role.id
-        )
+        db.auth_user_roles.insert(user_id=admin.id, role_id=admin_role.id)
 
         db.commit()
 
@@ -202,9 +185,7 @@ def regular_user(app):
         viewer_role = db(db.auth_role.name == "viewer").select().first()
         if not viewer_role:
             viewer_role = db.auth_role.insert(
-                name="viewer",
-                description="Viewer",
-                permissions=json.dumps(["read"])
+                name="viewer", description="Viewer", permissions=json.dumps(["read"])
             )
             db.commit()
 
@@ -219,14 +200,11 @@ def regular_user(app):
             email=user_email,
             password="UserPassword123!",
             active=True,
-            confirmed_at=datetime.utcnow()
+            confirmed_at=datetime.utcnow(),
         )
 
         # Assign viewer role
-        db.auth_user_roles.insert(
-            user_id=user.id,
-            role_id=viewer_role.id
-        )
+        db.auth_user_roles.insert(user_id=user.id, role_id=viewer_role.id)
 
         db.commit()
 
@@ -243,15 +221,12 @@ def team_with_shell_access(app, admin_user):
         team = db.resource_teams.insert(
             name="shell-access-team",
             description="Team with shell access",
-            created_by=admin_user.id
+            created_by=admin_user.id,
         )
 
         # Add admin user to team
         db.team_members.insert(
-            team_id=team,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         # Create resource assignment with shell permission
@@ -260,13 +235,9 @@ def team_with_shell_access(app, admin_user):
             resource_type="vm",
             resource_id="shell-test-vm",
             permissions=json.dumps(["shell", "read"]),
-            assigned_by=admin_user.id
+            assigned_by=admin_user.id,
         )
 
         db.commit()
 
-        return {
-            "team_id": team,
-            "resource_type": "vm",
-            "resource_id": "shell-test-vm"
-        }
+        return {"team_id": team, "resource_type": "vm", "resource_id": "shell-test-vm"}

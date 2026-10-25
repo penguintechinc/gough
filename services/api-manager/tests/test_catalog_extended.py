@@ -5,10 +5,10 @@ Coverage targets:
 - seed_builtin_biomes() function with various scenarios
 """
 
-import pytest
-from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock, patch
+from datetime import datetime
+from unittest.mock import MagicMock, Mock
 
+import pytest
 from app.catalog import BUILTIN_BIOMES, seed_builtin_biomes
 
 
@@ -29,7 +29,9 @@ class TestBuiltinBiomesConstant:
 
     def test_k8s_controller_properties(self):
         """Test k8s-controller biome configuration."""
-        k8s_controller = next(b for b in BUILTIN_BIOMES if b["name"] == "k8s-controller")
+        k8s_controller = next(
+            b for b in BUILTIN_BIOMES if b["name"] == "k8s-controller"
+        )
         assert k8s_controller["biome_kind"] == "infrastructure"
         assert k8s_controller["phase"] == "post_deploy"
         assert k8s_controller["lock_to_host"] is True
@@ -53,7 +55,9 @@ class TestBuiltinBiomesConstant:
 
     def test_longhorn_agent_properties(self):
         """Test longhorn-agent biome configuration."""
-        longhorn_agent = next(b for b in BUILTIN_BIOMES if b["name"] == "longhorn-agent")
+        longhorn_agent = next(
+            b for b in BUILTIN_BIOMES if b["name"] == "longhorn-agent"
+        )
         assert longhorn_agent["biome_kind"] == "application"
         assert longhorn_agent["phase"] == "always_on"
         assert longhorn_agent["lock_to_host"] is False
@@ -124,7 +128,7 @@ class TestSeedBuiltinBiomes:
         insert_calls = mock_db.biomes.insert.call_args_list
         k8s_controller_call = next(
             (call for call in insert_calls if call[1].get("name") == "k8s-controller"),
-            None
+            None,
         )
         assert k8s_controller_call is not None
         assert k8s_controller_call[1]["signature_verified"] is True

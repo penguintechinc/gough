@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import re
 
-from quart import Quart
-
 from app.openapi_export import import_blueprints
 from app.security.scope_policy import ANONYMOUS_PATHS, SCOPE_POLICY
+from quart import Quart
 
 _IGNORED_METHODS = frozenset({"HEAD", "OPTIONS"})
 
@@ -41,10 +40,22 @@ def _route_pairs() -> tuple[int, list[tuple[str, str]]]:
 def test_every_route_has_scope_or_is_anonymous() -> None:
     """No route may be reachable without a declared scope or an explicit anonymous entry."""
     count, pairs = _route_pairs()
-    assert count > 10 and len(pairs) > 100, f"examined too little: {count} blueprints, {len(pairs)} routes"
-    known = {(m, _canon(r)) for m, r in SCOPE_POLICY} | {(m, _canon(r)) for m, r in ANONYMOUS_PATHS}
-    offenders = [f"{method} {rule}" for method, rule in pairs if (method, _canon(rule)) not in known]
-    assert not offenders, f"{len(offenders)}/{len(pairs)} routes lack scope policy:\n" + "\n".join(offenders)
+    assert (
+        count > 10 and len(pairs) > 100
+    ), f"examined too little: {count} blueprints, {len(pairs)} routes"
+    known = {(m, _canon(r)) for m, r in SCOPE_POLICY} | {
+        (m, _canon(r)) for m, r in ANONYMOUS_PATHS
+    }
+    offenders = [
+        f"{method} {rule}"
+        for method, rule in pairs
+        if (method, _canon(rule)) not in known
+    ]
+    assert (
+        not offenders
+    ), f"{len(offenders)}/{len(pairs)} routes lack scope policy:\n" + "\n".join(
+        offenders
+    )
 
 
 # --- route audit of the 115 routes added in 385dd0f -------------------------------------------
@@ -67,15 +78,25 @@ def test_unreviewed_routes_are_held_at_admin_scope() -> None:
 
     strong = {"gough.cluster.admin", "gough.cluster.superadmin"}
     missing = [r for r in UNREVIEWED_ROUTES if r not in SCOPE_POLICY]
-    weak = [r for r in UNREVIEWED_ROUTES if not (SCOPE_POLICY.get(r) or frozenset()) & strong]
+    weak = [
+        r
+        for r in UNREVIEWED_ROUTES
+        if not (SCOPE_POLICY.get(r) or frozenset()) & strong
+    ]
     assert not missing, f"unreviewed routes with no SCOPE_POLICY entry: {missing}"
-    assert not weak, f"{len(weak)}/{len(UNREVIEWED_ROUTES)} unreviewed routes below cluster.admin: {weak}"
+    assert (
+        not weak
+    ), f"{len(weak)}/{len(UNREVIEWED_ROUTES)} unreviewed routes below cluster.admin: {weak}"
 
 
 def test_audited_route_gates_match_their_handlers() -> None:
     """Gate parity: the middleware scope is never weaker than the handler's own decorator."""
-    assert SCOPE_POLICY[("POST", "/api/v1/nodes/<int:node_id>/lxd/join")] == frozenset({"gough.cluster.admin"})
-    assert SCOPE_POLICY[("POST", "/api/v1/primary/rotate-ca")] == frozenset({"gough.cluster.superadmin"})
-    assert SCOPE_POLICY[("POST", "/api/v1/integrations/<product>/compromise-response")] == frozenset(
+    assert SCOPE_POLICY[("POST", "/api/v1/nodes/<int:node_id>/lxd/join")] == frozenset(
+        {"gough.cluster.admin"}
+    )
+    assert SCOPE_POLICY[("POST", "/api/v1/primary/rotate-ca")] == frozenset(
         {"gough.cluster.superadmin"}
     )
+    assert SCOPE_POLICY[
+        ("POST", "/api/v1/integrations/<product>/compromise-response")
+    ] == frozenset({"gough.cluster.superadmin"})

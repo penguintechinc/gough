@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import importlib
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -30,6 +30,7 @@ def secrets_app(monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.secrets as secrets_mod
+
     secrets_mod = importlib.reload(secrets_mod)
 
     from quart import Quart, g
@@ -42,11 +43,7 @@ def secrets_app(monkeypatch):
 
     @app.before_request
     async def _inject_identity():
-        g.current_user = {
-            "id": 1,
-            "email": "admin@test.com",
-            "role": "admin"
-        }
+        g.current_user = {"id": 1, "email": "admin@test.com", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
     return app, secrets_mod
@@ -155,10 +152,7 @@ async def test_configure_backend_unknown_backend(secrets_app):
     app, _ = secrets_app
 
     client = app.test_client()
-    response = await client.post(
-        "/backends",
-        json={"backend": "unknown_backend"}
-    )
+    response = await client.post("/backends", json={"backend": "unknown_backend"})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -181,9 +175,7 @@ async def test_get_secret_with_valid_path(secrets_app, monkeypatch):
     mock_manager.get_secret.return_value = secret_data
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -206,9 +198,7 @@ async def test_get_secret_not_found(secrets_app, monkeypatch):
     mock_manager.get_secret.side_effect = SecretNotFoundError("Not found")
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -230,9 +220,7 @@ async def test_get_secret_backend_error(secrets_app, monkeypatch):
     mock_manager.get_secret.side_effect = SecretsManagerError("Backend error")
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -267,10 +255,7 @@ async def test_set_secret_no_data(secrets_app):
     app, _ = secrets_app
 
     client = app.test_client()
-    response = await client.post(
-        "/cloud/aws/creds",
-        json={"other_field": "value"}
-    )
+    response = await client.post("/cloud/aws/creds", json={"other_field": "value"})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -283,10 +268,7 @@ async def test_set_secret_data_not_dict(secrets_app):
     app, _ = secrets_app
 
     client = app.test_client()
-    response = await client.post(
-        "/cloud/aws/creds",
-        json={"data": "not_a_dict"}
-    )
+    response = await client.post("/cloud/aws/creds", json={"data": "not_a_dict"})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -305,15 +287,12 @@ async def test_set_secret_with_dict_data(secrets_app, monkeypatch):
     mock_manager.set_secret.return_value = None
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
     response = await client.post(
-        "/cloud/aws/secret",
-        json={"data": {"username": "admin", "password": "secret"}}
+        "/cloud/aws/secret", json={"data": {"username": "admin", "password": "secret"}}
     )
 
     # Should be 201 (created) or 200 (updated)
@@ -332,15 +311,12 @@ async def test_set_secret_update_success(secrets_app, monkeypatch):
     mock_manager.set_secret.return_value = None
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
     response = await client.post(
-        "/cloud/aws/existing-secret",
-        json={"data": {"key": "new_value"}}
+        "/cloud/aws/existing-secret", json={"data": {"key": "new_value"}}
     )
 
     assert response.status_code == 200
@@ -360,16 +336,11 @@ async def test_set_secret_backend_error(secrets_app, monkeypatch):
     mock_manager.set_secret.side_effect = SecretsManagerError("Backend error")
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
-    response = await client.post(
-        "/cloud/aws/creds",
-        json={"data": {"key": "value"}}
-    )
+    response = await client.post("/cloud/aws/creds", json={"data": {"key": "value"}})
 
     assert response.status_code == 500
     data = await response.get_json()
@@ -390,9 +361,7 @@ async def test_delete_secret_not_found(secrets_app, monkeypatch):
     mock_manager.delete_secret.return_value = False
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -412,9 +381,7 @@ async def test_delete_secret_success(secrets_app, monkeypatch):
     mock_manager.delete_secret.return_value = True
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -436,9 +403,7 @@ async def test_delete_secret_backend_error(secrets_app, monkeypatch):
     mock_manager.delete_secret.side_effect = SecretsManagerError("Backend error")
 
     monkeypatch.setattr(
-        secrets_mod,
-        "get_secrets_manager",
-        AsyncMock(return_value=mock_manager)
+        secrets_mod, "get_secrets_manager", AsyncMock(return_value=mock_manager)
     )
 
     client = app.test_client()
@@ -447,5 +412,3 @@ async def test_delete_secret_backend_error(secrets_app, monkeypatch):
     assert response.status_code == 500
     data = await response.get_json()
     assert "error" in data
-
-

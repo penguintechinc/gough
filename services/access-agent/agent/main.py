@@ -7,8 +7,9 @@ import asyncio
 import logging
 import signal
 import sys
-from penguintechinc_utils import get_logger
 from typing import Any, Dict
+
+from penguintechinc_utils import get_logger
 
 from . import __version__
 from .auth import AgentAuth
@@ -213,8 +214,10 @@ async def main() -> None:
 def run() -> None:
     """Console-script entry point; handles --help/--version without starting the agent."""
     if any(arg in ("-h", "--help") for arg in sys.argv[1:]):
-        print("usage: gough-agent [--version] [--help]\n"
-              "Configured via GOUGH_* environment variables (see README.md).")
+        print(
+            "usage: gough-agent [--version] [--help]\n"
+            "Configured via GOUGH_* environment variables (see README.md)."
+        )
         return
     if "--version" in sys.argv[1:]:
         print(__version__)

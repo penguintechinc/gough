@@ -27,13 +27,12 @@ from typing import Any, Callable, Iterator, Optional
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from penguin_dal import DB
-
 from app.workers.audit_chain_writer import (
     AuditChainWriter,
     OffsiteMirrorConfig,
     OffsiteMirrorError,
 )
+from penguin_dal import DB
 
 # ============================================================================
 # _read_watermark / _persist_watermark

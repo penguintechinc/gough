@@ -16,14 +16,14 @@ from typing import Any
 
 from quart import Blueprint, g, jsonify, request
 
+from ..audit import AuditEventType, get_audit_logger
 from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required
-from ..audit import AuditEventType, get_audit_logger
 from ..models import get_db
 from ..permissions import check_shell_access
 from ..ssh_ca import (
-    SSHCertificateAuthority,
     SSHCAException,
+    SSHCertificateAuthority,
     generate_key_id,
     validate_principal_syntax,
     validate_principals,
@@ -76,7 +76,9 @@ def resolve_agent_id(
     try:
         node_pk = int(resource_id)
     except (TypeError, ValueError):
-        raise AgentResolutionError(404, "No active access agent for this resource") from None
+        raise AgentResolutionError(
+            404, "No active access agent for this resource"
+        ) from None
     if not tenant_id and not is_super_admin:
         raise AgentResolutionError(403, "Tenant required")
     db = get_db()
@@ -85,8 +87,7 @@ def resolve_agent_id(
         # Same answer for missing and cross-tenant: no existence oracle.
         raise AgentResolutionError(404, "No active access agent for this resource")
     rows = db(
-        (db.access_agents.status == "active")
-        & (db.access_agents.node_id == node_pk)
+        (db.access_agents.status == "active") & (db.access_agents.node_id == node_pk)
     ).select()
     rows = list(rows)
     if not rows:
@@ -110,7 +111,9 @@ def allowed_login_principals(
     db = get_db()
     allowed: set[str] = set()
     if user_is_admin(user_id):
-        allowed |= {p for p in os.getenv("SSH_DEFAULT_LOGIN_PRINCIPALS", "").split(",") if p}
+        allowed |= {
+            p for p in os.getenv("SSH_DEFAULT_LOGIN_PRINCIPALS", "").split(",") if p
+        }
     team_ids = [
         tm.team_id
         for tm in db(db.team_members.user_id == user_id).select(db.team_members.team_id)
@@ -162,9 +165,7 @@ async def initialize_ca():
         existing_ca = await run_db(_fetch_existing)
         if existing_ca:
             return (
-                jsonify(
-                    {"error": "Certificate Authority already initialized"}
-                ),
+                jsonify({"error": "Certificate Authority already initialized"}),
                 409,
             )
 
@@ -175,9 +176,7 @@ async def initialize_ca():
         # Store CA configuration in database
         json_data = await request.get_json()
         ca_name = (
-            json_data.get("ca_name", "Gough SSH CA")
-            if json_data
-            else "Gough SSH CA"
+            json_data.get("ca_name", "Gough SSH CA") if json_data else "Gough SSH CA"
         )
 
         # Regression: gh-22. Off the event loop via run_db() instead of
@@ -201,14 +200,16 @@ async def initialize_ca():
         # inline.
         audit_logger = get_audit_logger()
         if audit_logger:
-            await run_db(lambda: audit_logger.log(
-                event_type=AuditEventType.CERT_ISSUED,
-                message=f"SSH CA initialized: {ca_name}",
-                user_id=current_user["id"],
-                resource_type="ssh_ca",
-                resource_id="0",
-                details={"action": "ca_initialization", "ca_name": ca_name},
-            ))
+            await run_db(
+                lambda: audit_logger.log(
+                    event_type=AuditEventType.CERT_ISSUED,
+                    message=f"SSH CA initialized: {ca_name}",
+                    user_id=current_user["id"],
+                    resource_type="ssh_ca",
+                    resource_id="0",
+                    details={"action": "ca_initialization", "ca_name": ca_name},
+                )
+            )
 
         log.info(f"SSH CA initialized by user {current_user['id']}")
 
@@ -325,9 +326,7 @@ async def sign_certificate():
 
     if not isinstance(validity_seconds, int) or validity_seconds <= 0:
         return (
-            jsonify(
-                {"error": "validity_seconds must be a positive integer"}
-            ),
+            jsonify({"error": "validity_seconds must be a positive integer"}),
             400,
         )
 
@@ -368,7 +367,10 @@ async def sign_certificate():
             )
             try:
                 agent_id = resolve_agent_id(
-                    resource_type, resource_id, getattr(tc, "tenant_id", None), super_admin
+                    resource_type,
+                    resource_id,
+                    getattr(tc, "tenant_id", None),
+                    super_admin,
                 )
             except AgentResolutionError as exc:
                 resolve_status["code"] = exc.status
@@ -387,9 +389,7 @@ async def sign_certificate():
 
         # allow-root is a separate, explicit grant: root login requested AND
         # the dangerous gough.shell.root scope AND admin role.
-        scopes = set(
-            (current_user.get("_jwt_payload") or {}).get("scope") or []
-        )
+        scopes = set((current_user.get("_jwt_payload") or {}).get("scope") or [])
         wants_root = "root" in principals
         allow_root = wants_root and is_admin and "gough.shell.root" in scopes
         if wants_root and not allow_root:
@@ -424,21 +424,23 @@ async def sign_certificate():
         # inline.
         audit_logger = get_audit_logger()
         if audit_logger:
-            await run_db(lambda: audit_logger.log(
-                event_type=AuditEventType.CERT_ISSUED,
-                message=f"Certificate signed for {resource_type}/{resource_id}",
-                user_id=current_user["id"],
-                resource_type=resource_type,
-                resource_id=resource_id,
-                details={
-                    "action": "certificate_signed",
-                    "principals": principals,
-                    "host_principal": f"host:{agent_id}",
-                    "allow_root": allow_root,
-                    "validity_seconds": validity_seconds,
-                    "key_id": key_id,
-                },
-            ))
+            await run_db(
+                lambda: audit_logger.log(
+                    event_type=AuditEventType.CERT_ISSUED,
+                    message=f"Certificate signed for {resource_type}/{resource_id}",
+                    user_id=current_user["id"],
+                    resource_type=resource_type,
+                    resource_id=resource_id,
+                    details={
+                        "action": "certificate_signed",
+                        "principals": principals,
+                        "host_principal": f"host:{agent_id}",
+                        "allow_root": allow_root,
+                        "validity_seconds": validity_seconds,
+                        "key_id": key_id,
+                    },
+                )
+            )
 
         log.info(
             f"SSH certificate signed for user {current_user['id']} "

@@ -4,10 +4,10 @@ POST /api/v1/vault/rotate-keys — operator-triggered key rotation
 """
 
 from datetime import datetime, timezone
-from quart import Blueprint, current_app, jsonify, request
-from prometheus_client import Counter
-
 from typing import Any
+
+from prometheus_client import Counter
+from quart import Blueprint, current_app, jsonify, request
 
 from ..db.run_db import run_db
 from ..middleware import auth_required
@@ -115,6 +115,7 @@ async def rotate_keys():
         # Log audit event via AuditEventWriter if available
         try:
             from ..audit import get_audit_logger
+
             audit_logger = get_audit_logger()
             if audit_logger:
                 audit_logger.log_event(
@@ -135,11 +136,16 @@ async def rotate_keys():
         # Increment Prometheus counter
         vault_key_rotation_total.labels(rotation_class=rotation_class).inc()
 
-        return jsonify({
-            "rotated": True,
-            "rotation_class": rotation_class,
-            "revoked_count": revoked_count,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "rotated": True,
+                    "rotation_class": rotation_class,
+                    "revoked_count": revoked_count,
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         current_app.logger.error("Key rotation failed: %s", e)

@@ -2,18 +2,38 @@
 
 import netifaces
 import pytest
-
 from worker.config import WorkerConfig
 
 # Every variable read by WorkerConfig.from_env(); cleared so the host environment cannot leak in.
 _ENV_KEYS = (
-    "API_MANAGER_URL", "WORKER_API_KEY", "WORKER_ID", "DHCP_MODE", "DHCP_INTERFACE",
-    "DHCP_SUBNET", "DHCP_RANGE_START", "DHCP_RANGE_END", "DHCP_GATEWAY", "DHCP_DNS_SERVERS",
-    "TFTP_ENABLED", "TFTP_PORT", "TFTP_ROOT", "HTTP_PORT", "HTTP_BOOT_URL", "STORAGE_ENDPOINT",
-    "STORAGE_ACCESS_KEY", "STORAGE_SECRET_KEY", "STORAGE_BUCKET_BOOT_IMAGES",
-    "STORAGE_BUCKET_BIOMES", "STORAGE_USE_SSL", "HEARTBEAT_INTERVAL",
-    "ENROLLMENT_RETRY_INTERVAL", "MAX_ENROLLMENT_RETRIES", "LOG_LEVEL", "METRICS_ENABLED",
-    "METRICS_PORT", "REDIS_URL",
+    "API_MANAGER_URL",
+    "WORKER_API_KEY",
+    "WORKER_ID",
+    "DHCP_MODE",
+    "DHCP_INTERFACE",
+    "DHCP_SUBNET",
+    "DHCP_RANGE_START",
+    "DHCP_RANGE_END",
+    "DHCP_GATEWAY",
+    "DHCP_DNS_SERVERS",
+    "TFTP_ENABLED",
+    "TFTP_PORT",
+    "TFTP_ROOT",
+    "HTTP_PORT",
+    "HTTP_BOOT_URL",
+    "STORAGE_ENDPOINT",
+    "STORAGE_ACCESS_KEY",
+    "STORAGE_SECRET_KEY",
+    "STORAGE_BUCKET_BOOT_IMAGES",
+    "STORAGE_BUCKET_BIOMES",
+    "STORAGE_USE_SSL",
+    "HEARTBEAT_INTERVAL",
+    "ENROLLMENT_RETRY_INTERVAL",
+    "MAX_ENROLLMENT_RETRIES",
+    "LOG_LEVEL",
+    "METRICS_ENABLED",
+    "METRICS_PORT",
+    "REDIS_URL",
 )
 GOOD_KEY = "k" * 32
 
@@ -113,7 +133,9 @@ def test_secrets_are_not_in_repr(clean_env: pytest.MonkeyPatch) -> None:
     assert "storage-secret-value" not in text
 
 
-def test_trusted_proxies_parsed_and_defaults_empty(clean_env: pytest.MonkeyPatch) -> None:
+def test_trusted_proxies_parsed_and_defaults_empty(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
     """TRUSTED_PROXIES is a comma-separated CIDR list; unset means no proxy is trusted."""
     assert WorkerConfig.from_env().trusted_proxies == ()
 
@@ -122,7 +144,9 @@ def test_trusted_proxies_parsed_and_defaults_empty(clean_env: pytest.MonkeyPatch
     assert WorkerConfig.from_env().trusted_proxies == ("10.0.0.0/8", "192.168.1.0/24")
 
 
-def test_invalid_trusted_proxy_cidr_fails_startup(clean_env: pytest.MonkeyPatch) -> None:
+def test_invalid_trusted_proxy_cidr_fails_startup(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
     """A malformed CIDR fails loudly instead of silently trusting nothing or everything."""
     clean_env.setenv("TRUSTED_PROXIES", "not-a-cidr")
 
@@ -130,7 +154,9 @@ def test_invalid_trusted_proxy_cidr_fails_startup(clean_env: pytest.MonkeyPatch)
         WorkerConfig.from_env()
 
 
-def test_explicit_env_overrides_defaults_and_casts(clean_env: pytest.MonkeyPatch) -> None:
+def test_explicit_env_overrides_defaults_and_casts(
+    clean_env: pytest.MonkeyPatch,
+) -> None:
     """Env values are cast to bool/int and override defaults; WORKER_ID beats HOSTNAME."""
     clean_env.setenv("WORKER_ID", "explicit-id")
     clean_env.setenv("TFTP_ENABLED", "False")
@@ -156,7 +182,9 @@ def test_explicit_env_overrides_defaults_and_casts(clean_env: pytest.MonkeyPatch
 
 
 @pytest.mark.parametrize("bad_mode", ["dhcp", "FULL", "", "relay"])
-def test_invalid_dhcp_mode_rejected(clean_env: pytest.MonkeyPatch, bad_mode: str) -> None:
+def test_invalid_dhcp_mode_rejected(
+    clean_env: pytest.MonkeyPatch, bad_mode: str
+) -> None:
     """Only full, proxy and disabled are accepted; anything else raises ValueError naming the value."""
     clean_env.setenv("DHCP_MODE", bad_mode)
 

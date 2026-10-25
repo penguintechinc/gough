@@ -9,25 +9,25 @@ Per CLAUDE.md standards:
 - PyDAL: ALL runtime database operations and migrations
 """
 
-import os
 import logging
+import os
+from datetime import datetime
 from typing import Optional
+
 from sqlalchemy import (
-    create_engine,
+    JSON,
+    Boolean,
     Column,
+    DateTime,
+    Index,
     Integer,
     String,
     Text,
-    Boolean,
-    DateTime,
-    JSON,
-    Index,
     UniqueConstraint,
+    create_engine,
 )
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import NullPool
-from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -36,7 +36,8 @@ Base = declarative_base()
 
 class APIDefinition(Base):
     """API definition schema for SQLAlchemy initialization."""
-    __tablename__ = 'api_definitions'
+
+    __tablename__ = "api_definitions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(255), nullable=False)
@@ -47,19 +48,22 @@ class APIDefinition(Base):
     openapi_spec = Column(JSON, nullable=True)
     enabled = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
     __table_args__ = (
-        UniqueConstraint('name', 'version', 'path', 'method', name='uix_api_endpoint'),
-        Index('idx_api_name_version', 'name', 'version'),
-        Index('idx_api_path', 'path'),
-        Index('idx_api_enabled', 'enabled'),
+        UniqueConstraint("name", "version", "path", "method", name="uix_api_endpoint"),
+        Index("idx_api_name_version", "name", "version"),
+        Index("idx_api_path", "path"),
+        Index("idx_api_enabled", "enabled"),
     )
 
 
 class APIUsage(Base):
     """API usage metrics schema for SQLAlchemy initialization."""
-    __tablename__ = 'api_usage'
+
+    __tablename__ = "api_usage"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     api_id = Column(Integer, nullable=False)
@@ -73,16 +77,17 @@ class APIUsage(Base):
     user_agent = Column(String(500), nullable=True)
 
     __table_args__ = (
-        Index('idx_usage_api_id', 'api_id'),
-        Index('idx_usage_timestamp', 'timestamp'),
-        Index('idx_usage_user_id', 'user_id'),
-        Index('idx_usage_status', 'status_code'),
+        Index("idx_usage_api_id", "api_id"),
+        Index("idx_usage_timestamp", "timestamp"),
+        Index("idx_usage_user_id", "user_id"),
+        Index("idx_usage_status", "status_code"),
     )
 
 
 class APIKey(Base):
     """API key management schema for SQLAlchemy initialization."""
-    __tablename__ = 'api_keys'
+
+    __tablename__ = "api_keys"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     key_hash = Column(String(255), nullable=False, unique=True)
@@ -96,9 +101,9 @@ class APIKey(Base):
     last_used_at = Column(DateTime, nullable=True)
 
     __table_args__ = (
-        Index('idx_key_hash', 'key_hash'),
-        Index('idx_key_user_id', 'user_id'),
-        Index('idx_key_enabled', 'enabled'),
+        Index("idx_key_hash", "key_hash"),
+        Index("idx_key_user_id", "user_id"),
+        Index("idx_key_enabled", "enabled"),
     )
 
 
@@ -115,29 +120,33 @@ def get_sqlalchemy_url(db_type: str, database_url: str) -> str:
     """
     db_type_lower = db_type.lower()
 
-    if db_type_lower in ['postgres', 'postgresql']:
-        if not database_url.startswith('postgresql://') and not database_url.startswith('postgres://'):
-            return f'postgresql://{database_url}'
-        return database_url.replace('postgres://', 'postgresql://')
+    if db_type_lower in ["postgres", "postgresql"]:
+        if not database_url.startswith("postgresql://") and not database_url.startswith(
+            "postgres://"
+        ):
+            return f"postgresql://{database_url}"
+        return database_url.replace("postgres://", "postgresql://")
 
-    elif db_type_lower in ['mysql', 'mariadb']:
-        if not database_url.startswith('mysql://'):
-            return f'mysql+pymysql://{database_url}'
-        return database_url.replace('mysql://', 'mysql+pymysql://')
+    elif db_type_lower in ["mysql", "mariadb"]:
+        if not database_url.startswith("mysql://"):
+            return f"mysql+pymysql://{database_url}"
+        return database_url.replace("mysql://", "mysql+pymysql://")
 
-    elif db_type_lower == 'sqlite':
-        if not database_url.startswith('sqlite://'):
-            return f'sqlite:///{database_url}'
+    elif db_type_lower == "sqlite":
+        if not database_url.startswith("sqlite://"):
+            return f"sqlite:///{database_url}"
         return database_url
 
     else:
-        raise ValueError(f"Unsupported DB_TYPE: {db_type}. Supported: postgres, mysql, mariadb, sqlite")
+        raise ValueError(
+            f"Unsupported DB_TYPE: {db_type}. Supported: postgres, mysql, mariadb, sqlite"
+        )
 
 
 def init_db_schema(
     database_url: Optional[str] = None,
     db_type: Optional[str] = None,
-    echo: bool = False
+    echo: bool = False,
 ) -> bool:
     """
     Initialize database schema using SQLAlchemy.
@@ -154,8 +163,8 @@ def init_db_schema(
         True if schema initialized successfully, False otherwise
     """
     try:
-        db_type = db_type or os.getenv('DB_TYPE', 'postgres')
-        database_url = database_url or os.getenv('DATABASE_URL')
+        db_type = db_type or os.getenv("DB_TYPE", "postgres")
+        database_url = database_url or os.getenv("DATABASE_URL")
 
         if not database_url:
             raise ValueError("DATABASE_URL environment variable not set")
@@ -168,7 +177,7 @@ def init_db_schema(
             sqlalchemy_url,
             echo=echo,
             poolclass=NullPool,
-            connect_args={'connect_timeout': 10} if db_type != 'sqlite' else {}
+            connect_args={"connect_timeout": 10} if db_type != "sqlite" else {},
         )
 
         Base.metadata.create_all(engine)
@@ -194,8 +203,7 @@ def create_tables() -> bool:
 
 
 def drop_tables(
-    database_url: Optional[str] = None,
-    db_type: Optional[str] = None
+    database_url: Optional[str] = None, db_type: Optional[str] = None
 ) -> bool:
     """
     Drop all tables (DANGEROUS - use only for testing).
@@ -208,8 +216,8 @@ def drop_tables(
         True if tables dropped successfully, False otherwise
     """
     try:
-        db_type = db_type or os.getenv('DB_TYPE', 'postgres')
-        database_url = database_url or os.getenv('DATABASE_URL')
+        db_type = db_type or os.getenv("DB_TYPE", "postgres")
+        database_url = database_url or os.getenv("DATABASE_URL")
 
         if not database_url:
             raise ValueError("DATABASE_URL environment variable not set")
@@ -221,7 +229,7 @@ def drop_tables(
         engine = create_engine(
             sqlalchemy_url,
             poolclass=NullPool,
-            connect_args={'connect_timeout': 10} if db_type != 'sqlite' else {}
+            connect_args={"connect_timeout": 10} if db_type != "sqlite" else {},
         )
 
         Base.metadata.drop_all(engine)

@@ -12,7 +12,6 @@ never install the real middleware), ``real_auth_env`` installs the production
 
 from __future__ import annotations
 
-import asyncio
 import importlib
 import os
 import uuid
@@ -24,10 +23,9 @@ from typing import Any
 import jwt
 import pytest
 import pytest_asyncio
+from app.security.scope_policy import _expand_roles_to_scopes
 from quart import Quart, g
 from sqlalchemy import Column, String, Table
-
-from app.security.scope_policy import _expand_roles_to_scopes
 
 
 def _define_table_with_string_id(dal_db, name, *fields):
@@ -62,9 +60,11 @@ def _passthrough_decorator(*dargs, **dkwargs):
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         # Direct decoration: @auth_required
         return dargs[0]
+
     # Parameterized decoration: @require_scopes("a", "b")
     def _wrap(fn):
         return fn
+
     return _wrap
 
 
@@ -73,6 +73,7 @@ def client(dal, monkeypatch):
     """Create a Quart test client with all API blueprints."""
     # Patch get_db in app.models before reloading blueprints
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal)
 
     # Stub auth decorators before importing blueprints
@@ -83,8 +84,9 @@ def client(dal, monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
     # Add migration-related tables to the test DAL
-    from penguin_dal import Field
     from datetime import datetime, timezone
+
+    from penguin_dal import Field
 
     if "biomes" not in getattr(dal, "tables", []):
         dal.define_table(
@@ -153,23 +155,31 @@ def client(dal, monkeypatch):
     # Seed nodes, biome, assignment, and policy for migration tests
     _now = datetime.now(timezone.utc)
     _node_id = dal.nodes.insert(
-        tenant_id="default", name="node-1", state="ready",
+        tenant_id="default",
+        name="node-1",
+        state="ready",
         dmi_uuid="00000000-0000-0000-0000-000000000001",
         primary_nic_mac="aa:bb:cc:dd:ee:01",
     )
     # Second node as migration target
     dal.nodes.insert(
-        tenant_id="default", name="node-2", state="ready",
+        tenant_id="default",
+        name="node-2",
+        state="ready",
         dmi_uuid="00000000-0000-0000-0000-000000000002",
         primary_nic_mac="aa:bb:cc:dd:ee:02",
     )
     _biome_id = dal.biomes.insert(
-        name="test-biome", biome_kind="custom", lock_to_host=False,
+        name="test-biome",
+        biome_kind="custom",
+        lock_to_host=False,
     )
     # First insert gets id=1 in SQLite — used by POST trigger tests
     dal.node_egg_assignments.insert(
-        node_id=int(_node_id), egg_id=int(_biome_id),
-        tenant_id="default", status="active",
+        node_id=int(_node_id),
+        egg_id=int(_biome_id),
+        tenant_id="default",
+        status="active",
     )
     # Seed policy with min_healthy_nodes=1 to match single-node test cluster.
     # ``id`` is app-supplied VARCHAR(36) UUID -- no default (see
@@ -196,8 +206,8 @@ def client(dal, monkeypatch):
     dal.commit()
 
     # Reload blueprints to pick up stubbed decorators
-    import app.api.migration as migration_mod
     import app.api.clusters as clusters_mod
+    import app.api.migration as migration_mod
     import app.api.primary as primary_mod
 
     migration_mod = importlib.reload(migration_mod)
@@ -271,6 +281,7 @@ def app_with_auth(dal, monkeypatch):
     nodes_mod = importlib.reload(nodes_mod)
 
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal)
 
     # Patch get_db for nodes and biomes modules explicitly (their from-import
@@ -681,7 +692,6 @@ async def real_auth_env(tmp_path, monkeypatch):
     ever injected -- authentication happens only via a genuinely-signed token.
     """
     import bcrypt
-
     from app import create_app
     from app.config import Config
 
@@ -714,16 +724,25 @@ async def real_auth_env(tmp_path, monkeypatch):
         )
         pw_hash = bcrypt.hashpw(b"real-pass-123", bcrypt.gensalt()).decode()
         admin = ds.create_user(
-            email="operator@gough.test", password=pw_hash,
-            full_name="GH31 Operator", roles=[admin_role], active=True,
+            email="operator@gough.test",
+            password=pw_hash,
+            full_name="GH31 Operator",
+            roles=[admin_role],
+            active=True,
         )
         viewer = ds.create_user(
-            email="viewer@gough.test", password=pw_hash,
-            full_name="GH31 Viewer", roles=[viewer_role], active=True,
+            email="viewer@gough.test",
+            password=pw_hash,
+            full_name="GH31 Viewer",
+            roles=[viewer_role],
+            active=True,
         )
         dead = ds.create_user(
-            email="dead@gough.test", password=pw_hash,
-            full_name="GH31 Dead", roles=[admin_role], active=True,
+            email="dead@gough.test",
+            password=pw_hash,
+            full_name="GH31 Dead",
+            roles=[admin_role],
+            active=True,
         )
         ds.deactivate_user(dead)
 
@@ -733,10 +752,13 @@ async def real_auth_env(tmp_path, monkeypatch):
         if db is not None:
             _now = datetime.now(timezone.utc)
             db.nodes.insert(
-                tenant_id="__default__", name="gh31-node", state="ready",
+                tenant_id="__default__",
+                name="gh31-node",
+                state="ready",
                 dmi_uuid="00000000-0000-0000-0000-0000000000aa",
                 primary_nic_mac="aa:bb:cc:dd:ee:aa",
-                created_at=_now, updated_at=_now,
+                created_at=_now,
+                updated_at=_now,
             )
             db.commit()
 

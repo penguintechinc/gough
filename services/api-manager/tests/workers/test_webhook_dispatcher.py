@@ -7,7 +7,6 @@ behavior, header construction, and event filtering.
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import hashlib
 import hmac as _hmac
@@ -17,25 +16,24 @@ from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from cryptography.exceptions import InvalidSignature
-from cryptography.hazmat.primitives import hashes, serialization
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519
-
-from app.workers.webhook_dispatcher import (
-    MAX_ATTEMPTS,
-    REQUEST_TIMEOUT_SECONDS,
-    USER_AGENT,
-    WebhookDispatcher,
-    WebhookEndpoint,
-    _RETRY_DELAYS_SECONDS,
-    build_signing_string,
-)
 from app.security.webhook_keys import (
     ECDSA_P256_SHA256,
     ED25519,
     HMAC_SHA256,
     WebhookKeyManager,
 )
+from app.workers.webhook_dispatcher import (
+    _RETRY_DELAYS_SECONDS,
+    MAX_ATTEMPTS,
+    REQUEST_TIMEOUT_SECONDS,
+    USER_AGENT,
+    WebhookDispatcher,
+    WebhookEndpoint,
+    build_signing_string,
+)
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
+
 from tests._webhook_fakes import FakeVaultClient
 
 
@@ -71,8 +69,10 @@ def _make_dispatcher(
     nats: Any = None,
 ) -> WebhookDispatcher:
     if sleep is None:
+
         async def _no_sleep(_d: float) -> None:
             return None
+
         sleep = _no_sleep
     return WebhookDispatcher(
         db_session=None,
@@ -133,7 +133,13 @@ class TestRetryPolicyConstants:
     def test_eight_attempts_total(self) -> None:
         assert MAX_ATTEMPTS == 8
         assert _RETRY_DELAYS_SECONDS == (
-            1.0, 5.0, 30.0, 300.0, 1800.0, 7200.0, 43200.0,
+            1.0,
+            5.0,
+            30.0,
+            300.0,
+            1800.0,
+            7200.0,
+            43200.0,
         )
 
 
@@ -145,22 +151,26 @@ class TestSigningRoundTrip:
     async def test_ed25519_signature_verifies(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ED25519,
         )
         transport = _RecordingTransport([httpx.Response(200)])
         dispatcher = _make_dispatcher(vault, transport)
         try:
-            results = await dispatcher.dispatch(
-                {"type": "x.event", "tenant_id": "acme",
-                 "data": {"foo": "bar"}}
-            ) if False else None
+            results = (
+                await dispatcher.dispatch(
+                    {"type": "x.event", "tenant_id": "acme", "data": {"foo": "bar"}}
+                )
+                if False
+                else None
+            )
             # We bypass the loader by passing the endpoint via the dispatcher's
             # endpoint_loader override:
             dispatcher._endpoint_loader = lambda _t: [endpoint]
             results = await dispatcher.dispatch(
-                {"type": "x.event", "tenant_id": "acme",
-                 "data": {"foo": "bar"}}
+                {"type": "x.event", "tenant_id": "acme", "data": {"foo": "bar"}}
             )
         finally:
             await dispatcher.aclose()
@@ -172,13 +182,17 @@ class TestSigningRoundTrip:
         evt = req.headers["X-Gough-Event-Id"]
         signing_input = build_signing_string(ts, evt, req.content)
 
-        public_pem = vault.secrets.transit.keys["acme/webhook-ed25519"].versions[1].public_pem
+        public_pem = (
+            vault.secrets.transit.keys["acme/webhook-ed25519"].versions[1].public_pem
+        )
         _verify_ed25519(public_pem, sig, signing_input)
 
     async def test_ecdsa_signature_verifies(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w2", tenant_id="acme", url="https://example.test/hook",
+            id="w2",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ECDSA_P256_SHA256,
         )
         transport = _RecordingTransport([httpx.Response(204)])
@@ -198,9 +212,11 @@ class TestSigningRoundTrip:
             req.headers["X-Gough-Event-Id"],
             req.content,
         )
-        public_pem = vault.secrets.transit.keys[
-            "acme/webhook-ecdsa_p256_sha256"
-        ].versions[1].public_pem
+        public_pem = (
+            vault.secrets.transit.keys["acme/webhook-ecdsa_p256_sha256"]
+            .versions[1]
+            .public_pem
+        )
         _verify_ecdsa(public_pem, req.headers["X-Gough-Signature"], signing_input)
 
     async def test_hmac_signature_verifies(self) -> None:
@@ -210,7 +226,9 @@ class TestSigningRoundTrip:
         secret = mgr.get_hmac_secret("acme", kid.kid)
 
         endpoint = WebhookEndpoint(
-            id="w3", tenant_id="acme", url="https://example.test/hook",
+            id="w3",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=HMAC_SHA256,
         )
         transport = _RecordingTransport([httpx.Response(200)])
@@ -241,7 +259,9 @@ class TestHeaders:
     async def test_standard_headers_present(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ED25519,
         )
         transport = _RecordingTransport([httpx.Response(200)])
@@ -269,7 +289,9 @@ class TestRetryAndDeadLetter:
     async def test_retries_until_dead_letter(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ED25519,
         )
         # 8 attempts of 5xx → dead-letter.
@@ -312,19 +334,17 @@ class TestRetryAndDeadLetter:
     async def test_succeeds_on_second_attempt(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ED25519,
         )
-        transport = _RecordingTransport(
-            [httpx.Response(500), httpx.Response(200)]
-        )
+        transport = _RecordingTransport([httpx.Response(500), httpx.Response(200)])
         nats = AsyncMock()
         dispatcher = _make_dispatcher(vault, transport, nats=nats)
         dispatcher._endpoint_loader = lambda _t: [endpoint]
         try:
-            results = await dispatcher.dispatch(
-                {"type": "ev", "tenant_id": "acme"}
-            )
+            results = await dispatcher.dispatch({"type": "ev", "tenant_id": "acme"})
         finally:
             await dispatcher.aclose()
 
@@ -337,7 +357,9 @@ class TestRetryAndDeadLetter:
     async def test_timeout_then_success(self) -> None:
         vault = FakeVaultClient()
         endpoint = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
             signing_mode=ED25519,
         )
         transport = _RecordingTransport(
@@ -346,9 +368,7 @@ class TestRetryAndDeadLetter:
         dispatcher = _make_dispatcher(vault, transport)
         dispatcher._endpoint_loader = lambda _t: [endpoint]
         try:
-            results = await dispatcher.dispatch(
-                {"type": "ev", "tenant_id": "acme"}
-            )
+            results = await dispatcher.dispatch({"type": "ev", "tenant_id": "acme"})
         finally:
             await dispatcher.aclose()
         assert results[0].delivered is True
@@ -362,7 +382,10 @@ class TestRetryAndDeadLetter:
 class TestEventFilter:
     async def test_filter_match_exact(self) -> None:
         ep = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://x", signing_mode=ED25519,
+            id="w1",
+            tenant_id="acme",
+            url="https://x",
+            signing_mode=ED25519,
             event_filter=("node.added",),
         )
         assert ep.matches("node.added")
@@ -370,7 +393,10 @@ class TestEventFilter:
 
     async def test_filter_wildcard(self) -> None:
         ep = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://x", signing_mode=ED25519,
+            id="w1",
+            tenant_id="acme",
+            url="https://x",
+            signing_mode=ED25519,
             event_filter=("node.*",),
         )
         assert ep.matches("node.added")
@@ -378,22 +404,31 @@ class TestEventFilter:
 
     async def test_filter_inactive_blocks(self) -> None:
         ep = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://x", signing_mode=ED25519,
+            id="w1",
+            tenant_id="acme",
+            url="https://x",
+            signing_mode=ED25519,
             active=False,
         )
         assert not ep.matches("node.added")
 
     async def test_no_filter_matches_all(self) -> None:
         ep = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://x", signing_mode=ED25519,
+            id="w1",
+            tenant_id="acme",
+            url="https://x",
+            signing_mode=ED25519,
         )
         assert ep.matches("anything.at.all")
 
     async def test_dispatch_skips_non_matching(self) -> None:
         vault = FakeVaultClient()
         ep = WebhookEndpoint(
-            id="w1", tenant_id="acme", url="https://example.test/hook",
-            signing_mode=ED25519, event_filter=("node.*",),
+            id="w1",
+            tenant_id="acme",
+            url="https://example.test/hook",
+            signing_mode=ED25519,
+            event_filter=("node.*",),
         )
         transport = _RecordingTransport([])
         dispatcher = _make_dispatcher(vault, transport)

@@ -4,6 +4,7 @@ Provides a Quart test client with the three blueprints registered and auth stubb
 """
 
 from types import SimpleNamespace
+
 import pytest
 from quart import Quart, g
 
@@ -11,8 +12,8 @@ from quart import Quart, g
 @pytest.fixture()
 def client():
     """Create a Quart test client with migration, clusters, primary blueprints."""
-    from app.api.migration import migration_bp
     from app.api.clusters import clusters_bp
+    from app.api.migration import migration_bp
     from app.api.primary import primary_bp
 
     app = Quart(__name__)

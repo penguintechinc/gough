@@ -1,22 +1,19 @@
 """Extended coverage tests for webhook_dispatcher.py missed lines."""
 
-import json
 from datetime import datetime, timezone
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 import httpx
-
+import pytest
 from app.workers.webhook_dispatcher import (
     WebhookDispatcher,
     WebhookEndpoint,
-    DeliveryResult,
-    build_signing_string,
-    _new_event_id,
-    _rfc3339,
     _b64,
     _b64url,
+    _new_event_id,
+    _rfc3339,
+    build_signing_string,
 )
 
 
@@ -166,10 +163,12 @@ class TestWebhookDispatcherDispatch:
         dispatcher = WebhookDispatcher(db_session=mock_db, vault_client=mock_vault)
 
         with pytest.raises(ValueError, match="event.type is required"):
-            await dispatcher.dispatch({
-                "tenant_id": "tenant1",
-                # Missing 'type'
-            })
+            await dispatcher.dispatch(
+                {
+                    "tenant_id": "tenant1",
+                    # Missing 'type'
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_dispatch_missing_tenant_id(self):
@@ -178,10 +177,12 @@ class TestWebhookDispatcherDispatch:
         dispatcher = WebhookDispatcher(db_session=mock_db, vault_client=MagicMock())
 
         with pytest.raises(ValueError, match="event.tenant_id is required"):
-            await dispatcher.dispatch({
-                "type": "node.created",
-                # Missing 'tenant_id'
-            })
+            await dispatcher.dispatch(
+                {
+                    "type": "node.created",
+                    # Missing 'tenant_id'
+                }
+            )
 
     @pytest.mark.asyncio
     async def test_dispatch_no_matching_endpoints(self):
@@ -194,10 +195,12 @@ class TestWebhookDispatcherDispatch:
 
         dispatcher._endpoint_loader = mock_loader
 
-        results = await dispatcher.dispatch({
-            "type": "node.created",
-            "tenant_id": "tenant1",
-        })
+        results = await dispatcher.dispatch(
+            {
+                "type": "node.created",
+                "tenant_id": "tenant1",
+            }
+        )
         assert results == []
 
     @pytest.mark.asyncio
@@ -488,7 +491,9 @@ class TestWebhookDispatcherSigningModes:
             vault_client=mock_vault,
         )
 
-        with patch.object(dispatcher._key_mgr, "get_hmac_secret", return_value=b"secret"):
+        with patch.object(
+            dispatcher._key_mgr, "get_hmac_secret", return_value=b"secret"
+        ):
             sig = dispatcher._sign_payload(
                 b"test body",
                 HMAC_SHA256,
@@ -547,7 +552,9 @@ def _seed_webhook_endpoint(db: Any, tenant_id: str, url: str) -> int:
 class TestWebhookDispatcherEndpointLoadingRLS:
     """``_load_endpoints`` against real Postgres, with RLS genuinely enforced."""
 
-    def test_scoped_role_sees_only_the_requested_tenant(self, pg_db, pg_db_scoped) -> None:
+    def test_scoped_role_sees_only_the_requested_tenant(
+        self, pg_db, pg_db_scoped
+    ) -> None:
         """Proves the per-tenant GUC push lets the scoped, non-owner
         ``api-manager-rw`` role (RLS-enforced, unlike ``pg_db``'s
         table-owner connection) see the tenant it's dispatching for, and
@@ -562,7 +569,9 @@ class TestWebhookDispatcherEndpointLoadingRLS:
         _seed_webhook_endpoint(pg_db, "tenant-b", "https://b.example.com/hook")
         pg_db.commit()
 
-        dispatcher = WebhookDispatcher(db_session=pg_db_scoped, vault_client=MagicMock())
+        dispatcher = WebhookDispatcher(
+            db_session=pg_db_scoped, vault_client=MagicMock()
+        )
         try:
             endpoints_a = list(dispatcher._load_endpoints("tenant-a"))
             endpoints_b = list(dispatcher._load_endpoints("tenant-b"))
@@ -572,7 +581,9 @@ class TestWebhookDispatcherEndpointLoadingRLS:
         assert [e.url for e in endpoints_a] == ["https://a.example.com/hook"]
         assert [e.url for e in endpoints_b] == ["https://b.example.com/hook"]
 
-    def test_load_endpoints_restores_previous_tenant_guc(self, pg_db, pg_db_scoped) -> None:
+    def test_load_endpoints_restores_previous_tenant_guc(
+        self, pg_db, pg_db_scoped
+    ) -> None:
         """_load_endpoints must restore whatever tenant was set before it
         ran, not leave its own tenant pushed -- proven by a subsequent read
         under the restored (different) tenant seeing only that tenant's row.
@@ -584,7 +595,9 @@ class TestWebhookDispatcherEndpointLoadingRLS:
         _seed_webhook_endpoint(pg_db, "tenant-c", "https://c.example.com/hook")
         pg_db.commit()
 
-        dispatcher = WebhookDispatcher(db_session=pg_db_scoped, vault_client=MagicMock())
+        dispatcher = WebhookDispatcher(
+            db_session=pg_db_scoped, vault_client=MagicMock()
+        )
         set_current_tenant("tenant-c")
         try:
             list(dispatcher._load_endpoints("tenant-a"))
@@ -594,9 +607,9 @@ class TestWebhookDispatcherEndpointLoadingRLS:
         finally:
             set_current_tenant(None)
 
-        assert rows == [("https://c.example.com/hook",)], (
-            "_load_endpoints must restore the caller's previous tenant GUC afterwards"
-        )
+        assert rows == [
+            ("https://c.example.com/hook",)
+        ], "_load_endpoints must restore the caller's previous tenant GUC afterwards"
 
     def test_fails_closed_without_scoping(self, pg_db, pg_db_scoped) -> None:
         """Negative control: the exact failure mode the per-tenant GUC push
@@ -617,6 +630,6 @@ class TestWebhookDispatcherEndpointLoadingRLS:
             "SELECT COUNT(*) FROM webhook_endpoints WHERE tenant_id = %(t)s AND active = TRUE",
             {"t": "tenant-a"},
         )
-        assert rows[0][0] == 0, (
-            "unset tenant GUC must fail closed on RLS-protected webhook_endpoints"
-        )
+        assert (
+            rows[0][0] == 0
+        ), "unset tenant GUC must fail closed on RLS-protected webhook_endpoints"

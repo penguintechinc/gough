@@ -14,11 +14,12 @@ Per CLAUDE.md standards:
 """
 
 import os
-from penguintechinc_utils import get_logger
 import time
-from typing import Optional, Callable, Any, Dict
 from dataclasses import dataclass
 from functools import wraps
+from typing import Any, Callable, Dict, Optional
+
+from penguintechinc_utils import get_logger
 
 logger = get_logger(__name__)
 
@@ -26,6 +27,7 @@ logger = get_logger(__name__)
 @dataclass
 class GaleraConfig:
     """MariaDB Galera cluster configuration."""
+
     enabled: bool = False
     wsrep_sync_wait: int = 1
     deadlock_retry_count: int = 3
@@ -34,7 +36,7 @@ class GaleraConfig:
     auto_increment_increment: int = 1
 
     @classmethod
-    def from_env(cls) -> 'GaleraConfig':
+    def from_env(cls) -> "GaleraConfig":
         """
         Create GaleraConfig from environment variables.
 
@@ -50,12 +52,16 @@ class GaleraConfig:
             GaleraConfig instance
         """
         return cls(
-            enabled=os.getenv('DB_GALERA_ENABLED', 'false').lower() == 'true',
-            wsrep_sync_wait=int(os.getenv('DB_GALERA_WSREP_SYNC_WAIT', '1')),
-            deadlock_retry_count=int(os.getenv('DB_GALERA_DEADLOCK_RETRIES', '3')),
-            deadlock_retry_delay=float(os.getenv('DB_GALERA_DEADLOCK_DELAY', '0.1')),
-            auto_increment_offset=int(os.getenv('DB_GALERA_AUTO_INCREMENT_OFFSET', '1')),
-            auto_increment_increment=int(os.getenv('DB_GALERA_AUTO_INCREMENT_INCREMENT', '1')),
+            enabled=os.getenv("DB_GALERA_ENABLED", "false").lower() == "true",
+            wsrep_sync_wait=int(os.getenv("DB_GALERA_WSREP_SYNC_WAIT", "1")),
+            deadlock_retry_count=int(os.getenv("DB_GALERA_DEADLOCK_RETRIES", "3")),
+            deadlock_retry_delay=float(os.getenv("DB_GALERA_DEADLOCK_DELAY", "0.1")),
+            auto_increment_offset=int(
+                os.getenv("DB_GALERA_AUTO_INCREMENT_OFFSET", "1")
+            ),
+            auto_increment_increment=int(
+                os.getenv("DB_GALERA_AUTO_INCREMENT_INCREMENT", "1")
+            ),
         )
 
 
@@ -66,7 +72,7 @@ def is_galera_enabled() -> bool:
     Returns:
         True if DB_GALERA_ENABLED environment variable is 'true'
     """
-    return os.getenv('DB_GALERA_ENABLED', 'false').lower() == 'true'
+    return os.getenv("DB_GALERA_ENABLED", "false").lower() == "true"
 
 
 def get_galera_config() -> GaleraConfig:
@@ -103,7 +109,7 @@ def set_wsrep_sync_wait(db: Any, level: int = 1) -> bool:
         return True
 
     try:
-        db.executesql('SET SESSION wsrep_sync_wait = %(level)s', {'level': level})
+        db.executesql("SET SESSION wsrep_sync_wait = %(level)s", {"level": level})
         logger.debug(f"Set wsrep_sync_wait to {level}")
         return True
     except Exception as e:
@@ -128,12 +134,12 @@ def is_deadlock_error(exception: Exception) -> bool:
     """
     error_str = str(exception).lower()
     deadlock_indicators = [
-        'deadlock',
-        'lock wait timeout',
-        'wsrep has not yet prepared',
-        '1213',
-        '1205',
-        '1047',
+        "deadlock",
+        "lock wait timeout",
+        "wsrep has not yet prepared",
+        "1213",
+        "1205",
+        "1047",
     ]
     return any(indicator in error_str for indicator in deadlock_indicators)
 
@@ -141,7 +147,7 @@ def is_deadlock_error(exception: Exception) -> bool:
 def handle_galera_deadlock(
     func: Callable[..., Any],
     max_retries: Optional[int] = None,
-    retry_delay: Optional[float] = None
+    retry_delay: Optional[float] = None,
 ) -> Callable[..., Any]:
     """
     Decorator to handle Galera deadlocks with automatic retry.
@@ -154,10 +160,13 @@ def handle_galera_deadlock(
     Returns:
         Wrapped function with retry logic
     """
+
     @wraps(func)
     def wrapper(*args: Any, **kwargs: Any) -> Any:
         config = get_galera_config()
-        retries = max_retries if max_retries is not None else config.deadlock_retry_count
+        retries = (
+            max_retries if max_retries is not None else config.deadlock_retry_count
+        )
         delay = retry_delay if retry_delay is not None else config.deadlock_retry_delay
 
         last_exception = None
@@ -181,9 +190,7 @@ def handle_galera_deadlock(
 
 
 def set_auto_increment_config(
-    db: Any,
-    offset: Optional[int] = None,
-    increment: Optional[int] = None
+    db: Any, offset: Optional[int] = None, increment: Optional[int] = None
 ) -> bool:
     """
     Set auto-increment configuration for Galera cluster.
@@ -212,11 +219,16 @@ def set_auto_increment_config(
         # (same intent as the original single `with db.engine.connect()`
         # block) -- db.transaction() pins one connection for the unit.
         with db.transaction() as tx:
-            tx.executesql('SET SESSION auto_increment_offset = %(offset)s', {'offset': offset})
             tx.executesql(
-                'SET SESSION auto_increment_increment = %(increment)s', {'increment': increment}
+                "SET SESSION auto_increment_offset = %(offset)s", {"offset": offset}
             )
-        logger.debug(f"Set auto_increment_offset={offset}, auto_increment_increment={increment}")
+            tx.executesql(
+                "SET SESSION auto_increment_increment = %(increment)s",
+                {"increment": increment},
+            )
+        logger.debug(
+            f"Set auto_increment_offset={offset}, auto_increment_increment={increment}"
+        )
         return True
     except Exception as e:
         logger.warning(f"Failed to set auto-increment config: {e}")
@@ -252,12 +264,12 @@ def get_cluster_status(db: Any) -> Optional[Dict[str, Any]]:
             ")",
             check_injection=False,
         )
-        rows_raw = [{'Variable_name': r[0], 'Value': r[1]} for r in rows]
+        rows_raw = [{"Variable_name": r[0], "Value": r[1]} for r in rows]
 
         status = {}
         for row in rows_raw:
-            var_name = row.get('Variable_name', '').lower()
-            value = row.get('Value', '')
+            var_name = row.get("Variable_name", "").lower()
+            value = row.get("Value", "")
             status[var_name] = value
 
         return status
@@ -283,17 +295,15 @@ def is_cluster_ready(db: Any) -> bool:
     if not status:
         return False
 
-    ready = status.get('wsrep_ready', '').lower() == 'on'
-    connected = status.get('wsrep_connected', '').lower() == 'on'
-    cluster_status = status.get('wsrep_cluster_status', '').lower() == 'primary'
+    ready = status.get("wsrep_ready", "").lower() == "on"
+    connected = status.get("wsrep_connected", "").lower() == "on"
+    cluster_status = status.get("wsrep_cluster_status", "").lower() == "primary"
 
     return ready and connected and cluster_status
 
 
 def wait_for_cluster_ready(
-    db: Any,
-    timeout: int = 30,
-    check_interval: float = 1.0
+    db: Any, timeout: int = 30, check_interval: float = 1.0
 ) -> bool:
     """
     Wait for Galera cluster to be ready.
@@ -366,7 +376,7 @@ class GaleraTransaction:
         self,
         db: Any,
         max_retries: Optional[int] = None,
-        retry_delay: Optional[float] = None
+        retry_delay: Optional[float] = None,
     ):
         """
         Initialize Galera transaction context.
@@ -378,8 +388,12 @@ class GaleraTransaction:
         """
         self.db = db
         self.config = get_galera_config()
-        self.max_retries = max_retries if max_retries is not None else self.config.deadlock_retry_count
-        self.retry_delay = retry_delay if retry_delay is not None else self.config.deadlock_retry_delay
+        self.max_retries = (
+            max_retries if max_retries is not None else self.config.deadlock_retry_count
+        )
+        self.retry_delay = (
+            retry_delay if retry_delay is not None else self.config.deadlock_retry_delay
+        )
 
     def __enter__(self) -> Any:
         """Enter transaction context."""

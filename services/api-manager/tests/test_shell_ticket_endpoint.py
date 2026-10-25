@@ -4,21 +4,25 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-import pytest
-from quart import Quart, g
-
 import app.api.shell as shell
 import app.middleware as mw
+import pytest
 from app.shell_tickets import ShellTicketStore, TicketClaims, set_ticket_store
+from quart import Quart, g
 
 
 @pytest.fixture()
 def ctx(monkeypatch):
     """Quart app with shell blueprint; DB/authz stubbed via ``state``."""
-    state = {"sess": SimpleNamespace(user_id=1, ended_at=None, resource_type="vm",
-                                     resource_id="r"),
-             "admin": False, "access": True}
+    state = {
+        "sess": SimpleNamespace(
+            user_id=1, ended_at=None, resource_type="vm", resource_id="r"
+        ),
+        "admin": False,
+        "access": True,
+    }
     from tests.fake_redis import make_store
+
     store = make_store()
     set_ticket_store(store)
 
@@ -29,15 +33,20 @@ def ctx(monkeypatch):
         shell_sessions = SimpleNamespace(session_id=1)
 
         def __call__(self, *_a, **_k):
-            return SimpleNamespace(select=lambda: SimpleNamespace(first=lambda: state["sess"]))
+            return SimpleNamespace(
+                select=lambda: SimpleNamespace(first=lambda: state["sess"])
+            )
 
     monkeypatch.setattr(shell, "run_db", _inline)
     monkeypatch.setattr(shell, "get_db", lambda: _DB())
     monkeypatch.setattr(shell, "get_current_user", lambda: {"id": 1})
     monkeypatch.setattr(mw, "get_current_user", lambda: {"id": 1})
     monkeypatch.setattr(shell, "user_is_admin", lambda uid: state["admin"])
-    monkeypatch.setattr(shell, "check_shell_access",
-                        lambda *a: (state["access"], None if state["access"] else "no"))
+    monkeypatch.setattr(
+        shell,
+        "check_shell_access",
+        lambda *a: (state["access"], None if state["access"] else "no"),
+    )
     monkeypatch.setattr(shell, "get_audit_logger", lambda: None)
     app = Quart(__name__)
     app.register_blueprint(shell.shell_bp)
@@ -65,8 +74,9 @@ async def test_owner_gets_ticket_bound_to_user_session_tenant(ctx):
 @pytest.mark.asyncio
 async def test_non_owner_non_admin_denied(ctx):
     c, state, _ = ctx
-    state["sess"] = SimpleNamespace(user_id=2, ended_at=None, resource_type="vm",
-                                    resource_id="r")
+    state["sess"] = SimpleNamespace(
+        user_id=2, ended_at=None, resource_type="vm", resource_id="r"
+    )
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 403
     state["admin"] = True
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 200
@@ -82,7 +92,9 @@ async def test_no_resource_access_denied(ctx):
 @pytest.mark.asyncio
 async def test_missing_and_ended_session(ctx):
     c, state, _ = ctx
-    state["sess"] = SimpleNamespace(user_id=1, ended_at=1, resource_type="vm", resource_id="r")
+    state["sess"] = SimpleNamespace(
+        user_id=1, ended_at=1, resource_type="vm", resource_id="r"
+    )
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 409
     state["sess"] = None
     assert (await c.post("/api/v1/shell/sessions/s1/ticket")).status_code == 404

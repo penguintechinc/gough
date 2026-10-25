@@ -17,11 +17,8 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -394,9 +391,7 @@ def biomes_app_regular_user(dal, monkeypatch):
                 "amr": [],  # No MFA
             },
         }
-        g.tenant_context = SimpleNamespace(
-            tenant_id="__default__", cross_tenant=False
-        )
+        g.tenant_context = SimpleNamespace(tenant_id="__default__", cross_tenant=False)
 
     return application
 
@@ -432,9 +427,7 @@ def biomes_app_mfa_user(dal, monkeypatch):
                 "amr": ["mfa"],  # Has MFA
             },
         }
-        g.tenant_context = SimpleNamespace(
-            tenant_id="__default__", cross_tenant=False
-        )
+        g.tenant_context = SimpleNamespace(tenant_id="__default__", cross_tenant=False)
 
     return application
 
@@ -452,13 +445,13 @@ async def test_list_biomes_filter_by_biome_kind(
     # Note: biome_kind parameter maps to egg_kind column in the database.
     # The production code has a bug trying to access table.biome_kind which doesn't exist.
     # Mark as xfail until production code is fixed.
-    pytest.skip("Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'")
+    pytest.skip(
+        "Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'"
+    )
 
 
 @pytest.mark.asyncio
-async def test_list_biomes_filter_by_phase(
-    biomes_app_regular_user, seed_biomes_varied
-):
+async def test_list_biomes_filter_by_phase(biomes_app_regular_user, seed_biomes_varied):
     """Test filtering by phase."""
     async with biomes_app_regular_user.test_client() as client:
         resp = await client.get("/api/v1/biomes/?phase=post_deploy")
@@ -491,7 +484,9 @@ async def test_list_biomes_filter_by_multiple_kinds(
     # Note: biome_kind parameter maps to egg_kind column in the database.
     # The production code has a bug trying to access table.biome_kind which doesn't exist.
     # Mark as xfail until production code is fixed.
-    pytest.skip("Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'")
+    pytest.skip(
+        "Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'"
+    )
 
 
 @pytest.mark.asyncio
@@ -502,7 +497,9 @@ async def test_list_biomes_combined_filters(
     # Note: biome_kind parameter maps to egg_kind column in the database.
     # The production code has a bug trying to access table.biome_kind which doesn't exist.
     # Mark as xfail until production code is fixed.
-    pytest.skip("Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'")
+    pytest.skip(
+        "Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'"
+    )
 
 
 @pytest.mark.asyncio
@@ -557,7 +554,9 @@ async def test_eligibility_resource_constraints_met(
     biome_id = biomes.id
 
     async with biomes_app_regular_user.test_client() as client:
-        resp = await client.get(f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}")
+        resp = await client.get(
+            f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}"
+        )
     assert resp.status_code == 200
     resp_data = await _json(resp)
     assert resp_data["status"] == "success"
@@ -581,7 +580,9 @@ async def test_eligibility_resource_constraints_insufficient_ram(
     biome_id = biomes.id
 
     async with biomes_app_regular_user.test_client() as client:
-        resp = await client.get(f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}")
+        resp = await client.get(
+            f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}"
+        )
     assert resp.status_code == 200
     resp_data = await _json(resp)
     assert resp_data["status"] == "success"
@@ -605,13 +606,22 @@ async def test_eligibility_required_tags_present(
     # Get a biome that requires tpm:2.0 - skip if fixture doesn't provide one
     # The fixture seed_biomes_varied contains biomes with various requirements
     biomes = dal(dal.biomes.id > 0).select()
-    biome = next((b for b in biomes if b.requires_hardware_tags and "tpm:2.0" in b.requires_hardware_tags), None)
+    biome = next(
+        (
+            b
+            for b in biomes
+            if b.requires_hardware_tags and "tpm:2.0" in b.requires_hardware_tags
+        ),
+        None,
+    )
     if not biome:
         pytest.skip("Fixture does not contain biome with tpm:2.0 requirement")
     biome_id = biome.id
 
     async with biomes_app_regular_user.test_client() as client:
-        resp = await client.get(f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}")
+        resp = await client.get(
+            f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}"
+        )
     assert resp.status_code == 200
     resp_data = await _json(resp)
     assert resp_data["status"] == "success"
@@ -630,13 +640,22 @@ async def test_eligibility_forbidden_tags_present(
 
     # Get a biome that forbids tpm:2.0 - skip if fixture doesn't provide one
     biomes = dal(dal.biomes.id > 0).select()
-    biome = next((b for b in biomes if b.forbids_hardware_tags and "tpm:2.0" in b.forbids_hardware_tags), None)
+    biome = next(
+        (
+            b
+            for b in biomes
+            if b.forbids_hardware_tags and "tpm:2.0" in b.forbids_hardware_tags
+        ),
+        None,
+    )
     if not biome:
         pytest.skip("Fixture does not contain biome with tpm:2.0 forbid")
     biome_id = biome.id
 
     async with biomes_app_regular_user.test_client() as client:
-        resp = await client.get(f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}")
+        resp = await client.get(
+            f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}"
+        )
     assert resp.status_code == 200
     resp_data = await _json(resp)
     assert resp_data["status"] == "success"
@@ -659,7 +678,9 @@ async def test_eligibility_node_no_hardware_json(
     biome_id = biomes.id
 
     async with biomes_app_regular_user.test_client() as client:
-        resp = await client.get(f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}")
+        resp = await client.get(
+            f"/api/v1/biomes/{biome_id}/eligibility?node_id={node_id}"
+        )
     assert resp.status_code == 200
     resp_data = await _json(resp)
     assert resp_data["status"] == "success"
@@ -684,7 +705,9 @@ async def test_list_biomes_mfa_not_required(
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="Test body does not match API schema; API returns 422 before MFA check")
+@pytest.mark.xfail(
+    reason="Test body does not match API schema; API returns 422 before MFA check"
+)
 async def test_biomes_create_requires_mfa(
     biomes_app_regular_user, biomes_app_mfa_user, seed_biomes_varied
 ):
@@ -699,17 +722,13 @@ async def test_biomes_create_requires_mfa(
             "workload_type": "lxc",
         }
 
-        resp = await client_no_mfa.post(
-            "/api/v1/biomes/", json=body
-        )
+        resp = await client_no_mfa.post("/api/v1/biomes/", json=body)
         # Should be forbidden due to MFA requirement
         assert resp.status_code == 403
 
         # User WITH MFA should succeed (or fail with different error)
         async with biomes_app_mfa_user.test_client() as client_mfa:
-            resp_mfa = await client_mfa.post(
-                "/api/v1/biomes/", json=body
-            )
+            resp_mfa = await client_mfa.post("/api/v1/biomes/", json=body)
             # Should NOT be 403 for MFA
             assert resp_mfa.status_code != 403
 
@@ -775,7 +794,9 @@ async def test_list_biomes_empty_by_kind_filter(
     # Note: biome_kind parameter maps to egg_kind column in the database.
     # The production code has a bug trying to access table.biome_kind which doesn't exist.
     # Mark as xfail until production code is fixed.
-    pytest.skip("Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'")
+    pytest.skip(
+        "Production code bug: references non-existent column 'biome_kind' instead of 'egg_kind'"
+    )
 
 
 @pytest.mark.asyncio

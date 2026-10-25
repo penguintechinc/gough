@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from agent import __version__
 from agent import main as agent_main
 from agent.config import AgentConfig
@@ -139,7 +138,9 @@ def test_short_help_flag_is_equivalent(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """-h behaves like --help."""
-    monkeypatch.setattr(agent_main, "main", lambda: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(
+        agent_main, "main", lambda: (_ for _ in ()).throw(AssertionError)
+    )
     monkeypatch.setattr("sys.argv", ["gough-agent", "-h"])
     agent_main.run()
     assert "usage: gough-agent" in capsys.readouterr().out
@@ -149,7 +150,9 @@ def test_version_prints_package_version(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """--version prints exactly the package version and exits without starting."""
-    monkeypatch.setattr(agent_main, "main", lambda: (_ for _ in ()).throw(AssertionError))
+    monkeypatch.setattr(
+        agent_main, "main", lambda: (_ for _ in ()).throw(AssertionError)
+    )
     monkeypatch.setattr("sys.argv", ["gough-agent", "--version"])
     agent_main.run()
     assert capsys.readouterr().out.strip() == __version__
@@ -294,7 +297,10 @@ def test_shutdown_command_clears_running_flag(paths: dict[str, Path]) -> None:
     assert agent._running is False
 
 
-@pytest.mark.parametrize("cmd", [{"type": "reload_config"}, {"type": "terminate_session", "session_id": "s1"}])
+@pytest.mark.parametrize(
+    "cmd",
+    [{"type": "reload_config"}, {"type": "terminate_session", "session_id": "s1"}],
+)
 def test_known_commands_are_acknowledged_without_side_effects(
     paths: dict[str, Path], cmd: dict[str, Any]
 ) -> None:
@@ -313,7 +319,9 @@ def test_unknown_command_is_tolerated(paths: dict[str, Path]) -> None:
     assert agent._running is True
 
 
-def test_session_callbacks_push_active_count_to_heartbeat(paths: dict[str, Path]) -> None:
+def test_session_callbacks_push_active_count_to_heartbeat(
+    paths: dict[str, Path],
+) -> None:
     """Session start and end both refresh the heartbeat's active-session count."""
     agent = make_agent(paths)
     agent.rssh_server = FakeRSSH()

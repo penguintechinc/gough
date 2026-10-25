@@ -46,6 +46,7 @@ class CertificateInfo:
 
 class CertificateValidationError(Exception):
     """Raised when certificate validation fails."""
+
     pass
 
 
@@ -67,9 +68,7 @@ class CertificateValidator:
             return self._ca_key_file
 
         # Write CA key to temp file (using NamedTemporaryFile for security)
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix="_ca.pub", delete=False
-        ) as f:
+        with tempfile.NamedTemporaryFile(mode="w", suffix="_ca.pub", delete=False) as f:
             f.write(self.ca_public_key)
             self._ca_key_file = Path(f.name)
         return self._ca_key_file
@@ -191,7 +190,7 @@ class CertificateValidator:
                 start = line.find('"')
                 end = line.rfind('"')
                 if start != -1 and end != -1:
-                    key_id = line[start + 1:end]
+                    key_id = line[start + 1 : end]
 
             elif line.startswith("Serial:"):
                 try:
@@ -203,7 +202,11 @@ class CertificateValidator:
                 in_principals = True
 
             elif in_principals:
-                if line and not line.startswith("Critical") and not line.startswith("Valid"):
+                if (
+                    line
+                    and not line.startswith("Critical")
+                    and not line.startswith("Valid")
+                ):
                     principals.append(line)
                 else:
                     in_principals = False
@@ -221,12 +224,9 @@ class CertificateValidator:
 
                     # Parse ISO timestamps
                     from datetime import datetime
-                    valid_after = int(
-                        datetime.fromisoformat(from_str).timestamp()
-                    )
-                    valid_before = int(
-                        datetime.fromisoformat(to_str).timestamp()
-                    )
+
+                    valid_after = int(datetime.fromisoformat(from_str).timestamp())
+                    valid_before = int(datetime.fromisoformat(to_str).timestamp())
                 except (ValueError, IndexError):
                     # Alternative format: forever or timestamp
                     pass
@@ -299,7 +299,9 @@ class CertificateValidator:
         try:
             parts = certificate.split()
             if len(parts) < 2:
-                raise CertificateValidationError("Malformed certificate: missing key blob")
+                raise CertificateValidationError(
+                    "Malformed certificate: missing key blob"
+                )
             cert_blob = base64.b64decode(parts[1])
 
             m = Message(cert_blob)
@@ -314,18 +316,20 @@ class CertificateValidator:
                 m.get_string()  # curve
                 m.get_string()  # ec_point
             else:
-                raise CertificateValidationError(f"Unsupported certificate type: {cert_type}")
-            m.get_int64()   # serial
-            m.get_int()     # type
+                raise CertificateValidationError(
+                    f"Unsupported certificate type: {cert_type}"
+                )
+            m.get_int64()  # serial
+            m.get_int()  # type
             m.get_string()  # key id
             m.get_string()  # valid principals
-            m.get_int64()   # valid after
-            m.get_int64()   # valid before
+            m.get_int64()  # valid after
+            m.get_int64()  # valid before
             critical_blob = m.get_string()  # critical options
             m.get_string()  # extensions
             m.get_string()  # reserved
             signing_key_blob = m.get_string()  # CA public key
-            signature_blob = m.get_string()    # CA signature (final field)
+            signature_blob = m.get_string()  # CA signature (final field)
 
             # The CA signs everything up to (but not including) the signature field.
             signed_data = cert_blob[: -(4 + len(signature_blob))]
@@ -344,7 +348,9 @@ class CertificateValidator:
                     "Certificate was not signed by the configured trusted CA"
                 )
 
-            log.info("Certificate signature cryptographically verified against trusted CA")
+            log.info(
+                "Certificate signature cryptographically verified against trusted CA"
+            )
             return self._parse_critical_options(critical_blob)
 
         except CertificateValidationError:
@@ -353,7 +359,6 @@ class CertificateValidator:
             raise CertificateValidationError(
                 f"Certificate signature verification failed: {e}"
             )
-
 
     def cleanup(self) -> None:
         """Clean up temporary files."""

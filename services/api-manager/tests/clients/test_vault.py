@@ -1,15 +1,12 @@
 """Tests for Vault client."""
 
 import base64
-import os
 from unittest.mock import MagicMock, patch
 
 import hvac
 import pytest
-
 from app.clients.vault import (
     VaultClient,
-    VaultError,
     VaultKvReadResponse,
     VaultKvWriteRequest,
     VaultPermissionDenied,
@@ -61,7 +58,9 @@ class TestVaultModels:
 class TestVaultClientInit:
     """Test VaultClient initialization."""
 
-    def test_init_reads_env_addr_token_namespace(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_init_reads_env_addr_token_namespace(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """VaultClient reads addr, token, namespace from env vars."""
         monkeypatch.setenv("VAULT_ADDR", "http://vault:8200")
         monkeypatch.setenv("VAULT_TOKEN", "token123")
@@ -71,7 +70,9 @@ class TestVaultClientInit:
         assert client.token == "token123"
         assert client.namespace == "custom"
 
-    def test_init_explicit_args_override_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_init_explicit_args_override_env(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Explicit args override env vars."""
         monkeypatch.setenv("VAULT_ADDR", "http://old:8200")
         monkeypatch.setenv("VAULT_TOKEN", "old_token")
@@ -95,7 +96,7 @@ class TestVaultClientInit:
         """VaultClient logs warning when VAULT_SKIP_VERIFY=1."""
         monkeypatch.setenv("VAULT_SKIP_VERIFY", "1")
         with caplog.at_level("WARNING"):
-            client = VaultClient(addr="http://vault:8200", token="tok")
+            VaultClient(addr="http://vault:8200", token="tok")
         assert "VAULT_SKIP_VERIFY" in caplog.text
 
 
@@ -123,11 +124,15 @@ class TestVaultClientHealth:
         assert result["performance_standby"] is False
 
     @patch("app.clients.vault.hvac.Client")
-    def test_health_propagates_vault_down_error(self, mock_hvac_class: MagicMock) -> None:
+    def test_health_propagates_vault_down_error(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """health() raises VaultSealedError when Vault is down."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.sys.read_health_status.side_effect = hvac.exceptions.VaultDown("down")
+        mock_client.sys.read_health_status.side_effect = hvac.exceptions.VaultDown(
+            "down"
+        )
 
         client = VaultClient(addr="http://vault:8200", token="tok")
         with pytest.raises(VaultSealedError):
@@ -154,11 +159,15 @@ class TestVaultClientTransitEncrypt:
         mock_client.secrets.transit.encrypt_data.assert_called_once()
 
     @patch("app.clients.vault.hvac.Client")
-    def test_transit_encrypt_invalid_key_raises_missing(self, mock_hvac_class: MagicMock) -> None:
+    def test_transit_encrypt_invalid_key_raises_missing(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """transit_encrypt() raises VaultTransitKeyMissing for InvalidPath."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.secrets.transit.encrypt_data.side_effect = hvac.exceptions.InvalidPath("no key")
+        mock_client.secrets.transit.encrypt_data.side_effect = (
+            hvac.exceptions.InvalidPath("no key")
+        )
 
         client = VaultClient(addr="http://vault:8200", token="tok")
         with pytest.raises(VaultTransitKeyMissing):
@@ -171,7 +180,9 @@ class TestVaultClientTransitEncrypt:
         """transit_encrypt() raises VaultPermissionDenied for Forbidden."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.secrets.transit.encrypt_data.side_effect = hvac.exceptions.Forbidden("denied")
+        mock_client.secrets.transit.encrypt_data.side_effect = (
+            hvac.exceptions.Forbidden("denied")
+        )
 
         client = VaultClient(addr="http://vault:8200", token="tok")
         with pytest.raises(VaultPermissionDenied):
@@ -184,7 +195,9 @@ class TestVaultClientTransitEncrypt:
         """transit_encrypt() raises VaultSealedError for VaultDown."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.secrets.transit.encrypt_data.side_effect = hvac.exceptions.VaultDown("down")
+        mock_client.secrets.transit.encrypt_data.side_effect = (
+            hvac.exceptions.VaultDown("down")
+        )
 
         client = VaultClient(addr="http://vault:8200", token="tok")
         with pytest.raises(VaultSealedError):
@@ -195,7 +208,9 @@ class TestVaultClientTransitDecrypt:
     """Test transit_decrypt() method."""
 
     @patch("app.clients.vault.hvac.Client")
-    def test_transit_decrypt_returns_plaintext_bytes(self, mock_hvac_class: MagicMock) -> None:
+    def test_transit_decrypt_returns_plaintext_bytes(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """transit_decrypt() returns plaintext bytes."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
@@ -210,7 +225,9 @@ class TestVaultClientTransitDecrypt:
         assert result.plaintext == b"secret_data"
 
     @patch("app.clients.vault.hvac.Client")
-    def test_transit_decrypt_handles_b64_decoding(self, mock_hvac_class: MagicMock) -> None:
+    def test_transit_decrypt_handles_b64_decoding(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """transit_decrypt() correctly decodes base64 plaintext."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
@@ -230,7 +247,9 @@ class TestVaultClientTransitSign:
     """Test transit_sign() method."""
 
     @patch("app.clients.vault.hvac.Client")
-    def test_transit_sign_returns_opaque_signature_string(self, mock_hvac_class: MagicMock) -> None:
+    def test_transit_sign_returns_opaque_signature_string(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """transit_sign() returns opaque signature string."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
@@ -248,14 +267,20 @@ class TestVaultClientTransitVerify:
     """Test transit_verify_signature() method."""
 
     @patch("app.clients.vault.hvac.Client")
-    def test_transit_verify_signature_returns_bool(self, mock_hvac_class: MagicMock) -> None:
+    def test_transit_verify_signature_returns_bool(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """transit_verify_signature() returns boolean."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.secrets.transit.verify_signed_data.return_value = {"data": {"valid": True}}
+        mock_client.secrets.transit.verify_signed_data.return_value = {
+            "data": {"valid": True}
+        }
 
         client = VaultClient(addr="http://vault:8200", token="tok")
-        result = client.transit_verify_signature("sign_key", b"message", "vault:v1:sig123")
+        result = client.transit_verify_signature(
+            "sign_key", b"message", "vault:v1:sig123"
+        )
 
         assert result is True
 
@@ -264,7 +289,9 @@ class TestVaultClientKvWrite:
     """Test kv_write() method."""
 
     @patch("app.clients.vault.hvac.Client")
-    def test_kv_write_calls_kv_v2_create_or_update(self, mock_hvac_class: MagicMock) -> None:
+    def test_kv_write_calls_kv_v2_create_or_update(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """kv_write() calls create_or_update_secret."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
@@ -306,12 +333,14 @@ class TestVaultClientKvRead:
         assert result.metadata == {"version": 1}
 
     @patch("app.clients.vault.hvac.Client")
-    def test_kv_read_missing_path_returns_empty(self, mock_hvac_class: MagicMock) -> None:
+    def test_kv_read_missing_path_returns_empty(
+        self, mock_hvac_class: MagicMock
+    ) -> None:
         """kv_read() returns empty data for InvalidPath."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client
-        mock_client.secrets.kv.v2.read_secret_version.side_effect = hvac.exceptions.InvalidPath(
-            "not found"
+        mock_client.secrets.kv.v2.read_secret_version.side_effect = (
+            hvac.exceptions.InvalidPath("not found")
         )
 
         client = VaultClient(addr="http://vault:8200", token="tok")
@@ -324,7 +353,9 @@ class TestVaultClientSecurityLogging:
     """Test that sensitive data is not logged."""
 
     @patch("app.clients.vault.hvac.Client")
-    def test_no_token_logging(self, mock_hvac_class: MagicMock, caplog: pytest.LogCaptureFixture) -> None:
+    def test_no_token_logging(
+        self, mock_hvac_class: MagicMock, caplog: pytest.LogCaptureFixture
+    ) -> None:
         """Vault operations do not log token values."""
         mock_client = MagicMock()
         mock_hvac_class.return_value = mock_client

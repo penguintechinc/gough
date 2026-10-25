@@ -13,9 +13,8 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from quart import Quart
-
 from app.api import agents
+from quart import Quart
 
 ENROLL_KEY = "ENROLL-TEST-KEY"
 
@@ -75,8 +74,11 @@ class _Query:
 
     def _matches(self) -> list[Any]:
         table = self._cond.preds[0][0]
-        return [r for r in self._db.rows[table]
-                if all(getattr(r, f) == v for _, f, v in self._cond.preds)]
+        return [
+            r
+            for r in self._db.rows[table]
+            if all(getattr(r, f) == v for _, f, v in self._cond.preds)
+        ]
 
     def select(self, **_: Any) -> "_Query":
         return self
@@ -119,9 +121,15 @@ class FakeDAL:
 
 def _key_row(key_id: int = 1, revoked: bool = False) -> dict[str, Any]:
     """Build an unused, unexpired enrollment key row for ENROLL_KEY."""
-    return {"id": key_id, "key_hash": hashlib.sha256(ENROLL_KEY.encode()).hexdigest(),
-            "created_by": 1, "expires_at": datetime.utcnow() + timedelta(hours=1),
-            "is_used": False, "revoked": revoked, "metadata": None}
+    return {
+        "id": key_id,
+        "key_hash": hashlib.sha256(ENROLL_KEY.encode()).hexdigest(),
+        "created_by": 1,
+        "expires_at": datetime.utcnow() + timedelta(hours=1),
+        "is_used": False,
+        "revoked": revoked,
+        "metadata": None,
+    }
 
 
 def _innermost(handler: Any) -> Any:
@@ -141,7 +149,9 @@ def app() -> Quart:
 
 
 @pytest.mark.asyncio
-async def test_revoke_handler_is_a_soft_delete(app: Quart, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_revoke_handler_is_a_soft_delete(
+    app: Quart, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Revoking sets revoked=True and keeps the row; nothing is deleted."""
     db = FakeDAL([_key_row(key_id=7)])
     monkeypatch.setattr(agents, "get_db", lambda: db)
@@ -161,7 +171,9 @@ async def test_revoke_handler_is_a_soft_delete(app: Quart, monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_revoke_unknown_key_is_404(app: Quart, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_revoke_unknown_key_is_404(
+    app: Quart, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Revoking a missing key returns 404 and does not create anything."""
     db = FakeDAL([])
     monkeypatch.setattr(agents, "get_db", lambda: db)
@@ -172,7 +184,9 @@ async def test_revoke_unknown_key_is_404(app: Quart, monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_enroll_rejects_revoked_key(app: Quart, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_enroll_rejects_revoked_key(
+    app: Quart, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A revoked enrollment key is refused with 401 before any agent row is created."""
     db = FakeDAL([_key_row(revoked=True)])
     monkeypatch.setattr(agents, "get_db", lambda: db)
@@ -181,8 +195,10 @@ async def test_enroll_rejects_revoked_key(app: Quart, monkeypatch: pytest.Monkey
 
     async def _call() -> tuple[Any, int]:
         async with app.test_request_context(
-            "/api/v1/agents/enroll", method="POST",
-            headers={"X-Enrollment-Key": ENROLL_KEY}, json={"hostname": "node-a"},
+            "/api/v1/agents/enroll",
+            method="POST",
+            headers={"X-Enrollment-Key": ENROLL_KEY},
+            json={"hostname": "node-a"},
         ):
             response, status = await handler()
             return await response.get_json(), status

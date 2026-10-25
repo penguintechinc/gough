@@ -10,31 +10,34 @@ Tests for edge cases and error scenarios not covered in test_migration.py:
 - Safety envelope endpoint
 """
 
-import pytest
 import json
-from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+
+import pytest
 
 
 @pytest.fixture
 def migration_app(monkeypatch, app):
     """Setup migration API blueprint with auth stubbed."""
     import importlib
+
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
 
     def _passthrough_decorator(*dargs, **dkwargs):
         if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
             return dargs[0]
+
         def _wrap(fn):
             return fn
+
         return _wrap
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
     import app.api.migration as migration_mod
+
     migration_mod = importlib.reload(migration_mod)
 
     app.register_blueprint(migration_mod.migration_bp, url_prefix="/api/v1/migration")
@@ -42,6 +45,7 @@ def migration_app(monkeypatch, app):
     @app.before_request
     async def _inject_context():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "username": "admin",
@@ -56,12 +60,14 @@ def migration_app(monkeypatch, app):
         g.tenant_context = SimpleNamespace(tenant_id="default")
         g.principal = SimpleNamespace(
             sub="admin",
-            scopes=frozenset([
-                "gough.migration.trigger",
-                "gough.migration.policy",
-                "gough.capacity.read",
-                "gough.migration.override-lock",
-            ]),
+            scopes=frozenset(
+                [
+                    "gough.migration.trigger",
+                    "gough.migration.policy",
+                    "gough.capacity.read",
+                    "gough.migration.override-lock",
+                ]
+            ),
             mfa_verified=True,
         )
         g.cluster_id = "test-cluster"
@@ -95,8 +101,6 @@ async def test_patch_policy_non_json_body(migration_app):
     assert response.status_code == 422
 
 
-
-
 @pytest.mark.asyncio
 async def test_patch_policy_invalid_evaluation_interval(migration_app):
     """Test PATCH rejects evaluation_interval_seconds < 10."""
@@ -125,6 +129,7 @@ async def test_patch_policy_invalid_rollback_window(migration_app):
 async def test_patch_policy_waddleai_risk_threshold(migration_app):
     """Test PATCH accepts waddleai_risk_threshold in 0.0..1.0."""
     from unittest.mock import MagicMock, patch
+
     mock_db = MagicMock()
     # Include migration_policy but not nodes to avoid db(db.nodes.id > 0) TypeError
     mock_db.tables = ["migration_policy"]
@@ -193,11 +198,11 @@ async def test_trigger_migration_ignore_lock_requires_scope(migration_app):
     """Test POST ignores ignore_lock=true without override-lock scope."""
     # Re-create app with limited scopes
     app = migration_app
-    old_before_request = app.before_request_funcs[None][0]
 
     @app.before_request
     async def _limited_scopes():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "username": "admin",
@@ -342,11 +347,11 @@ async def test_scope_required_admin_superscope(migration_app):
 async def test_scope_required_maintainer_read_only(migration_app):
     """Test _scope_required accepts maintainer for read-only scopes."""
     # Modify app to use maintainer role
-    old_handler = migration_app.before_request_funcs[None][0]
 
     @migration_app.before_request
     async def _maintainer_context():
         from quart import g
+
         g.current_user = {
             "id": 2,
             "username": "maintainer",
@@ -377,10 +382,12 @@ async def test_scope_required_maintainer_read_only(migration_app):
 @pytest.mark.asyncio
 async def test_mfa_required_check(migration_app):
     """Test _mfa_required decorator checks MFA status."""
+
     # Modify app to disable MFA
     @migration_app.before_request
     async def _no_mfa_context():
         from quart import g
+
         g.current_user = {"id": 3, "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
         g.principal = SimpleNamespace(
@@ -392,7 +399,7 @@ async def test_mfa_required_check(migration_app):
         g.mfa_verified = False
 
     client = migration_app.test_client()
-    response = await client.post(
+    await client.post(
         "/api/v1/migration/biome/1",
         data=json.dumps({"reason": "test"}),
         headers={"Content-Type": "application/json"},

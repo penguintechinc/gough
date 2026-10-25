@@ -6,15 +6,13 @@ and compromise response, per spec "API Surface -> Integrations".
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
-from app.api.integrations import SUPPORTED_PRODUCTS, integrations_bp
+from app.api.integrations import SUPPORTED_PRODUCTS
 from app.workers.integration_provisioner import (
-    Credentials,
     CredentialMissingError,
+    Credentials,
     IntegrationError,
     ScopeValidationResult,
 )
@@ -71,9 +69,7 @@ class TestGetIntegrationStatus:
     @pytest.mark.asyncio
     async def test_status_returns_all_products(self, client, auth_headers):
         """Status endpoint returns integration rows for all products."""
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov._read_credential = MagicMock(return_value=None)
             mock_prov_factory.return_value = prov
@@ -97,9 +93,7 @@ class TestGetProductConfig:
     @pytest.mark.asyncio
     async def test_get_known_product(self, client, auth_headers, sample_creds):
         """Get config for a known product."""
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov._read_credential = MagicMock(return_value=sample_creds)
             mock_prov_factory.return_value = prov
@@ -140,9 +134,7 @@ class TestConfigureIntegration:
     @pytest.mark.asyncio
     async def test_configure_success(self, client, auth_headers, sample_creds):
         """Configure integration successfully provisions service account."""
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.ensure_service_account = AsyncMock(return_value=sample_creds)
             mock_prov_factory.return_value = prov
@@ -160,9 +152,7 @@ class TestConfigureIntegration:
     @pytest.mark.asyncio
     async def test_configure_api_error(self, client, auth_headers):
         """Configure with API error returns 500."""
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.ensure_service_account = AsyncMock(
                 side_effect=IntegrationError("API unreachable")
@@ -194,9 +184,7 @@ class TestRotateCredentials:
             issued_at="2026-05-28T00:00:00Z",
             expires_at="2026-08-27T00:00:00Z",
         )
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.rotate = AsyncMock(return_value=new_creds)
             mock_prov_factory.return_value = prov
@@ -214,9 +202,7 @@ class TestRotateCredentials:
     @pytest.mark.asyncio
     async def test_rotate_no_credentials(self, client, auth_headers):
         """Rotate with no existing credentials returns 404."""
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.rotate = AsyncMock(
                 side_effect=CredentialMissingError("No credentials")
@@ -246,9 +232,7 @@ class TestCompromiseResponse:
             issued_at="2026-05-28T00:00:00Z",
             expires_at="2026-08-27T00:00:00Z",
         )
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.compromise_response = AsyncMock(return_value=new_creds)
             mock_prov_factory.return_value = prov
@@ -277,9 +261,7 @@ class TestValidateScope:
             missing_scopes=[],
             expires_at="2026-07-27T00:00:00Z",
         )
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.validate_scope = AsyncMock(return_value=result)
             mock_prov_factory.return_value = prov
@@ -305,9 +287,7 @@ class TestValidateScope:
             missing_scopes=["tobogganing.health.read"],
             expires_at="2026-07-27T00:00:00Z",
         )
-        with patch(
-            "app.api.integrations._get_provisioner"
-        ) as mock_prov_factory:
+        with patch("app.api.integrations._get_provisioner") as mock_prov_factory:
             prov = AsyncMock()
             prov.validate_scope = AsyncMock(return_value=result)
             mock_prov_factory.return_value = prov

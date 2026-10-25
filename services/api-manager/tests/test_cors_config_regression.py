@@ -12,10 +12,9 @@ default.
 
 from __future__ import annotations
 
-from quart import Quart
-
 from app import _resolve_cors_origins
 from app.config import Config
+from quart import Quart
 
 
 def _make_app(**config_overrides: object) -> Quart:

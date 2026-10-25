@@ -11,7 +11,6 @@ from unittest.mock import MagicMock
 import httpx
 import psutil
 import pytest
-
 from agent import heartbeat as heartbeat_mod
 from agent.auth import AgentAuth
 from agent.config import AgentConfig
@@ -132,7 +131,9 @@ async def test_commands_are_dispatched_and_handler_errors_isolated() -> None:
 
 async def test_commands_ignored_without_handler() -> None:
     """Commands in the response are silently skipped when no handler is registered."""
-    svc, _ = make_service(lambda req: httpx.Response(200, json={"commands": [{"type": "x"}]}))
+    svc, _ = make_service(
+        lambda req: httpx.Response(200, json={"commands": [{"type": "x"}]})
+    )
     await svc._send_heartbeat()  # must not raise
     await svc.stop()
 
@@ -215,7 +216,9 @@ async def test_loop_counts_consecutive_failures_and_resets_on_success() -> None:
     assert svc._consecutive_failures == 0
 
 
-async def test_loop_reaches_max_failures_and_keeps_retrying(caplog: pytest.LogCaptureFixture) -> None:
+async def test_loop_reaches_max_failures_and_keeps_retrying(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """After max consecutive failures the loop logs critical but does not stop."""
     hits = 0
     limit = asyncio.Event()

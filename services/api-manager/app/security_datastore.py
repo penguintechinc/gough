@@ -283,9 +283,11 @@ class PyDALUserDatastore:
             else:
                 row = db(db.auth_user.email == email).select().first()
         elif "fs_uniquifier" in kwargs:
-            row = db(
-                db.auth_user.fs_uniquifier == kwargs["fs_uniquifier"]
-            ).select().first()
+            row = (
+                db(db.auth_user.fs_uniquifier == kwargs["fs_uniquifier"])
+                .select()
+                .first()
+            )
         else:
             # Generic query for other attributes
             query = None
@@ -368,10 +370,14 @@ class PyDALUserDatastore:
             return False
 
         # Check if already has role
-        existing = db(
-            (db.auth_user_roles.user_id == user.id)
-            & (db.auth_user_roles.role_id == role_obj.id)
-        ).select().first()
+        existing = (
+            db(
+                (db.auth_user_roles.user_id == user.id)
+                & (db.auth_user_roles.role_id == role_obj.id)
+            )
+            .select()
+            .first()
+        )
 
         if existing:
             return False
@@ -433,9 +439,7 @@ class PyDALUserDatastore:
     def activate_user(self, user: PyDALUser) -> bool:
         """Activate a user."""
         db = self.db
-        db(db.auth_user.id == user.id).update(
-            active=True, updated_at=datetime.utcnow()
-        )
+        db(db.auth_user.id == user.id).update(active=True, updated_at=datetime.utcnow())
         db.commit()
         user.active = True
         return True
@@ -472,9 +476,7 @@ class PyDALUserDatastore:
             if model.id:
                 # Update existing role
                 update_data = {
-                    k: v
-                    for k, v in model._data.items()
-                    if k != "id" and v is not None
+                    k: v for k, v in model._data.items() if k != "id" and v is not None
                 }
                 db(db.auth_role.id == model.id).update(**update_data)
             else:

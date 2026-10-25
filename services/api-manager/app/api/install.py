@@ -39,7 +39,9 @@ async def get_installer() -> Any:
     """Serve the installer script from the cached biomes release (anonymous, rate-limited)."""
     version = _installer_version()
     if not version:
-        return err_not_found(f"installer version not configured ({_INSTALLER_VERSION_ENV})")
+        return err_not_found(
+            f"installer version not configured ({_INSTALLER_VERSION_ENV})"
+        )
     try:
         validate_version(version)
     except BundleCacheKeyError as exc:
@@ -58,7 +60,9 @@ async def get_installer_sha256() -> Any:
     """Serve the sha256 of the installer in ``sha256sum`` format (anonymous, rate-limited)."""
     version = _installer_version()
     if not version:
-        return err_not_found(f"installer version not configured ({_INSTALLER_VERSION_ENV})")
+        return err_not_found(
+            f"installer version not configured ({_INSTALLER_VERSION_ENV})"
+        )
     try:
         validate_version(version)
     except BundleCacheKeyError as exc:

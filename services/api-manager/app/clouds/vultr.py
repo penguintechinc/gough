@@ -84,10 +84,12 @@ class VultrCloud(BaseCloud):
         """Get or create a requests session with authentication headers."""
         if self._session is None:
             self._session = requests.Session()
-            self._session.headers.update({
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            })
+            self._session.headers.update(
+                {
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json",
+                }
+            )
         return self._session
 
     def _request(
@@ -137,14 +139,10 @@ class VultrCloud(BaseCloud):
             return {}
 
         if response.status_code in (401, 403):
-            raise CloudAuthError(
-                f"Vultr authentication failed: {response.text}"
-            )
+            raise CloudAuthError(f"Vultr authentication failed: {response.text}")
 
         if response.status_code == 404:
-            raise CloudNotFoundError(
-                f"Resource not found: {response.text}"
-            )
+            raise CloudNotFoundError(f"Resource not found: {response.text}")
 
         if response.status_code in (402, 429):
             raise CloudQuotaError(
@@ -215,9 +213,7 @@ class VultrCloud(BaseCloud):
         date_created = instance_data.get("date_created")
         if date_created:
             try:
-                created_at = datetime.fromisoformat(
-                    date_created.replace("Z", "+00:00")
-                )
+                created_at = datetime.fromisoformat(date_created.replace("Z", "+00:00"))
             except ValueError:
                 log.warning(f"Failed to parse date_created: {date_created}")
 
@@ -631,13 +627,15 @@ class VultrCloud(BaseCloud):
                 response = self._request("GET", "/os", params=params)
 
                 for os_data in response.get("os", []):
-                    images.append({
-                        "id": os_data.get("id"),
-                        "name": os_data.get("name"),
-                        "arch": os_data.get("arch"),
-                        "family": os_data.get("family"),
-                        "type": "os",
-                    })
+                    images.append(
+                        {
+                            "id": os_data.get("id"),
+                            "name": os_data.get("name"),
+                            "arch": os_data.get("arch"),
+                            "family": os_data.get("family"),
+                            "type": "os",
+                        }
+                    )
 
                 meta = response.get("meta", {})
                 links = meta.get("links", {})
@@ -655,13 +653,15 @@ class VultrCloud(BaseCloud):
                 response = self._request("GET", "/applications", params=params)
 
                 for app_data in response.get("applications", []):
-                    images.append({
-                        "id": f"app-{app_data.get('id')}",
-                        "name": app_data.get("name"),
-                        "short_name": app_data.get("short_name"),
-                        "deploy_name": app_data.get("deploy_name"),
-                        "type": "app",
-                    })
+                    images.append(
+                        {
+                            "id": f"app-{app_data.get('id')}",
+                            "name": app_data.get("name"),
+                            "short_name": app_data.get("short_name"),
+                            "deploy_name": app_data.get("deploy_name"),
+                            "type": "app",
+                        }
+                    )
 
                 meta = response.get("meta", {})
                 links = meta.get("links", {})
@@ -699,18 +699,20 @@ class VultrCloud(BaseCloud):
             response = self._request("GET", "/plans", params=params)
 
             for plan_data in response.get("plans", []):
-                sizes.append({
-                    "id": plan_data.get("id"),
-                    "name": plan_data.get("id"),  # Vultr uses ID as name
-                    "vcpu_count": plan_data.get("vcpu_count"),
-                    "ram": plan_data.get("ram"),
-                    "disk": plan_data.get("disk"),
-                    "disk_count": plan_data.get("disk_count"),
-                    "bandwidth": plan_data.get("bandwidth"),
-                    "monthly_cost": plan_data.get("monthly_cost"),
-                    "type": plan_data.get("type"),
-                    "locations": plan_data.get("locations", []),
-                })
+                sizes.append(
+                    {
+                        "id": plan_data.get("id"),
+                        "name": plan_data.get("id"),  # Vultr uses ID as name
+                        "vcpu_count": plan_data.get("vcpu_count"),
+                        "ram": plan_data.get("ram"),
+                        "disk": plan_data.get("disk"),
+                        "disk_count": plan_data.get("disk_count"),
+                        "bandwidth": plan_data.get("bandwidth"),
+                        "monthly_cost": plan_data.get("monthly_cost"),
+                        "type": plan_data.get("type"),
+                        "locations": plan_data.get("locations", []),
+                    }
+                )
 
             meta = response.get("meta", {})
             links = meta.get("links", {})
@@ -731,13 +733,15 @@ class VultrCloud(BaseCloud):
         response = self._request("GET", "/regions")
 
         for region_data in response.get("regions", []):
-            regions.append({
-                "id": region_data.get("id"),
-                "city": region_data.get("city"),
-                "country": region_data.get("country"),
-                "continent": region_data.get("continent"),
-                "options": region_data.get("options", []),
-            })
+            regions.append(
+                {
+                    "id": region_data.get("id"),
+                    "city": region_data.get("city"),
+                    "country": region_data.get("country"),
+                    "continent": region_data.get("continent"),
+                    "options": region_data.get("options", []),
+                }
+            )
 
         return regions
 
@@ -758,12 +762,14 @@ class VultrCloud(BaseCloud):
             response = self._request("GET", "/ssh-keys", params=params)
 
             for key_data in response.get("ssh_keys", []):
-                ssh_keys.append({
-                    "id": key_data.get("id"),
-                    "name": key_data.get("name"),
-                    "ssh_key": key_data.get("ssh_key"),
-                    "date_created": key_data.get("date_created"),
-                })
+                ssh_keys.append(
+                    {
+                        "id": key_data.get("id"),
+                        "name": key_data.get("name"),
+                        "ssh_key": key_data.get("ssh_key"),
+                        "date_created": key_data.get("date_created"),
+                    }
+                )
 
             meta = response.get("meta", {})
             links = meta.get("links", {})
@@ -841,17 +847,10 @@ class VultrCloud(BaseCloud):
         """
         # Vultr provides a web-based VNC console
         # This returns the URL rather than raw output
-        response = self._request(
-            "GET",
-            f"/instances/{machine_id}/vnc-url"
-        )
+        response = self._request("GET", f"/instances/{machine_id}/vnc-url")
         return response.get("vnc_url", {}).get("url", "")
 
-    def create_snapshot(
-        self,
-        machine_id: str,
-        description: str = ""
-    ) -> dict:
+    def create_snapshot(self, machine_id: str, description: str = "") -> dict:
         """Create a snapshot of an instance.
 
         Args:
@@ -885,15 +884,17 @@ class VultrCloud(BaseCloud):
             response = self._request("GET", "/snapshots", params=params)
 
             for snapshot_data in response.get("snapshots", []):
-                snapshots.append({
-                    "id": snapshot_data.get("id"),
-                    "description": snapshot_data.get("description"),
-                    "date_created": snapshot_data.get("date_created"),
-                    "size": snapshot_data.get("size"),
-                    "status": snapshot_data.get("status"),
-                    "os_id": snapshot_data.get("os_id"),
-                    "app_id": snapshot_data.get("app_id"),
-                })
+                snapshots.append(
+                    {
+                        "id": snapshot_data.get("id"),
+                        "description": snapshot_data.get("description"),
+                        "date_created": snapshot_data.get("date_created"),
+                        "size": snapshot_data.get("size"),
+                        "status": snapshot_data.get("status"),
+                        "os_id": snapshot_data.get("os_id"),
+                        "app_id": snapshot_data.get("app_id"),
+                    }
+                )
 
             meta = response.get("meta", {})
             links = meta.get("links", {})

@@ -75,7 +75,9 @@ class BundleImportRequest(BaseModel):
 def _actor() -> str:
     """Return the authenticated principal's subject for the import ledger."""
     user = get_current_user() or {}
-    return str((user.get("_jwt_payload") or {}).get("sub", str(user.get("id", "unknown"))))
+    return str(
+        (user.get("_jwt_payload") or {}).get("sub", str(user.get("id", "unknown")))
+    )
 
 
 @biome_cache_bp.route("/imports", methods=["POST"])

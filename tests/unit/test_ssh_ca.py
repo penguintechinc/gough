@@ -8,28 +8,27 @@ Tests for:
 """
 
 import asyncio
-import os
+import importlib
 import subprocess
 import sys
-from pathlib import Path
-from unittest.mock import MagicMock, AsyncMock, patch, Mock
 from datetime import datetime
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = "/home/penguin/code/gough/services/api-manager"
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
-    if _mod == 'app' or _mod.startswith('app.'):
+    if _mod == "app" or _mod.startswith("app."):
         del sys.modules[_mod]
 
-from app.ssh_ca import (
-    SSHCAException,
-    SSHCertificateAuthority,
-    generate_key_id,
-    validate_principals,
-)
+_mod_app_ssh_ca = importlib.import_module("app.ssh_ca")
+SSHCAException = _mod_app_ssh_ca.SSHCAException
+SSHCertificateAuthority = _mod_app_ssh_ca.SSHCertificateAuthority
+generate_key_id = _mod_app_ssh_ca.generate_key_id
+validate_principals = _mod_app_ssh_ca.validate_principals
 
 
 class TestSSHCAException:
@@ -85,8 +84,9 @@ class TestSSHCertificateAuthority:
         ca = SSHCertificateAuthority(mock_app)
 
         # Check method exists and is async
-        assert hasattr(ca, 'ensure_ca_initialized')
+        assert hasattr(ca, "ensure_ca_initialized")
         assert callable(ca.ensure_ca_initialized)
+
 
 class TestGenerateKeyId:
     """Tests for generate_key_id function."""
@@ -227,12 +227,14 @@ class TestSSHCASignKey:
         ca = SSHCertificateAuthority()
 
         with pytest.raises(ValueError) as exc_info:
-            asyncio.run(ca.sign_user_key(
-                public_key="ssh-rsa AAAAB3...",
-                principals=["user"],
-                validity_seconds=999999,  # Exceeds MAX_VALIDITY_SECONDS
-                key_id="key123",
-            ))
+            asyncio.run(
+                ca.sign_user_key(
+                    public_key="ssh-rsa AAAAB3...",
+                    principals=["user"],
+                    validity_seconds=999999,  # Exceeds MAX_VALIDITY_SECONDS
+                    key_id="key123",
+                )
+            )
 
         assert "exceeds maximum" in str(exc_info.value)
 
@@ -241,12 +243,14 @@ class TestSSHCASignKey:
         ca = SSHCertificateAuthority()
 
         with pytest.raises(ValueError) as exc_info:
-            asyncio.run(ca.sign_user_key(
-                public_key="ssh-rsa AAAAB3...",
-                principals=[],  # Empty
-                validity_seconds=3600,
-                key_id="key123",
-            ))
+            asyncio.run(
+                ca.sign_user_key(
+                    public_key="ssh-rsa AAAAB3...",
+                    principals=[],  # Empty
+                    validity_seconds=3600,
+                    key_id="key123",
+                )
+            )
 
         assert "At least one principal" in str(exc_info.value)
 
@@ -276,12 +280,14 @@ class TestSSHCASignKey:
         ca.app = mock_app
 
         with patch("app.ssh_ca.current_app", mock_app):
-            result = asyncio.run(ca.sign_user_key(
-                public_key="ssh-rsa AAAAB3...",
-                principals=["user"],
-                validity_seconds=3600,
-                key_id="key123",
-            ))
+            result = asyncio.run(
+                ca.sign_user_key(
+                    public_key="ssh-rsa AAAAB3...",
+                    principals=["user"],
+                    validity_seconds=3600,
+                    key_id="key123",
+                )
+            )
 
         assert isinstance(result, str)
         assert mock_run.called
@@ -306,21 +312,21 @@ class TestSSHCASignKey:
 
         with patch("app.ssh_ca.current_app", mock_app):
             with pytest.raises(RuntimeError) as exc_info:
-                asyncio.run(ca.sign_user_key(
-                    public_key="ssh-rsa AAAAB3...",
-                    principals=["user"],
-                    validity_seconds=3600,
-                    key_id="key123",
-                ))
+                asyncio.run(
+                    ca.sign_user_key(
+                        public_key="ssh-rsa AAAAB3...",
+                        principals=["user"],
+                        validity_seconds=3600,
+                        key_id="key123",
+                    )
+                )
 
             assert "Failed to sign SSH key" in str(exc_info.value)
 
     @patch("app.ssh_ca.SSHCertificateAuthority._get_private_key_path")
     @patch("pathlib.Path.write_text")
     @patch("subprocess.run")
-    def test_sign_user_key_timeout(
-        self, mock_run, mock_write_text, mock_get_key_path
-    ):
+    def test_sign_user_key_timeout(self, mock_run, mock_write_text, mock_get_key_path):
         """Test sign_user_key handles timeout."""
         mock_get_key_path.return_value = Path("/var/lib/gough/ssh_ca/ca_key")
         mock_run.side_effect = subprocess.TimeoutExpired("ssh-keygen", 30)
@@ -333,12 +339,14 @@ class TestSSHCASignKey:
 
         with patch("app.ssh_ca.current_app", mock_app):
             with pytest.raises(RuntimeError) as exc_info:
-                asyncio.run(ca.sign_user_key(
-                    public_key="ssh-rsa AAAAB3...",
-                    principals=["user"],
-                    validity_seconds=3600,
-                    key_id="key123",
-                ))
+                asyncio.run(
+                    ca.sign_user_key(
+                        public_key="ssh-rsa AAAAB3...",
+                        principals=["user"],
+                        validity_seconds=3600,
+                        key_id="key123",
+                    )
+                )
 
             assert "timed out" in str(exc_info.value)
 
@@ -362,12 +370,14 @@ class TestSSHCASignKey:
 
         with patch("app.ssh_ca.current_app", mock_app):
             with pytest.raises(RuntimeError) as exc_info:
-                asyncio.run(ca.sign_user_key(
-                    public_key="ssh-rsa AAAAB3...",
-                    principals=["user"],
-                    validity_seconds=3600,
-                    key_id="key123",
-                ))
+                asyncio.run(
+                    ca.sign_user_key(
+                        public_key="ssh-rsa AAAAB3...",
+                        principals=["user"],
+                        validity_seconds=3600,
+                        key_id="key123",
+                    )
+                )
 
             assert "not created" in str(exc_info.value)
 

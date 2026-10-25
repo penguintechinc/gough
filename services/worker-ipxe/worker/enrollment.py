@@ -5,10 +5,10 @@ Registers the worker with the central api-manager on startup.
 """
 
 import asyncio
-import httpx
-from penguintechinc_utils import get_logger
 from typing import Optional
 
+import httpx
+from penguintechinc_utils import get_logger
 from worker.config import WorkerConfig
 
 logger = get_logger(__name__)
@@ -67,7 +67,11 @@ class EnrollmentManager:
                     logger.info(
                         "worker_enrolled",
                         worker_id=self.config.worker_id,
-                        session_token=self.session_token[:16] + "..." if self.session_token else None,
+                        session_token=(
+                            self.session_token[:16] + "..."
+                            if self.session_token
+                            else None
+                        ),
                     )
                     return True
                 else:

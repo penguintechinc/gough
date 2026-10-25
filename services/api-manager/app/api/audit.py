@@ -27,20 +27,21 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, AsyncIterator, Optional
 
-from prometheus_client import Counter
-
-from ..metrics import get_or_create
-from quart import Blueprint, Response, current_app, g, jsonify, request
-from quart import stream_with_context
-
-from app.security.audit_chain import (
-    AuditEventWriter,
-    canonicalize_record,
-    verify_chain,
-)
+from app.security.audit_chain import AuditEventWriter, canonicalize_record, verify_chain
 from app.security.scope_enforcement import require_scopes
+from prometheus_client import Counter
+from quart import (
+    Blueprint,
+    Response,
+    current_app,
+    g,
+    jsonify,
+    request,
+    stream_with_context,
+)
 
 from ..db.run_db import run_db
+from ..metrics import get_or_create
 from ..models import get_db
 
 log = logging.getLogger(__name__)
@@ -219,9 +220,7 @@ def _build_audit_writer(cluster_id: str) -> AuditEventWriter:
             return sig.encode("utf-8") if isinstance(sig, str) else sig
 
         signer = _signer
-    return AuditEventWriter(
-        db_session=get_db(), cluster_id=cluster_id, signer=signer
-    )
+    return AuditEventWriter(db_session=get_db(), cluster_id=cluster_id, signer=signer)
 
 
 # =============================================================================
@@ -263,9 +262,7 @@ async def list_audit_events():
     fmt = args.get("format", "json").lower()
     if fmt not in {"json", "jsonl"}:
         return (
-            jsonify(
-                {"error": "invalid_format", "allowed": ["json", "jsonl"]}
-            ),
+            jsonify({"error": "invalid_format", "allowed": ["json", "jsonl"]}),
             400,
         )
 
@@ -280,9 +277,7 @@ async def list_audit_events():
             jsonify(
                 {
                     "error": "forbidden",
-                    "message": (
-                        "cluster_id filter requires gough.cluster.superadmin"
-                    ),
+                    "message": ("cluster_id filter requires gough.cluster.superadmin"),
                 }
             ),
             403,
@@ -321,9 +316,7 @@ async def list_audit_events():
         query = query & (db.audit_events.id > str(cursor_uuid))
 
     def _fetch_page() -> Any:
-        return db(query).select(
-            orderby=db.audit_events.id, limitby=(0, page_size + 1)
-        )
+        return db(query).select(orderby=db.audit_events.id, limitby=(0, page_size + 1))
 
     rows = await run_db(_fetch_page)
     has_more = len(rows) > page_size

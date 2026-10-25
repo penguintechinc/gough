@@ -28,7 +28,9 @@ class AuthTagMismatchError(Exception):
     """Raised when envelope authentication tag verification fails (tampering detected)."""
 
     def __init__(
-        self, message: str = "Envelope authentication tag mismatch", joiner_secret_id: uuid.UUID | None = None
+        self,
+        message: str = "Envelope authentication tag mismatch",
+        joiner_secret_id: uuid.UUID | None = None,
     ) -> None:
         """Initialize exception with optional joiner_secret_id."""
         super().__init__(message)
@@ -86,7 +88,9 @@ def zero_bytes(buf: bytes | bytearray) -> None:
 
 
 def encrypt_envelope(
-    plaintext: bytes, vault_client: "VaultClient", vault_kek_name: str = "gough-joiner-dek-wrap"
+    plaintext: bytes,
+    vault_client: "VaultClient",
+    vault_kek_name: str = "gough-joiner-dek-wrap",
 ) -> EnvelopeCiphertext:
     """Encrypt plaintext with AES-256-GCM envelope and Vault-wrapped DEK.
 
@@ -124,7 +128,11 @@ def encrypt_envelope(
 
     # Wrap DEK via Vault transit engine
     dek_wrapped_response = vault_client.transit_encrypt(vault_kek_name, dek)
-    dek_wrapped = dek_wrapped_response.ciphertext.encode() if isinstance(dek_wrapped_response.ciphertext, str) else dek_wrapped_response.ciphertext
+    dek_wrapped = (
+        dek_wrapped_response.ciphertext.encode()
+        if isinstance(dek_wrapped_response.ciphertext, str)
+        else dek_wrapped_response.ciphertext
+    )
 
     # Zero DEK from memory
     zero_bytes(dek)
@@ -139,7 +147,9 @@ def encrypt_envelope(
 
 
 def decrypt_envelope(
-    envelope: EnvelopeCiphertext, vault_client: "VaultClient", joiner_secret_id: uuid.UUID | None = None
+    envelope: EnvelopeCiphertext,
+    vault_client: "VaultClient",
+    joiner_secret_id: uuid.UUID | None = None,
 ) -> bytes:
     """Decrypt envelope ciphertext using Vault-unwrapped DEK.
 
@@ -163,8 +173,14 @@ def decrypt_envelope(
         Exceptions from vault_client are propagated unchanged.
     """
     # Unwrap DEK via Vault transit engine
-    dek_wrapped_str = envelope.dek_wrapped.decode() if isinstance(envelope.dek_wrapped, bytes) else envelope.dek_wrapped
-    dek_unwrapped_response = vault_client.transit_decrypt(envelope.vault_kek_name, dek_wrapped_str)
+    dek_wrapped_str = (
+        envelope.dek_wrapped.decode()
+        if isinstance(envelope.dek_wrapped, bytes)
+        else envelope.dek_wrapped
+    )
+    dek_unwrapped_response = vault_client.transit_decrypt(
+        envelope.vault_kek_name, dek_wrapped_str
+    )
     dek = dek_unwrapped_response.plaintext
 
     try:

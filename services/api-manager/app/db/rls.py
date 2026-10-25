@@ -90,7 +90,9 @@ _UNSET_TENANT_GUC: str = ""
 # '__all__' like everywhere else.
 CROSS_TENANT_SENTINEL: str = "__all__"
 
-_current_tenant: ContextVar[str | None] = ContextVar("gough_rls_current_tenant", default=None)
+_current_tenant: ContextVar[str | None] = ContextVar(
+    "gough_rls_current_tenant", default=None
+)
 
 
 def set_current_tenant(tenant_id: str | None) -> None:
@@ -177,7 +179,9 @@ def install_rls_events(engine: Engine) -> None:
         return
 
     @event.listens_for(engine, "checkout")
-    def _rls_checkout(dbapi_connection: Any, connection_record: Any, connection_proxy: Any) -> None:  # noqa: ARG001
+    def _rls_checkout(
+        dbapi_connection: Any, connection_record: Any, connection_proxy: Any
+    ) -> None:  # noqa: ARG001
         value = _resolve_guc_value()
         try:
             _apply_tenant_guc(dbapi_connection, value)
@@ -190,7 +194,9 @@ def install_rls_events(engine: Engine) -> None:
             raise
 
     @event.listens_for(engine, "checkin")
-    def _rls_checkin(dbapi_connection: Any, connection_record: Any) -> None:  # noqa: ARG001
+    def _rls_checkin(
+        dbapi_connection: Any, connection_record: Any
+    ) -> None:  # noqa: ARG001
         try:
             _apply_tenant_guc(dbapi_connection, _UNSET_TENANT_GUC)
         except Exception:

@@ -8,7 +8,6 @@ import struct
 from typing import Any
 
 import pytest
-
 from worker.config import WorkerConfig
 from worker.services.dhcp_proxy import DHCPProxyServer
 
@@ -28,7 +27,9 @@ PXE_DISCOVER = bytes.fromhex(PXE_DISCOVER_HEX)
 ADDR = ("192.168.50.10", 68)
 
 
-def _server(monkeypatch: pytest.MonkeyPatch, boot_url: str = "http://10.1.1.5:8080") -> DHCPProxyServer:
+def _server(
+    monkeypatch: pytest.MonkeyPatch, boot_url: str = "http://10.1.1.5:8080"
+) -> DHCPProxyServer:
     """Create a proxy server whose boot URL is fixed by config."""
     monkeypatch.delenv("DHCP_MAX_INFLIGHT", raising=False)
     cfg = WorkerConfig(
@@ -42,8 +43,16 @@ def _server(monkeypatch: pytest.MonkeyPatch, boot_url: str = "http://10.1.1.5:80
     return DHCPProxyServer(cfg)
 
 
-def _packet(options: bytes, *, op: int = 1, xid: int = 0x11223344, flags: int = 0,
-            chaddr: bytes = b"\xaa\xbb\xcc\xdd\xee\xff", hlen: int = 6, magic: int = 0x63825363) -> bytes:
+def _packet(
+    options: bytes,
+    *,
+    op: int = 1,
+    xid: int = 0x11223344,
+    flags: int = 0,
+    chaddr: bytes = b"\xaa\xbb\xcc\xdd\xee\xff",
+    hlen: int = 6,
+    magic: int = 0x63825363
+) -> bytes:
     """Assemble a DHCP datagram from header fields and a raw option blob."""
     # op,htype,hlen,hops | xid | secs,flags | ciaddr,yiaddr,siaddr,giaddr (zeroed)
     header = struct.pack("!BBBBIHH", op, 1, hlen, 0, xid, 0, flags) + bytes(16)
@@ -157,7 +166,9 @@ def test_is_pxe_request_detects_vendor_class(monkeypatch: pytest.MonkeyPatch) ->
     assert server._is_pxe_request({"options": {}}) is False
 
 
-def test_build_offer_round_trips_header_and_options(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_offer_round_trips_header_and_options(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The offer echoes xid, flags and chaddr, is BOOTREPLY and carries the expected options."""
     server = _server(monkeypatch, boot_url="http://10.1.1.5:8080")
     request = server._parse_dhcp_packet(PXE_DISCOVER)
@@ -189,11 +200,15 @@ def test_build_offer_length_matches_options(monkeypatch: pytest.MonkeyPatch) -> 
 
     offer = server._build_proxydhcp_offer(request)
 
-    expected_options = 3 + (2 + 9) + (2 + len(b"http://b:1")) + (2 + len(b"ipxe.efi")) + 1
+    expected_options = (
+        3 + (2 + 9) + (2 + len(b"http://b:1")) + (2 + len(b"ipxe.efi")) + 1
+    )
     assert len(offer) == 240 + expected_options
 
 
-def test_handle_discover_sends_offer_to_client_port(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_handle_discover_sends_offer_to_client_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A PXE DISCOVER triggers exactly one OFFER unicast to the client's port 68."""
     import asyncio
 
@@ -226,8 +241,12 @@ async def test_handle_ignores_non_pxe_discover(monkeypatch: pytest.MonkeyPatch) 
 @pytest.mark.parametrize(
     "options",
     [
-        bytes([60, 9]) + b"PXEClient" + bytes([53, 1, 3, 255]),  # REQUEST: not answered by this proxy
-        bytes([60, 9]) + b"PXEClient" + bytes([53, 2, 1, 1, 255]),  # malformed message-type length
+        bytes([60, 9])
+        + b"PXEClient"
+        + bytes([53, 1, 3, 255]),  # REQUEST: not answered by this proxy
+        bytes([60, 9])
+        + b"PXEClient"
+        + bytes([53, 2, 1, 1, 255]),  # malformed message-type length
         bytes([60, 9]) + b"PXEClient" + bytes([255]),  # no message-type option at all
     ],
     ids=["request", "bad-type-length", "missing-type"],
@@ -246,7 +265,9 @@ async def test_handle_skips_unhandled_or_malformed_message_types(
 
 
 @pytest.mark.asyncio
-async def test_handle_drops_unparseable_datagram(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_handle_drops_unparseable_datagram(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Garbage datagrams never reach the reply path."""
     server = _server(monkeypatch)
     transport = FakeTransport()
@@ -273,7 +294,9 @@ def test_protocol_forwards_datagrams_to_server(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_stop_closes_transport_and_cancels_inflight(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_closes_transport_and_cancels_inflight(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """stop() closes the transport first, then cancels and awaits in-flight handler tasks."""
     import asyncio
 
@@ -307,7 +330,9 @@ async def test_stop_closes_transport_and_cancels_inflight(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_start_binds_port_4011_and_stop_ends_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_start_binds_port_4011_and_stop_ends_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """start() binds the ProxyDHCP port via a datagram endpoint and runs until stop()."""
     import asyncio
 
@@ -316,7 +341,9 @@ async def test_start_binds_port_4011_and_stop_ends_loop(monkeypatch: pytest.Monk
     transport = FakeTransport()
     loop = asyncio.get_running_loop()
 
-    async def fake_endpoint(factory: Any, local_addr: tuple[str, int]) -> tuple[Any, None]:
+    async def fake_endpoint(
+        factory: Any, local_addr: tuple[str, int]
+    ) -> tuple[Any, None]:
         """Capture the bind address and return the fake transport."""
         bound.append(local_addr)
         factory()

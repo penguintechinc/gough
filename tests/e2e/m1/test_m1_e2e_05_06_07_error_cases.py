@@ -1,8 +1,6 @@
 """M1 E2E Tests 05-07: Error case validation."""
 
 import pytest
-import time
-import uuid
 
 
 def test_m1_e2e_05_egg_dependency_cycle(primary_cluster, api_client):
@@ -24,18 +22,18 @@ def test_m1_e2e_05_egg_dependency_cycle(primary_cluster, api_client):
         "biomes": [
             {"name": "biome-a", "depends_on": ["biome-b"]},
             {"name": "biome-b", "depends_on": ["biome-c"]},
-            {"name": "biome-c", "depends_on": ["biome-a"]}
-        ]
+            {"name": "biome-c", "depends_on": ["biome-a"]},
+        ],
     }
 
     resp = api_client.post("/api/v1/plans", data=cyclic_plan, timeout=10)
 
-    assert resp.status_code == 422, \
-        f"Expected 422, got {resp.status_code}"
+    assert resp.status_code == 422, f"Expected 422, got {resp.status_code}"
 
     error = resp.json()
-    assert error.get("error") == "dependency_cycle" or "cycle" in error.get("details", {}), \
-        f"Error does not indicate cycle: {error}"
+    assert error.get("error") == "dependency_cycle" or "cycle" in error.get(
+        "details", {}
+    ), f"Error does not indicate cycle: {error}"
 
     print(f"[m1-e2e-05] Correctly rejected cyclic plan: {error}")
 
@@ -56,19 +54,18 @@ def test_m1_e2e_06_disk_plan_collision(primary_cluster, api_client):
         "node_id": node_id,
         "write_files": [
             {"path": "/etc/gough/config.yaml", "content": "config1"},
-            {"path": "/etc/gough/config.yaml", "content": "config2"}  # Collision!
-        ]
+            {"path": "/etc/gough/config.yaml", "content": "config2"},  # Collision!
+        ],
     }
 
     resp = api_client.post("/api/v1/plans", data=collision_plan, timeout=10)
 
-    assert resp.status_code == 422, \
-        f"Expected 422, got {resp.status_code}"
+    assert resp.status_code == 422, f"Expected 422, got {resp.status_code}"
 
     error = resp.json()
-    assert "collision" in error.get("error", "").lower() or \
-           "collision" in str(error.get("details", "")), \
-        f"Error does not indicate collision: {error}"
+    assert "collision" in error.get("error", "").lower() or "collision" in str(
+        error.get("details", "")
+    ), f"Error does not indicate collision: {error}"
 
     print(f"[m1-e2e-06] Correctly rejected collision plan: {error}")
 
@@ -97,27 +94,28 @@ def test_m1_e2e_07_one_time_token_replay(primary_cluster, api_client):
     first_use = api_client.post(
         "/api/v1/bootstrap/exchange",
         data={"token": token, "node_id": "test-node-07"},
-        timeout=10
+        timeout=10,
     )
 
-    assert first_use.status_code == 200, \
-        f"First use failed: {first_use.status_code}"
+    assert first_use.status_code == 200, f"First use failed: {first_use.status_code}"
 
-    print(f"[m1-e2e-07] Token first use succeeded")
+    print("[m1-e2e-07] Token first use succeeded")
 
     # Second use should fail with 409
     second_use = api_client.post(
         "/api/v1/bootstrap/exchange",
         data={"token": token, "node_id": "test-node-07-2"},
-        timeout=10
+        timeout=10,
     )
 
-    assert second_use.status_code == 409, \
-        f"Expected 409 on replay, got {second_use.status_code}"
+    assert (
+        second_use.status_code == 409
+    ), f"Expected 409 on replay, got {second_use.status_code}"
 
     error = second_use.json()
-    assert error.get("error") == "token_already_used", \
-        f"Expected token_already_used error: {error}"
+    assert (
+        error.get("error") == "token_already_used"
+    ), f"Expected token_already_used error: {error}"
 
     # Verify reject counter incremented
     nonce_status = api_client.get(f"/api/v1/bootstrap/nonces/{nonce_id}", timeout=5)
@@ -126,7 +124,9 @@ def test_m1_e2e_07_one_time_token_replay(primary_cluster, api_client):
     nonce = nonce_status.json()
     assert nonce.get("reject_count", 0) >= 1, "Reject counter did not increment"
 
-    print(f"[m1-e2e-07] Token replay correctly rejected, reject_count={nonce.get('reject_count')}")
+    print(
+        f"[m1-e2e-07] Token replay correctly rejected, reject_count={nonce.get('reject_count')}"
+    )
 
 
 if __name__ == "__main__":

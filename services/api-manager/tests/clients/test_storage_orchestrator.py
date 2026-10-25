@@ -14,7 +14,6 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.clients.storage_orchestrator import (
     StorageOrchestratorUnavailable,
     execute_stage,
@@ -30,7 +29,9 @@ def _mock_channel() -> MagicMock:
 
 # regression: grpc plaintext storage_orchestrator (sec review)
 @pytest.mark.asyncio
-async def test_prod_without_tls_material_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_prod_without_tls_material_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Production (no DEBUG/TESTING opt-in, no mTLS material configured)
     must raise rather than silently falling back to a plaintext channel --
     the exact regression this fix closes."""
@@ -39,10 +40,16 @@ async def test_prod_without_tls_material_raises(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.delenv("GOUGH_SPIRE_TRUST_BUNDLE", raising=False)
 
     with (
-        patch("app.clients.storage_orchestrator.grpc.aio.insecure_channel") as mock_insecure,
-        patch("app.clients.storage_orchestrator.grpc.aio.secure_channel") as mock_secure,
+        patch(
+            "app.clients.storage_orchestrator.grpc.aio.insecure_channel"
+        ) as mock_insecure,
+        patch(
+            "app.clients.storage_orchestrator.grpc.aio.secure_channel"
+        ) as mock_secure,
     ):
-        with pytest.raises(StorageOrchestratorUnavailable, match="insecure_allowed=False"):
+        with pytest.raises(
+            StorageOrchestratorUnavailable, match="insecure_allowed=False"
+        ):
             await execute_stage(
                 cluster_id="c1",
                 stage="preflight",
@@ -57,7 +64,9 @@ async def test_prod_without_tls_material_raises(monkeypatch: pytest.MonkeyPatch)
 
 # regression: grpc plaintext storage_orchestrator (sec review)
 @pytest.mark.asyncio
-async def test_builds_secure_channel_with_certs(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_builds_secure_channel_with_certs(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """When GRPC_TLS_CERT_PEM/KEY_PEM (+ trust bundle) are configured, the
     channel MUST be ``grpc.aio.secure_channel`` built from the SAME
     env-sourced PEM material ``app.grpc_runner`` uses server-side -- never
@@ -78,7 +87,9 @@ async def test_builds_secure_channel_with_certs(monkeypatch: pytest.MonkeyPatch)
             "app.clients.storage_orchestrator.grpc.aio.secure_channel",
             return_value=mock_channel,
         ) as mock_secure,
-        patch("app.clients.storage_orchestrator.grpc.aio.insecure_channel") as mock_insecure,
+        patch(
+            "app.clients.storage_orchestrator.grpc.aio.insecure_channel"
+        ) as mock_insecure,
     ):
         result = await execute_stage(
             cluster_id="c1",
@@ -120,7 +131,9 @@ async def test_insecure_allowed_only_as_explicit_devtest_optin(
             "app.clients.storage_orchestrator.grpc.aio.insecure_channel",
             return_value=mock_channel,
         ) as mock_insecure,
-        patch("app.clients.storage_orchestrator.grpc.aio.secure_channel") as mock_secure,
+        patch(
+            "app.clients.storage_orchestrator.grpc.aio.secure_channel"
+        ) as mock_secure,
     ):
         result = await execute_stage(
             cluster_id="c1",

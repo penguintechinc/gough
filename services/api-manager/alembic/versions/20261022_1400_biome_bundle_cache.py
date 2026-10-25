@@ -14,7 +14,6 @@ unverified content.
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20261022_1400_biome_bundle_cache"
@@ -59,7 +58,9 @@ def upgrade() -> None:
             sa.Column("sha256", sa.String(64), nullable=False),
             sa.Column("size_bytes", sa.Integer(), nullable=False),
             sa.Column("content", sa.LargeBinary(), nullable=False),
-            sa.UniqueConstraint("import_id", "biome", "path", name="uq_bundle_file_path"),
+            sa.UniqueConstraint(
+                "import_id", "biome", "path", name="uq_bundle_file_path"
+            ),
         )
 
 

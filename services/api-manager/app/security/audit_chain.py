@@ -83,14 +83,13 @@ import secrets
 import threading as _threading
 import time
 import uuid
-from contextlib import contextmanager
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable, Optional, cast
 
-from pydantic import BaseModel
-
 from app.db.rls import CROSS_TENANT_SENTINEL, get_current_tenant, set_current_tenant
+from pydantic import BaseModel
 
 GENESIS_ID = uuid.UUID("00000000-0000-7000-8000-000000000000")
 ZERO_HASH = b"\x00" * 32

@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -25,8 +24,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_valida
 from quart import Blueprint, current_app, g, jsonify, request
 
 from ..db.run_db import run_db
-from ..models import get_db
 from ..middleware import auth_required
+from ..models import get_db
 from ..security.scope_enforcement import require_scopes
 
 log = logging.getLogger(__name__)
@@ -39,9 +38,7 @@ disks_bp = Blueprint("disks", __name__)
 # =============================================================================
 
 
-_VALID_FS_TYPES = frozenset(
-    {"ext4", "xfs", "btrfs", "zfs", "vfat", "swap", "none"}
-)
+_VALID_FS_TYPES = frozenset({"ext4", "xfs", "btrfs", "zfs", "vfat", "swap", "none"})
 _VALID_ENCRYPTION = frozenset({"none", "luks", "luks2"})
 _VALID_TIERS = frozenset({"fast", "bulk"})
 
@@ -109,9 +106,7 @@ class DiskPatchRequest(BaseModel):
         if v is None:
             return v
         if v not in _VALID_TIERS:
-            raise ValueError(
-                f"tier must be one of {sorted(_VALID_TIERS)}, got {v!r}"
-            )
+            raise ValueError(f"tier must be one of {sorted(_VALID_TIERS)}, got {v!r}")
         return v
 
 
@@ -156,12 +151,16 @@ def _disk_to_json(row: Any) -> dict[str, Any]:
         "device_path": d.get("device_path"),
         "serial": d.get("serial"),
         "capacity_bytes": d.get("capacity_bytes"),
-        "rotational": bool(d.get("rotational")) if d.get("rotational") is not None else False,
+        "rotational": (
+            bool(d.get("rotational")) if d.get("rotational") is not None else False
+        ),
         "smart_status": d.get("smart_status") or "unknown",
         "smart_attributes": smart_attrs,
-        "reserved_for_storage": bool(d.get("reserved_for_storage"))
-        if d.get("reserved_for_storage") is not None
-        else False,
+        "reserved_for_storage": (
+            bool(d.get("reserved_for_storage"))
+            if d.get("reserved_for_storage") is not None
+            else False
+        ),
         "storage_backend": d.get("storage_backend"),
         "tier": d.get("tier") or "bulk",
         "created_at": _iso(d.get("created_at")),
@@ -186,18 +185,24 @@ def _plan_to_json(row: Any) -> dict[str, Any]:
 
 def _load_disk(db: Any, node_id: int, disk_id: int, tenant_id: str) -> Optional[Any]:
     """Fetch disk by (node_id, disk_id), tenant-scoped."""
-    return db(
-        (db.disks.id == disk_id)
-        & (db.disks.node_id == node_id)
-        & (db.disks.tenant_id == tenant_id)
-    ).select().first()
+    return (
+        db(
+            (db.disks.id == disk_id)
+            & (db.disks.node_id == node_id)
+            & (db.disks.tenant_id == tenant_id)
+        )
+        .select()
+        .first()
+    )
 
 
 def _load_node(db: Any, node_id: int, tenant_id: str) -> Optional[Any]:
     """Fetch node row, tenant-scoped."""
-    return db(
-        (db.nodes.id == node_id) & (db.nodes.tenant_id == tenant_id)
-    ).select().first()
+    return (
+        db((db.nodes.id == node_id) & (db.nodes.tenant_id == tenant_id))
+        .select()
+        .first()
+    )
 
 
 def render_sgdisk_script(disk: Any, partitions: list[PartitionSpec]) -> str:
@@ -207,7 +212,9 @@ def render_sgdisk_script(disk: Any, partitions: list[PartitionSpec]) -> str:
     dry-runs. Only the parts required for the spec are emitted; the live
     apply path will additionally invoke mkfs/mkswap once approved.
     """
-    device = disk.device_path if hasattr(disk, "device_path") else disk.get("device_path")
+    device = (
+        disk.device_path if hasattr(disk, "device_path") else disk.get("device_path")
+    )
     lines = [
         "#!/bin/sh",
         "set -eu",
@@ -288,7 +295,9 @@ def _publish_smart_recheck(node_id: int, disk_id: int) -> str:
 
     db = get_db()
     if "smart_recheck_queue" not in db.tables:
-        from penguin_dal import Field as DalField  # local import — avoid hard dep at import time
+        from penguin_dal import (
+            Field as DalField,  # local import — avoid hard dep at import time
+        )
 
         db.define_table(
             "smart_recheck_queue",
@@ -328,10 +337,9 @@ async def list_node_disks(node_id: int):
         node = _load_node(db, node_id, tenant_id)
         if node is None:
             return None, None
-        rows = (
-            db((db.disks.node_id == node_id) & (db.disks.tenant_id == tenant_id))
-            .select(orderby=db.disks.device_path)
-        )
+        rows = db(
+            (db.disks.node_id == node_id) & (db.disks.tenant_id == tenant_id)
+        ).select(orderby=db.disks.device_path)
         return node, rows
 
     node, rows = await run_db(_fetch)
@@ -449,7 +457,7 @@ async def create_disk_plan(node_id: int, disk_id: int):
 
     sgdisk_script = render_sgdisk_script(disk, plan_req.partitions)
 
-    dry_run = (request.args.get("dry-run", "false").lower() == "true")
+    dry_run = request.args.get("dry-run", "false").lower() == "true"
     if dry_run:
         return (
             jsonify(
@@ -475,8 +483,7 @@ async def create_disk_plan(node_id: int, disk_id: int):
     def _persist_plan() -> Any:
         # Replace any existing plans for this disk (idempotent re-plan)
         db(
-            (db.disk_plans.disk_id == disk_id)
-            & (db.disk_plans.tenant_id == tenant_id)
+            (db.disk_plans.disk_id == disk_id) & (db.disk_plans.tenant_id == tenant_id)
         ).delete()
 
         created_ids: list[int] = []
@@ -602,9 +609,7 @@ async def patch_disk(node_id: int, disk_id: int):
     )
 
 
-@disks_bp.route(
-    "/<int:node_id>/disks/<int:disk_id>/smart-recheck", methods=["POST"]
-)
+@disks_bp.route("/<int:node_id>/disks/<int:disk_id>/smart-recheck", methods=["POST"])
 @auth_required
 @require_scopes("gough.disks.plan")
 async def smart_recheck(node_id: int, disk_id: int):

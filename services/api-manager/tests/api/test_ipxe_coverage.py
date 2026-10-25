@@ -14,31 +14,24 @@ Focus areas:
 
 from __future__ import annotations
 
-import json
-import secrets
-from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import MagicMock, patch, AsyncMock, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from quart import g
-
 from app.api import ipxe as ipxe_module
 from app.api.ipxe import (
-    _normalize_mac,
-    _find_node_or_machine_by_mac,
-    _register_bootstrap_nonce,
-    _mint_bootstrap_jwt,
-    _render_helper_ipxe_script,
-    _render_deploy_ipxe_script,
-    _detect_firmware_from_query,
-    _primary_base_url,
     _client_source_ip,
+    _detect_firmware_from_query,
+    _find_node_or_machine_by_mac,
+    _mint_bootstrap_jwt,
+    _normalize_mac,
+    _primary_base_url,
     _rate_limit_ipxe_script,
+    _register_bootstrap_nonce,
+    _render_deploy_ipxe_script,
+    _render_helper_ipxe_script,
     _scope_required,
-    _RateLimiter,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -229,7 +222,9 @@ class TestRegisterBootstrapNonce:
         """Test nonce registration via Redis."""
         async with quart_app.app_context():
             quart_app.redis_client.set.return_value = True
-            _register_bootstrap_nonce("test-nonce-123", "aa:bb:cc:dd:ee:ff", "helper", 3600)
+            _register_bootstrap_nonce(
+                "test-nonce-123", "aa:bb:cc:dd:ee:ff", "helper", 3600
+            )
             quart_app.redis_client.set.assert_called_once()
 
     @pytest.mark.asyncio
@@ -238,11 +233,15 @@ class TestRegisterBootstrapNonce:
         async with quart_app.app_context():
             quart_app.redis_client.set.return_value = False  # Collision
             with pytest.raises(RuntimeError, match="Bootstrap nonce collision"):
-                _register_bootstrap_nonce("collision-nonce", "aa:bb:cc:dd:ee:ff", "helper", 3600)
+                _register_bootstrap_nonce(
+                    "collision-nonce", "aa:bb:cc:dd:ee:ff", "helper", 3600
+                )
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.get_db")
-    async def test_register_nonce_via_db_fallback(self, mock_get_db: MagicMock, quart_app: Any) -> None:
+    async def test_register_nonce_via_db_fallback(
+        self, mock_get_db: MagicMock, quart_app: Any
+    ) -> None:
         """Test nonce registration via database fallback."""
         async with quart_app.app_context():
             quart_app.redis_client = None  # Disable Redis
@@ -250,13 +249,17 @@ class TestRegisterBootstrapNonce:
             mock_db.tables = ["bootstrap_nonces"]
             mock_get_db.return_value = mock_db
 
-            _register_bootstrap_nonce("db-nonce-456", "aa:bb:cc:dd:ee:ff", "deploy", 3600)
+            _register_bootstrap_nonce(
+                "db-nonce-456", "aa:bb:cc:dd:ee:ff", "deploy", 3600
+            )
             mock_db.bootstrap_nonces.insert.assert_called_once()
             mock_db.commit.assert_called_once()
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.get_db")
-    async def test_register_nonce_no_store_raises_error(self, mock_get_db: MagicMock, quart_app: Any) -> None:
+    async def test_register_nonce_no_store_raises_error(
+        self, mock_get_db: MagicMock, quart_app: Any
+    ) -> None:
         """Test error when neither Redis nor DB available."""
         async with quart_app.app_context():
             quart_app.redis_client = None
@@ -265,11 +268,15 @@ class TestRegisterBootstrapNonce:
             mock_get_db.return_value = mock_db
 
             with pytest.raises(RuntimeError, match="No nonce store available"):
-                _register_bootstrap_nonce("orphan-nonce", "aa:bb:cc:dd:ee:ff", "helper", 3600)
+                _register_bootstrap_nonce(
+                    "orphan-nonce", "aa:bb:cc:dd:ee:ff", "helper", 3600
+                )
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.get_db")
-    async def test_register_nonce_expired_ttl(self, mock_get_db: MagicMock, quart_app: Any) -> None:
+    async def test_register_nonce_expired_ttl(
+        self, mock_get_db: MagicMock, quart_app: Any
+    ) -> None:
         """Test error when TTL already expired at registration time."""
         async with quart_app.app_context():
             quart_app.redis_client = None
@@ -277,8 +284,12 @@ class TestRegisterBootstrapNonce:
             mock_db.tables = ["bootstrap_nonces"]
             mock_get_db.return_value = mock_db
 
-            with pytest.raises(RuntimeError, match="Bootstrap token TTL already expired"):
-                _register_bootstrap_nonce("expired-nonce", "aa:bb:cc:dd:ee:ff", "helper", -1)
+            with pytest.raises(
+                RuntimeError, match="Bootstrap token TTL already expired"
+            ):
+                _register_bootstrap_nonce(
+                    "expired-nonce", "aa:bb:cc:dd:ee:ff", "helper", -1
+                )
 
 
 # =============================================================================
@@ -306,7 +317,9 @@ class TestMintBootstrapJWT:
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.jwt.encode")
-    async def test_mint_jwt_payload_structure(self, mock_encode: MagicMock, quart_app: Any) -> None:
+    async def test_mint_jwt_payload_structure(
+        self, mock_encode: MagicMock, quart_app: Any
+    ) -> None:
         """Test JWT payload contains expected fields."""
         async with quart_app.app_context():
             quart_app.vault_client = None
@@ -317,7 +330,7 @@ class TestMintBootstrapJWT:
                 "aa:bb:cc:dd:ee:ff",
                 phase="deploy",
                 dmi_uuid_hint="dmi-uuid-123",
-                ttl_seconds=7200
+                ttl_seconds=7200,
             )
 
             # Verify jwt.encode was called with proper payload
@@ -332,7 +345,9 @@ class TestMintBootstrapJWT:
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.jwt.encode")
-    async def test_mint_jwt_with_vault_client(self, mock_encode: MagicMock, quart_app: Any) -> None:
+    async def test_mint_jwt_with_vault_client(
+        self, mock_encode: MagicMock, quart_app: Any
+    ) -> None:
         """Test JWT minting with Vault transit signing."""
         async with quart_app.app_context():
             vault_client = MagicMock()
@@ -348,7 +363,9 @@ class TestMintBootstrapJWT:
 
     @pytest.mark.asyncio
     @patch("app.api.ipxe.jwt.encode")
-    async def test_mint_jwt_vault_fallback_on_error(self, mock_encode: MagicMock, quart_app: Any) -> None:
+    async def test_mint_jwt_vault_fallback_on_error(
+        self, mock_encode: MagicMock, quart_app: Any
+    ) -> None:
         """Test fallback to HS256 when Vault fails."""
         async with quart_app.app_context():
             vault_client = MagicMock()
@@ -377,7 +394,7 @@ class TestRenderHelperIPXEScript:
             "aa:bb:cc:dd:ee:ff",
             "test-jwt-token",
             "https://primary.example.com",
-            firmware="bios"
+            firmware="bios",
         )
 
         assert "#!ipxe" in script
@@ -393,7 +410,7 @@ class TestRenderHelperIPXEScript:
             "aa:bb:cc:dd:ee:ff",
             "test-jwt-token",
             "https://primary.example.com",
-            firmware="uefi"
+            firmware="uefi",
         )
 
         assert "#!ipxe" in script
@@ -406,7 +423,7 @@ class TestRenderHelperIPXEScript:
             "aa:bb:cc:dd:ee:ff",
             "token",
             "https://primary.example.com/",
-            firmware="bios"
+            firmware="bios",
         )
 
         # Should not have double slash
@@ -415,9 +432,7 @@ class TestRenderHelperIPXEScript:
     def test_render_deploy_script(self) -> None:
         """Test deploy iPXE script rendering."""
         script = _render_deploy_ipxe_script(
-            "aa:bb:cc:dd:ee:ff",
-            "test-jwt-token",
-            "https://primary.example.com"
+            "aa:bb:cc:dd:ee:ff", "test-jwt-token", "https://primary.example.com"
         )
 
         assert "#!ipxe" in script
@@ -512,8 +527,7 @@ class TestClientSourceIP:
     def test_get_source_ip_from_x_forwarded_for(self, quart_app: Any) -> None:
         """Test IP extraction from X-Forwarded-For header."""
         with quart_app.test_request_context(
-            "/",
-            headers={"X-Forwarded-For": "192.168.1.100, 10.0.0.1"}
+            "/", headers={"X-Forwarded-For": "192.168.1.100, 10.0.0.1"}
         ):
             ip = _client_source_ip()
             assert ip == "192.168.1.100"
@@ -601,7 +615,9 @@ class TestRateLimitDecorator:
 
     @pytest.mark.xfail(strict=False)
     @pytest.mark.asyncio
-    async def test_rate_limit_decorator_rejects_over_limit(self, quart_app: Any) -> None:
+    async def test_rate_limit_decorator_rejects_over_limit(
+        self, quart_app: Any
+    ) -> None:
         """Test decorator rejects request over limit."""
         limiter = ipxe_module._RateLimiter(max_requests=1, window_seconds=60.0)
         ipxe_module._ipxe_script_rate_limiter = limiter
@@ -632,6 +648,7 @@ class TestScopeRequired:
     @pytest.mark.asyncio
     async def test_scope_required_with_principal(self, quart_app: Any) -> None:
         """Test authorization with proper OIDC principal."""
+
         @_scope_required("gough.nodes.provision")
         async def protected_handler():
             return "authorized"
@@ -648,6 +665,7 @@ class TestScopeRequired:
     @pytest.mark.asyncio
     async def test_scope_required_insufficient_scope(self, quart_app: Any) -> None:
         """Test authorization denies insufficient scope."""
+
         @_scope_required("gough.nodes.provision")
         async def protected_handler():
             return "authorized"
@@ -665,6 +683,7 @@ class TestScopeRequired:
     @pytest.mark.asyncio
     async def test_scope_required_legacy_admin_role(self, quart_app: Any) -> None:
         """Test fallback to legacy admin role check."""
+
         @_scope_required("gough.nodes.provision")
         async def protected_handler():
             return "authorized"
@@ -680,6 +699,7 @@ class TestScopeRequired:
     @pytest.mark.asyncio
     async def test_scope_required_legacy_maintainer_role(self, quart_app: Any) -> None:
         """Test fallback to legacy maintainer role."""
+
         @_scope_required("gough.nodes.provision")
         async def protected_handler():
             return "authorized"
@@ -694,6 +714,7 @@ class TestScopeRequired:
     @pytest.mark.asyncio
     async def test_scope_required_legacy_viewer_denied(self, quart_app: Any) -> None:
         """Test legacy viewer role is denied."""
+
         @_scope_required("gough.nodes.provision")
         async def protected_handler():
             return "authorized"
@@ -717,10 +738,13 @@ class TestBootstrapTokenEndpoints:
     @pytest.mark.asyncio
     async def test_helper_ipxe_script_endpoint_success(self, client) -> None:
         """Test successful helper iPXE script retrieval."""
-        with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
-             patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, \
-             patch("app.api.ipxe._mint_bootstrap_jwt") as mock_mint, \
-             patch("app.api.ipxe._render_helper_ipxe_script") as mock_render:
+        with patch(
+            "app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"
+        ), patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, patch(
+            "app.api.ipxe._mint_bootstrap_jwt"
+        ) as mock_mint, patch(
+            "app.api.ipxe._render_helper_ipxe_script"
+        ) as mock_render:
 
             mock_find.return_value = {
                 "id": 1,
@@ -744,8 +768,9 @@ class TestBootstrapTokenEndpoints:
     @pytest.mark.asyncio
     async def test_helper_ipxe_script_mac_not_found(self, client) -> None:
         """Test helper script for unknown MAC."""
-        with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
-             patch("app.api.ipxe._find_node_or_machine_by_mac", return_value=None):
+        with patch(
+            "app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"
+        ), patch("app.api.ipxe._find_node_or_machine_by_mac", return_value=None):
 
             resp = await client.get("/api/v1/ipxe/helper/aa:bb:cc:dd:ee:ff")
             assert resp.status_code == 404
@@ -753,10 +778,13 @@ class TestBootstrapTokenEndpoints:
     @pytest.mark.asyncio
     async def test_deploy_ipxe_script_endpoint_success(self, client) -> None:
         """Test successful deploy iPXE script retrieval."""
-        with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
-             patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, \
-             patch("app.api.ipxe._mint_bootstrap_jwt") as mock_mint, \
-             patch("app.api.ipxe._render_deploy_ipxe_script") as mock_render:
+        with patch(
+            "app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"
+        ), patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, patch(
+            "app.api.ipxe._mint_bootstrap_jwt"
+        ) as mock_mint, patch(
+            "app.api.ipxe._render_deploy_ipxe_script"
+        ) as mock_render:
 
             mock_find.return_value = {
                 "id": 1,
@@ -774,9 +802,9 @@ class TestBootstrapTokenEndpoints:
     @pytest.mark.asyncio
     async def test_bind_mac_endpoint_success(self, client) -> None:
         """Test MAC binding endpoint."""
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe._scope_required", lambda *args: lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe._scope_required", lambda *args: lambda f: f):
 
             mock_db = MagicMock()
             mock_db.tables = ["nodes"]
@@ -785,18 +813,22 @@ class TestBootstrapTokenEndpoints:
 
             resp = await client.post(
                 "/api/v1/ipxe/bind-mac",
-                json={"mac": "aa:bb:cc:dd:ee:ff", "dmi_uuid": "uuid-123"}
+                json={"mac": "aa:bb:cc:dd:ee:ff", "dmi_uuid": "uuid-123"},
             )
             assert resp.status_code in (201, 401, 403)
 
     @pytest.mark.asyncio
     async def test_mint_bootstrap_token_endpoint(self, client) -> None:
         """Test bootstrap token minting endpoint."""
-        with patch("app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"), \
-             patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, \
-             patch("app.api.ipxe._mint_bootstrap_jwt") as mock_mint, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe._scope_required", lambda *args: lambda f: f):
+        with patch(
+            "app.api.ipxe._normalize_mac", return_value="aa:bb:cc:dd:ee:ff"
+        ), patch("app.api.ipxe._find_node_or_machine_by_mac") as mock_find, patch(
+            "app.api.ipxe._mint_bootstrap_jwt"
+        ) as mock_mint, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe._scope_required", lambda *args: lambda f: f
+        ):
 
             mock_find.return_value = {
                 "id": 1,
@@ -808,7 +840,7 @@ class TestBootstrapTokenEndpoints:
 
             resp = await client.post(
                 "/api/v1/ipxe/mint-bootstrap-token",
-                json={"mac": "aa:bb:cc:dd:ee:ff", "phase": "helper"}
+                json={"mac": "aa:bb:cc:dd:ee:ff", "phase": "helper"},
             )
             assert resp.status_code in (200, 401, 403)
 
@@ -832,11 +864,15 @@ class TestElderIntegration:
             "status": "ready",
         }
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine_data), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe.integrations.get_elder_client") as mock_get_client, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine_data), patch(
+            "app.api.ipxe.get_db"
+        ), patch(
+            "app.api.ipxe.integrations.get_elder_client"
+        ) as mock_get_client, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
@@ -857,11 +893,15 @@ class TestElderIntegration:
             "status": "ready",
         }
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine_data), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe.integrations.get_elder_client", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine_data), patch(
+            "app.api.ipxe.get_db"
+        ), patch(
+            "app.api.ipxe.integrations.get_elder_client", return_value=None
+        ), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             resp = await client.post("/api/v1/ipxe/machines/1/sync-elder")
             assert resp.status_code in (503, 401, 403)
@@ -870,9 +910,9 @@ class TestElderIntegration:
     @pytest.mark.asyncio
     async def test_get_elder_status_healthy(self, client) -> None:
         """Test Elder health status check - healthy."""
-        with patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe.integrations.get_elder_client") as mock_get_client, \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe.get_db"), patch(
+            "app.api.ipxe.integrations.get_elder_client"
+        ) as mock_get_client, patch("app.api.ipxe.auth_required", lambda f: f):
 
             mock_client = AsyncMock()
             mock_client.__aenter__.return_value = mock_client
@@ -887,9 +927,9 @@ class TestElderIntegration:
     @pytest.mark.asyncio
     async def test_get_elder_status_not_configured(self, client) -> None:
         """Test Elder status when not configured."""
-        with patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe.integrations.get_elder_client", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe.get_db"), patch(
+            "app.api.ipxe.integrations.get_elder_client", return_value=None
+        ), patch("app.api.ipxe.auth_required", lambda f: f):
 
             resp = await client.get("/api/v1/ipxe/elder/status")
             assert resp.status_code in (503, 401)
@@ -897,9 +937,9 @@ class TestElderIntegration:
     @pytest.mark.asyncio
     async def test_update_elder_config(self, client) -> None:
         """Test Elder configuration update."""
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             mock_db = MagicMock()
             mock_db.tables = ["elder_config"]
@@ -910,8 +950,8 @@ class TestElderIntegration:
                 "/api/v1/ipxe/elder/config",
                 json={
                     "elder_url": "https://elder.example.com",
-                    "api_key": "secret-key"
-                }
+                    "api_key": "secret-key",
+                },
             )
             assert resp.status_code in (200, 201, 401, 403)
 
@@ -927,9 +967,9 @@ class TestConfigurationManagement:
     @pytest.mark.asyncio
     async def test_update_ipxe_config_create_new(self, client) -> None:
         """Test creating new iPXE configuration."""
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             mock_db = MagicMock()
             mock_db.return_value.select.return_value.first.return_value = None
@@ -942,8 +982,7 @@ class TestConfigurationManagement:
             mock_get_db.return_value = mock_db
 
             resp = await client.put(
-                "/api/v1/ipxe/config",
-                json={"name": "default-config"}
+                "/api/v1/ipxe/config", json={"name": "default-config"}
             )
             assert resp.status_code in (200, 201, 401, 403)
 
@@ -959,9 +998,9 @@ class TestImageManagement:
     @pytest.mark.asyncio
     async def test_create_image_success(self, client) -> None:
         """Test successful image creation."""
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             mock_db = MagicMock()
             mock_db.return_value.select.return_value.first.return_value = None
@@ -986,7 +1025,7 @@ class TestImageManagement:
                     "architecture": "amd64",
                     "kernel_path": "/kernel",
                     "initrd_path": "/initrd",
-                }
+                },
             )
             assert resp.status_code in (201, 401, 403)
 
@@ -996,10 +1035,11 @@ class TestImageManagement:
         """Test deletion prevention for in-use images."""
         image_data = {"id": 1, "name": "ubuntu-22.04"}
 
-        with patch("app.api.ipxe._get_image_by_id", return_value=image_data), \
-             patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_image_by_id", return_value=image_data), patch(
+            "app.api.ipxe.get_db"
+        ) as mock_get_db, patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.admin_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
 

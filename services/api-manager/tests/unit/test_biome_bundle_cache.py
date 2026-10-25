@@ -18,9 +18,9 @@ from typing import Any
 import httpx
 import jwt
 import pytest
-
-from app.api import biome_cache, install
+from app.api import biome_cache
 from app.api import biomes as biomes_api
+from app.api import install
 from app.api.lxd_cluster import AgentRecord
 from app.services import biome_bundle
 from app.services.biome_bundle import (
@@ -28,9 +28,9 @@ from app.services.biome_bundle import (
     BundleError,
     BundleHashMismatch,
     BundleSignatureError,
+    BundleSourceRejected,
     extract_bundle,
     fetch_vetted,
-    BundleSourceRejected,
     validate_cache_key,
     validate_version,
     verify_sha256,
@@ -62,8 +62,14 @@ def make_bundle(*, with_installer: bool = True) -> bytes:
         if with_installer:
             _add_bytes(tar, f"{root}/installer/gough-install.py", INSTALLER_BYTES)
         _add_bytes(tar, f"{root}/_lib/render.py", b"print('render')\n")
-        _add_bytes(tar, f"{root}/k8s-controller/biome.json", b'{"name": "k8s-controller"}')
-        _add_bytes(tar, f"{root}/k8s-controller/cloud-init/user-data.yaml.tmpl", b"#cloud-config\n")
+        _add_bytes(
+            tar, f"{root}/k8s-controller/biome.json", b'{"name": "k8s-controller"}'
+        )
+        _add_bytes(
+            tar,
+            f"{root}/k8s-controller/cloud-init/user-data.yaml.tmpl",
+            b"#cloud-config\n",
+        )
         # Ignored: not a biome directory and not an always-cached dir.
         _add_bytes(tar, f"{root}/tests/test_x.py", b"def test(): pass\n")
         _add_bytes(tar, f"{root}/docs/readme.md", b"# docs\n")
@@ -105,10 +111,9 @@ def _egress_policy(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture()
 def app() -> Any:
     """Quart app with the real biome cache and installer blueprints (overrides the stub app)."""
-    from quart import Quart
-
     from app.api.biome_cache import biome_cache_bp
     from app.api.install import install_bp
+    from quart import Quart
 
     quart_app = Quart(__name__)
     quart_app.config["TESTING"] = True
@@ -123,7 +128,9 @@ def store(monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
     """Patch the importer DB seams with an in-memory ledger and return it for assertions."""
     state: dict[str, Any] = {"versions": set(), "stored": None, "files": {}}
 
-    monkeypatch.setattr(importer, "_db_version_exists", lambda v: v in state["versions"])
+    monkeypatch.setattr(
+        importer, "_db_version_exists", lambda v: v in state["versions"]
+    )
 
     def _store(bundle: Any, **kwargs: Any) -> None:
         state["stored"] = (bundle, kwargs)
@@ -461,9 +468,8 @@ def test_invalid_versions_rejected(version: str) -> None:
 
 def test_request_dto_requires_https_and_sha256() -> None:
     """The import DTO refuses http URLs and malformed digests at the boundary."""
-    from pydantic import ValidationError
-
     from app.api.biome_cache import BundleImportRequest
+    from pydantic import ValidationError
 
     valid = {"version": "1.0.0", "bundle_url": BUNDLE_URL, "bundle_sha256": "a" * 64}
     assert BundleImportRequest.model_validate(valid).version == "1.0.0"
@@ -494,11 +500,15 @@ def _agent_token(app: Any, agent_id: str = "agent-1") -> str:
 
 def _agent(status: str) -> AgentRecord:
     """Build a server-side agent record with the given status."""
-    return AgentRecord(agent_id="agent-1", status=status, hostname="node-1", enrollment_key_hash=None)
+    return AgentRecord(
+        agent_id="agent-1", status=status, hostname="node-1", enrollment_key_hash=None
+    )
 
 
 @pytest.fixture()
-def cache_reads(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -> dict[str, Any]:
+def cache_reads(
+    monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]
+) -> dict[str, Any]:
     """Seed one cached file and record every lookup key the endpoint performs."""
     lookups: list[tuple[str, str, str]] = []
     store["files"][("1.0.0", "_lib", "render.py")] = CachedFile(
@@ -515,7 +525,9 @@ def cache_reads(monkeypatch: pytest.MonkeyPatch, store: dict[str, Any]) -> dict[
 
 
 @pytest.mark.asyncio
-async def test_cache_read_requires_agent_token(app: Any, cache_reads: dict[str, Any]) -> None:
+async def test_cache_read_requires_agent_token(
+    app: Any, cache_reads: dict[str, Any]
+) -> None:
     """Without an agent_access bearer the cache read is refused with 401 and no lookup."""
     client = app.test_client()
     resp = await client.get("/api/v1/biomes/cache/1.0.0/_lib/render.py")
@@ -551,7 +563,10 @@ async def test_cache_read_serves_verified_file(
     )
     assert resp.status_code == 200
     assert await resp.get_data() == b"print('render')\n"
-    assert resp.headers["X-Content-SHA256"] == hashlib.sha256(b"print('render')\n").hexdigest()
+    assert (
+        resp.headers["X-Content-SHA256"]
+        == hashlib.sha256(b"print('render')\n").hexdigest()
+    )
 
 
 @pytest.mark.asyncio
@@ -593,7 +608,10 @@ async def test_installer_is_anonymous_and_serves_bytes(
 
     async def fake_read(v: str, b: str, p: str) -> CachedFile | None:
         if (v, b, p) == ("1.0.0", "installer", "gough-install.py"):
-            return CachedFile(content=INSTALLER_BYTES, sha256=hashlib.sha256(INSTALLER_BYTES).hexdigest())
+            return CachedFile(
+                content=INSTALLER_BYTES,
+                sha256=hashlib.sha256(INSTALLER_BYTES).hexdigest(),
+            )
         return None
 
     monkeypatch.setattr(install, "read_cached_file", fake_read)
@@ -620,7 +638,9 @@ async def test_installer_unconfigured_version_is_404(
 
 
 @pytest.mark.asyncio
-async def test_installer_bad_version_is_400(app: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_installer_bad_version_is_400(
+    app: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A version that could alter the lookup key is refused with 400."""
     client = app.test_client()
     resp = await client.get("/api/v1/install/gough-install.py?version=..%2Fx")
@@ -631,7 +651,9 @@ def test_import_endpoint_requires_admin_scope() -> None:
     """The import route is in SCOPE_POLICY with the admin cluster scope only."""
     from app.security.scope_policy import SCOPE_POLICY
 
-    assert SCOPE_POLICY[("POST", "/api/v1/biomes/cache/imports")] == frozenset({"gough.cluster.admin"})
+    assert SCOPE_POLICY[("POST", "/api/v1/biomes/cache/imports")] == frozenset(
+        {"gough.cluster.admin"}
+    )
 
 
 def test_anonymous_surface_is_limited_to_installer_and_agent_routes() -> None:
@@ -641,7 +663,9 @@ def test_anonymous_surface_is_limited_to_installer_and_agent_routes() -> None:
     assert is_anonymous_request("GET", "/api/v1/install/gough-install.py")
     assert is_anonymous_request("GET", "/api/v1/install/gough-install.py.sha256")
     assert is_anonymous_request("GET", "/api/v1/biomes/cache/1.0.0/_lib/render.py")
-    assert is_anonymous_request("GET", "/api/v1/biomes/cache/1.0.0/k8s-controller/cloud-init/x.tmpl")
+    assert is_anonymous_request(
+        "GET", "/api/v1/biomes/cache/1.0.0/k8s-controller/cloud-init/x.tmpl"
+    )
     assert is_anonymous_request("POST", "/api/v1/lxd/cluster-join-tokens")
     assert not is_anonymous_request("GET", "/api/v1/install/other.py")
     assert not is_anonymous_request("POST", "/api/v1/biomes/cache/imports")

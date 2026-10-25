@@ -29,8 +29,6 @@ from typing import Any, Optional, cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from penguin_dal import DB
-
 from app.db.rls import install_rls_events, set_current_tenant
 from app.security.audit_chain import ZERO_HASH, compute_chain_hash, generate_uuidv7
 from app.workers import audit_chain_writer as acw_module
@@ -40,6 +38,7 @@ from app.workers.audit_chain_writer import (
     NotLeaderError,
     OffsiteMirrorConfig,
 )
+from penguin_dal import DB
 
 
 def _rows(result: Any) -> list[tuple[Any, ...]]:

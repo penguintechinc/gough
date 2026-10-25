@@ -11,7 +11,6 @@ from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-
 # ---------------------------------------------------------------------------
 # Discover endpoint
 # ---------------------------------------------------------------------------
@@ -30,7 +29,9 @@ class NicInfo(BaseModel):
 class SmartAttribute(BaseModel):
     """Single SMART attribute entry for a disk."""
 
-    device: Optional[str] = Field(None, max_length=255, description="Disk device name, e.g. sda")
+    device: Optional[str] = Field(
+        None, max_length=255, description="Disk device name, e.g. sda"
+    )
     id: int = Field(..., description="SMART attribute ID")
     name: str = Field(..., description="Attribute name")
     value: int = Field(..., description="Normalised value (0-255)")
@@ -77,7 +78,9 @@ class DiscoverRequest(BaseModel):
     """Body for POST /api/v1/nodes/discover."""
 
     dmi_uuid: str = Field(..., min_length=1, description="DMI system UUID")
-    primary_nic_mac: str = Field(..., min_length=1, description="MAC of provisioning NIC")
+    primary_nic_mac: str = Field(
+        ..., min_length=1, description="MAC of provisioning NIC"
+    )
     firmware_type: Literal["bios", "uefi"] = Field(
         ..., description="Firmware type detected by the agent"
     )
@@ -106,12 +109,21 @@ class DiscoverRequest(BaseModel):
         default_factory=list,
         description="Auto-discovered hardware tags from the agent",
     )
-    hostname: Optional[str] = Field(None, max_length=255, description="Kernel hostname at probe time")
-    sys_vendor: Optional[str] = Field(None, max_length=255, description="DMI sys_vendor")
-    product_name: Optional[str] = Field(None, max_length=255, description="DMI product_name")
-    bios_version: Optional[str] = Field(None, max_length=255, description="DMI bios_version")
+    hostname: Optional[str] = Field(
+        None, max_length=255, description="Kernel hostname at probe time"
+    )
+    sys_vendor: Optional[str] = Field(
+        None, max_length=255, description="DMI sys_vendor"
+    )
+    product_name: Optional[str] = Field(
+        None, max_length=255, description="DMI product_name"
+    )
+    bios_version: Optional[str] = Field(
+        None, max_length=255, description="DMI bios_version"
+    )
     bmc_tls_status: Optional[BmcTlsStatus] = Field(
-        None, description="BMC certificate verification outcome; null when the BMC was not probed"
+        None,
+        description="BMC certificate verification outcome; null when the BMC was not probed",
     )
     bmc_cert_sha256: Optional[str] = Field(
         None,
@@ -183,20 +195,22 @@ class BiomeAssignmentSpec(BaseModel):
     phase: Optional[str] = Field(None)
     depends_on_biome_instance_id: Optional[int] = Field(None)
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _remap_egg_fields(cls, data: Any) -> Any:
         """Backward-compat: accept egg_id and remap to biome_id."""
-        if isinstance(data, dict) and 'egg_id' in data and 'biome_id' not in data:
+        if isinstance(data, dict) and "egg_id" in data and "biome_id" not in data:
             data = dict(data)
-            data['biome_id'] = data.pop('egg_id')
+            data["biome_id"] = data.pop("egg_id")
         return data
 
 
 class DeployRequest(BaseModel):
     """Body for POST /api/v1/nodes/{id}/deploy."""
 
-    plan_id: Optional[int] = Field(None, description="Optional existing plan ID to reuse")
+    plan_id: Optional[int] = Field(
+        None, description="Optional existing plan ID to reuse"
+    )
     biome_assignments: list[BiomeAssignmentSpec] = Field(
         ..., min_length=1, description="Biomes to assign"
     )
@@ -205,13 +219,17 @@ class DeployRequest(BaseModel):
     )
     reason: Optional[str] = Field(None, max_length=1024)
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _remap_egg_assignments(cls, data: Any) -> Any:
         """Backward-compat: accept egg_assignments and remap to biome_assignments."""
-        if isinstance(data, dict) and 'egg_assignments' in data and 'biome_assignments' not in data:
+        if (
+            isinstance(data, dict)
+            and "egg_assignments" in data
+            and "biome_assignments" not in data
+        ):
             data = dict(data)
-            data['biome_assignments'] = data.pop('egg_assignments')
+            data["biome_assignments"] = data.pop("egg_assignments")
         return data
 
     @field_validator("biome_assignments", mode="before")
@@ -231,7 +249,9 @@ class EvacuateRequest(BaseModel):
     """Body for POST /api/v1/nodes/{id}/evacuate."""
 
     reason: Optional[str] = Field(None, max_length=1024)
-    force: bool = Field(False, description="Bypass safety-envelope check (audit-logged)")
+    force: bool = Field(
+        False, description="Bypass safety-envelope check (audit-logged)"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -248,7 +268,9 @@ class NodeEventRequest(BaseModel):
     """
 
     stage: str = Field(
-        ..., min_length=1, max_length=255,
+        ...,
+        min_length=1,
+        max_length=255,
         description="Machine-readable stage identifier, e.g. 'disk_partition_start'",
     )
     message: str = Field(..., min_length=1, max_length=4096)

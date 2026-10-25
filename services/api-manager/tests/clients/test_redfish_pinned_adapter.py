@@ -14,10 +14,9 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from requests.adapters import HTTPAdapter
-
 from app.clients import redfish
 from app.clients.redfish import BMCCertPinMismatch, _PinnedAdapter
+from requests.adapters import HTTPAdapter
 
 PIN_A = "AA:" * 31 + "AA"
 PIN_B = "BB:" * 31 + "BB"
@@ -54,7 +53,9 @@ def _request(url: str) -> SimpleNamespace:
     return SimpleNamespace(url=url)
 
 
-def test_first_connect_captures_fingerprint_and_forwards(probe: dict, parent_send: list) -> None:
+def test_first_connect_captures_fingerprint_and_forwards(
+    probe: dict, parent_send: list
+) -> None:
     """With no pin configured the live fingerprint is captured and the request proceeds."""
     adapter = _PinnedAdapter(expected_fingerprint=None)
 
@@ -75,12 +76,16 @@ def test_matching_pin_forwards_request(probe: dict, parent_send: list) -> None:
     assert probe["calls"] == [("bmc.lan", 8443, redfish.DEFAULT_TIMEOUT_SEC)]
 
 
-def test_mismatched_pin_refuses_before_parent_send(probe: dict, parent_send: list) -> None:
+def test_mismatched_pin_refuses_before_parent_send(
+    probe: dict, parent_send: list
+) -> None:
     """A rotated/substituted certificate raises BMCCertPinMismatch and no bytes are sent."""
     probe["fingerprint"] = PIN_B
     adapter = _PinnedAdapter(expected_fingerprint=PIN_A)
 
-    with pytest.raises(BMCCertPinMismatch, match="fingerprint mismatch for bmc.lan:443"):
+    with pytest.raises(
+        BMCCertPinMismatch, match="fingerprint mismatch for bmc.lan:443"
+    ):
         adapter.send(_request("https://bmc.lan/redfish"))
 
     assert parent_send == []

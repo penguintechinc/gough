@@ -12,7 +12,6 @@ from typing import Any
 from quart import Blueprint, jsonify, request
 
 from .. import capacity_guard
-from ..clouds.lxd import ResourceLimitsRequiredError
 from ..clouds import (
     CLOUD_REGISTRY,
     CloudAuthError,
@@ -23,6 +22,7 @@ from ..clouds import (
     get_cloud_provider,
     list_available_providers,
 )
+from ..clouds.lxd import ResourceLimitsRequiredError
 from ..db.run_db import run_db
 from ..licensing import (
     FLAG_MULTI_CLOUD,
@@ -112,7 +112,10 @@ async def _refuse_unsafe_endpoint(config: Any) -> str | None:
     """
     if not isinstance(config, dict):
         return None
-    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+    from ..clients.cluster_discovery import (
+        ClusterDiscoveryUnavailable,
+        _validate_discovery_endpoint,
+    )
 
     for key in _ENDPOINT_CONFIG_KEYS:
         value = config.get(key)
@@ -167,11 +170,16 @@ async def list_providers():
     # Project onto API-safe fields -- never return the raw row.
     providers = [_provider_public(p) for p in providers]
 
-    return jsonify({
-        "providers": providers,
-        "count": len(providers),
-        "available_types": list_available_providers(),
-    }), 200
+    return (
+        jsonify(
+            {
+                "providers": providers,
+                "count": len(providers),
+                "available_types": list_available_providers(),
+            }
+        ),
+        200,
+    )
 
 
 @clouds_bp.route("/", methods=["POST"])
@@ -207,10 +215,15 @@ async def add_provider():
         return jsonify({"error": "Provider type required"}), 400
 
     if provider_type not in CLOUD_REGISTRY:
-        return jsonify({
-            "error": f"Unknown provider type: {provider_type}",
-            "available": list(CLOUD_REGISTRY.keys()),
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Unknown provider type: {provider_type}",
+                    "available": list(CLOUD_REGISTRY.keys()),
+                }
+            ),
+            400,
+        )
 
     refusal = await _refuse_unsafe_endpoint(config)
     if refusal:
@@ -221,15 +234,25 @@ async def add_provider():
         provider = get_cloud_provider(provider_type, config)
         await asyncio.to_thread(provider.authenticate)
     except CloudAuthError as e:
-        return jsonify({
-            "error": f"Authentication failed: {e}",
-            "status": "auth_error",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Authentication failed: {e}",
+                    "status": "auth_error",
+                }
+            ),
+            400,
+        )
     except CloudError as e:
-        return jsonify({
-            "error": f"Provider configuration error: {e}",
-            "status": "config_error",
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Provider configuration error: {e}",
+                    "status": "config_error",
+                }
+            ),
+            400,
+        )
 
     # Store in database
     db = get_db()
@@ -261,16 +284,21 @@ async def add_provider():
 
     log.info(f"Cloud provider created: {name} ({provider_type})")
 
-    return jsonify({
-        "message": "Provider created successfully",
-        "provider": {
-            "id": provider_id,
-            "name": name,
-            "provider_type": provider_type,
-            "status": "connected",
-            "enabled": enabled,
-        },
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Provider created successfully",
+                "provider": {
+                    "id": provider_id,
+                    "name": name,
+                    "provider_type": provider_type,
+                    "status": "connected",
+                    "enabled": enabled,
+                },
+            }
+        ),
+        201,
+    )
 
 
 @clouds_bp.route("/<int:provider_id>", methods=["GET"])
@@ -398,10 +426,15 @@ async def delete_provider(provider_id: int):
 
     machine_count = await run_db(_count_machines)
     if machine_count > 0:
-        return jsonify({
-            "error": f"Cannot delete provider with {machine_count} machines",
-            "hint": "Delete or migrate machines first",
-        }), 409
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot delete provider with {machine_count} machines",
+                    "hint": "Delete or migrate machines first",
+                }
+            ),
+            409,
+        )
 
     # Regression: gh-22. delete + commit is one unit of work -- stays in
     # one run_db() closure per the house rule.
@@ -457,10 +490,15 @@ async def test_provider(provider_id: int):
         # Update status
         await run_db(lambda: _set_status("connected"))
 
-        return jsonify({
-            "status": "connected",
-            "message": "Connection successful",
-        }), 200
+        return (
+            jsonify(
+                {
+                    "status": "connected",
+                    "message": "Connection successful",
+                }
+            ),
+            200,
+        )
 
     except CloudAuthError as e:
         await run_db(lambda: _set_status("auth_error"))
@@ -518,11 +556,16 @@ async def list_machines(provider_id: int):
             # not left blocking the event loop inline (gh-22).
             await run_db(lambda: _sync_machines_to_db(db, provider_id, machines))
 
-            return jsonify({
-                "machines": [m.to_dict() for m in machines],
-                "count": len(machines),
-                "source": "cloud_api",
-            }), 200
+            return (
+                jsonify(
+                    {
+                        "machines": [m.to_dict() for m in machines],
+                        "count": len(machines),
+                        "source": "cloud_api",
+                    }
+                ),
+                200,
+            )
 
         except CloudError as e:
             log.error(f"Error listing machines from cloud: {e}")
@@ -534,11 +577,16 @@ async def list_machines(provider_id: int):
 
     machines = await run_db(_fetch_machines)
 
-    return jsonify({
-        "machines": machines,
-        "count": len(machines),
-        "source": "database",
-    }), 200
+    return (
+        jsonify(
+            {
+                "machines": machines,
+                "count": len(machines),
+                "source": "database",
+            }
+        ),
+        200,
+    )
 
 
 @clouds_bp.route("/<int:provider_id>/machines", methods=["POST"])
@@ -604,8 +652,12 @@ async def create_machine(provider_id: int):
             or not isinstance(spec.extra, dict)
             or not isinstance(spec.networks, list)
         ):
-            raise ValueError("storage_gb must be a non-negative integer; extra an object")
-    except Exception as e:  # noqa: BLE001 -- untrusted request body, any construction error is a 400
+            raise ValueError(
+                "storage_gb must be a non-negative integer; extra an object"
+            )
+    except (
+        Exception
+    ) as e:  # noqa: BLE001 -- untrusted request body, any construction error is a 400
         return jsonify({"error": f"Invalid machine spec: {e}"}), 400
     # The hub alone chooses the LXD target member; a client-supplied one is discarded.
     spec.extra.pop("target", None)
@@ -631,7 +683,9 @@ async def create_machine(provider_id: int):
             f"machine requires additional licensed nodes.",
             details={
                 "active_nodes": active,
-                "allowed_nodes": allowance if allowance != float("inf") else "unlimited",
+                "allowed_nodes": (
+                    allowance if allowance != float("inf") else "unlimited"
+                ),
             },
         )
 
@@ -705,7 +759,9 @@ async def create_machine(provider_id: int):
         return jsonify({"error": str(e)}), 500
 
 
-async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tuple[Any, int]:
+async def _place_lxd_machine(
+    db: Any, cloud: Any, spec: MachineSpec
+) -> str | tuple[Any, int]:
     """Choose an LXD member for ``spec`` through the capacity guard and reserve it.
 
     Sets ``spec.extra['target']`` (clustered LXD) and ``spec.extra['storage_pool']``.
@@ -721,7 +777,9 @@ async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tu
             "resource limits required: size must be '<cpu>/<memory>' with a numeric cpu "
             "count and absolute memory (e.g. '2/4GiB'), and storage_gb > 0"
         )
-    pool = str(spec.extra.get("storage_pool") or capacity_guard.policy_from_env().default_pool)
+    pool = str(
+        spec.extra.get("storage_pool") or capacity_guard.policy_from_env().default_pool
+    )
     spec.extra["storage_pool"] = pool
     request_fit = capacity_guard.FitRequest(
         cpu_cores=cpu, memory_bytes=mem, disk_bytes=spec.storage_gb * 1024**3, pool=pool
@@ -745,10 +803,12 @@ async def _place_lxd_machine(db: Any, cloud: Any, spec: MachineSpec) -> str | tu
     if isinstance(result, capacity_guard.PlacementRefusal):
         log.info("LXD placement refused for %s: %s", spec.name, result.reasons)
         return (
-            jsonify({
-                "error": "insufficient_capacity",
-                "reasons": {m: list(r) for m, r in result.reasons.items()},
-            }),
+            jsonify(
+                {
+                    "error": "insufficient_capacity",
+                    "reasons": {m: list(r) for m, r in result.reasons.items()},
+                }
+            ),
             409,
         )
     if clustered:
@@ -832,8 +892,8 @@ async def destroy_machine(provider_id: int, machine_id: str):
         # unit of work -- stays in one run_db() closure.
         def _delete_machine() -> None:
             db(
-                (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.external_id == machine_id)
+                (db.cloud_machines.provider_id == provider_id)
+                & (db.cloud_machines.external_id == machine_id)
             ).delete()
             db.commit()
 
@@ -885,8 +945,8 @@ async def start_machine(provider_id: int, machine_id: str):
         # of work -- stays in one run_db() closure.
         def _mark_running() -> None:
             db(
-                (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.external_id == machine_id)
+                (db.cloud_machines.provider_id == provider_id)
+                & (db.cloud_machines.external_id == machine_id)
             ).update(status="running")
             db.commit()
 
@@ -936,8 +996,8 @@ async def stop_machine(provider_id: int, machine_id: str):
         # of work -- stays in one run_db() closure.
         def _mark_stopped() -> None:
             db(
-                (db.cloud_machines.provider_id == provider_id) & (
-                    db.cloud_machines.external_id == machine_id)
+                (db.cloud_machines.provider_id == provider_id)
+                & (db.cloud_machines.external_id == machine_id)
             ).update(status="stopped")
             db.commit()
 
@@ -1138,21 +1198,23 @@ def _sync_machines_to_db(db, provider_id: int, machines: list) -> None:
                 tags=machine.tags,
             )
         else:
-            new_rows.append({
-                "provider_id": provider_id,
-                "external_id": machine.id,
-                "hostname": machine.name,
-                "status": machine.state.value,
-                "zone": machine.region,
-                "os_image": machine.image,
-                "machine_type": machine.size,
-                "public_ips": machine.public_ips,
-                "private_ips": machine.private_ips,
-                "ip_address": _primary_ip(machine.public_ips),
-                "private_ip": _primary_ip(machine.private_ips),
-                "tags": machine.tags,
-                "metadata": machine.extra,
-            })
+            new_rows.append(
+                {
+                    "provider_id": provider_id,
+                    "external_id": machine.id,
+                    "hostname": machine.name,
+                    "status": machine.state.value,
+                    "zone": machine.region,
+                    "os_image": machine.image,
+                    "machine_type": machine.size,
+                    "public_ips": machine.public_ips,
+                    "private_ips": machine.private_ips,
+                    "ip_address": _primary_ip(machine.public_ips),
+                    "private_ip": _primary_ip(machine.private_ips),
+                    "tags": machine.tags,
+                    "metadata": machine.extra,
+                }
+            )
 
     if new_rows:
         db.cloud_machines.bulk_insert(new_rows)

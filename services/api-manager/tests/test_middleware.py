@@ -3,16 +3,15 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
 
 import jwt as pyjwt
 import pytest
 from quart import Quart, g, jsonify
 
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_app() -> Quart:
     app = Quart(__name__)
@@ -83,12 +82,14 @@ _FAKE_VIEWER = {
 # get_current_user
 # ---------------------------------------------------------------------------
 
+
 class TestGetCurrentUser:
     @pytest.mark.anyio
     async def test_returns_none_when_not_set(self):
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import get_current_user
+
             assert get_current_user() is None
 
     @pytest.mark.anyio
@@ -96,6 +97,7 @@ class TestGetCurrentUser:
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import get_current_user
+
             g.current_user = _FAKE_USER
             assert get_current_user() == _FAKE_USER
 
@@ -104,12 +106,14 @@ class TestGetCurrentUser:
 # user_has_role
 # ---------------------------------------------------------------------------
 
+
 class TestUserHasRole:
     @pytest.mark.anyio
     async def test_returns_false_when_no_user(self):
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import user_has_role
+
             assert user_has_role("admin") is False
 
     @pytest.mark.anyio
@@ -117,6 +121,7 @@ class TestUserHasRole:
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import user_has_role
+
             g.current_user = _FAKE_USER
             assert user_has_role("admin") is True
 
@@ -125,6 +130,7 @@ class TestUserHasRole:
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import user_has_role
+
             g.current_user = _FAKE_USER
             assert user_has_role("viewer") is False
 
@@ -132,6 +138,7 @@ class TestUserHasRole:
 # ---------------------------------------------------------------------------
 # get_token_from_header
 # ---------------------------------------------------------------------------
+
 
 class TestGetTokenFromHeader:
     @pytest.mark.anyio
@@ -141,6 +148,7 @@ class TestGetTokenFromHeader:
             "/", headers={"Authorization": "Bearer mytoken"}
         ):
             from app.middleware import get_token_from_header
+
             assert get_token_from_header() == "mytoken"
 
     @pytest.mark.anyio
@@ -148,6 +156,7 @@ class TestGetTokenFromHeader:
         app = _make_app()
         async with app.test_request_context("/"):
             from app.middleware import get_token_from_header
+
             assert get_token_from_header() is None
 
     @pytest.mark.anyio
@@ -157,12 +166,14 @@ class TestGetTokenFromHeader:
             "/", headers={"Authorization": "Basic abc123"}
         ):
             from app.middleware import get_token_from_header
+
             assert get_token_from_header() is None
 
 
 # ---------------------------------------------------------------------------
 # auth_required
 # ---------------------------------------------------------------------------
+
 
 class TestAuthRequired:
     """``auth_required`` now only asserts a principal is present (regression: gh-31).
@@ -205,6 +216,7 @@ class TestAuthRequired:
 # ---------------------------------------------------------------------------
 # admin_required
 # ---------------------------------------------------------------------------
+
 
 class TestAdminRequired:
     @pytest.mark.anyio
@@ -261,6 +273,7 @@ class TestAdminRequired:
 # roles_required
 # ---------------------------------------------------------------------------
 
+
 class TestRolesRequired:
     @pytest.mark.anyio
     async def test_matching_role_passes_via_scope(self):
@@ -303,6 +316,7 @@ class TestRolesRequired:
 # roles_accepted
 # ---------------------------------------------------------------------------
 
+
 class TestRolesAccepted:
     @pytest.mark.anyio
     async def test_one_of_multiple_roles_passes(self):
@@ -330,6 +344,7 @@ class TestRolesAccepted:
 # ---------------------------------------------------------------------------
 # maintainer_or_admin_required
 # ---------------------------------------------------------------------------
+
 
 class TestMaintainerOrAdminRequired:
     @pytest.mark.anyio
@@ -367,16 +382,20 @@ class TestMaintainerOrAdminRequired:
 # _ROLE_TO_SCOPE_BUNDLE constant
 # ---------------------------------------------------------------------------
 
+
 class TestRoleToScopeBundle:
     def test_admin_bundle_exists(self):
         from app.middleware import _ROLE_TO_SCOPE_BUNDLE
+
         assert "admin" in _ROLE_TO_SCOPE_BUNDLE
         assert "gough.cluster.admin" in _ROLE_TO_SCOPE_BUNDLE["admin"]
 
     def test_maintainer_bundle_exists(self):
         from app.middleware import _ROLE_TO_SCOPE_BUNDLE
+
         assert "maintainer" in _ROLE_TO_SCOPE_BUNDLE
 
     def test_viewer_bundle_exists(self):
         from app.middleware import _ROLE_TO_SCOPE_BUNDLE
+
         assert "viewer" in _ROLE_TO_SCOPE_BUNDLE

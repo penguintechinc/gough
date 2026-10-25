@@ -22,7 +22,7 @@ if find "$PROJECT_ROOT" -name "*.py" -type f -not -path "*/venv/*" -not -path "*
         echo "Running bandit..."
         if ! bandit -r "$PROJECT_ROOT" -ll -q -x "**/venv/**,**/.venv/**,**/node_modules/**" 2>&1; then
             echo "bandit found security issues"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     else
         echo "bandit not installed"
@@ -31,13 +31,13 @@ if find "$PROJECT_ROOT" -name "*.py" -type f -not -path "*/venv/*" -not -path "*
     # safety
     if command -v safety &> /dev/null; then
         echo "Running safety check..."
-        find "$PROJECT_ROOT" -name "requirements.txt" -not -path "*/venv/*" -not -path "*/.venv/*" | while read -r req; do
+        while IFS= read -r -d '' req; do
             echo "Checking $req..."
             if ! safety check -r "$req" --short-report 2>&1; then
                 echo "safety found vulnerable packages in $req"
-                ((FAILED++))
+                FAILED=$((FAILED + 1))
             fi
-        done
+        done < <(find "$PROJECT_ROOT" -name "requirements.txt" -not -path "*/venv/*" -not -path "*/.venv/*" -print0)
     else
         echo "safety not installed"
     fi
@@ -56,7 +56,7 @@ if find "$PROJECT_ROOT" -name "go.mod" -type f 2>/dev/null | head -1 | grep -q .
             cd "$dir"
             if ! gosec -quiet -severity high ./... 2>&1; then
                 echo "gosec found security issues in $dir"
-                ((FAILED++))
+                FAILED=$((FAILED + 1))
             fi
             cd - > /dev/null
         done < <(find "$PROJECT_ROOT" -name "go.mod" -type f -print0 2>/dev/null)
@@ -79,7 +79,7 @@ if find "$PROJECT_ROOT" -name "package.json" -type f -not -path "*/node_modules/
             if [ -d "node_modules" ] || [ -f "package-lock.json" ]; then
                 if ! npm audit --audit-level=high 2>&1; then
                     echo "npm audit found vulnerabilities in $dir"
-                    ((FAILED++))
+                    FAILED=$((FAILED + 1))
                 fi
             fi
             cd - > /dev/null
@@ -94,13 +94,13 @@ if find "$PROJECT_ROOT" -name "Dockerfile" -type f 2>/dev/null | head -1 | grep 
 
     if command -v trivy &> /dev/null; then
         echo "Running trivy on Dockerfiles..."
-        find "$PROJECT_ROOT" -name "Dockerfile" -type f | while read -r dockerfile; do
+        while IFS= read -r -d '' dockerfile; do
             echo "Scanning $dockerfile..."
             if ! trivy config --severity HIGH,CRITICAL "$dockerfile" 2>&1; then
                 echo "trivy found issues in $dockerfile"
-                ((FAILED++))
+                FAILED=$((FAILED + 1))
             fi
-        done
+        done < <(find "$PROJECT_ROOT" -name "Dockerfile" -type f -print0)
     else
         echo "trivy not installed, skipping container scanning"
     fi

@@ -12,10 +12,8 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
-import pytest
-from quart import Quart, g, jsonify
-
 import app.permissions as perms
+import pytest
 from app.permissions import (
     TEAM_ROLES,
     check_resource_permission,
@@ -24,6 +22,7 @@ from app.permissions import (
     require_resource_permission,
     require_team_permission,
 )
+from quart import Quart, g, jsonify
 
 
 def _seq_db(*results: Any) -> MagicMock:
@@ -61,15 +60,13 @@ def _patch_db(monkeypatch: pytest.MonkeyPatch, db: MagicMock) -> None:
 # check_team_access: full role hierarchy matrix
 # ---------------------------------------------------------------------------
 
-_MATRIX = [
-    (user_role, required)
-    for user_role in TEAM_ROLES
-    for required in TEAM_ROLES
-]
+_MATRIX = [(user_role, required) for user_role in TEAM_ROLES for required in TEAM_ROLES]
 
 
 @pytest.mark.parametrize(("user_role", "required"), _MATRIX)
-def test_team_role_matrix(monkeypatch: pytest.MonkeyPatch, user_role: str, required: str) -> None:
+def test_team_role_matrix(
+    monkeypatch: pytest.MonkeyPatch, user_role: str, required: str
+) -> None:
     """Each member role is granted exactly when its rank is at or above the requirement."""
     _patch_db(monkeypatch, _seq_db(_membership(user_role)))
 
@@ -79,7 +76,9 @@ def test_team_role_matrix(monkeypatch: pytest.MonkeyPatch, user_role: str, requi
     assert granted is expected, f"{user_role} vs required {required}"
 
 
-def test_team_access_default_requirement_is_member(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_team_access_default_requirement_is_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Default required role is member: viewer denied, member and admin allowed."""
     _patch_db(monkeypatch, _seq_db(_membership("viewer")))
     assert check_team_access(1, 10) is False
@@ -115,7 +114,6 @@ def test_team_access_no_membership_row_denied(monkeypatch: pytest.MonkeyPatch) -
     assert check_team_access(1, 10, "viewer") is False
 
 
-
 # ---------------------------------------------------------------------------
 # check_resource_permission: decision tree
 # ---------------------------------------------------------------------------
@@ -149,14 +147,18 @@ def test_resource_creator_always_allowed(monkeypatch: pytest.MonkeyPatch) -> Non
         assert check_resource_permission(5, "widgets", 1, permission) is True
 
 
-def test_resource_without_team_or_creator_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_resource_without_team_or_creator_denied(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A non-team-scoped resource not created by the user is denied."""
     _patch_db(monkeypatch, _seq_db(SimpleNamespace(created_by=99)))
 
     assert check_resource_permission(1, "widgets", 1, "read") is False
 
 
-def test_explicit_permission_grant_allows_listed_permission(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_explicit_permission_grant_allows_listed_permission(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An explicit resource_permissions row grants each comma-listed permission."""
     resource = _resource(team_id=10)
     grant = SimpleNamespace(permission="read,shell")
@@ -176,7 +178,9 @@ def test_explicit_grant_without_permission_falls_through_to_denied(
     assert check_resource_permission(1, "widgets", 1, "shell") is False
 
 
-def test_explicit_grant_with_empty_permission_column(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_explicit_grant_with_empty_permission_column(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A grant row with a NULL permission column is treated as no grant."""
     resource = _resource(team_id=10)
     grant = SimpleNamespace(permission=None)
@@ -215,7 +219,9 @@ def test_team_role_drives_resource_permission(
     assert check_resource_permission(1, "widgets", 1, permission) is expected
 
 
-def test_shell_permission_never_inherited_from_team_role(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_shell_permission_never_inherited_from_team_role(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Shell is only granted explicitly; a team-scoped resource with no grant is denied."""
     resource = _resource(team_id=10)
     _patch_db(monkeypatch, _seq_db(resource, None))
@@ -223,7 +229,9 @@ def test_shell_permission_never_inherited_from_team_role(monkeypatch: pytest.Mon
     assert check_shell_access(1, "widgets", 1) is False
 
 
-def test_check_shell_access_delegates_explicit_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_check_shell_access_delegates_explicit_grant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """check_shell_access returns True when an explicit shell grant exists."""
     resource = _resource(team_id=10)
     grant = SimpleNamespace(permission="shell")
@@ -384,7 +392,9 @@ async def test_resource_decorator_denies_when_check_fails(
     rbac_app: Quart, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Resource check returning False -> 403 with the standard error body."""
-    monkeypatch.setattr(perms, "check_resource_permission", MagicMock(return_value=False))
+    monkeypatch.setattr(
+        perms, "check_resource_permission", MagicMock(return_value=False)
+    )
 
     resp = await rbac_app.test_client().post(
         "/resource",

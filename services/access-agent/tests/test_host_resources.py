@@ -11,7 +11,6 @@ from typing import Any
 
 import httpx
 import pytest
-
 from agent.config import AgentConfig
 from agent.heartbeat import HeartbeatService
 from agent.host_resources import (
@@ -61,7 +60,9 @@ POOL_KEYS = {"name", "driver", "total_bytes", "used_bytes"}
 ROOTFS_KEYS = {"total_bytes", "free_bytes"}
 
 
-def _write_psi(proc_root: Path, cpu: str = PSI_CPU, memory: str = PSI_MEMORY, io: str = PSI_IO) -> None:
+def _write_psi(
+    proc_root: Path, cpu: str = PSI_CPU, memory: str = PSI_MEMORY, io: str = PSI_IO
+) -> None:
     """Create /proc/pressure/{cpu,memory,io} fixtures under proc_root."""
     base = proc_root / "pressure"
     base.mkdir(parents=True)
@@ -91,7 +92,9 @@ async def _fake_lxd(
 ) -> asyncio.Server:
     """Serve LXD-style JSON envelopes over a unix socket; hang_paths never respond."""
 
-    async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    async def handle(
+        reader: asyncio.StreamReader, writer: asyncio.StreamWriter
+    ) -> None:
         """Answer one HTTP GET from the routes table."""
         request_line = (await reader.readline()).decode()
         while (await reader.readline()) not in (b"\r\n", b""):
@@ -132,7 +135,9 @@ LXD_ROUTES: dict[str, Any] = {
         _instance(
             "db-1",
             config={"limits.cpu": "0-3", "limits.memory": "50%"},
-            devices={"root": {"type": "disk", "path": "/", "pool": "default", "size": "20GB"}},
+            devices={
+                "root": {"type": "disk", "path": "/", "pool": "default", "size": "20GB"}
+            },
         ),
         _instance("bare-1", config={}, devices={"root": ROOT_DISK}),
     ],
@@ -203,7 +208,9 @@ def test_read_pressure_missing_file_raises(tmp_path: Path) -> None:
         ("1.5GiB", None, int(1.5 * 1024**3)),
     ],
 )
-def test_parse_byte_size_table(value: str, host_total: int | None, expected: int) -> None:
+def test_parse_byte_size_table(
+    value: str, host_total: int | None, expected: int
+) -> None:
     """Units, bare bytes and percentages of host RAM parse to bytes."""
     assert parse_byte_size(value, host_total) == expected
 
@@ -252,7 +259,12 @@ def test_pool_from_metadata() -> None:
         {"name": "default", "driver": "zfs"},
         {"space": {"total": 100, "used": 40}},
     )
-    assert (pool.name, pool.driver, pool.total_bytes, pool.used_bytes) == ("default", "zfs", 100, 40)
+    assert (pool.name, pool.driver, pool.total_bytes, pool.used_bytes) == (
+        "default",
+        "zfs",
+        100,
+        40,
+    )
 
 
 def test_compute_committed_aggregates_expanded_limits() -> None:
@@ -267,11 +279,15 @@ def test_compute_committed_aggregates_expanded_limits() -> None:
         _instance(
             "db-1",
             config={"limits.cpu": "0-3", "limits.memory": "50%"},
-            devices={"root": {"type": "disk", "path": "/", "pool": "fast", "size": "20GB"}},
+            devices={
+                "root": {"type": "disk", "path": "/", "pool": "fast", "size": "20GB"}
+            },
         ),
         _instance("bare-1", config={}, devices={"root": ROOT_DISK}),
     ]
-    committed, errors = compute_committed(instances, ["default", "fast"], 8 * 1024**3, 8)
+    committed, errors = compute_committed(
+        instances, ["default", "fast"], 8 * 1024**3, 8
+    )
     assert errors == []
     assert committed.cpu_cores == 6.0
     assert committed.memory_bytes == 2 * 1024**3 + 4 * 1024**3
@@ -283,14 +299,29 @@ def test_compute_committed_aggregates_expanded_limits() -> None:
 def test_compute_committed_allowance_and_non_root_disks() -> None:
     """Allowance scales cores (host cores when no limits.cpu); non-root disks are ignored."""
     instances = [
-        _instance("half", config={"limits.cpu": "4", "limits.cpu.allowance": "50%",
-                                  "limits.memory": "1GiB"}),
-        _instance("host-share", config={"limits.cpu.allowance": "25ms/100ms",
-                                        "limits.memory": "1GiB"}),
+        _instance(
+            "half",
+            config={
+                "limits.cpu": "4",
+                "limits.cpu.allowance": "50%",
+                "limits.memory": "1GiB",
+            },
+        ),
+        _instance(
+            "host-share",
+            config={"limits.cpu.allowance": "25ms/100ms", "limits.memory": "1GiB"},
+        ),
         _instance(
             "data-mount",
             config={"limits.cpu": "1", "limits.memory": "1GiB"},
-            devices={"data": {"type": "disk", "path": "/data", "pool": "default", "size": "5GiB"}},
+            devices={
+                "data": {
+                    "type": "disk",
+                    "path": "/data",
+                    "pool": "default",
+                    "size": "5GiB",
+                }
+            },
         ),
     ]
     committed, errors = compute_committed(instances, ["default"], 8 * 1024**3, 8)
@@ -303,7 +334,9 @@ def test_compute_committed_allowance_and_non_root_disks() -> None:
 
 def test_compute_committed_counts_unparseable_limits() -> None:
     """Unparseable limits produce an error entry and count as without limits."""
-    instances = [_instance("broken", config={"limits.cpu": "x", "limits.memory": "2GiB"})]
+    instances = [
+        _instance("broken", config={"limits.cpu": "x", "limits.memory": "2GiB"})
+    ]
     committed, errors = compute_committed(instances, [], 8 * 1024**3, 8)
     assert errors == ["limit_unparsed:broken:limits.cpu"]
     assert committed.instances_without_limits == 1
@@ -335,7 +368,12 @@ async def test_collect_happy_path_matches_schema(
     assert doc["errors"] == []
     assert doc["collected_at"].endswith("+00:00")
     assert doc["storage_pools"] == [
-        {"name": "default", "driver": "zfs", "total_bytes": 500_000_000_000, "used_bytes": 120_000_000_000}
+        {
+            "name": "default",
+            "driver": "zfs",
+            "total_bytes": 500_000_000_000,
+            "used_bytes": 120_000_000_000,
+        }
     ]
     assert doc["committed"]["instances"] == 3
     assert doc["committed"]["instances_without_limits"] == 1
@@ -365,7 +403,9 @@ async def test_collect_timeout_returns_partial_snapshot(
     server = await _fake_lxd(
         lxd_socket,
         LXD_ROUTES,
-        hang_paths=frozenset({"/1.0/storage-pools?recursion=1", "/1.0/instances?recursion=1"}),
+        hang_paths=frozenset(
+            {"/1.0/storage-pools?recursion=1", "/1.0/instances?recursion=1"}
+        ),
     )
     started = time.monotonic()
     try:
@@ -392,7 +432,9 @@ async def test_heartbeat_body_carries_resource_snapshot(
     import agent.host_resources as host_resources
 
     monkeypatch.setattr(
-        host_resources, "read_pressure", lambda _root: host_resources.read_pressure(proc_root)
+        host_resources,
+        "read_pressure",
+        lambda _root: host_resources.read_pressure(proc_root),
     )
     captured: dict[str, Any] = {}
 

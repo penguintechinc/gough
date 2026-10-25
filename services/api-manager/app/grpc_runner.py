@@ -25,15 +25,19 @@ from __future__ import annotations
 
 import logging
 import os
-import sys
 
-# The protoc-generated *_pb2_grpc.py files use bare `from gough import …`.
-# Adding app/grpc to sys.path makes the `gough` package importable by that name.
-_GRPC_PKG_DIR = os.path.join(os.path.dirname(__file__), "grpc")
-if _GRPC_PKG_DIR not in sys.path:
-    sys.path.insert(0, _GRPC_PKG_DIR)
-
+# NOTE: the protoc-generated *_pb2_grpc.py files use bare `from gough import ...`.
+# Importing app.grpc_server below puts app/grpc on sys.path (see its module
+# header and app/grpc/__init__.py) before the `from gough import` statement runs.
 import grpc
+from app.grpc_auth import GrpcAuthInterceptor
+from app.grpc_server import (
+    AuditServicer,
+    BiomesServicer,
+    IdentityServicer,
+    IPXEServicer,
+    JoinerSecretsServicer,
+)
 from gough import (
     audit_pb2_grpc,
     biomes_pb2_grpc,
@@ -43,21 +47,14 @@ from gough import (
 )
 from grpc import aio
 
-from app.grpc_auth import GrpcAuthInterceptor
-from app.grpc_server import (
-    AuditServicer,
-    BiomesServicer,
-    IdentityServicer,
-    IPXEServicer,
-    JoinerSecretsServicer,
-)
-
 log = logging.getLogger(__name__)
 
 _GRPC_PORT = 50051
 
 
-def _load_server_credentials(trust_bundle_pem: str | None) -> grpc.ServerCredentials | None:
+def _load_server_credentials(
+    trust_bundle_pem: str | None,
+) -> grpc.ServerCredentials | None:
     """Build mTLS server credentials from env-sourced PEM material.
 
     Returns ``None`` if ``GRPC_TLS_CERT_PEM``/``GRPC_TLS_KEY_PEM`` aren't

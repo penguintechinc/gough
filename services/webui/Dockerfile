@@ -60,10 +60,8 @@ COPY --from=builder /app/dist ./dist
 # Runtime needs only node; drop the bundled npm/corepack toolchain (and its transitive
 # deps, e.g. pacote/sigstore) so their advisories never ship in the production image.
 RUN rm -rf /usr/local/lib/node_modules/npm /usr/local/lib/node_modules/corepack \
-    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack
-
-# Set ownership
-RUN chown -R webui:webui /app
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack && \
+    chown -R webui:webui /app
 
 # Switch to non-root user
 USER webui

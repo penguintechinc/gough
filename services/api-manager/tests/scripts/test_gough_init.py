@@ -1,10 +1,8 @@
 """Tests for gough init cluster bootstrap script."""
 
 import json
-import tempfile
-from pathlib import Path
-from unittest.mock import MagicMock, patch
 import uuid
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -17,7 +15,7 @@ def temp_etc_gough(tmp_path):
     """Provide temporary /etc/gough directory."""
     gough_dir = tmp_path / "etc" / "gough"
     gough_dir.mkdir(parents=True, exist_ok=True)
-    with patch("pathlib.Path.__new__") as mock_path:
+    with patch("pathlib.Path.__new__"):
         # Simplified: in real tests, patch the actual Path usage
         yield gough_dir
 
@@ -40,9 +38,7 @@ def mock_db_session():
 
 def test_already_initialized_exits_9(tmp_path, capsys):
     """Cluster already initialized without --reinit exits 9."""
-    from pathlib import Path
     from unittest.mock import patch
-    import sys
 
     cluster_json = tmp_path / "cluster.json"
     cluster_json.write_text(json.dumps({"cluster_id": "existing"}))
@@ -62,8 +58,8 @@ def test_already_initialized_exits_9(tmp_path, capsys):
 
 def test_vault_sealed_exits_2(mock_vault_client):
     """Vault sealed triggers exit 2."""
-    from scripts.gough_init import bootstrap_vault
     from app.clients.vault import VaultSealedError
+    from scripts.gough_init import bootstrap_vault
 
     mock_vault_client.health.side_effect = VaultSealedError("Vault sealed")
 
@@ -74,9 +70,10 @@ def test_vault_sealed_exits_2(mock_vault_client):
 
 def test_lxd_init_failure_exits_3():
     """LXD init failure exits 3."""
-    from unittest.mock import patch
-    from scripts.gough_init import init_lxd_cluster
     import subprocess
+    from unittest.mock import patch
+
+    from scripts.gough_init import init_lxd_cluster
 
     with patch("subprocess.run") as mock_run:
         mock_run.side_effect = subprocess.CalledProcessError(
@@ -90,9 +87,10 @@ def test_lxd_init_failure_exits_3():
 
 def test_spire_bootstrap_failure_exits_4():
     """SPIRE bootstrap failure exits 4."""
-    from unittest.mock import patch
-    from scripts.gough_init import bootstrap_spire
     import subprocess
+    from unittest.mock import patch
+
+    from scripts.gough_init import bootstrap_spire
 
     with patch("subprocess.run") as mock_run:
         # First call (healthcheck) succeeds; subsequent calls (registration) fail
@@ -114,9 +112,10 @@ def test_spire_bootstrap_failure_exits_4():
 
 def test_alembic_failure_exits_5():
     """Alembic migration failure exits 5."""
-    from unittest.mock import patch
-    from scripts.gough_init import run_alembic_migrations
     import subprocess
+    from unittest.mock import patch
+
+    from scripts.gough_init import run_alembic_migrations
 
     with patch("subprocess.run") as mock_run:
         mock_run.side_effect = subprocess.CalledProcessError(
@@ -149,6 +148,7 @@ def test_genesis_row_failure_exits_6(mock_db_session):
     surfaced this pre-existing wrong-target patch.
     """
     from unittest.mock import patch
+
     from scripts.gough_init import insert_genesis_audit_row
 
     with patch("scripts.gough_init.insert_genesis_row") as mock_insert:
@@ -249,14 +249,16 @@ def test_cluster_json_atomic_write(tmp_path, monkeypatch):
 
     replace.assert_called_once()
     assert replace.call_args.args[1] == target
-    assert target.parent.joinpath(replace.call_args.args[0]).name.endswith(".tmp") or str(
-        replace.call_args.args[0]
-    ).endswith(".tmp")
+    assert target.parent.joinpath(replace.call_args.args[0]).name.endswith(
+        ".tmp"
+    ) or str(replace.call_args.args[0]).endswith(".tmp")
     data = json.loads(target.read_text())
     assert data["cluster_id"] == "test-cluster"
     assert data["lxd_channel"] == "5.21/stable"
     assert data["host_tier"] == "bare-metal"
-    assert [p.name for p in target.parent.iterdir()] == ["cluster.json"]  # no temp file left behind
+    assert [p.name for p in target.parent.iterdir()] == [
+        "cluster.json"
+    ]  # no temp file left behind
 
 
 def test_summary_includes_required_fields(capsys):
@@ -275,9 +277,10 @@ def test_summary_includes_required_fields(capsys):
 
 def test_no_secret_logging(caplog):
     """Secrets (full passwords/tokens) are never logged."""
-    from scripts.gough_init import set_lxd_password
-    from unittest.mock import patch
     import logging
+    from unittest.mock import patch
+
+    from scripts.gough_init import set_lxd_password
 
     caplog.set_level(logging.DEBUG)
     full_password = "secret_password_value_12345"
@@ -293,6 +296,7 @@ def test_no_secret_logging(caplog):
 def test_detect_host_context_bare_metal(tmp_path):
     """Host detection: bare-metal when no DMI vendor or unknown."""
     from unittest.mock import patch
+
     from scripts.gough_init import detect_host_context
 
     with patch("pathlib.Path.exists", return_value=False):
@@ -302,9 +306,10 @@ def test_detect_host_context_bare_metal(tmp_path):
 
 def test_detect_host_context_cloud_vm(tmp_path):
     """Host detection: cloud-vm when EC2/GCP vendor found."""
-    from unittest.mock import patch, MagicMock
-    from scripts.gough_init import detect_host_context
     from pathlib import Path
+    from unittest.mock import MagicMock, patch
+
+    from scripts.gough_init import detect_host_context
 
     mock_path = MagicMock(spec=Path)
     mock_path.exists.return_value = True
@@ -327,9 +332,9 @@ def test_mask_password():
 
 def test_reinit_requires_reason():
     """--reinit without --reason fails argument parsing."""
-    from scripts.gough_init import main
     from unittest.mock import patch
-    import sys
+
+    from scripts.gough_init import main
 
     with patch("sys.argv", ["gough_init.py", "--reinit"]):
         with pytest.raises(SystemExit):
@@ -339,6 +344,7 @@ def test_reinit_requires_reason():
 def test_install_lxd_snap_already_present():
     """LXD snap install is skipped if already installed."""
     from unittest.mock import patch
+
     from scripts.gough_init import install_lxd_snap
 
     with patch("subprocess.run") as mock_run:
@@ -354,7 +360,8 @@ def test_install_lxd_snap_already_present():
 
 def test_main_returns_zero_on_success(tmp_path):
     """Main function returns 0 on successful bootstrap."""
-    from unittest.mock import patch, MagicMock
+    from unittest.mock import MagicMock, patch
+
     from scripts.gough_init import main
 
     with patch("scripts.gough_init.detect_host_context", return_value="bare-metal"):

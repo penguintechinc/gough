@@ -5,7 +5,7 @@ Defines models for biome-group endpoints to enable detailed OpenAPI documentatio
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Optional
 
 from pydantic import BaseModel, Field
 
@@ -23,8 +23,12 @@ class BiomeGroupCreateRequest(BaseModel):
     name: str = Field(..., description="Unique identifier for the group")
     display_name: str = Field(..., description="Human-readable display name")
     description: Optional[str] = Field(None, description="Group description")
-    biomes: list[BiomeMemberRef] = Field(..., description="Array of biomes in the group")
-    is_default: Optional[bool] = Field(False, description="Whether this is a default group")
+    biomes: list[BiomeMemberRef] = Field(
+        ..., description="Array of biomes in the group"
+    )
+    is_default: Optional[bool] = Field(
+        False, description="Whether this is a default group"
+    )
 
 
 class BiomeGroupUpdateRequest(BaseModel):
@@ -33,8 +37,12 @@ class BiomeGroupUpdateRequest(BaseModel):
     name: Optional[str] = Field(None, description="Unique identifier for the group")
     display_name: Optional[str] = Field(None, description="Human-readable display name")
     description: Optional[str] = Field(None, description="Group description")
-    biomes: Optional[list[BiomeMemberRef]] = Field(None, description="Array of biomes in the group")
-    is_default: Optional[bool] = Field(None, description="Whether this is a default group")
+    biomes: Optional[list[BiomeMemberRef]] = Field(
+        None, description="Array of biomes in the group"
+    )
+    is_default: Optional[bool] = Field(
+        None, description="Whether this is a default group"
+    )
 
 
 class BiomeGroupResponse(BaseModel):
@@ -44,13 +52,19 @@ class BiomeGroupResponse(BaseModel):
     name: str = Field(..., description="Unique identifier for the group")
     display_name: str = Field(..., description="Human-readable display name")
     description: Optional[str] = Field(None, description="Group description")
-    biomes: list[BiomeMemberRef] = Field(default_factory=list, description="Array of biomes in the group")
+    biomes: list[BiomeMemberRef] = Field(
+        default_factory=list, description="Array of biomes in the group"
+    )
     is_default: bool = Field(False, description="Whether this is a default group")
     created_at: Optional[str] = Field(None, description="Creation timestamp (ISO 8601)")
-    updated_at: Optional[str] = Field(None, description="Last update timestamp (ISO 8601)")
+    updated_at: Optional[str] = Field(
+        None, description="Last update timestamp (ISO 8601)"
+    )
 
 
 class BiomeGroupListResponse(BaseModel):
     """Response body for listing biome groups."""
 
-    groups: list[BiomeGroupResponse] = Field(default_factory=list, description="List of biome groups")
+    groups: list[BiomeGroupResponse] = Field(
+        default_factory=list, description="List of biome groups"
+    )

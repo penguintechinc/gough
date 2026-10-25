@@ -1,8 +1,7 @@
 """Tests for M1 SQLAlchemy ORM classes."""
 
-import pytest
-from app.models_sqlalchemy import Base
 from app import models_m1
+from app.models_sqlalchemy import Base
 
 
 class TestNodeClass:
@@ -151,7 +150,9 @@ class TestBaseMetadata:
             "dr_drills",
             "slo_definitions",
         }
-        assert m1_tables.issubset(table_names), f"Missing M1 tables: {m1_tables - table_names}"
+        assert m1_tables.issubset(
+            table_names
+        ), f"Missing M1 tables: {m1_tables - table_names}"
 
 
 class TestNodeEggAssignmentRelationships:

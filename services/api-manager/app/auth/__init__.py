@@ -4,14 +4,14 @@ Provides JWT-based authentication for Quart backend with PyDAL datastore.
 Handles user login, logout, token refresh, and password reset flows.
 """
 
-from quart import Blueprint, request, jsonify, current_app, make_response
-from datetime import UTC, datetime, timedelta
-from typing import Any, cast
-import bcrypt
 import secrets
+from datetime import UTC, datetime, timedelta
 from functools import wraps
+from typing import Any, cast
 
+import bcrypt
 from penguin_aaa.authn.types import Claims
+from quart import Blueprint, current_app, jsonify, make_response, request
 
 from ..db.run_db import run_db
 from ..middleware import (
@@ -22,8 +22,10 @@ from ..middleware import (
 )
 from ..models import get_db
 from ..security.scope_policy import _expand_roles_to_scopes
-from ..security_datastore import PyDALUser, PyDALRole
+from ..security_datastore import PyDALRole, PyDALUser
 
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_FALSE = False
 
 auth_bp = Blueprint("auth", __name__)
 
@@ -48,16 +50,28 @@ def _set_auth_cookies(response: Any, access_token: str, refresh_token: str) -> N
     secure = cookies_are_secure(current_app.config)
     csrf_token = secrets.token_urlsafe(32)
     response.set_cookie(
-        COOKIE_ACCESS_NAME, access_token, path="/",
-        secure=secure, httponly=True, samesite="Lax",
+        COOKIE_ACCESS_NAME,
+        access_token,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="Lax",
     )
     response.set_cookie(
-        COOKIE_REFRESH_NAME, refresh_token, path=_REFRESH_COOKIE_PATH,
-        secure=secure, httponly=True, samesite="Lax",
+        COOKIE_REFRESH_NAME,
+        refresh_token,
+        path=_REFRESH_COOKIE_PATH,
+        secure=secure,
+        httponly=True,
+        samesite="Lax",
     )
     response.set_cookie(
-        COOKIE_CSRF_NAME, csrf_token, path="/",
-        secure=secure, httponly=False, samesite="Lax",
+        COOKIE_CSRF_NAME,
+        csrf_token,
+        path="/",
+        secure=secure,
+        httponly=False,
+        samesite="Lax",
     )
 
 
@@ -65,14 +79,25 @@ def _clear_auth_cookies(response: Any) -> None:
     """Clear all three browser auth cookies (logout)."""
     secure = cookies_are_secure(current_app.config)
     response.delete_cookie(
-        COOKIE_ACCESS_NAME, path="/", secure=secure, httponly=True, samesite="Lax",
+        COOKIE_ACCESS_NAME,
+        path="/",
+        secure=secure,
+        httponly=True,
+        samesite="Lax",
     )
     response.delete_cookie(
-        COOKIE_REFRESH_NAME, path=_REFRESH_COOKIE_PATH,
-        secure=secure, httponly=True, samesite="Lax",
+        COOKIE_REFRESH_NAME,
+        path=_REFRESH_COOKIE_PATH,
+        secure=secure,
+        httponly=True,
+        samesite="Lax",
     )
     response.delete_cookie(
-        COOKIE_CSRF_NAME, path="/", secure=secure, httponly=False, samesite="Lax",
+        COOKIE_CSRF_NAME,
+        path="/",
+        secure=secure,
+        httponly=False,
+        samesite="Lax",
     )
 
 
@@ -144,11 +169,15 @@ def verify_refresh_token(user_id: int, token_value: str) -> bool:
     db = get_db()
 
     # Find token record
-    token_record = db(
-        (db.auth_refresh_tokens.user_id == user_id)
-        & (db.auth_refresh_tokens.revoked == False)
-        & (db.auth_refresh_tokens.expires_at > datetime.utcnow())
-    ).select().first()
+    token_record = (
+        db(
+            (db.auth_refresh_tokens.user_id == user_id)
+            & (db.auth_refresh_tokens.revoked == _DB_FALSE)
+            & (db.auth_refresh_tokens.expires_at > datetime.utcnow())
+        )
+        .select()
+        .first()
+    )
 
     if not token_record:
         return False
@@ -164,7 +193,7 @@ def revoke_refresh_token(user_id: int, token_value: str) -> bool:
     # Find and mark as revoked
     updated = db(
         (db.auth_refresh_tokens.user_id == user_id)
-        & (db.auth_refresh_tokens.revoked == False)
+        & (db.auth_refresh_tokens.revoked == _DB_FALSE)
     ).update(revoked=True)
     db.commit()
 
@@ -180,6 +209,7 @@ def require_auth(f):
     ``request.user`` for handlers that read it. A request that reached here
     without validated claims is rejected 401.
     """
+
     @wraps(f)
     async def decorated_function(*args, **kwargs):
         scope = cast("dict[str, Any]", request.scope)
@@ -219,6 +249,7 @@ def require_auth(f):
 
 def require_role(*roles):
     """Decorator to require specific roles."""
+
     def decorator(f):
         @wraps(f)
         async def decorated_function(*args, **kwargs):
@@ -313,19 +344,24 @@ async def login():
     # Build response. Tokens stay in the JSON body (CLI/service clients);
     # HttpOnly cookies are ALSO set for browser clients (regression: security
     # audit 2026-09-22 -- closes the localStorage/XSS exfiltration gap).
-    response = await make_response(jsonify({
-        "access_token": token_set.access_token,
-        "id_token": token_set.id_token,
-        "refresh_token": refresh_token,
-        "token_type": "Bearer",
-        "expires_in": token_set.expires_in,
-        "user": {
-            "id": user.id,
-            "email": user.email,
-            "full_name": user.full_name,
-            "roles": [r.name for r in user.roles],
-        },
-    }), 200)
+    response = await make_response(
+        jsonify(
+            {
+                "access_token": token_set.access_token,
+                "id_token": token_set.id_token,
+                "refresh_token": refresh_token,
+                "token_type": "Bearer",
+                "expires_in": token_set.expires_in,
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "full_name": user.full_name,
+                    "roles": [r.name for r in user.roles],
+                },
+            }
+        ),
+        200,
+    )
     _set_auth_cookies(response, token_set.access_token, refresh_token)
     return response
 
@@ -347,7 +383,9 @@ async def refresh():
     data = await request.get_json(silent=True) or {}
 
     body_token = (data.get("refresh_token") or "").strip()
-    refresh_token = body_token or (request.cookies.get(COOKIE_REFRESH_NAME) or "").strip()
+    refresh_token = (
+        body_token or (request.cookies.get(COOKIE_REFRESH_NAME) or "").strip()
+    )
 
     if not refresh_token:
         return jsonify({"error": "Refresh token required"}), 400
@@ -359,7 +397,7 @@ async def refresh():
     # fresh one -- all one unit of work off the event loop via run_db().
     def _rotate_refresh() -> tuple[str, Any, str | None, list[PyDALRole]]:
         records = db(
-            (db.auth_refresh_tokens.revoked == False)
+            (db.auth_refresh_tokens.revoked == _DB_FALSE)
             & (db.auth_refresh_tokens.expires_at > datetime.utcnow())
         ).select()
 
@@ -396,13 +434,18 @@ async def refresh():
     # Mint a fresh ES256 access/id token set (no DB).
     token_set = _mint_token_set(user_row, roles)
 
-    response = await make_response(jsonify({
-        "access_token": token_set.access_token,
-        "id_token": token_set.id_token,
-        "refresh_token": new_refresh,
-        "token_type": "Bearer",
-        "expires_in": token_set.expires_in,
-    }), 200)
+    response = await make_response(
+        jsonify(
+            {
+                "access_token": token_set.access_token,
+                "id_token": token_set.id_token,
+                "refresh_token": new_refresh,
+                "token_type": "Bearer",
+                "expires_in": token_set.expires_in,
+            }
+        ),
+        200,
+    )
     _set_auth_cookies(response, token_set.access_token, new_refresh)
     return response
 
@@ -425,9 +468,7 @@ async def logout():
         # via run_db() instead of blocking the request coroutine inline.
         await run_db(lambda: revoke_refresh_token(request.user.id, refresh_token))
 
-    response = await make_response(
-        jsonify({"message": "Logged out successfully"}), 200
-    )
+    response = await make_response(jsonify({"message": "Logged out successfully"}), 200)
     _clear_auth_cookies(response)
     return response
 
@@ -443,15 +484,22 @@ async def get_current_user():
     """
     user = request.user
 
-    return jsonify({
-        "id": user.id,
-        "email": user.email,
-        "full_name": user.full_name,
-        "active": user.active,
-        "roles": [r.name for r in user.roles],
-        "login_count": user.login_count,
-        "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-    }), 200
+    return (
+        jsonify(
+            {
+                "id": user.id,
+                "email": user.email,
+                "full_name": user.full_name,
+                "active": user.active,
+                "roles": [r.name for r in user.roles],
+                "login_count": user.login_count,
+                "last_login_at": (
+                    user.last_login_at.isoformat() if user.last_login_at else None
+                ),
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/change-password", methods=["POST"])
@@ -485,7 +533,9 @@ async def change_password():
     # Get user from database. Regression: gh-22. Off the event loop via
     # run_db() instead of blocking the request coroutine inline.
     db = get_db()
-    user_row = await run_db(lambda: db(db.auth_user.id == request.user.id).select().first())
+    user_row = await run_db(
+        lambda: db(db.auth_user.id == request.user.id).select().first()
+    )
 
     if not user_row:
         return jsonify({"error": "User not found"}), 404
@@ -608,7 +658,7 @@ async def reset_password():
 
     def _verify_reset_token() -> tuple[str, Any, Any]:
         token_records = db(
-            (db.auth_password_resets.used == False)
+            (db.auth_password_resets.used == _DB_FALSE)
             & (db.auth_password_resets.expires_at > datetime.utcnow())
         ).select()
 

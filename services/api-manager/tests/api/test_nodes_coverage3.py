@@ -16,19 +16,16 @@ Targets:
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import importlib
 import json
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Base fixture
@@ -271,12 +268,10 @@ async def test_has_scope_with_list_scope(app_nodes):
     from app.api.nodes import _has_scope
     from quart import g
 
-    async with app_nodes.test_client() as client:
+    async with app_nodes.test_client():
         async with app_nodes.app_context():
             g.current_user = {
-                "_jwt_payload": {
-                    "scope": ["gough.nodes.read", "gough.nodes.provision"]
-                }
+                "_jwt_payload": {"scope": ["gough.nodes.read", "gough.nodes.provision"]}
             }
             # Should check list membership
             assert _has_scope("gough.nodes.read") is True
@@ -289,12 +284,10 @@ async def test_has_scope_with_string_scope(app_nodes):
     from app.api.nodes import _has_scope
     from quart import g
 
-    async with app_nodes.test_client() as client:
+    async with app_nodes.test_client():
         async with app_nodes.app_context():
             g.current_user = {
-                "_jwt_payload": {
-                    "scope": "gough.nodes.read gough.nodes.provision"
-                }
+                "_jwt_payload": {"scope": "gough.nodes.read gough.nodes.provision"}
             }
             assert _has_scope("gough.nodes.read") is True
             assert _has_scope("gough.biomes.write") is False
@@ -367,7 +360,7 @@ async def test_nats_publish_safe_with_client_exception(app_nodes):
     mock_client = AsyncMock()
     mock_client.publish = AsyncMock(side_effect=RuntimeError("NATS down"))
 
-    async with app_nodes.test_client() as client:
+    async with app_nodes.test_client():
         async with app_nodes.app_context():
             g.nats_client = mock_client
             # Should not raise; logs warning instead
@@ -386,7 +379,7 @@ async def test_nats_publish_safe_client_in_app_context(app_nodes):
     mock_client = AsyncMock()
     mock_client.publish = AsyncMock(return_value=None)
 
-    async with app_nodes.test_client() as client:
+    async with app_nodes.test_client():
         app_nodes.nats_client = mock_client
         async with app_nodes.app_context():
             # Should get client from app context
@@ -637,9 +630,7 @@ async def test_get_cloud_init_invalid_baseline(app_nodes, dal):
     dal.commit()
 
     async with app_nodes.test_client() as client:
-        resp = await client.get(
-            f"/api/v1/nodes/{node_id}/cloud-init?baseline=invalid"
-        )
+        resp = await client.get(f"/api/v1/nodes/{node_id}/cloud-init?baseline=invalid")
         assert resp.status_code == 400
 
 
@@ -818,7 +809,7 @@ async def test_lxd_join_empty_strings(app_nodes, dal):
 @pytest.mark.asyncio
 async def test_patch_node_name_collision(app_nodes, dal):
     """Test PATCH rejects node name collision."""
-    n1 = dal.nodes.insert(
+    dal.nodes.insert(
         tenant_id="default",
         name="node-1",
         state="ready",

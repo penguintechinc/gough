@@ -4,8 +4,9 @@ Tests error paths, validation failures, and edge cases in migration policy
 and event management. Focuses on request/response validation.
 """
 
-import pytest
 import json
+
+import pytest
 
 
 @pytest.mark.asyncio

@@ -12,7 +12,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from ..catalog import canonical_biome_name
 
-
 BiomeKind = Literal[
     "infrastructure",
     "k8s",
@@ -80,10 +79,18 @@ class ReadinessProbe(BaseModel):
     grpc: Optional[GrpcProbe] = None
     exec_: Optional[ExecProbe] = Field(default=None, alias="exec")
     lxd_exec: Optional[LxdExecProbe] = Field(default=None, alias="lxdExec")
-    timeout_seconds: Annotated[int, Field(ge=1, le=600)] = Field(5, alias="timeoutSeconds")
-    period_seconds: Annotated[int, Field(ge=1, le=600)] = Field(2, alias="periodSeconds")
-    failure_threshold: Annotated[int, Field(ge=1, le=1000)] = Field(30, alias="failureThreshold")
-    success_threshold: Annotated[int, Field(ge=1, le=100)] = Field(1, alias="successThreshold")
+    timeout_seconds: Annotated[int, Field(ge=1, le=600)] = Field(
+        5, alias="timeoutSeconds"
+    )
+    period_seconds: Annotated[int, Field(ge=1, le=600)] = Field(
+        2, alias="periodSeconds"
+    )
+    failure_threshold: Annotated[int, Field(ge=1, le=1000)] = Field(
+        30, alias="failureThreshold"
+    )
+    success_threshold: Annotated[int, Field(ge=1, le=100)] = Field(
+        1, alias="successThreshold"
+    )
 
     @model_validator(mode="after")
     def _exactly_one_probe(self):
@@ -118,6 +125,7 @@ class BiomeCreate(BaseModel):
     def _canonical_name(cls, value: str) -> str:
         """Map deprecated built-in names (k8s-primary) to their canonical form."""
         return canonical_biome_name(value)
+
     description: Optional[str] = None
     biome_type: Literal["snap", "cloud_init", "lxd_container", "lxd_vm"]
     version: Annotated[str, Field(min_length=1, max_length=64)]
@@ -191,14 +199,19 @@ class NodeBiomeAssignRequest(BaseModel):
     phase: BiomePhase = "post_deploy"
     depends_on_biome_instance_id: Optional[Annotated[int, Field(gt=0)]] = None
 
-    @model_validator(mode='before')
+    @model_validator(mode="before")
     @classmethod
     def _remap_egg_fields(cls, data: Any) -> Any:
         """Backward-compat: accept egg_* fields and remap to biome_* fields."""
         if isinstance(data, dict):
             data = dict(data)
-            if 'egg_id' in data and 'biome_id' not in data:
-                data['biome_id'] = data.pop('egg_id')
-            if 'depends_on_egg_instance_id' in data and 'depends_on_biome_instance_id' not in data:
-                data['depends_on_biome_instance_id'] = data.pop('depends_on_egg_instance_id')
+            if "egg_id" in data and "biome_id" not in data:
+                data["biome_id"] = data.pop("egg_id")
+            if (
+                "depends_on_egg_instance_id" in data
+                and "depends_on_biome_instance_id" not in data
+            ):
+                data["depends_on_biome_instance_id"] = data.pop(
+                    "depends_on_egg_instance_id"
+                )
         return data

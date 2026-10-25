@@ -3,18 +3,18 @@
 Tests for team role hierarchy, resource permissions, and decorators.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
 from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
 
+import pytest
 from app.permissions import (
-    TEAM_ROLES,
     RESOURCE_PERMISSIONS,
-    check_team_access,
+    TEAM_ROLES,
     check_resource_permission,
     check_shell_access,
-    require_team_permission,
+    check_team_access,
     require_resource_permission,
+    require_team_permission,
 )
 
 
@@ -25,7 +25,9 @@ class TestTeamAccessChecks:
         """Test user with owner role satisfies owner requirement."""
         mock_db = MagicMock()
         mock_membership = Mock(role="owner")
-        mock_db().__select_call__ = MagicMock(return_value=Mock(first=Mock(return_value=mock_membership)))
+        mock_db().__select_call__ = MagicMock(
+            return_value=Mock(first=Mock(return_value=mock_membership))
+        )
 
         # Mock get_db
         def _mock_get_db():
@@ -169,7 +171,7 @@ class TestResourcePermissions:
 
         monkeypatch.setattr("app.permissions.get_db", lambda: mock_db)
 
-        result = check_resource_permission(1, "lxd_cluster", 5, "shell")
+        check_resource_permission(1, "lxd_cluster", 5, "shell")
         # Result depends on mock setup, but test shows pattern
 
 
@@ -204,6 +206,7 @@ class TestResourcePermissionDecorator:
     @pytest.mark.asyncio
     async def test_require_resource_permission_missing_resource_type(self, monkeypatch):
         """Test decorator returns 403 when resource_type missing."""
+
         @require_resource_permission("read")
         async def handler():
             return {"status": "ok"}

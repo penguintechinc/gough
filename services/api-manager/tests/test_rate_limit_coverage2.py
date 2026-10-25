@@ -4,26 +4,21 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
-from quart import Quart, g
-
 from app.rate_limit import (
+    InMemoryStorage,
     RateLimiter,
     RateLimitExceeded,
     RateLimitInfo,
-    InMemoryStorage,
     RedisStorage,
-    rate_limit,
-    rate_limit_by_ip,
-    rate_limit_by_user,
-    rate_limit_by_api_key,
     exempt_admin,
     get_rate_limiter,
     init_rate_limiter,
+    rate_limit,
 )
-
+from quart import Quart, g
 
 # ============================================================================
 # Error Handler Tests (lines 199-208)
@@ -36,16 +31,13 @@ async def test_rate_limit_exceeded_error_handler():
     app = Quart(__name__)
     app.config["TESTING"] = True
 
-    limiter = RateLimiter(app)
+    RateLimiter(app)
 
     # Trigger error handler
     @app.route("/test")
     async def test_route():
         raise RateLimitExceeded(
-            message="Too many requests",
-            retry_after=60,
-            limit=100,
-            remaining=0
+            message="Too many requests", retry_after=60, limit=100, remaining=0
         )
 
     client = app.test_client()
@@ -213,11 +205,7 @@ async def test_rate_limit_info_to_headers():
     now = datetime.utcnow()
     reset_at = now + timedelta(seconds=60)
 
-    info = RateLimitInfo(
-        limit=100,
-        remaining=95,
-        reset_at=reset_at
-    )
+    info = RateLimitInfo(limit=100, remaining=95, reset_at=reset_at)
 
     headers = info.to_headers()
 
@@ -231,11 +219,7 @@ async def test_rate_limit_info_negative_remaining():
     """RateLimitInfo should clamp negative remaining to 0."""
     now = datetime.utcnow()
 
-    info = RateLimitInfo(
-        limit=100,
-        remaining=-5,
-        reset_at=now
-    )
+    info = RateLimitInfo(limit=100, remaining=-5, reset_at=now)
 
     headers = info.to_headers()
 
@@ -312,7 +296,7 @@ async def test_rate_limit_decorator_sync_function():
     """Rate limit decorator should handle sync functions."""
     app = Quart(__name__)
     app.config["TESTING"] = True
-    limiter = RateLimiter(app)
+    RateLimiter(app)
 
     @app.route("/sync")
     @rate_limit("100/minute")
@@ -331,7 +315,9 @@ async def test_rate_limit_by_ip_extracts_header():
     app = Quart(__name__)
     app.config["TESTING"] = True
 
-    async with app.test_request_context("/test", headers={"X-Forwarded-For": "203.0.113.1, 203.0.113.2"}):
+    async with app.test_request_context(
+        "/test", headers={"X-Forwarded-For": "203.0.113.1, 203.0.113.2"}
+    ):
         # Should extract the first IP - just verify context works
         assert True
 

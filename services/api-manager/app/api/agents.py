@@ -16,12 +16,12 @@ from typing import Any, Optional
 
 import jwt
 from pydantic import ValidationError
-from quart import Blueprint, current_app, g, jsonify, request
+from quart import Blueprint, current_app, jsonify, request
 
 from .. import capacity_guard
-from ..db.run_db import run_db
-from ..middleware import auth_required, get_current_user, roles_required, user_has_role
 from ..audit import get_audit_logger
+from ..db.run_db import run_db
+from ..middleware import auth_required, get_current_user, roles_required
 from ..models import get_db
 from ._helpers import (
     request_is_cross_tenant,
@@ -30,6 +30,9 @@ from ._helpers import (
     tenant_owns,
 )
 from .lxd_cluster import parse_metadata
+
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_TRUE = True
 
 log = logging.getLogger(__name__)
 
@@ -130,12 +133,17 @@ async def create_enrollment_key():
     key_id = result
     log.info(f"Enrollment key created by user {current_user['id']}")
 
-    return jsonify({
-        "message": "Enrollment key created",
-        "enrollment_key": enrollment_key,
-        "expires_at": expires_at.isoformat(),
-        "key_id": key_id,
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Enrollment key created",
+                "enrollment_key": enrollment_key,
+                "expires_at": expires_at.isoformat(),
+                "key_id": key_id,
+            }
+        ),
+        201,
+    )
 
 
 @agents_bp.route("/enrollment-keys", methods=["GET"])
@@ -165,28 +173,39 @@ async def list_enrollment_keys():
 
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
-    keys = await run_db(lambda: db(query).select(orderby=~db.enrollment_keys.created_at).as_list())
+    keys = await run_db(
+        lambda: db(query).select(orderby=~db.enrollment_keys.created_at).as_list()
+    )
 
     keys_data = []
     for key in keys:
         # Tenant isolation: a key is owned by the tenant stamped into its metadata at creation.
         if not tenant_owns(parse_metadata(key.get("metadata")).get("tenant_id")):
             continue
-        keys_data.append({
-            "id": key["id"],
-            "created_by": key["created_by"],
-            "expires_at": key["expires_at"].isoformat()
-            if key["expires_at"] else None,
-            "is_used": key["is_used"],
-            "used_by_agent": key["used_by_agent"],
-            "created_at": key["created_at"].isoformat()
-            if key["created_at"] else None,
-        })
+        keys_data.append(
+            {
+                "id": key["id"],
+                "created_by": key["created_by"],
+                "expires_at": (
+                    key["expires_at"].isoformat() if key["expires_at"] else None
+                ),
+                "is_used": key["is_used"],
+                "used_by_agent": key["used_by_agent"],
+                "created_at": (
+                    key["created_at"].isoformat() if key["created_at"] else None
+                ),
+            }
+        )
 
-    return jsonify({
-        "enrollment_keys": keys_data,
-        "count": len(keys_data),
-    }), 200
+    return (
+        jsonify(
+            {
+                "enrollment_keys": keys_data,
+                "count": len(keys_data),
+            }
+        ),
+        200,
+    )
 
 
 @agents_bp.route("/enrollment-keys/<int:key_id>", methods=["DELETE"])
@@ -356,7 +375,11 @@ async def enroll_agent():
                 agent_id=agent_id,
                 hostname=hostname,
                 node_id=link_node_id,
-                tenant_id=key_meta.get("tenant_id") if isinstance(key_meta.get("tenant_id"), str) else None,
+                tenant_id=(
+                    key_meta.get("tenant_id")
+                    if isinstance(key_meta.get("tenant_id"), str)
+                    else None
+                ),
                 ip_address=data.get("ip_address"),
                 enrollment_key_hash=key_hash,
                 enrollment_completed=True,
@@ -379,8 +402,10 @@ async def enroll_agent():
             # real Field object -- `db(False)` then raises inside
             # QuerySet's table-extraction (AttributeError: 'bool' object
             # has no attribute 'table'), turning every successful
-            # enrollment into a 500. `== True` is the correct DAL idiom.
-            ca_config = db(db.ssh_ca_config.is_active == True).select().first()  # noqa: E712 -- DAL idiom
+            # enrollment into a 500. `== _DB_TRUE` is the correct DAL idiom.
+            ca_config = (
+                db(db.ssh_ca_config.is_active == _DB_TRUE).select().first()
+            )  # noqa: E712 -- DAL idiom
             ca_public_key = ca_config.public_key if ca_config else None
 
             # Audit log
@@ -411,21 +436,28 @@ async def enroll_agent():
     ca_public_key = result
     log.info(f"Agent {hostname} enrolled as {agent_id}")
 
-    return jsonify({
-        "message": "Agent enrolled successfully",
-        "agent_id": agent_id,
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "access_token_expires_in": 3600,
-        "refresh_token_expires_in": 2592000,
-        "ca_public_key": ca_public_key,
-        "config": {
-            "heartbeat_interval": 30,
-        },
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Agent enrolled successfully",
+                "agent_id": agent_id,
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "access_token_expires_in": 3600,
+                "refresh_token_expires_in": 2592000,
+                "ca_public_key": ca_public_key,
+                "config": {
+                    "heartbeat_interval": 30,
+                },
+            }
+        ),
+        201,
+    )
 
 
-def _resolve_enrollment_link(db: Any, key_meta: dict[str, Any], intended: str) -> int | None:
+def _resolve_enrollment_link(
+    db: Any, key_meta: dict[str, Any], intended: str
+) -> int | None:
     """Resolve the node an enrolling agent is bound to, from server-side key metadata.
 
     Requires the key's stamped ``tenant_id``: a key without one (e.g. issued before
@@ -549,12 +581,17 @@ async def refresh_agent_token():
 
         log.debug(f"Tokens refreshed for agent {agent_id}")
 
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": new_refresh_token,
-            "access_token_expires_in": 3600,
-            "refresh_token_expires_in": 2592000,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "access_token": access_token,
+                    "refresh_token": new_refresh_token,
+                    "access_token_expires_in": 3600,
+                    "refresh_token_expires_in": 2592000,
+                }
+            ),
+            200,
+        )
 
     except jwt.ExpiredSignatureError:
         return jsonify({"error": "Refresh token expired"}), 401
@@ -624,18 +661,28 @@ async def agent_heartbeat():
             lambda: _ingest_resource_snapshot(db, agent_id, raw_snapshot)
         )
         if snapshot_error is not None:
-            return jsonify({
-                "status": "heartbeat_recorded",
-                "error": snapshot_error,
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "status": "heartbeat_recorded",
+                        "error": snapshot_error,
+                    }
+                ),
+                400,
+            )
 
     # Check for pending commands (future feature)
     commands = []
 
-    return jsonify({
-        "status": "ok",
-        "commands": commands,
-    }), 200
+    return (
+        jsonify(
+            {
+                "status": "ok",
+                "commands": commands,
+            }
+        ),
+        200,
+    )
 
 
 def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None:
@@ -659,7 +706,8 @@ def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None
         snap = capacity_guard.parse_snapshot(raw)
     except ValidationError as exc:
         details = "; ".join(
-            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in exc.errors()[:5]
+            f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}"
+            for e in exc.errors()[:5]
         )
         log.warning("rejected resource_snapshot from agent %s: %s", agent_id, details)
         return f"invalid resource_snapshot: {details}"
@@ -667,13 +715,17 @@ def _ingest_resource_snapshot(db: Any, agent_id: str, raw: object) -> str | None
     with db.engine.begin() as conn:
         link = capacity_guard.resolve_agent_node(conn, agent_id)
         if link.node_id is None:
-            log.warning("resource_snapshot refused for agent %s: %s", agent_id, link.reason)
+            log.warning(
+                "resource_snapshot refused for agent %s: %s", agent_id, link.reason
+            )
             return f"resource_snapshot refused: {link.reason}"
         outcome = capacity_guard.record_snapshot(
             conn, link.node_id, snap, datetime.now(timezone.utc)
         )
     if outcome is not capacity_guard.SnapshotOutcome.STORED:
-        log.warning("resource_snapshot from agent %s not stored: %s", agent_id, outcome.name)
+        log.warning(
+            "resource_snapshot from agent %s not stored: %s", agent_id, outcome.name
+        )
         return f"resource_snapshot rejected: {outcome.name.lower()}"
     return None
 
@@ -714,24 +766,35 @@ async def list_agents():
         # Tenant isolation: unstamped legacy agents are visible to cross-tenant callers only.
         if not tenant_owns(agent.get("tenant_id")):
             continue
-        agents_data.append({
-            "id": agent["id"],
-            "agent_id": agent["agent_id"],
-            "hostname": agent["hostname"],
-            "ip_address": agent["ip_address"],
-            "status": agent["status"],
-            "capabilities": _parse_capabilities(agent["capabilities"]),
-            "enrollment_completed": agent["enrollment_completed"],
-            "last_heartbeat": agent["last_heartbeat"].isoformat()
-            if agent["last_heartbeat"] else None,
-            "enrolled_at": agent["enrolled_at"].isoformat()
-            if agent["enrolled_at"] else None,
-        })
+        agents_data.append(
+            {
+                "id": agent["id"],
+                "agent_id": agent["agent_id"],
+                "hostname": agent["hostname"],
+                "ip_address": agent["ip_address"],
+                "status": agent["status"],
+                "capabilities": _parse_capabilities(agent["capabilities"]),
+                "enrollment_completed": agent["enrollment_completed"],
+                "last_heartbeat": (
+                    agent["last_heartbeat"].isoformat()
+                    if agent["last_heartbeat"]
+                    else None
+                ),
+                "enrolled_at": (
+                    agent["enrolled_at"].isoformat() if agent["enrolled_at"] else None
+                ),
+            }
+        )
 
-    return jsonify({
-        "agents": agents_data,
-        "count": len(agents_data),
-    }), 200
+    return (
+        jsonify(
+            {
+                "agents": agents_data,
+                "count": len(agents_data),
+            }
+        ),
+        200,
+    )
 
 
 @agents_bp.route("/<agent_id>", methods=["GET"])
@@ -757,23 +820,33 @@ async def get_agent(agent_id: str):
     if not agent or not tenant_owns(getattr(agent, "tenant_id", None)):
         return jsonify({"error": "Agent not found"}), 404
 
-    return jsonify({
-        "agent": {
-            "id": agent.id,
-            "agent_id": agent.agent_id,
-            "hostname": agent.hostname,
-            "ip_address": agent.ip_address,
-            "status": agent.status,
-            "capabilities": _parse_capabilities(agent.capabilities),
-            "enrollment_completed": agent.enrollment_completed,
-            "last_heartbeat": agent.last_heartbeat.isoformat()
-            if agent.last_heartbeat else None,
-            "enrolled_at": agent.enrolled_at.isoformat()
-            if agent.enrolled_at else None,
-            "created_at": agent.created_at.isoformat()
-            if agent.created_at else None,
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "agent": {
+                    "id": agent.id,
+                    "agent_id": agent.agent_id,
+                    "hostname": agent.hostname,
+                    "ip_address": agent.ip_address,
+                    "status": agent.status,
+                    "capabilities": _parse_capabilities(agent.capabilities),
+                    "enrollment_completed": agent.enrollment_completed,
+                    "last_heartbeat": (
+                        agent.last_heartbeat.isoformat()
+                        if agent.last_heartbeat
+                        else None
+                    ),
+                    "enrolled_at": (
+                        agent.enrolled_at.isoformat() if agent.enrolled_at else None
+                    ),
+                    "created_at": (
+                        agent.created_at.isoformat() if agent.created_at else None
+                    ),
+                },
+            }
+        ),
+        200,
+    )
 
 
 @agents_bp.route("/<agent_id>/suspend", methods=["POST"])

@@ -26,10 +26,8 @@ At no point is the secondary slot empty before the primary is replaced.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
-import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping, Optional
@@ -58,7 +56,9 @@ SUPPORTED_PRODUCTS: frozenset[str] = frozenset(
 # Source: spec "PenguinTech Product Integration Matrix" -> required scopes column.
 REQUIRED_SCOPES: dict[str, frozenset[str]] = {
     "tobogganing": frozenset({"tobogganing.tunnel.write", "tobogganing.health.read"}),
-    "squawk": frozenset({"squawk.dhcp.write", "squawk.dns.write", "squawk.health.read"}),
+    "squawk": frozenset(
+        {"squawk.dhcp.write", "squawk.dns.write", "squawk.health.read"}
+    ),
     "skauswatch": frozenset(
         {"skauswatch.spire.bundle.read", "skauswatch.spire.entry.write"}
     ),
@@ -157,6 +157,7 @@ def _check_product(product: str) -> None:
 
 # Each product is configured via env vars - the API URL and an admin bootstrap
 # token used only to mint the per-cluster service account.
+
 
 @dataclass(slots=True)
 class ProductEndpoint:
@@ -334,9 +335,7 @@ class IntegrationProvisioner:
         _check_product(product)
         creds = credentials or self._read_credential(product, "primary")
         if creds is None or not creds.client_secret:
-            raise CredentialMissingError(
-                f"No primary credentials stored for {product}"
-            )
+            raise CredentialMissingError(f"No primary credentials stored for {product}")
 
         endpoint = _load_endpoint(product)
         client = await self._client()
@@ -345,7 +344,10 @@ class IntegrationProvisioner:
             resp = await client.post(
                 url,
                 headers={"Authorization": f"Bearer {endpoint.admin_token}"},
-                json={"client_id": creds.client_id, "client_secret": creds.client_secret},
+                json={
+                    "client_id": creds.client_id,
+                    "client_secret": creds.client_secret,
+                },
             )
         except httpx.RequestError as exc:
             raise ProductApiError(f"Introspect failed for {product}: {exc}") from exc
@@ -391,7 +393,9 @@ class IntegrationProvisioner:
         validation = await self.validate_scope(product, new_creds)
         if not validation.valid:
             # Roll back: revoke the just-minted account, leave primary intact.
-            await self._revoke_on_product(product, new_creds.account_id, best_effort=True)
+            await self._revoke_on_product(
+                product, new_creds.account_id, best_effort=True
+            )
             self._delete_credential(product, slot="secondary")
             raise ProductApiError(
                 f"Scope validation failed on rotated cred for {product}: "
@@ -458,15 +462,15 @@ class IntegrationProvisioner:
             )
         except httpx.RequestError as exc:
             if best_effort:
-                logger.warning("Best-effort revoke failed for %s/%s: %s", product, account_id, exc)
+                logger.warning(
+                    "Best-effort revoke failed for %s/%s: %s", product, account_id, exc
+                )
                 return
             raise ProductApiError(
                 f"Revoke failed for {product}/{account_id}: {exc}"
             ) from exc
         if resp.status_code >= 300 and resp.status_code != 404:
-            msg = (
-                f"Revoke HTTP {resp.status_code} for {product}/{account_id}: {resp.text}"
-            )
+            msg = f"Revoke HTTP {resp.status_code} for {product}/{account_id}: {resp.text}"
             if best_effort:
                 logger.warning(msg)
                 return

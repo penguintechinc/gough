@@ -6,15 +6,14 @@ Coverage targets:
 - init_db() function (high-level)
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 from app.models import (
-    VALID_ROLES,
     CLOUD_PROVIDER_TYPES,
-    SECRETS_BACKEND_TYPES,
     JOB_STATUSES,
     MACHINE_STATUSES,
+    SECRETS_BACKEND_TYPES,
+    VALID_ROLES,
     validate_database_schema,
 )
 
@@ -44,9 +43,19 @@ class TestModelConstants:
     def test_machine_statuses(self):
         """Test MACHINE_STATUSES lists all machine states."""
         expected = [
-            "new", "commissioning", "ready", "allocated", "deploying",
-            "deployed", "releasing", "disk_erasing", "failed", "broken",
-            "running", "stopped", "terminated"
+            "new",
+            "commissioning",
+            "ready",
+            "allocated",
+            "deploying",
+            "deployed",
+            "releasing",
+            "disk_erasing",
+            "failed",
+            "broken",
+            "running",
+            "stopped",
+            "terminated",
         ]
         assert MACHINE_STATUSES == expected
 
@@ -69,7 +78,9 @@ class TestValidateDatabaseSchema:
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
     @patch("app.models.DB")
-    def test_validate_database_schema_success(self, mock_db_cls, mock_inspect_cls, mock_get_engine):
+    def test_validate_database_schema_success(
+        self, mock_db_cls, mock_inspect_cls, mock_get_engine
+    ):
         """Test validate_database_schema() returns True when schema valid.
 
         The admin-exists check (former ``engine.connect()`` + raw
@@ -86,7 +97,9 @@ class TestValidateDatabaseSchema:
 
         # Setup expected tables
         mock_inspector.get_table_names.return_value = [
-            "auth_user", "auth_role", "auth_user_roles"
+            "auth_user",
+            "auth_role",
+            "auth_user_roles",
         ]
 
         # Setup auth_user columns
@@ -111,7 +124,9 @@ class TestValidateDatabaseSchema:
 
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
-    def test_validate_database_schema_missing_table(self, mock_inspect_cls, mock_get_engine):
+    def test_validate_database_schema_missing_table(
+        self, mock_inspect_cls, mock_get_engine
+    ):
         """Test validate_database_schema() returns False when table missing."""
         mock_engine = MagicMock()
         mock_get_engine.return_value = mock_engine
@@ -129,7 +144,9 @@ class TestValidateDatabaseSchema:
 
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
-    def test_validate_database_schema_missing_column(self, mock_inspect_cls, mock_get_engine):
+    def test_validate_database_schema_missing_column(
+        self, mock_inspect_cls, mock_get_engine
+    ):
         """Test validate_database_schema() returns False when column missing."""
         mock_engine = MagicMock()
         mock_get_engine.return_value = mock_engine
@@ -139,7 +156,9 @@ class TestValidateDatabaseSchema:
 
         # All tables present
         mock_inspector.get_table_names.return_value = [
-            "auth_user", "auth_role", "auth_user_roles"
+            "auth_user",
+            "auth_role",
+            "auth_user_roles",
         ]
 
         # Missing 'fs_uniquifier' column
@@ -159,7 +178,9 @@ class TestValidateDatabaseSchema:
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
     @patch("app.models.DB")
-    def test_validate_database_schema_no_admin(self, mock_db_cls, mock_inspect_cls, mock_get_engine):
+    def test_validate_database_schema_no_admin(
+        self, mock_db_cls, mock_inspect_cls, mock_get_engine
+    ):
         """Test validate_database_schema() returns False when admin missing.
 
         See ``test_validate_database_schema_success`` docstring for why the
@@ -174,7 +195,9 @@ class TestValidateDatabaseSchema:
 
         # All tables and columns present
         mock_inspector.get_table_names.return_value = [
-            "auth_user", "auth_role", "auth_user_roles"
+            "auth_user",
+            "auth_role",
+            "auth_user_roles",
         ]
         mock_inspector.get_columns.return_value = [
             {"name": "id"},
@@ -216,10 +239,16 @@ class TestValidateDatabaseSchemaRealPostgres:
     """
 
     def test_admin_missing_then_present(self, pg_url: str) -> None:
+        from app import (  # noqa: F401 — registers M1 ORM classes on Base.metadata
+            models_m1,
+        )
+        from app.models_sqlalchemy import (
+            AuthUser,
+            Base,
+            create_all_tables,
+            get_sqlalchemy_engine,
+        )
         from sqlalchemy.orm import sessionmaker
-
-        from app import models_m1  # noqa: F401 — registers M1 ORM classes on Base.metadata
-        from app.models_sqlalchemy import AuthUser, Base, create_all_tables, get_sqlalchemy_engine
 
         engine = get_sqlalchemy_engine(pg_url)
         Base.metadata.create_all(engine)  # schema only — no seed data yet
@@ -255,7 +284,9 @@ class TestInitDb:
 
     @patch("app.models.validate_database_schema")
     @patch("app.models.create_all_tables")
-    def test_init_db_schema_invalid_creates_tables(self, mock_create_all, mock_validate):
+    def test_init_db_schema_invalid_creates_tables(
+        self, mock_create_all, mock_validate
+    ):
         """Test init_db() creates tables when schema invalid."""
         mock_validate.return_value = False
 
@@ -268,14 +299,6 @@ class TestModelImports:
 
     def test_all_exports_importable(self):
         """Test all expected exports are available."""
-        from app.models import (
-            VALID_ROLES,
-            CLOUD_PROVIDER_TYPES,
-            SECRETS_BACKEND_TYPES,
-            JOB_STATUSES,
-            MACHINE_STATUSES,
-            validate_database_schema,
-            init_db,
-        )
+
         # If we got here, all imports succeeded
         assert True

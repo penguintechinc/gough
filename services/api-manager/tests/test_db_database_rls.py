@@ -35,11 +35,10 @@ from __future__ import annotations
 from urllib.parse import urlparse
 
 import pytest
-from quart import has_app_context
-
 from app.config import Config
 from app.db import database
 from app.db.rls import CROSS_TENANT_SENTINEL, set_current_tenant
+from quart import has_app_context
 
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"

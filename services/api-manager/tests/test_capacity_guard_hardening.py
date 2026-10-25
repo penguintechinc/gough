@@ -12,8 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from sqlalchemy import create_engine, insert, select
-
 from app import capacity_guard as cg
 from app.models_m1 import (
     RESERVATION_ACTIVE,
@@ -21,6 +19,7 @@ from app.models_m1 import (
     RESERVATION_RELEASED,
 )
 from app.models_sqlalchemy import Base
+from sqlalchemy import create_engine, insert, select
 
 from .test_capacity_guard import GIB, NOW, _cap, _policy, _req, _snapshot_dict
 
@@ -43,25 +42,41 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     )
     nodes = Base.metadata.tables["nodes"]
     with eng.begin() as conn:
-        conn.execute(insert(nodes).values(id=1, name="host-a", tenant_id="t1", state="ready"))
-        conn.execute(insert(nodes).values(id=2, name="host-b", tenant_id="t1", state="ready"))
-        conn.execute(insert(nodes).values(id=3, name="dup", tenant_id="t1", state="ready"))
-        conn.execute(insert(nodes).values(id=4, name="dup", tenant_id="t2", state="ready"))
+        conn.execute(
+            insert(nodes).values(id=1, name="host-a", tenant_id="t1", state="ready")
+        )
+        conn.execute(
+            insert(nodes).values(id=2, name="host-b", tenant_id="t1", state="ready")
+        )
+        conn.execute(
+            insert(nodes).values(id=3, name="dup", tenant_id="t1", state="ready")
+        )
+        conn.execute(
+            insert(nodes).values(id=4, name="dup", tenant_id="t2", state="ready")
+        )
     return eng
 
 
-def _agent(engine: Any, agent_id: str, *, node_id: int | None, status: str = "active") -> None:
+def _agent(
+    engine: Any, agent_id: str, *, node_id: int | None, status: str = "active"
+) -> None:
     """Insert an access agent row with an optional server-side node link."""
     agents = Base.metadata.tables["access_agents"]
     with engine.begin() as conn:
         conn.execute(
             insert(agents).values(
-                agent_id=agent_id, hostname="self-reported", status=status, node_id=node_id, tenant_id="t1"
+                agent_id=agent_id,
+                hostname="self-reported",
+                status=status,
+                node_id=node_id,
+                tenant_id="t1",
             )
         )
 
 
-def _record(engine: Any, node_id: int, collected: datetime, received: datetime, **kw: Any) -> Any:
+def _record(
+    engine: Any, node_id: int, collected: datetime, received: datetime, **kw: Any
+) -> Any:
     """Record a snapshot for ``node_id`` and return the outcome."""
     snap = cg.parse_snapshot(_snapshot_dict(collected, **kw))
     with engine.begin() as conn:
@@ -72,13 +87,20 @@ def _status(engine: Any, reservation_id: str) -> int:
     """Return a reservation's status code."""
     table = cg.CapacityReservation.__table__
     with engine.connect() as conn:
-        return int(conn.execute(select(table.c.status).where(table.c.public_id == reservation_id)).scalar_one())
+        return int(
+            conn.execute(
+                select(table.c.status).where(table.c.public_id == reservation_id)
+            ).scalar_one()
+        )
 
 
 GROWN = {
     "committed": {
-        "cpu_cores": 4.0, "memory_bytes": 8 * GIB, "disk_bytes": {"default": 0},
-        "instances": 1, "instances_without_limits": 0,
+        "cpu_cores": 4.0,
+        "memory_bytes": 8 * GIB,
+        "disk_bytes": {"default": 0},
+        "instances": 1,
+        "instances_without_limits": 0,
     }
 }
 
@@ -99,7 +121,9 @@ def test_future_dated_snapshot_rejected_and_reservations_survive(engine: Any) ->
         assert conn.execute(select(table.c.committed_cpu_cores)).scalar_one() == 0.0
 
 
-def test_skew_within_limit_accepted_but_does_not_release_unconfirmed(engine: Any) -> None:
+def test_skew_within_limit_accepted_but_does_not_release_unconfirmed(
+    engine: Any,
+) -> None:
     """A small clock lead is tolerated; ACTIVE (unconfirmed) reservations never release."""
     assert _record(engine, 1, NOW, NOW) is cg.SnapshotOutcome.STORED
     held = cg.reserve(engine, 1, _req(cpu=4.0, mem_gib=8.0), now=NOW, policy=_policy())
@@ -112,7 +136,9 @@ def test_skew_within_limit_accepted_but_does_not_release_unconfirmed(engine: Any
 def test_skewed_snapshot_does_not_release_confirmed_reservation(engine: Any) -> None:
     """Agent clock ahead: min(collected, received) is not after confirmation -> kept."""
     assert _record(engine, 1, NOW, NOW) is cg.SnapshotOutcome.STORED
-    held = cg.reserve(engine, 1, _req(cpu=4.0, mem_gib=8.0), now=NOW + 20 * SECOND, policy=_policy())
+    held = cg.reserve(
+        engine, 1, _req(cpu=4.0, mem_gib=8.0), now=NOW + 20 * SECOND, policy=_policy()
+    )
     assert held.reservation_id
     cg.confirm(engine, held.reservation_id, now=NOW + 30 * SECOND)
     # received before the confirm even though collected_at claims later
@@ -195,8 +221,14 @@ def test_link_agent_refusals_and_success(engine: Any) -> None:
     with engine.begin() as conn:
         assert cg.link_agent_to_node(conn, "nope", 1) == "agent_not_found"
         assert cg.link_agent_to_node(conn, "ag-1", 99) == "node_not_found"
-        assert cg.link_agent_to_node(conn, "ag-1", 1, expected_tenant="other") == "tenant_mismatch"
-        assert cg.link_agent_to_node(conn, "ag-1", 4, expected_tenant="t1") == "tenant_mismatch"
+        assert (
+            cg.link_agent_to_node(conn, "ag-1", 1, expected_tenant="other")
+            == "tenant_mismatch"
+        )
+        assert (
+            cg.link_agent_to_node(conn, "ag-1", 4, expected_tenant="t1")
+            == "tenant_mismatch"
+        )
         assert cg.link_agent_to_node(conn, "ag-1", 1, expected_tenant="t1") is None
         assert cg.link_agent_to_node(conn, "ag-2", 1) == "node_already_linked"
 
@@ -221,17 +253,28 @@ def test_place_picks_node_with_most_free_memory_and_reserves(engine: Any) -> Non
     snap["memory"] = {"total_bytes": 64 * GIB, "available_bytes": 60 * GIB}
     with engine.begin() as conn:
         cg.record_snapshot(conn, 2, cg.parse_snapshot(snap), now)
-    result = cg.place(engine, {"host-a": 1, "host-b": 2}, _req(cpu=2.0, mem_gib=4.0), now=now)
+    result = cg.place(
+        engine, {"host-a": 1, "host-b": 2}, _req(cpu=2.0, mem_gib=4.0), now=now
+    )
     assert isinstance(result, cg.Placement)
     assert (result.member, result.node_id) == ("host-b", 2)
-    assert result.reservation_id and _status(engine, result.reservation_id) == RESERVATION_ACTIVE
+    assert (
+        result.reservation_id
+        and _status(engine, result.reservation_id) == RESERVATION_ACTIVE
+    )
 
 
 def test_place_falls_back_when_best_node_is_full(engine: Any) -> None:
     """If the roomiest node cannot take the request, the next candidate is used."""
     now = datetime.now(UTC)
     snap = _snapshot_dict(now)
-    snap["cpu"] = {"logical_cores": 4, "usage_pct": 1.0, "load1": 0.0, "load5": 0.0, "load15": 0.0}
+    snap["cpu"] = {
+        "logical_cores": 4,
+        "usage_pct": 1.0,
+        "load1": 0.0,
+        "load5": 0.0,
+        "load15": 0.0,
+    }
     snap["memory"] = {"total_bytes": 64 * GIB, "available_bytes": 60 * GIB}
     with engine.begin() as conn:
         cg.record_snapshot(conn, 2, cg.parse_snapshot(snap), now)  # tiny cpu: (4-2)*4=8
@@ -262,17 +305,34 @@ def test_place_with_no_candidates_fails_closed(engine: Any) -> None:
 
 def test_pool_free_space_gate_refuses_when_pool_nearly_full() -> None:
     """Real used bytes count: limit-based room is not enough if the pool is physically full."""
-    full = cg.evaluate_fit(_cap(pools_used={"default": 900 * GIB}), _req(disk_gib=1.0), cg.Load(), _policy())
+    full = cg.evaluate_fit(
+        _cap(pools_used={"default": 900 * GIB}),
+        _req(disk_gib=1.0),
+        cg.Load(),
+        _policy(),
+    )
     assert full.reasons == ("insufficient_disk_free:default",)
-    roomy = cg.evaluate_fit(_cap(pools_used={"default": 100 * GIB}), _req(disk_gib=1.0), cg.Load(), _policy())
+    roomy = cg.evaluate_fit(
+        _cap(pools_used={"default": 100 * GIB}),
+        _req(disk_gib=1.0),
+        cg.Load(),
+        _policy(),
+    )
     assert roomy.ok
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("4GiB", 4 * GIB), ("4GB", 4 * 1000**3), ("512MiB", 512 * 1024**2),
-        ("1073741824", GIB), ("50%", None), ("0", None), ("abc", None), ("", None), ("4XB", None),
+        ("4GiB", 4 * GIB),
+        ("4GB", 4 * 1000**3),
+        ("512MiB", 512 * 1024**2),
+        ("1073741824", GIB),
+        ("50%", None),
+        ("0", None),
+        ("abc", None),
+        ("", None),
+        ("4XB", None),
     ],
 )
 def test_parse_memory_limit(text: str, expected: int | None) -> None:
@@ -282,7 +342,15 @@ def test_parse_memory_limit(text: str, expected: int | None) -> None:
 
 @pytest.mark.parametrize(
     ("text", "expected"),
-    [("2", 2.0), ("0-3", 4.0), ("0-3,8", 5.0), ("0", None), ("", None), ("x", None), ("3-1", None)],
+    [
+        ("2", 2.0),
+        ("0-3", 4.0),
+        ("0-3,8", 5.0),
+        ("0", None),
+        ("", None),
+        ("x", None),
+        ("3-1", None),
+    ],
 )
 def test_parse_cpu_limit(text: str, expected: float | None) -> None:
     """LXD cpu limits parse to a core count (counts pinned sets); junk is refused."""
@@ -294,13 +362,20 @@ def test_fresh_available_memory_fail_closed(engine: Any) -> None:
     assert cg.fresh_available_memory_bytes(engine, 1, now=NOW) is None
     _record(engine, 1, NOW, NOW)
     assert cg.fresh_available_memory_bytes(engine, 1, now=NOW) == 40 * GIB
-    assert cg.fresh_available_memory_bytes(engine, 1, now=NOW + timedelta(minutes=5)) is None
+    assert (
+        cg.fresh_available_memory_bytes(engine, 1, now=NOW + timedelta(minutes=5))
+        is None
+    )
     _record(engine, 2, NOW, NOW, errors=["host_error"])
     assert cg.fresh_available_memory_bytes(engine, 2, now=NOW) is None
 
 
-def test_kill_switch_on_lets_place_through(engine: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_kill_switch_on_lets_place_through(
+    engine: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """With the kill switch ON, place() passes the first candidate with no reservation."""
-    monkeypatch.setattr(cg, "_feature_enabled_sync", lambda flag, _d="": flag == cg.KILL_SWITCH_FLAG)
+    monkeypatch.setattr(
+        cg, "_feature_enabled_sync", lambda flag, _d="": flag == cg.KILL_SWITCH_FLAG
+    )
     result = cg.place(engine, {"host-a": 1}, _req(cpu=999.0))
     assert isinstance(result, cg.Placement) and result.reservation_id is None

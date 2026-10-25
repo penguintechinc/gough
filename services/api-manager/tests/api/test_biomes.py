@@ -17,7 +17,6 @@ assignment endpoints, sign/upgrade body validation, >= 90% coverage.
 from __future__ import annotations
 
 import pytest
-from datetime import datetime, timezone
 
 pytestmark = pytest.mark.asyncio
 
@@ -163,7 +162,9 @@ class TestEggsList:
 
     async def test_list_filter_by_multiple_egg_kinds(self, app_client, sample_eggs):
         """Filter by multiple biome_kind values (repeated query param)."""
-        response = await app_client.get("/api/v1/biomes?biome_kind=k8s&biome_kind=storage")
+        response = await app_client.get(
+            "/api/v1/biomes?biome_kind=k8s&biome_kind=storage"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         biomes = body["data"]["biomes"]
@@ -228,7 +229,9 @@ class TestEggsList:
         response = await app_client.get("/api/v1/biomes?workload_type=container")
         assert response.status_code == 422
 
-    async def test_list_filter_node_id_eligibility(self, app_client, sample_eggs, sample_nodes):
+    async def test_list_filter_node_id_eligibility(
+        self, app_client, sample_eggs, sample_nodes
+    ):
         """Filter biomes by node_id (eligibility check)."""
         node_id = sample_nodes[0][0]  # node-1 with high specs
         response = await app_client.get(f"/api/v1/biomes?node_id={node_id}")
@@ -282,7 +285,10 @@ class TestEggsCreate:
         assert response.status_code == 201
         data = await response.get_json()
         biome = data["data"]["biome"]
-        assert biome["requires_hardware_tags"] == ["gpu:vendor:nvidia:count:1", "mem:total-gb:32"]
+        assert biome["requires_hardware_tags"] == [
+            "gpu:vendor:nvidia:count:1",
+            "mem:total-gb:32",
+        ]
         assert biome["forbids_hardware_tags"] == ["cpu:vendor:amd"]
 
     async def test_create_egg_invalid_cloud_init_yaml(self, app_client, dal_with_eggs):
@@ -373,7 +379,9 @@ class TestEggUpgrade:
 
     async def test_upgrade_egg_success(self, app_client, sample_eggs):
         """Submit biome upgrade (returns 202)."""
-        egg_id = sample_eggs[4][0]  # user_workload biome — no cluster.admin or approval_token required
+        egg_id = sample_eggs[4][
+            0
+        ]  # user_workload biome — no cluster.admin or approval_token required
         body = {
             "target_version": "1.1.0",
             "rollout_plan": "auto",
@@ -409,9 +417,13 @@ class TestEggUpgrade:
 class TestEggEligibility:
     """Tests for GET /api/v1/biomes/{id}/eligibility."""
 
-    async def test_egg_eligibility_check_eligible(self, app_client, sample_eggs, sample_nodes):
+    async def test_egg_eligibility_check_eligible(
+        self, app_client, sample_eggs, sample_nodes
+    ):
         """Node is eligible for biome based on hardware tags."""
-        egg_id = sample_eggs[0][0]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
+        egg_id = sample_eggs[0][
+            0
+        ]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
         node_id = sample_nodes[0][0]  # node-1 has cpu:cores:16, mem:total-gb:128
         response = await app_client.get(
             f"/api/v1/biomes/{egg_id}/eligibility?node_id={node_id}"
@@ -421,9 +433,13 @@ class TestEggEligibility:
         assert data["data"]["eligible"] is True
         assert data["data"]["missing_tags"] == []
 
-    async def test_egg_eligibility_check_insufficient_resources(self, app_client, sample_eggs, sample_nodes):
+    async def test_egg_eligibility_check_insufficient_resources(
+        self, app_client, sample_eggs, sample_nodes
+    ):
         """Node is ineligible due to insufficient resources."""
-        egg_id = sample_eggs[0][0]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
+        egg_id = sample_eggs[0][
+            0
+        ]  # k8s-controller requires cpu:cores:8, mem:total-gb:32
         node_id = sample_nodes[3][0]  # node-4 has cpu:cores:4, mem:total-gb:16
         response = await app_client.get(
             f"/api/v1/biomes/{egg_id}/eligibility?node_id={node_id}"
@@ -442,14 +458,18 @@ class TestEggEligibility:
     async def test_egg_eligibility_invalid_node_id(self, app_client, sample_eggs):
         """Invalid node_id (non-integer) returns validation error."""
         egg_id = sample_eggs[0][0]
-        response = await app_client.get(f"/api/v1/biomes/{egg_id}/eligibility?node_id=not_an_int")
+        response = await app_client.get(
+            f"/api/v1/biomes/{egg_id}/eligibility?node_id=not_an_int"
+        )
         assert response.status_code == 422
 
 
 class TestNodeEggAssignment:
     """Tests for POST/GET/DELETE /api/v1/nodes/{id}/biomes."""
 
-    async def test_assign_egg_to_node_success(self, app_client, sample_eggs, sample_nodes):
+    async def test_assign_egg_to_node_success(
+        self, app_client, sample_eggs, sample_nodes
+    ):
         """Assign biome to node successfully."""
         egg_id = sample_eggs[0][0]
         node_id = sample_nodes[0][0]
@@ -514,8 +534,8 @@ class TestNodeEggAssignment:
 @pytest.fixture()
 def dal_with_groups(dal_with_eggs):
     """Extend dal_with_eggs with biome_groups and related tables."""
+
     from penguin_dal import Field
-    from datetime import datetime, timezone
 
     if "biome_groups" not in getattr(dal_with_eggs, "tables", []):
         dal_with_eggs.define_table(
@@ -568,8 +588,8 @@ def dal_with_groups(dal_with_eggs):
 @pytest.fixture()
 def extended_app(app_with_auth, dal_with_groups, monkeypatch):
     """App fixture with extended tables for groups/deployments tests."""
+
     import app.api.biomes as biomes_mod
-    import importlib
 
     monkeypatch.setattr(biomes_mod, "get_db", lambda: dal_with_groups)
     return app_with_auth
@@ -624,8 +644,11 @@ def sample_deployment_id(dal_with_groups, sample_biome_id):
     if node is None:
         # Deployments are tenant-scoped through their node, so a real node must exist.
         node = dal_with_groups.nodes.insert(
-            tenant_id="__default__", name="dep-node", state="ready",
-            dmi_uuid="dep-uuid", primary_nic_mac="aa:bb:cc:00:00:01",
+            tenant_id="__default__",
+            name="dep-node",
+            state="ready",
+            dmi_uuid="dep-uuid",
+            primary_nic_mac="aa:bb:cc:00:00:01",
         )
         dal_with_groups.commit()
         node_id = int(node)
@@ -696,11 +719,18 @@ class TestUpdateBiome:
         response = await extended_client.put(f"/api/v1/biomes/{sample_biome_id}")
         assert response.status_code == 400
 
-    async def test_update_biome_name_conflict(self, extended_client, dal_with_groups, sample_biome_id):
+    async def test_update_biome_name_conflict(
+        self, extended_client, dal_with_groups, sample_biome_id
+    ):
         # Create second biome
         other_id = dal_with_groups.biomes.insert(
-            name="other-biome", display_name="Other", biome_type="lxd_container",
-            version="1.0.0", biome_kind="custom", phase="post_deploy", workload_type="lxc",
+            name="other-biome",
+            display_name="Other",
+            biome_type="lxd_container",
+            version="1.0.0",
+            biome_kind="custom",
+            phase="post_deploy",
+            workload_type="lxc",
         )
         dal_with_groups.commit()
         response = await extended_client.put(
@@ -709,7 +739,9 @@ class TestUpdateBiome:
         )
         assert response.status_code == 409
 
-    async def test_update_biome_invalid_biome_kind(self, extended_client, sample_biome_id):
+    async def test_update_biome_invalid_biome_kind(
+        self, extended_client, sample_biome_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/{sample_biome_id}",
             json={"biome_kind": "invalid_kind"},
@@ -723,21 +755,27 @@ class TestUpdateBiome:
         )
         assert response.status_code == 422
 
-    async def test_update_biome_invalid_workload_type(self, extended_client, sample_biome_id):
+    async def test_update_biome_invalid_workload_type(
+        self, extended_client, sample_biome_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/{sample_biome_id}",
             json={"workload_type": "docker"},
         )
         assert response.status_code == 422
 
-    async def test_update_biome_invalid_cloud_init(self, extended_client, sample_biome_id):
+    async def test_update_biome_invalid_cloud_init(
+        self, extended_client, sample_biome_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/{sample_biome_id}",
             json={"cloud_init_content": "invalid: [yaml: {"},
         )
         assert response.status_code == 422
 
-    async def test_update_biome_invalid_architecture(self, extended_client, sample_biome_id):
+    async def test_update_biome_invalid_architecture(
+        self, extended_client, sample_biome_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/{sample_biome_id}",
             json={"required_architecture": "sparc"},
@@ -763,7 +801,9 @@ class TestDeleteBiome:
         response = await extended_client.delete("/api/v1/biomes/99999")
         assert response.status_code == 404
 
-    async def test_delete_biome_in_use(self, extended_client, sample_biome_id, dal_with_groups):
+    async def test_delete_biome_in_use(
+        self, extended_client, sample_biome_id, dal_with_groups
+    ):
         """Biome in active assignment cannot be deleted."""
         node = dal_with_groups(dal_with_groups.nodes.id > 0).select().first()
         if node:
@@ -778,16 +818,25 @@ class TestDeleteBiome:
         # Either blocked (409) or soft-deleted if no assignments found
         assert response.status_code in (200, 409)
 
-    async def test_hard_delete_no_scope(self, extended_client, sample_biome_id, app_with_auth, dal_with_groups, monkeypatch):
+    async def test_hard_delete_no_scope(
+        self,
+        extended_client,
+        sample_biome_id,
+        app_with_auth,
+        dal_with_groups,
+        monkeypatch,
+    ):
         """Hard delete without gough.cluster.admin scope returns 403."""
         from types import SimpleNamespace
-        from quart import g
 
         # Create an app with limited scope that doesn't include cluster.admin
         import app.api.biomes as biomes_mod
+        from quart import g
+
         monkeypatch.setattr(biomes_mod, "get_db", lambda: dal_with_groups)
 
         import importlib as _importlib
+
         import app.middleware as mw_mod2
         import app.security.scope_enforcement as scope_mod2
 
@@ -803,6 +852,7 @@ class TestDeleteBiome:
         monkeypatch.setattr(biomes_mod2, "get_db", lambda: dal_with_groups)
 
         from quart import Quart
+
         no_scope_app = Quart(__name__)
         no_scope_app.config["TESTING"] = True
         no_scope_app.url_map.strict_slashes = False
@@ -881,7 +931,9 @@ class TestListBiomesFilters:
         response = await app_client.get("/api/v1/biomes?node_id=notanint")
         assert response.status_code == 422
 
-    async def test_list_filter_node_eligibility_excludes_ineligible(self, app_client, sample_eggs, sample_nodes):
+    async def test_list_filter_node_eligibility_excludes_ineligible(
+        self, app_client, sample_eggs, sample_nodes
+    ):
         """Node eligibility filter excludes biomes node can't run."""
         node_id = sample_nodes[3][0]  # node-4: cpu:cores:4, mem:total-gb:16 (minimal)
         response = await app_client.get(f"/api/v1/biomes?node_id={node_id}")
@@ -953,7 +1005,9 @@ class TestBiomeGroups:
         response = await extended_client.post("/api/v1/biomes/groups")
         assert response.status_code == 400
 
-    async def test_create_biome_group_duplicate_name(self, extended_client, sample_group_id, sample_biome_id):
+    async def test_create_biome_group_duplicate_name(
+        self, extended_client, sample_group_id, sample_biome_id
+    ):
         response = await extended_client.post(
             "/api/v1/biomes/groups",
             json={
@@ -1017,11 +1071,15 @@ class TestBiomeGroups:
         )
         assert response.status_code == 404
 
-    async def test_update_biome_group_name_conflict(self, extended_client, dal_with_groups, sample_group_id, sample_biome_id):
+    async def test_update_biome_group_name_conflict(
+        self, extended_client, dal_with_groups, sample_group_id, sample_biome_id
+    ):
         # Create another group
         other = dal_with_groups.biome_groups.insert(
-            name="other-group", display_name="Other",
-            biomes=[{"biome_id": sample_biome_id}], is_default=False,
+            name="other-group",
+            display_name="Other",
+            biomes=[{"biome_id": sample_biome_id}],
+            is_default=False,
         )
         dal_with_groups.commit()
         response = await extended_client.put(
@@ -1030,28 +1088,36 @@ class TestBiomeGroups:
         )
         assert response.status_code == 409
 
-    async def test_update_biome_group_biomes_not_array(self, extended_client, sample_group_id):
+    async def test_update_biome_group_biomes_not_array(
+        self, extended_client, sample_group_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/groups/{sample_group_id}",
             json={"biomes": "not_a_list"},
         )
         assert response.status_code == 400
 
-    async def test_update_biome_group_invalid_biome_ref(self, extended_client, sample_group_id):
+    async def test_update_biome_group_invalid_biome_ref(
+        self, extended_client, sample_group_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/groups/{sample_group_id}",
             json={"biomes": ["not_a_dict"]},
         )
         assert response.status_code == 400
 
-    async def test_update_biome_group_biome_not_found(self, extended_client, sample_group_id):
+    async def test_update_biome_group_biome_not_found(
+        self, extended_client, sample_group_id
+    ):
         response = await extended_client.put(
             f"/api/v1/biomes/groups/{sample_group_id}",
             json={"biomes": [{"biome_id": 99999}]},
         )
         assert response.status_code == 400
 
-    async def test_biome_group_membership_field_contract(self, extended_client, sample_group_id, sample_biome_id):
+    async def test_biome_group_membership_field_contract(
+        self, extended_client, sample_group_id, sample_biome_id
+    ):
         """Regression: gh-31, gh-32 — biome group membership must be 'biomes', not 'biome_ids'.
 
         The PenguinCloud portal was guessing the wrong field name when Gough returns
@@ -1079,8 +1145,12 @@ class TestBiomeGroups:
         group = body["group"]
 
         # CRITICAL: field must be named 'biomes', not 'biome_ids'
-        assert "biomes" in group, "Field 'biomes' not found in response (expected membership array)"
-        assert "biome_ids" not in group, "Field 'biome_ids' should not exist (use 'biomes' instead)"
+        assert (
+            "biomes" in group
+        ), "Field 'biomes' not found in response (expected membership array)"
+        assert (
+            "biome_ids" not in group
+        ), "Field 'biome_ids' should not exist (use 'biomes' instead)"
 
         # CRITICAL: 'biomes' must be an array of objects with biome_id and order
         assert isinstance(group["biomes"], list), "biomes must be an array"
@@ -1093,7 +1163,9 @@ class TestBiomeGroups:
         assert member["order"] == 1, "order must match seeded value"
 
     async def test_delete_biome_group_success(self, extended_client, sample_group_id):
-        response = await extended_client.delete(f"/api/v1/biomes/groups/{sample_group_id}")
+        response = await extended_client.delete(
+            f"/api/v1/biomes/groups/{sample_group_id}"
+        )
         assert response.status_code == 200
 
     async def test_delete_biome_group_not_found(self, extended_client):
@@ -1154,7 +1226,9 @@ class TestRenderCloudInit:
         )
         assert response.status_code == 400
 
-    async def test_render_cloud_init_invalid_additional_config(self, extended_client, dal_with_groups):
+    async def test_render_cloud_init_invalid_additional_config(
+        self, extended_client, dal_with_groups
+    ):
         bid = dal_with_groups.biomes.insert(
             name="cloud-init-biome2",
             cloud_init_content="packages:\n  - curl\n",
@@ -1170,7 +1244,9 @@ class TestRenderCloudInit:
         )
         assert response.status_code == 400
 
-    async def test_render_cloud_init_with_additional_config(self, extended_client, dal_with_groups):
+    async def test_render_cloud_init_with_additional_config(
+        self, extended_client, dal_with_groups
+    ):
         bid = dal_with_groups.biomes.insert(
             name="cloud-init-biome3",
             cloud_init_content="packages:\n  - curl\n",
@@ -1201,14 +1277,20 @@ class TestDeployments:
         body = await response.get_json()
         assert body["data"]["total"] == 0
 
-    async def test_list_deployments_with_data(self, extended_client, sample_deployment_id):
+    async def test_list_deployments_with_data(
+        self, extended_client, sample_deployment_id
+    ):
         response = await extended_client.get("/api/v1/biomes/deployments")
         assert response.status_code == 200
         body = await response.get_json()
         assert body["data"]["total"] == 1
 
-    async def test_list_deployments_filter_by_status(self, extended_client, sample_deployment_id):
-        response = await extended_client.get("/api/v1/biomes/deployments?status=pending")
+    async def test_list_deployments_filter_by_status(
+        self, extended_client, sample_deployment_id
+    ):
+        response = await extended_client.get(
+            "/api/v1/biomes/deployments?status=pending"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         assert body["data"]["total"] == 1
@@ -1226,7 +1308,9 @@ class TestDeployments:
         assert response.status_code == 400
 
     async def test_get_deployment_success(self, extended_client, sample_deployment_id):
-        response = await extended_client.get(f"/api/v1/biomes/deployments/{sample_deployment_id}")
+        response = await extended_client.get(
+            f"/api/v1/biomes/deployments/{sample_deployment_id}"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         assert body["data"]["id"] == str(sample_deployment_id)
@@ -1238,36 +1322,57 @@ class TestDeployments:
 
         now = datetime.now(timezone.utc)
         node = dal_with_groups.nodes.insert(
-            tenant_id="globex", name="foreign-node", state="ready",
-            dmi_uuid="foreign-uuid", primary_nic_mac="aa:bb:cc:00:00:99",
+            tenant_id="globex",
+            name="foreign-node",
+            state="ready",
+            dmi_uuid="foreign-uuid",
+            primary_nic_mac="aa:bb:cc:00:00:99",
         )
         did = dal_with_groups.deployments.insert(
-            biome_id=sample_biome_id, node_id=int(node), phase=1, status="pending",
-            created_at=now, updated_at=now,
+            biome_id=sample_biome_id,
+            node_id=int(node),
+            phase=1,
+            status="pending",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_groups.commit()
         return int(did)
 
-    async def test_foreign_tenant_deployment_is_invisible(self, extended_client, foreign_deployment_id):
+    async def test_foreign_tenant_deployment_is_invisible(
+        self, extended_client, foreign_deployment_id
+    ):
         base = "/api/v1/biomes/deployments"
         listing = await (await extended_client.get(base)).get_json()
         assert listing["data"]["total"] == 0
-        assert (await extended_client.get(f"{base}/{foreign_deployment_id}")).status_code == 404
-        assert (await extended_client.get(f"{base}/{foreign_deployment_id}/logs")).status_code == 404
+        assert (
+            await extended_client.get(f"{base}/{foreign_deployment_id}")
+        ).status_code == 404
+        assert (
+            await extended_client.get(f"{base}/{foreign_deployment_id}/logs")
+        ).status_code == 404
 
     async def test_foreign_tenant_deployment_cannot_be_cancelled(
         self, extended_client, dal_with_groups, foreign_deployment_id
     ):
-        resp = await extended_client.post(f"/api/v1/biomes/deployments/{foreign_deployment_id}/cancel")
+        resp = await extended_client.post(
+            f"/api/v1/biomes/deployments/{foreign_deployment_id}/cancel"
+        )
         assert resp.status_code == 404
-        row = dal_with_groups(dal_with_groups.deployments.id == foreign_deployment_id).select().first()
+        row = (
+            dal_with_groups(dal_with_groups.deployments.id == foreign_deployment_id)
+            .select()
+            .first()
+        )
         assert row.status == "pending"
 
     async def test_get_deployment_not_found(self, extended_client):
         response = await extended_client.get("/api/v1/biomes/deployments/99999")
         assert response.status_code == 404
 
-    async def test_get_deployment_logs_success(self, extended_client, sample_deployment_id):
+    async def test_get_deployment_logs_success(
+        self, extended_client, sample_deployment_id
+    ):
         response = await extended_client.get(
             f"/api/v1/biomes/deployments/{sample_deployment_id}/logs"
         )
@@ -1279,13 +1384,17 @@ class TestDeployments:
         response = await extended_client.get("/api/v1/biomes/deployments/99999/logs")
         assert response.status_code == 404
 
-    async def test_get_deployment_logs_invalid_tail(self, extended_client, sample_deployment_id):
+    async def test_get_deployment_logs_invalid_tail(
+        self, extended_client, sample_deployment_id
+    ):
         response = await extended_client.get(
             f"/api/v1/biomes/deployments/{sample_deployment_id}/logs?tail=0"
         )
         assert response.status_code == 400
 
-    async def test_cancel_deployment_success(self, extended_client, sample_deployment_id):
+    async def test_cancel_deployment_success(
+        self, extended_client, sample_deployment_id
+    ):
         response = await extended_client.post(
             f"/api/v1/biomes/deployments/{sample_deployment_id}/cancel"
         )
@@ -1298,7 +1407,9 @@ class TestDeployments:
         response = await extended_client.post("/api/v1/biomes/deployments/99999/cancel")
         assert response.status_code == 404
 
-    async def test_cancel_deployment_terminal_state(self, extended_client, dal_with_groups, sample_biome_id):
+    async def test_cancel_deployment_terminal_state(
+        self, extended_client, dal_with_groups, sample_biome_id
+    ):
         """Cannot cancel a deployment in terminal state."""
         from datetime import datetime, timezone
 
@@ -1306,8 +1417,11 @@ class TestDeployments:
         if node is None:
             # Deployments are tenant-scoped through their node, so a real node must exist.
             node = dal_with_groups.nodes.insert(
-                tenant_id="__default__", name="dep-node", state="ready",
-                dmi_uuid="dep-uuid", primary_nic_mac="aa:bb:cc:00:00:01",
+                tenant_id="__default__",
+                name="dep-node",
+                state="ready",
+                dmi_uuid="dep-uuid",
+                primary_nic_mac="aa:bb:cc:00:00:01",
             )
             dal_with_groups.commit()
             node_id = int(node)
@@ -1315,13 +1429,19 @@ class TestDeployments:
             node_id = int(node.id)
         now = datetime.now(timezone.utc)
         did = dal_with_groups.deployments.insert(
-            biome_id=sample_biome_id, node_id=node_id, phase=1,
-            status="succeeded", tenant_id="__default__",
-            created_at=now, updated_at=now,
+            biome_id=sample_biome_id,
+            node_id=node_id,
+            phase=1,
+            status="succeeded",
+            tenant_id="__default__",
+            created_at=now,
+            updated_at=now,
         )
         dal_with_groups.commit()
 
-        response = await extended_client.post(f"/api/v1/biomes/deployments/{int(did)}/cancel")
+        response = await extended_client.post(
+            f"/api/v1/biomes/deployments/{int(did)}/cancel"
+        )
         assert response.status_code == 409
 
 
@@ -1335,29 +1455,34 @@ class TestHelperFunctions:
 
     def test_validate_cloud_init_empty(self):
         from app.api.biomes import validate_cloud_init_yaml
+
         valid, msg = validate_cloud_init_yaml("")
         assert valid is True
         assert msg is None
 
     def test_validate_cloud_init_valid(self):
         from app.api.biomes import validate_cloud_init_yaml
+
         valid, msg = validate_cloud_init_yaml("packages:\n  - curl\n")
         assert valid is True
 
     def test_validate_cloud_init_not_dict(self):
         from app.api.biomes import validate_cloud_init_yaml
+
         valid, msg = validate_cloud_init_yaml("- item1\n- item2\n")
         assert valid is False
         assert "dictionary" in msg.lower()
 
     def test_validate_cloud_init_invalid_yaml(self):
         from app.api.biomes import validate_cloud_init_yaml
+
         valid, msg = validate_cloud_init_yaml("invalid: [yaml: {")
         assert valid is False
         assert msg is not None
 
     def test_merge_cloud_init_configs(self):
         from app.api.biomes import merge_cloud_init_configs
+
         configs = [
             "packages:\n  - curl\nwrite_files:\n  - path: /etc/test\n    content: test\n",
             "packages:\n  - git\nhostname: myhost\n",
@@ -1368,6 +1493,7 @@ class TestHelperFunctions:
 
     def test_merge_cloud_init_dict_merge(self):
         from app.api.biomes import merge_cloud_init_configs
+
         configs = [
             "runcmd:\n  - echo hello\n",
             "runcmd:\n  - echo world\n",
@@ -1379,6 +1505,7 @@ class TestHelperFunctions:
 
     def test_merge_cloud_init_scalar_override(self):
         from app.api.biomes import merge_cloud_init_configs
+
         configs = [
             "hostname: original\n",
             "hostname: override\n",
@@ -1388,6 +1515,7 @@ class TestHelperFunctions:
 
     def test_merge_cloud_init_invalid_skipped(self):
         from app.api.biomes import merge_cloud_init_configs
+
         configs = ["invalid: [yaml: {", "hostname: valid\n"]
         result = merge_cloud_init_configs(configs)
         # Invalid entry should be silently skipped
@@ -1395,16 +1523,19 @@ class TestHelperFunctions:
 
     def test_parse_bool_none(self):
         from app.api.biomes import _parse_bool
+
         assert _parse_bool(None) is None
 
     def test_parse_bool_true_values(self):
         from app.api.biomes import _parse_bool
+
         assert _parse_bool("true") is True
         assert _parse_bool("1") is True
         assert _parse_bool("yes") is True
 
     def test_parse_bool_false_values(self):
         from app.api.biomes import _parse_bool
+
         assert _parse_bool("false") is False
         assert _parse_bool("0") is False
 

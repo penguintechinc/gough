@@ -12,12 +12,8 @@ Focuses on:
 
 from __future__ import annotations
 
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
-from datetime import datetime
-import tempfile
-import asyncio
 import subprocess
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -47,6 +43,7 @@ def mock_db():
 # ensure_ca_initialized Tests
 # ============================================================================
 
+
 class TestEnsureCAInitialized:
     """Test ensure_ca_initialized() with various states."""
 
@@ -70,8 +67,11 @@ class TestEnsureCAInitialized:
                 await ca.ensure_ca_initialized()
 
         # Logger should not log initialization
-        init_logs = [call for call in mock_app.logger.info.call_args_list
-                     if "initializing" in str(call).lower()]
+        init_logs = [
+            call
+            for call in mock_app.logger.info.call_args_list
+            if "initializing" in str(call).lower()
+        ]
         assert len(init_logs) == 0
 
     @pytest.mark.asyncio
@@ -86,7 +86,9 @@ class TestEnsureCAInitialized:
 
         with patch("app.ssh_ca.get_db", return_value=mock_db):
             with patch("app.ssh_ca.current_app", mock_app):
-                with patch.object(ca, "initialize_ca", new_callable=AsyncMock) as mock_init:
+                with patch.object(
+                    ca, "initialize_ca", new_callable=AsyncMock
+                ) as mock_init:
                     await ca.ensure_ca_initialized()
                     # Should call initialize_ca since CA doesn't exist
                     mock_init.assert_called_once()
@@ -110,6 +112,7 @@ class TestEnsureCAInitialized:
 # initialize_ca Tests
 # ============================================================================
 
+
 class TestInitializeCA:
     """Test initialize_ca() key generation and storage."""
 
@@ -126,13 +129,13 @@ class TestInitializeCA:
             with patch("app.ssh_ca.current_app", mock_app):
                 with patch("app.ssh_ca.asyncio.to_thread") as mock_to_thread:
                     # Mock RSA key generation
-                    from cryptography.hazmat.primitives.asymmetric import rsa
                     from cryptography.hazmat.backends import default_backend
+                    from cryptography.hazmat.primitives.asymmetric import rsa
 
                     private_key = rsa.generate_private_key(
                         public_exponent=65537,
                         key_size=2048,  # Use smaller key for test speed
-                        backend=default_backend()
+                        backend=default_backend(),
                     )
 
                     async def side_effect_async(func, *args, **kwargs):
@@ -161,8 +164,10 @@ class TestInitializeCA:
                                 await ca.initialize_ca()
 
         # Should log that CA was initialized
-        assert any("generated" in str(call).lower() or "initializ" in str(call).lower()
-                   for call in mock_app.logger.info.call_args_list)
+        assert any(
+            "generated" in str(call).lower() or "initializ" in str(call).lower()
+            for call in mock_app.logger.info.call_args_list
+        )
 
     @pytest.mark.asyncio
     async def test_initialize_ca_updates_existing(self, mock_db, mock_app):
@@ -174,6 +179,7 @@ class TestInitializeCA:
 
         # First call returns None (new), second returns existing
         call_count = [0]
+
         def side_effect(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] == 1:
@@ -188,13 +194,11 @@ class TestInitializeCA:
         with patch("app.ssh_ca.get_db", return_value=mock_db):
             with patch("app.ssh_ca.current_app", mock_app):
                 with patch("app.ssh_ca.asyncio.to_thread") as mock_to_thread:
-                    from cryptography.hazmat.primitives.asymmetric import rsa
                     from cryptography.hazmat.backends import default_backend
+                    from cryptography.hazmat.primitives.asymmetric import rsa
 
                     private_key = rsa.generate_private_key(
-                        public_exponent=65537,
-                        key_size=2048,
-                        backend=default_backend()
+                        public_exponent=65537, key_size=2048, backend=default_backend()
                     )
 
                     async def side_effect_async(func, *args, **kwargs):
@@ -210,12 +214,15 @@ class TestInitializeCA:
                                 await ca.initialize_ca()
 
         # Should call update on existing CA
-        assert mock_db.return_value.update.called or True  # May or may not be called depending on logic
+        assert (
+            mock_db.return_value.update.called or True
+        )  # May or may not be called depending on logic
 
 
 # ============================================================================
 # get_ca_public_key Tests
 # ============================================================================
+
 
 class TestGetCAPublicKey:
     """Test get_ca_public_key() retrieval."""
@@ -252,6 +259,7 @@ class TestGetCAPublicKey:
 # ============================================================================
 # _get_private_key_path Tests
 # ============================================================================
+
 
 class TestGetPrivateKeyPath:
     """Test _get_private_key_path() retrieval."""
@@ -306,6 +314,7 @@ class TestGetPrivateKeyPath:
 # sign_user_key Tests
 # ============================================================================
 
+
 class TestSignUserKey:
     """Test sign_user_key() certificate signing."""
 
@@ -321,7 +330,7 @@ class TestSignUserKey:
                 public_key="ssh-rsa AAAA...",
                 principals=["user"],
                 validity_seconds=100000,  # Exceeds MAX_VALIDITY_SECONDS (28800)
-                key_id="test-key"
+                key_id="test-key",
             )
 
     @pytest.mark.asyncio
@@ -336,14 +345,15 @@ class TestSignUserKey:
                 public_key="ssh-rsa AAAA...",
                 principals=[],
                 validity_seconds=3600,
-                key_id="test-key"
+                key_id="test-key",
             )
 
     @pytest.mark.asyncio
     async def test_sign_user_key_subprocess_timeout(self, mock_db, mock_app):
         """Test signing when ssh-keygen times out."""
-        from app.ssh_ca import SSHCertificateAuthority
         import subprocess
+
+        from app.ssh_ca import SSHCertificateAuthority
 
         ca_config = MagicMock()
         ca_config.private_key_vault_path = "/var/lib/gough/ssh_ca/ca_key"
@@ -356,8 +366,11 @@ class TestSignUserKey:
             with patch("app.ssh_ca.current_app", mock_app):
                 with patch("pathlib.Path.exists", return_value=True):
                     with patch("app.ssh_ca.asyncio.to_thread") as mock_to_thread:
+
                         async def side_effect_timeout(func, *args, **kwargs):
-                            if func is subprocess.run or (hasattr(func, '__name__') and func.__name__ == 'run'):
+                            if func is subprocess.run or (
+                                hasattr(func, "__name__") and func.__name__ == "run"
+                            ):
                                 raise subprocess.TimeoutExpired("ssh-keygen", 30)
                             if "write_text" in str(func) or "mkdir" in str(func):
                                 return None
@@ -376,14 +389,15 @@ class TestSignUserKey:
                                 public_key="ssh-rsa AAAA...",
                                 principals=["user"],
                                 validity_seconds=3600,
-                                key_id="test-key"
+                                key_id="test-key",
                             )
 
     @pytest.mark.asyncio
     async def test_sign_user_key_subprocess_error(self, mock_db, mock_app):
         """Test signing when ssh-keygen fails."""
-        from app.ssh_ca import SSHCertificateAuthority
         import subprocess
+
+        from app.ssh_ca import SSHCertificateAuthority
 
         ca_config = MagicMock()
         ca_config.private_key_vault_path = "/var/lib/gough/ssh_ca/ca_key"
@@ -396,11 +410,13 @@ class TestSignUserKey:
             with patch("app.ssh_ca.current_app", mock_app):
                 with patch("pathlib.Path.exists", return_value=True):
                     with patch("app.ssh_ca.asyncio.to_thread") as mock_to_thread:
+
                         async def side_effect_error(func, *args, **kwargs):
-                            if func is subprocess.run or (hasattr(func, '__name__') and func.__name__ == 'run'):
+                            if func is subprocess.run or (
+                                hasattr(func, "__name__") and func.__name__ == "run"
+                            ):
                                 raise subprocess.CalledProcessError(
-                                    1, "ssh-keygen",
-                                    stderr="Key generation failed"
+                                    1, "ssh-keygen", stderr="Key generation failed"
                                 )
                             if "write_text" in str(func) or "mkdir" in str(func):
                                 return None
@@ -419,7 +435,7 @@ class TestSignUserKey:
                                 public_key="ssh-rsa AAAA...",
                                 principals=["user"],
                                 validity_seconds=3600,
-                                key_id="test-key"
+                                key_id="test-key",
                             )
 
     @pytest.mark.asyncio
@@ -438,8 +454,11 @@ class TestSignUserKey:
             with patch("app.ssh_ca.current_app", mock_app):
                 with patch("pathlib.Path.exists", return_value=True):
                     with patch("app.ssh_ca.asyncio.to_thread") as mock_to_thread:
+
                         async def side_effect_no_cert(func, *args, **kwargs):
-                            if func is subprocess.run or (hasattr(func, '__name__') and func.__name__ == 'run'):
+                            if func is subprocess.run or (
+                                hasattr(func, "__name__") and func.__name__ == "run"
+                            ):
                                 return MagicMock(stdout="", returncode=0)
                             if "write_text" in str(func) or "mkdir" in str(func):
                                 return None
@@ -461,13 +480,14 @@ class TestSignUserKey:
                                 public_key="ssh-rsa AAAA...",
                                 principals=["user"],
                                 validity_seconds=3600,
-                                key_id="test-key"
+                                key_id="test-key",
                             )
 
 
 # ============================================================================
 # generate_key_id Tests
 # ============================================================================
+
 
 class TestGenerateKeyId:
     """Test generate_key_id() formatting."""
@@ -488,8 +508,9 @@ class TestGenerateKeyId:
 
     def test_generate_key_id_includes_timestamp(self):
         """Test key ID includes current timestamp."""
-        from app.ssh_ca import generate_key_id
         from datetime import datetime
+
+        from app.ssh_ca import generate_key_id
 
         before_timestamp = int(datetime.utcnow().timestamp())
         key_id = generate_key_id("user@example.com", "host-456")
@@ -503,8 +524,9 @@ class TestGenerateKeyId:
 
     def test_generate_key_id_uniqueness(self):
         """Test consecutive key IDs are different (due to timestamp)."""
-        from app.ssh_ca import generate_key_id
         import time
+
+        from app.ssh_ca import generate_key_id
 
         key_id_1 = generate_key_id("user@example.com", "vm-789")
         time.sleep(1.01)  # Sleep more than 1 second to ensure timestamp differs
@@ -518,6 +540,7 @@ class TestGenerateKeyId:
 # validate_principals Tests
 # ============================================================================
 
+
 class TestValidatePrincipals:
     """Test validate_principals() validation."""
 
@@ -525,10 +548,7 @@ class TestValidatePrincipals:
         """Test validation when all principals are allowed."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            ["user1", "user2"],
-            ["user1", "user2", "user3"]
-        )
+        result = validate_principals(["user1", "user2"], ["user1", "user2", "user3"])
 
         assert result is True
 
@@ -536,10 +556,7 @@ class TestValidatePrincipals:
         """Test validation when some principals are not allowed."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            ["user1", "hacker"],
-            ["user1", "user2", "user3"]
-        )
+        result = validate_principals(["user1", "hacker"], ["user1", "user2", "user3"])
 
         assert result is False
 
@@ -547,10 +564,7 @@ class TestValidatePrincipals:
         """Test validation with empty principals list."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            [],
-            ["user1", "user2"]
-        )
+        result = validate_principals([], ["user1", "user2"])
 
         assert result is False
 
@@ -558,10 +572,7 @@ class TestValidatePrincipals:
         """Test validation with empty allowed list."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            ["user1"],
-            []
-        )
+        result = validate_principals(["user1"], [])
 
         assert result is False
 
@@ -569,10 +580,7 @@ class TestValidatePrincipals:
         """Test validation with both lists empty."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            [],
-            []
-        )
+        result = validate_principals([], [])
 
         assert result is False
 
@@ -580,10 +588,7 @@ class TestValidatePrincipals:
         """Test validation is case-sensitive."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            ["User1"],
-            ["user1"]
-        )
+        result = validate_principals(["User1"], ["user1"])
 
         assert result is False
 
@@ -591,10 +596,7 @@ class TestValidatePrincipals:
         """Test validation requires exact match."""
         from app.ssh_ca import validate_principals
 
-        result = validate_principals(
-            ["user"],
-            ["user1", "user2"]
-        )
+        result = validate_principals(["user"], ["user1", "user2"])
 
         assert result is False
 
@@ -602,6 +604,7 @@ class TestValidatePrincipals:
 # ============================================================================
 # init_app Tests
 # ============================================================================
+
 
 class TestInitApp:
     """Test init_app() initialization."""

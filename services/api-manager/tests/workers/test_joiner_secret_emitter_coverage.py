@@ -18,15 +18,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timezone
 from typing import Any
-
-import pytest
 from unittest.mock import MagicMock
 
+import pytest
 from app.workers.joiner_secret_emitter import (
-    JoinerSecretEmitter,
-    ExtractorSpecError,
     ControlTunnelExtractionError,
     EmitterStateError,
+    ExtractorSpecError,
+    JoinerSecretEmitter,
     _mask,
 )
 
@@ -62,7 +61,9 @@ def _seed_biome(dal_db: Any, **overrides: Any) -> int:
     return int(dal_db.biomes.insert(**base))
 
 
-def _seed_assignment(dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any) -> int:
+def _seed_assignment(
+    dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any
+) -> int:
     now = datetime.now(timezone.utc)
     base: dict[str, Any] = dict(
         node_id=node_id,
@@ -342,7 +343,12 @@ class TestJoinerSecretEmitterValidateSpec:
         mock_biome.id = 1
         mock_biome.joiner_emit_spec = {
             "extractors": [
-                {"name": "test", "source": "exec", "command": ["test"], "ttl_seconds": -1}
+                {
+                    "name": "test",
+                    "source": "exec",
+                    "command": ["test"],
+                    "ttl_seconds": -1,
+                }
             ]
         }
 

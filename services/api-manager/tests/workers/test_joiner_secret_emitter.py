@@ -25,15 +25,18 @@ from typing import Any
 from unittest.mock import Mock, patch
 
 import pytest
-
-from app.clients.vault import VaultClient, VaultTransitDecryptResponse, VaultTransitEncryptResponse
+from app.clients.vault import (
+    VaultClient,
+    VaultTransitDecryptResponse,
+    VaultTransitEncryptResponse,
+)
 from app.security.joiner_envelope import IV_BYTES, TAG_BYTES
 from app.workers.joiner_secret_emitter import (
+    VAULT_KEK_NAME,
     ControlTunnelExtractionError,
     EmitterStateError,
     ExtractorSpecError,
     JoinerSecretEmitter,
-    VAULT_KEK_NAME,
 )
 
 pytestmark = pytest.mark.asyncio
@@ -78,7 +81,9 @@ def _seed_biome(dal_db: Any, **overrides: Any) -> int:
     return int(dal_db.biomes.insert(**base))
 
 
-def _seed_assignment(dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any) -> int:
+def _seed_assignment(
+    dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any
+) -> int:
     """``phase``/``assigned_at``/``created_at``/``updated_at`` are NOT NULL
     with no (or Python-only) defaults -- supplied explicitly."""
     now = datetime.now(timezone.utc)
@@ -169,7 +174,9 @@ def test_cluster_id() -> str:
 def test_assignment(pg_db: Any) -> int:
     """Ready assignment for a k8s-controller biome that emits joiner secrets."""
     node_id = _seed_node(pg_db)
-    biome_id = _seed_biome(pg_db, emits_joiner_secrets=True, joiner_emit_spec=_K8S_EMIT_SPEC)
+    biome_id = _seed_biome(
+        pg_db, emits_joiner_secrets=True, joiner_emit_spec=_K8S_EMIT_SPEC
+    )
     return _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
 
 
@@ -277,9 +284,7 @@ class TestJoinerSecretEmitterEmit:
         results = emitter.emit(test_assignment)
 
         audit_event = (
-            pg_db(pg_db.audit_events.action == "joiner.secret.emit")
-            .select()
-            .first()
+            pg_db(pg_db.audit_events.action == "joiner.secret.emit").select().first()
         )
         assert audit_event is not None
         assert audit_event.resource_kind == "joiner_secret"
@@ -350,7 +355,9 @@ class TestJoinerSecretEmitterEmit:
     ) -> None:
         """Raise EmitterStateError when biome assignment not in ready state."""
         node_id = _seed_node(pg_db)
-        biome_id = _seed_biome(pg_db, emits_joiner_secrets=True, joiner_emit_spec=_K8S_EMIT_SPEC)
+        biome_id = _seed_biome(
+            pg_db, emits_joiner_secrets=True, joiner_emit_spec=_K8S_EMIT_SPEC
+        )
         assignment_id = _seed_assignment(
             pg_db,
             node_id=node_id,
@@ -380,7 +387,9 @@ class TestJoinerSecretEmitterEmit:
     ) -> None:
         """Raise error when biome doesn't have emits_joiner_secrets=true."""
         node_id = _seed_node(pg_db)
-        biome_id = _seed_biome(pg_db, biome_kind="k8s-worker", emits_joiner_secrets=False)
+        biome_id = _seed_biome(
+            pg_db, biome_kind="k8s-worker", emits_joiner_secrets=False
+        )
         assignment_id = _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
 
         emitter = JoinerSecretEmitter(
@@ -444,7 +453,10 @@ class TestJoinerSecretEmitterExtraction:
         }
         node_id = _seed_node(pg_db)
         biome_id = _seed_biome(
-            pg_db, biome_kind="ceph-mon", emits_joiner_secrets=True, joiner_emit_spec=emit_spec
+            pg_db,
+            biome_kind="ceph-mon",
+            emits_joiner_secrets=True,
+            joiner_emit_spec=emit_spec,
         )
         assignment_id = _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
 
@@ -485,7 +497,10 @@ class TestJoinerSecretEmitterExtraction:
         }
         node_id = _seed_node(pg_db)
         biome_id = _seed_biome(
-            pg_db, biome_kind="nest-primary", emits_joiner_secrets=True, joiner_emit_spec=emit_spec
+            pg_db,
+            biome_kind="nest-primary",
+            emits_joiner_secrets=True,
+            joiner_emit_spec=emit_spec,
         )
         assignment_id = _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
 
@@ -580,7 +595,10 @@ class TestJoinerSecretEmitterEncryption:
             .first()
         )
 
-        assert isinstance(bytes(stored.ciphertext), bytes) and len(bytes(stored.ciphertext)) > 0
+        assert (
+            isinstance(bytes(stored.ciphertext), bytes)
+            and len(bytes(stored.ciphertext)) > 0
+        )
         assert len(bytes(stored.iv)) == IV_BYTES
         assert len(bytes(stored.auth_tag)) == TAG_BYTES
         assert len(bytes(stored.dek_wrapped)) > 0
@@ -710,7 +728,10 @@ class TestJoinerSecretEmitterErrors:
         """Raise ExtractorSpecError for malformed joiner_emit_spec."""
         node_id = _seed_node(pg_db)
         biome_id = _seed_biome(
-            pg_db, biome_kind="bad", emits_joiner_secrets=True, joiner_emit_spec="not-json"
+            pg_db,
+            biome_kind="bad",
+            emits_joiner_secrets=True,
+            joiner_emit_spec="not-json",
         )
         assignment_id = _seed_assignment(pg_db, node_id=node_id, egg_id=biome_id)
 

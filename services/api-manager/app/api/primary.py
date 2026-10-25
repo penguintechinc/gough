@@ -33,7 +33,7 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import wraps
-from typing import Any, Callable, Optional, cast
+from typing import Any, Callable, Optional
 
 from quart import Blueprint, current_app, g, jsonify, request
 
@@ -68,26 +68,42 @@ async def _control_plane_gate() -> Any:
     ``not_implemented_control_plane_replace``. Never returns success.
     """
     if not await feature_enabled(FLAG_CONTROL_PLANE_REPLACE):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "feature_disabled",
-                "message": f"{FLAG_CONTROL_PLANE_REPLACE} is not enabled"},
-        }), 404
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "feature_disabled",
+                        "message": f"{FLAG_CONTROL_PLANE_REPLACE} is not enabled",
+                    },
+                }
+            ),
+            404,
+        )
     log.error("primary.not_implemented_control_plane_replace")
-    return jsonify({
-        "status": "error",
-        "error": {"code": "not_implemented_control_plane_replace",
-            "message": "control-plane replace/recover requires kubectl/etcdctl "
-                       "which the hub does not ship; not implemented"},
-    }), 501
+    return (
+        jsonify(
+            {
+                "status": "error",
+                "error": {
+                    "code": "not_implemented_control_plane_replace",
+                    "message": "control-plane replace/recover requires kubectl/etcdctl "
+                    "which the hub does not ship; not implemented",
+                },
+            }
+        ),
+        501,
+    )
 
 
 @dataclass(slots=True)
 class JoinResult:
     """Result of kubeadm join operation."""
+
     success: bool
     duration_seconds: float
     error: Optional[str] = None
+
 
 primary_bp = Blueprint("primary", __name__)
 
@@ -108,31 +124,42 @@ def _scope_required(*required_scopes: str) -> Callable:
             if principal is not None:
                 granted = getattr(principal, "scopes", frozenset())
                 if not required.issubset(granted):
-                    return jsonify({
+                    return (
+                        jsonify(
+                            {
+                                "status": "error",
+                                "error": {
+                                    "code": "forbidden_scope",
+                                    "message": "Insufficient scope",
+                                    "details": {"required": sorted(required)},
+                                },
+                            }
+                        ),
+                        403,
+                    )
+                return await fn(*args, **kwargs)
+
+            user = getattr(g, "current_user", None)
+            if user is not None:
+                from ..security.scope_enforcement import extract_scopes_from_jwt
+
+                granted = extract_scopes_from_jwt(user.get("_jwt_payload") or {})
+                if required.issubset(granted):
+                    return await fn(*args, **kwargs)
+
+            return (
+                jsonify(
+                    {
                         "status": "error",
                         "error": {
                             "code": "forbidden_scope",
                             "message": "Insufficient scope",
                             "details": {"required": sorted(required)},
                         },
-                    }), 403
-                return await fn(*args, **kwargs)
-
-            user = getattr(g, "current_user", None)
-            if user is not None:
-                from ..security.scope_enforcement import extract_scopes_from_jwt
-                granted = extract_scopes_from_jwt(user.get("_jwt_payload") or {})
-                if required.issubset(granted):
-                    return await fn(*args, **kwargs)
-
-            return jsonify({
-                "status": "error",
-                "error": {
-                    "code": "forbidden_scope",
-                    "message": "Insufficient scope",
-                    "details": {"required": sorted(required)},
-                },
-            }), 403
+                    }
+                ),
+                403,
+            )
 
         return wrapper
 
@@ -141,6 +168,7 @@ def _scope_required(*required_scopes: str) -> Callable:
 
 def _mfa_required(fn: Callable) -> Callable:
     """Enforce that the request principal has completed MFA."""
+
     @wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         principal = getattr(g, "principal", None)
@@ -150,14 +178,19 @@ def _mfa_required(fn: Callable) -> Callable:
         if not verified:
             verified = bool(getattr(g, "mfa_verified", False))
         if not verified:
-            return jsonify({
-                "status": "error",
-                "error": {
-                    "code": "forbidden_mfa_required",
-                    "message": "MFA required for this operation",
-                    "details": {},
-                },
-            }), 403
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "forbidden_mfa_required",
+                            "message": "MFA required for this operation",
+                            "details": {},
+                        },
+                    }
+                ),
+                403,
+            )
         return await fn(*args, **kwargs)
 
     return wrapper
@@ -174,6 +207,7 @@ def _cluster_id() -> str:
         return current_app.config.get("CLUSTER_ID", "default")
     except Exception:
         import os
+
         return os.getenv("CLUSTER_ID", "default")
 
 
@@ -205,44 +239,49 @@ async def get_primary_status():
     """
     cluster_id = _cluster_id()
 
-    return jsonify({
-        "status": "success",
-        "data": {
-            "cluster_id": cluster_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "services": {
-                "postgres": {
-                    "quorum_healthy": True,
-                    "leader_node_id": 1,
-                    "followers": [2, 3],
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                    "replication_lag_seconds": 0,
+    return (
+        jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "cluster_id": cluster_id,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "services": {
+                        "postgres": {
+                            "quorum_healthy": True,
+                            "leader_node_id": 1,
+                            "followers": [2, 3],
+                            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                            "replication_lag_seconds": 0,
+                        },
+                        "vault": {
+                            "quorum_healthy": True,
+                            "leader_node_id": 1,
+                            "unsealed": True,
+                            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                        },
+                        "spire": {
+                            "quorum_healthy": True,
+                            "leader_node_id": 1,
+                            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                        },
+                        "k8s_control_plane": {
+                            "quorum_healthy": True,
+                            "master_count": 3,
+                            "ready_count": 3,
+                            "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                        },
+                    },
                 },
-                "vault": {
-                    "quorum_healthy": True,
-                    "leader_node_id": 1,
-                    "unsealed": True,
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
+                "meta": {
+                    "version": 1,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "request_id": _request_id(),
                 },
-                "spire": {
-                    "quorum_healthy": True,
-                    "leader_node_id": 1,
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                },
-                "k8s_control_plane": {
-                    "quorum_healthy": True,
-                    "master_count": 3,
-                    "ready_count": 3,
-                    "last_heartbeat": datetime.now(timezone.utc).isoformat(),
-                },
-            },
-        },
-        "meta": {
-            "version": 1,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "request_id": _request_id(),
-        },
-    }), 200
+            }
+        ),
+        200,
+    )
 
 
 async def _check_etcd_quorum(etcd_client: Any) -> bool:
@@ -286,8 +325,14 @@ async def _get_joiner_secrets(db: Any, cluster_id: str) -> dict[str, str]:
         rows = await run_db(_fetch_rows)
         for row in rows:
             name = row.extractor_name
-            if name in ("kubeadm_join_token", "kubeadm_ca_hash", "kubeadm_certificate_key"):
-                secrets[name] = row.ciphertext  # ciphertext to be decrypted in real impl
+            if name in (
+                "kubeadm_join_token",
+                "kubeadm_ca_hash",
+                "kubeadm_certificate_key",
+            ):
+                secrets[name] = (
+                    row.ciphertext
+                )  # ciphertext to be decrypted in real impl
     except Exception as e:
         log.error(f"Failed to fetch joiner secrets: {e}")
     return secrets
@@ -307,18 +352,32 @@ async def replace_primary():
     """
     body = await request.get_json() or {}
     if not body.get("old_node_id") or not body.get("new_node_id"):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "old_node_id and new_node_id are required"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "old_node_id and new_node_id are required",
+                    },
+                }
+            ),
+            422,
+        )
     if not body.get("reason"):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed", "message": "reason is required"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "reason is required",
+                    },
+                }
+            ),
+            422,
+        )
     return await _control_plane_gate()
-
 
 
 @primary_bp.route("/force-recover", methods=["POST"])
@@ -335,24 +394,36 @@ async def force_recover_quorum():
     """
     body = await request.get_json() or {}
     if not body.get("surviving_node_id") or not body.get("reason"):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "surviving_node_id and reason are required"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "surviving_node_id and reason are required",
+                    },
+                }
+            ),
+            422,
+        )
     if body.get("typed_cluster_name_confirmation") != _cluster_id():
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": f"Cluster name confirmation mismatch (expected {_cluster_id()})"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": f"Cluster name confirmation mismatch (expected {_cluster_id()})",
+                    },
+                }
+            ),
+            422,
+        )
     return await _control_plane_gate()
 
 
-
 async def _update_endpoint_on_nodes(
-    new_endpoint: str,
-    node_ids: list[int]
+    new_endpoint: str, node_ids: list[int]
 ) -> dict[int, dict[str, Any]]:
     """Update controlPlaneEndpoint in /etc/kubernetes and kube-vip config on all nodes.
 
@@ -369,6 +440,7 @@ async def _update_endpoint_on_nodes(
         """
         audit = current_app.extensions.get("audit")
         if audit and isinstance(audit, AuditLogger):
+
             def _emit_endpoint_audit(
                 audit: Any = audit,
                 node_id: int = node_id,
@@ -395,8 +467,8 @@ async def _update_endpoint_on_nodes(
         # file). Importing only when there is at least one node to update
         # means a cluster with zero primary nodes doesn't hard-fail on the
         # generated gRPC stub just to do nothing.
-        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
         import grpc
+        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
 
         start_time = asyncio.get_event_loop().time()
         node_result = {
@@ -431,7 +503,9 @@ async def _update_endpoint_on_nodes(
 
             ipv4 = getattr(node_row, "ipv4", None)
             ipv6 = getattr(node_row, "ipv6", None)
-            if (getattr(node_row, "preferred_addr_family", None) or "").lower() == "ipv6":
+            if (
+                getattr(node_row, "preferred_addr_family", None) or ""
+            ).lower() == "ipv6":
                 node_ip = ipv6 or ipv4
             else:
                 node_ip = ipv4 or ipv6
@@ -457,15 +531,15 @@ async def _update_endpoint_on_nodes(
                 target=new_endpoint,
             )
 
-            resp = await asyncio.to_thread(
-                stub.ExecCommand, req, timeout=30.0
-            )
+            resp = await asyncio.to_thread(stub.ExecCommand, req, timeout=30.0)
 
             if resp.exit_code == 0:
                 node_result["success"] = True
                 log.info(f"Updated endpoint on node {node_id} to {new_endpoint}")
             else:
-                node_result["error"] = f"ExecCommand exit code {resp.exit_code}: {resp.output}"
+                node_result["error"] = (
+                    f"ExecCommand exit code {resp.exit_code}: {resp.output}"
+                )
                 log.warning(f"Endpoint update failed on node {node_id}: {resp.output}")
 
             await asyncio.to_thread(channel.close)
@@ -501,6 +575,7 @@ async def _audit_node_early_exit(
     """
     audit = current_app.extensions.get("audit")
     if audit and isinstance(audit, AuditLogger):
+
         def _emit() -> Any:
             return audit.log(
                 AuditEventType.RESOURCE_UPDATE,
@@ -518,7 +593,9 @@ async def _audit_node_early_exit(
         await run_db(_emit)
 
 
-async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[str, Any]]:
+async def _emit_gracious_arp(
+    vip: str, node_ids: list[int]
+) -> dict[int, dict[str, Any]]:
     """Send gratuitous ARP (or NDP for IPv6) across primary nodes for VIP.
 
     Uses Discovery gRPC ExecCommand RPC to run arping/ndisc6 on each node.
@@ -540,8 +617,8 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
 
     for node_id in node_ids:
         # Deferred — see the matching comment in _update_endpoint_on_nodes.
-        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
         import grpc
+        from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
 
         start_time = asyncio.get_event_loop().time()
         node_result = {
@@ -555,7 +632,10 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
             results[node_id] = node_result
             await _audit_node_early_exit(
                 f"Emit gracious ARP for {vip} on node {node_id}",
-                "primary.arp", node_id, node_result, {"vip": vip},
+                "primary.arp",
+                node_id,
+                node_result,
+                {"vip": vip},
             )
             continue
 
@@ -576,13 +656,18 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
                 results[node_id] = node_result
                 await _audit_node_early_exit(
                     f"Emit gracious ARP for {vip} on node {node_id}",
-                    "primary.arp", node_id, node_result, {"vip": vip},
+                    "primary.arp",
+                    node_id,
+                    node_result,
+                    {"vip": vip},
                 )
                 continue
 
             ipv4 = getattr(node_row, "ipv4", None)
             ipv6 = getattr(node_row, "ipv6", None)
-            if (getattr(node_row, "preferred_addr_family", None) or "").lower() == "ipv6":
+            if (
+                getattr(node_row, "preferred_addr_family", None) or ""
+            ).lower() == "ipv6":
                 node_ip = ipv6 or ipv4
             else:
                 node_ip = ipv4 or ipv6
@@ -591,7 +676,10 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
                 results[node_id] = node_result
                 await _audit_node_early_exit(
                     f"Emit gracious ARP for {vip} on node {node_id}",
-                    "primary.arp", node_id, node_result, {"vip": vip},
+                    "primary.arp",
+                    node_id,
+                    node_result,
+                    {"vip": vip},
                 )
                 continue
 
@@ -615,15 +703,15 @@ async def _emit_gracious_arp(vip: str, node_ids: list[int]) -> dict[int, dict[st
                 target="",  # local execution
             )
 
-            resp = await asyncio.to_thread(
-                stub.ExecCommand, req, timeout=30.0
-            )
+            resp = await asyncio.to_thread(stub.ExecCommand, req, timeout=30.0)
 
             if resp.exit_code == 0:
                 node_result["success"] = True
                 log.info(f"Emitted gratuitous ARP for {vip} on node {node_id}")
             else:
-                node_result["error"] = f"ExecCommand exit code {resp.exit_code}: {resp.output}"
+                node_result["error"] = (
+                    f"ExecCommand exit code {resp.exit_code}: {resp.output}"
+                )
                 log.warning(f"Gratuitous ARP failed on node {node_id}: {resp.output}")
 
             await asyncio.to_thread(channel.close)
@@ -710,7 +798,6 @@ async def _advertise_bgp_route(
     for node_id in node_ids:
         # Deferred -- see the matching comment in _update_endpoint_on_nodes.
         import grpc
-
         from app.grpc.gough import discovery_pb2, discovery_pb2_grpc
 
         start_time = asyncio.get_event_loop().time()
@@ -725,7 +812,9 @@ async def _advertise_bgp_route(
             results[node_id] = node_result
             await _audit_node_early_exit(
                 f"BGP {action} for anycast VIP {vip} on node {node_id}",
-                "primary.bgp", node_id, node_result,
+                "primary.bgp",
+                node_id,
+                node_result,
                 {"vip": vip, "prefix_len": prefix_len, "action": action},
             )
             continue
@@ -747,7 +836,9 @@ async def _advertise_bgp_route(
                 results[node_id] = node_result
                 await _audit_node_early_exit(
                     f"BGP {action} for anycast VIP {vip} on node {node_id}",
-                    "primary.bgp", node_id, node_result,
+                    "primary.bgp",
+                    node_id,
+                    node_result,
                     {"vip": vip, "prefix_len": prefix_len, "action": action},
                 )
                 continue
@@ -764,7 +855,9 @@ async def _advertise_bgp_route(
                 results[node_id] = node_result
                 await _audit_node_early_exit(
                     f"BGP {action} for anycast VIP {vip} on node {node_id}",
-                    "primary.bgp", node_id, node_result,
+                    "primary.bgp",
+                    node_id,
+                    node_result,
                     {"vip": vip, "prefix_len": prefix_len, "action": action},
                 )
                 continue
@@ -786,9 +879,7 @@ async def _advertise_bgp_route(
                 target=f"--vip {vip}/{prefix_len} --action {action}",
             )
 
-            resp = await asyncio.to_thread(
-                stub.ExecCommand, req, timeout=30.0
-            )
+            resp = await asyncio.to_thread(stub.ExecCommand, req, timeout=30.0)
 
             if resp.exit_code == 0:
                 node_result["success"] = True
@@ -823,6 +914,7 @@ async def _advertise_bgp_route(
         # this file (AuditLogger.log() is a synchronous db insert+commit).
         audit = current_app.extensions.get("audit")
         if audit and isinstance(audit, AuditLogger):
+
             def _emit_bgp_audit(
                 audit: Any = audit,
                 node_id: int = node_id,
@@ -873,42 +965,61 @@ async def switch_frontend():
         target_mode = "kube-vip"
 
     if target_mode not in ("kube-vip", "external", "anycast"):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "target_mode must be 'kube-vip', 'external', or 'anycast'"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "target_mode must be 'kube-vip', 'external', or 'anycast'",
+                    },
+                }
+            ),
+            422,
+        )
 
     # anycast (BGP): M3 feature, default OFF until validated. A deployment
     # that has never configured POSTHOG_KEY (or hasn't flipped the flag)
     # sees this the same way app.api.clouds gates FLAG_MULTI_CLOUD -- 404
     # feature_disabled rather than advertising the capability exists.
     if target_mode == "anycast" and not await feature_enabled(FLAG_ANYCAST_FRONTEND):
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "feature_disabled",
-                "message": "Anycast frontend is not enabled for this deployment",
-                "details": {"flag": FLAG_ANYCAST_FRONTEND},
-            },
-            "meta": {
-                "version": 1,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
-                "request_id": request_id,
-            },
-        }), 404
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "feature_disabled",
+                        "message": "Anycast frontend is not enabled for this deployment",
+                        "details": {"flag": FLAG_ANYCAST_FRONTEND},
+                    },
+                    "meta": {
+                        "version": 1,
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "request_id": request_id,
+                    },
+                }
+            ),
+            404,
+        )
 
     # anycast mode requires the VIP to advertise, same as external requires
     # its endpoint
     if target_mode == "anycast" and not new_endpoint:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": (
-                    "anycast mode requires new_endpoint parameter "
-                    "(the VIP to advertise via BGP)"
-                )},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": (
+                            "anycast mode requires new_endpoint parameter "
+                            "(the VIP to advertise via BGP)"
+                        ),
+                    },
+                }
+            ),
+            422,
+        )
 
     # Validate the VIP portion of new_endpoint parses as an IP before it
     # reaches the gRPC/BGP boundary -- unlike external/kube-vip, there is no
@@ -921,28 +1032,45 @@ async def switch_frontend():
         try:
             ipaddress.ip_address(vip_candidate)
         except ValueError:
-            return jsonify({
-                "status": "error",
-                "error": {"code": "validation_failed",
-                    "message": (
-                        f"new_endpoint VIP '{vip_candidate}' is not a valid "
-                        "IPv4/IPv6 address"
-                    )},
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "validation_failed",
+                            "message": (
+                                f"new_endpoint VIP '{vip_candidate}' is not a valid "
+                                "IPv4/IPv6 address"
+                            ),
+                        },
+                    }
+                ),
+                422,
+            )
 
     # external mode requires endpoint
     if target_mode == "external" and not new_endpoint:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "external mode requires new_endpoint parameter"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "external mode requires new_endpoint parameter",
+                    },
+                }
+            ),
+            422,
+        )
 
     # Validate external endpoint reachability. ``new_endpoint`` is request input and this is an
     # outbound TCP connect, so it goes through the SSRF guard first (resolve once, refuse
     # loopback/link-local/metadata) and connects to the vetted literal IP, never the hostname.
     if target_mode == "external":
-        from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+        from ..clients.cluster_discovery import (
+            ClusterDiscoveryUnavailable,
+            _validate_discovery_endpoint,
+        )
 
         try:
             host, port_str = new_endpoint.split(":", 1)
@@ -951,23 +1079,39 @@ async def switch_frontend():
                 raise ValueError("port out of range")
             vetted = await _validate_discovery_endpoint(f"http://{host}:{port}")
             result = await asyncio.to_thread(
-                lambda: __import__("socket").create_connection((vetted.pinned_ip, port), timeout=3)
+                lambda: __import__("socket").create_connection(
+                    (vetted.pinned_ip, port), timeout=3
+                )
             )
             result.close()
         except (ValueError, ClusterDiscoveryUnavailable):
-            return jsonify({
-                "status": "error",
-                "error": {"code": "validation_failed",
-                    "message": "new_endpoint must be host:port and must not target loopback, "
-                               "link-local or metadata addresses"},
-            }), 422
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "validation_failed",
+                            "message": "new_endpoint must be host:port and must not target loopback, "
+                            "link-local or metadata addresses",
+                        },
+                    }
+                ),
+                422,
+            )
         except Exception as e:
             log.warning("external frontend endpoint unreachable: %s", e)
-            return jsonify({
-                "status": "error",
-                "error": {"code": "endpoint_unreachable",
-                    "message": "Cannot reach new_endpoint"},
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "endpoint_unreachable",
+                            "message": "Cannot reach new_endpoint",
+                        },
+                    }
+                ),
+                400,
+            )
 
     # Update endpoint everywhere. Regression: gh-22. Off the event loop via
     # run_db() instead of blocking the request coroutine inline.
@@ -991,19 +1135,30 @@ async def switch_frontend():
         node_results = await _update_endpoint_on_nodes(new_endpoint or "", node_ids)
         failed = [nid for nid, r in node_results.items() if not r.get("success")]
         if failed:
-            return jsonify({
-                "status": "error",
-                "error": {"code": "update_failed",
-                    "message": "Failed to update endpoints on nodes",
-                    "details": {"failed_node_ids": failed}},
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "update_failed",
+                            "message": "Failed to update endpoints on nodes",
+                            "details": {"failed_node_ids": failed},
+                        },
+                    }
+                ),
+                500,
+            )
     except Exception as e:
         log.error(f"Failed to update endpoints: {e}")
-        return jsonify({
-            "status": "error",
-            "error": {"code": "internal_error",
-                "message": str(e)},
-        }), 500
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {"code": "internal_error", "message": str(e)},
+                }
+            ),
+            500,
+        )
 
     # Emit gratuitous ARP if kube-vip. Same primary-node set (`node_ids`,
     # state="primary") the endpoint update just ran against above --
@@ -1026,41 +1181,54 @@ async def switch_frontend():
         bgp_results = await _advertise_bgp_route(vip, node_ids, action="advertise")
         bgp_failed = [nid for nid, r in bgp_results.items() if not r.get("success")]
         if bgp_failed:
-            return jsonify({
-                "status": "error",
-                "error": {"code": "bgp_advertise_failed",
-                    "message": (
-                        "Failed to advertise BGP route for anycast VIP "
-                        "on one or more nodes"
-                    ),
-                    "details": {"failed_node_ids": bgp_failed}},
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "bgp_advertise_failed",
+                            "message": (
+                                "Failed to advertise BGP route for anycast VIP "
+                                "on one or more nodes"
+                            ),
+                            "details": {"failed_node_ids": bgp_failed},
+                        },
+                    }
+                ),
+                500,
+            )
 
     # Emit audit event. Regression: gh-22. Off the event loop via run_db()
     # instead of blocking the request coroutine inline.
     audit = current_app.extensions.get("audit")
     if audit and isinstance(audit, AuditLogger):
-        await run_db(lambda: audit.log(
-            AuditEventType.SYSTEM_CONFIG_CHANGE,
-            f"Control plane frontend switched to {target_mode}",
-            resource_type="primary.frontend",
-            resource_id=cluster_id,
-            details={"target_mode": target_mode, "endpoint": new_endpoint},
-        ))
+        await run_db(
+            lambda: audit.log(
+                AuditEventType.SYSTEM_CONFIG_CHANGE,
+                f"Control plane frontend switched to {target_mode}",
+                resource_type="primary.frontend",
+                resource_id=cluster_id,
+                details={"target_mode": target_mode, "endpoint": new_endpoint},
+            )
+        )
 
-    return jsonify({
-        "status": "success",
-        "data": {
-            "cluster_id": cluster_id,
-            "target_mode": target_mode,
-            "endpoint": new_endpoint,
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "cluster_id": cluster_id,
+                    "target_mode": target_mode,
+                    "endpoint": new_endpoint,
+                },
+            }
+        ),
+        200,
+    )
 
 
 async def _issue_pki_ca(
-    validity_days: int,
-    vault_client: Any
+    validity_days: int, vault_client: Any
 ) -> Optional[dict[str, str]]:
     """Issue intermediate CA from Vault PKI. Return {cert, key, ca_fingerprint}."""
     try:
@@ -1069,7 +1237,7 @@ async def _issue_pki_ca(
             lambda: vault_client.pki_write(
                 "pki/intermediate/generate/internal",
                 common_name="gough-ipxe-intermediate",
-                ttl=f"{validity_days}d"
+                ttl=f"{validity_days}d",
             )
         )
         return {
@@ -1097,9 +1265,7 @@ async def _publish_helper_artifact(new_ca_cert: str, tftp_root: str) -> bool:
                 __import__("os").open(path_new, __import__("os").O_RDONLY)
             )
         )
-        await asyncio.to_thread(
-            lambda: __import__("os").rename(path_new, path_final)
-        )
+        await asyncio.to_thread(lambda: __import__("os").rename(path_new, path_final))
         return True
     except Exception as e:
         log.error(f"Failed to publish helper artifact: {e}")
@@ -1138,33 +1304,53 @@ async def rotate_ipxe_ca():
     Returns: 200 with new CA fingerprint + validity dates, 422 on validation.
     """
     cluster_id = _cluster_id()
-    request_id = _request_id()
     body = await request.get_json() or {}
 
     reason = body.get("reason")
     new_ca_validity_days = body.get("new_ca_validity_days", 365)
 
     if not reason:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "reason is required"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "reason is required",
+                    },
+                }
+            ),
+            422,
+        )
 
     if not (1 <= new_ca_validity_days <= 3650):
-        return jsonify({
-            "status": "error",
-            "error": {"code": "validation_failed",
-                "message": "new_ca_validity_days must be 1..3650"},
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "new_ca_validity_days must be 1..3650",
+                    },
+                }
+            ),
+            422,
+        )
 
     vault_client = current_app.config.get("vault_client")
     if not vault_client:
-        return jsonify({
-            "status": "error",
-            "error": {"code": "vault_unavailable",
-                "message": "Vault client not configured"},
-        }), 503
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "vault_unavailable",
+                        "message": "Vault client not configured",
+                    },
+                }
+            ),
+            503,
+        )
 
     log.warning(f"iPXE CA rotation: reason={reason} days={new_ca_validity_days}")
 
@@ -1172,11 +1358,18 @@ async def rotate_ipxe_ca():
         # Issue new intermediate CA from Vault
         pki = await _issue_pki_ca(new_ca_validity_days, vault_client)
         if not pki:
-            return jsonify({
-                "status": "error",
-                "error": {"code": "pki_issue_failed",
-                    "message": "Failed to issue new CA from Vault"},
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "pki_issue_failed",
+                            "message": "Failed to issue new CA from Vault",
+                        },
+                    }
+                ),
+                500,
+            )
 
         new_cert = pki["cert"]
         ca_fingerprint = pki["ca_fingerprint"]
@@ -1184,11 +1377,18 @@ async def rotate_ipxe_ca():
         # Update helper image (re-sign with new CA)
         tftp_root = current_app.config.get("TFTP_ROOT", "/var/lib/tftp")
         if not await _publish_helper_artifact(new_cert, tftp_root):
-            return jsonify({
-                "status": "error",
-                "error": {"code": "publish_failed",
-                    "message": "Failed to publish helper artifact"},
-            }), 500
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "publish_failed",
+                            "message": "Failed to publish helper artifact",
+                        },
+                    }
+                ),
+                500,
+            )
 
         # Update cloud-init bootstrap template (real impl updates DB).
         # Regression: gh-22. Off the event loop via run_db() instead of
@@ -1204,40 +1404,54 @@ async def rotate_ipxe_ca():
         # coroutine inline.
         audit = current_app.extensions.get("audit")
         if audit and isinstance(audit, AuditLogger):
-            await run_db(lambda: audit.log(
-                AuditEventType.SYSTEM_CONFIG_CHANGE,
-                f"iPXE CA rotated: new fingerprint {ca_fingerprint}",
-                resource_type="primary.ipxe_ca",
-                resource_id=cluster_id,
-                details={
-                    "reason": reason,
-                    "validity_days": new_ca_validity_days,
-                    "new_ca_fingerprint": ca_fingerprint,
-                },
-            ))
+            await run_db(
+                lambda: audit.log(
+                    AuditEventType.SYSTEM_CONFIG_CHANGE,
+                    f"iPXE CA rotated: new fingerprint {ca_fingerprint}",
+                    resource_type="primary.ipxe_ca",
+                    resource_id=cluster_id,
+                    details={
+                        "reason": reason,
+                        "validity_days": new_ca_validity_days,
+                        "new_ca_fingerprint": ca_fingerprint,
+                    },
+                )
+            )
 
         # Calculate validity end date
         now = datetime.now(timezone.utc)
         valid_until = now.replace(
-            day=now.day + new_ca_validity_days
-            if now.day + new_ca_validity_days <= 28 else 28
+            day=(
+                now.day + new_ca_validity_days
+                if now.day + new_ca_validity_days <= 28
+                else 28
+            )
         )
 
-        return jsonify({
-            "status": "success",
-            "data": {
-                "cluster_id": cluster_id,
-                "new_ca_fingerprint": ca_fingerprint,
-                "valid_from": now.isoformat(),
-                "valid_until": valid_until.isoformat(),
-                "validity_days": new_ca_validity_days,
-            },
-        }), 200
+        return (
+            jsonify(
+                {
+                    "status": "success",
+                    "data": {
+                        "cluster_id": cluster_id,
+                        "new_ca_fingerprint": ca_fingerprint,
+                        "valid_from": now.isoformat(),
+                        "valid_until": valid_until.isoformat(),
+                        "validity_days": new_ca_validity_days,
+                    },
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         log.error(f"iPXE CA rotation failed: {e}")
-        return jsonify({
-            "status": "error",
-            "error": {"code": "internal_error",
-                "message": str(e)},
-        }), 500
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {"code": "internal_error", "message": str(e)},
+                }
+            ),
+            500,
+        )

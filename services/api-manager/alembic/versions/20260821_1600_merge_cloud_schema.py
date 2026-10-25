@@ -39,33 +39,32 @@ features; removing them to match the API would have deleted those quietly.
 """
 
 import sqlalchemy as sa
+from alembic import op
 from sqlalchemy.dialects import postgresql
 
-from alembic import op
-
-revision = '20260821_1600_merge_cloud_schema'
-down_revision = '20260805_1000_baseline'
+revision = "20260821_1600_merge_cloud_schema"
+down_revision = "20260805_1000_baseline"
 branch_labels = None
 depends_on = None
 
 
 #: Text->JSON retypes, as (table, column) pairs.
 _JSON_RETYPES = (
-    ('cloud_providers', 'config_data'),
-    ('cloud_machines', 'tags'),
-    ('cloud_machines', 'metadata'),
+    ("cloud_providers", "config_data"),
+    ("cloud_machines", "tags"),
+    ("cloud_machines", "metadata"),
 )
 
 
 def _json_type(dialect: str):
     """JSON column type for this backend, JSONB on PostgreSQL."""
-    return postgresql.JSONB() if dialect == 'postgresql' else sa.JSON()
+    return postgresql.JSONB() if dialect == "postgresql" else sa.JSON()
 
 
 def _existing_columns(table: str) -> dict:
     """Map column name -> reflected column for ``table``."""
     inspector = sa.inspect(op.get_bind())
-    return {c['name']: c for c in inspector.get_columns(table)}
+    return {c["name"]: c for c in inspector.get_columns(table)}
 
 
 def upgrade() -> None:
@@ -81,39 +80,43 @@ def upgrade() -> None:
     dialect = op.get_bind().dialect.name
     json_type = _json_type(dialect)
 
-    provider_columns = _existing_columns('cloud_providers')
-    if 'status' not in provider_columns:
+    provider_columns = _existing_columns("cloud_providers")
+    if "status" not in provider_columns:
         op.add_column(
-            'cloud_providers',
-            sa.Column('status', sa.String(50), nullable=True,
-                      server_default='disconnected'),
+            "cloud_providers",
+            sa.Column(
+                "status", sa.String(50), nullable=True, server_default="disconnected"
+            ),
         )
 
-    machine_columns = _existing_columns('cloud_machines')
-    for name in ('public_ips', 'private_ips'):
+    machine_columns = _existing_columns("cloud_machines")
+    for name in ("public_ips", "private_ips"):
         if name not in machine_columns:
-            op.add_column('cloud_machines', sa.Column(name, json_type, nullable=True))
+            op.add_column("cloud_machines", sa.Column(name, json_type, nullable=True))
 
     # SQLite has no real column types to alter -- SQLAlchemy's JSON serialises
     # to TEXT there either way, so the existing columns already hold the right
     # thing and an ALTER would only rewrite the table for nothing.
-    if dialect == 'sqlite':
+    if dialect == "sqlite":
         return
 
     for table, column in _JSON_RETYPES:
         current = _existing_columns(table).get(column)
-        if current is None or isinstance(current['type'], (sa.JSON, postgresql.JSONB)):
+        if current is None or isinstance(current["type"], (sa.JSON, postgresql.JSONB)):
             continue
-        if dialect == 'postgresql':
+        if dialect == "postgresql":
             # An empty string is not valid JSON; existing rows may hold one.
             op.execute(
-                f'ALTER TABLE {table} '
+                f"ALTER TABLE {table} "
                 f'ALTER COLUMN "{column}" TYPE jsonb '
-                f'USING NULLIF("{column}", \'\')::jsonb'
+                f"USING NULLIF(\"{column}\", '')::jsonb"
             )
         else:
             op.alter_column(
-                table, column, existing_type=sa.Text(), type_=json_type,
+                table,
+                column,
+                existing_type=sa.Text(),
+                type_=json_type,
                 existing_nullable=True,
             )
 
@@ -121,25 +124,28 @@ def upgrade() -> None:
 def downgrade() -> None:
     dialect = op.get_bind().dialect.name
 
-    if dialect != 'sqlite':
+    if dialect != "sqlite":
         for table, column in _JSON_RETYPES:
             if column not in _existing_columns(table):
                 continue
-            if dialect == 'postgresql':
+            if dialect == "postgresql":
                 op.execute(
-                    f'ALTER TABLE {table} '
+                    f"ALTER TABLE {table} "
                     f'ALTER COLUMN "{column}" TYPE text '
                     f'USING "{column}"::text'
                 )
             else:
                 op.alter_column(
-                    table, column, existing_type=_json_type(dialect),
-                    type_=sa.Text(), existing_nullable=True,
+                    table,
+                    column,
+                    existing_type=_json_type(dialect),
+                    type_=sa.Text(),
+                    existing_nullable=True,
                 )
 
-    machine_columns = _existing_columns('cloud_machines')
-    for name in ('private_ips', 'public_ips'):
+    machine_columns = _existing_columns("cloud_machines")
+    for name in ("private_ips", "public_ips"):
         if name in machine_columns:
-            op.drop_column('cloud_machines', name)
-    if 'status' in _existing_columns('cloud_providers'):
-        op.drop_column('cloud_providers', 'status')
+            op.drop_column("cloud_machines", name)
+    if "status" in _existing_columns("cloud_providers"):
+        op.drop_column("cloud_providers", "status")

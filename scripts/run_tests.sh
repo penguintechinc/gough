@@ -158,6 +158,7 @@ setup_environment() {
     fi
     
     # Activate virtual environment
+    # shellcheck source=/dev/null  # venv activate script is generated at runtime
     source "$VENV_DIR/bin/activate"
     
     # Upgrade pip
@@ -295,7 +296,7 @@ clean_artifacts() {
     log_info "Cleaning test artifacts..."
     
     # Remove previous reports
-    rm -rf "$REPORTS_DIR"/*
+    rm -rf "${REPORTS_DIR:?}"/*
     
     # Remove Python cache
     find "$PROJECT_ROOT" -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
@@ -316,68 +317,72 @@ run_tests() {
     log_info "Running $TEST_TYPE tests..."
     
     # Activate virtual environment
+    # shellcheck source=/dev/null  # venv activate script is generated at runtime
     source "$VENV_DIR/bin/activate"
     
     # Base pytest command
-    local pytest_cmd="python3 -m pytest"
-    local pytest_args=""
+    local -a pytest_cmd=(python3 -m pytest)
+    local -a pytest_args=()
     
     # Add parallel execution
     if [[ "$PARALLEL_JOBS" -gt 1 ]]; then
-        pytest_args="$pytest_args -n $PARALLEL_JOBS"
+        pytest_args+=(-n "$PARALLEL_JOBS")
     fi
     
     # Add coverage
-    pytest_args="$pytest_args --cov=gough"
-    pytest_args="$pytest_args --cov-fail-under=$COVERAGE_THRESHOLD"
+    pytest_args+=(--cov=gough)
+    pytest_args+=("--cov-fail-under=$COVERAGE_THRESHOLD")
     
     # Add test markers based on type
     case $TEST_TYPE in
         unit)
-            pytest_args="$pytest_args -m 'unit'"
-            pytest_args="$pytest_args tests/unit/"
+            pytest_args+=(-m 'unit')
+            pytest_args+=(tests/unit/)
             ;;
         integration)
-            pytest_args="$pytest_args -m 'integration'"
-            pytest_args="$pytest_args tests/integration/"
+            pytest_args+=(-m 'integration')
+            pytest_args+=(tests/integration/)
             ;;
         performance)
-            pytest_args="$pytest_args -m 'performance'"
-            pytest_args="$pytest_args tests/performance/"
+            pytest_args+=(-m 'performance')
+            pytest_args+=(tests/performance/)
             ;;
         e2e)
-            pytest_args="$pytest_args -m 'e2e'"
-            pytest_args="$pytest_args tests/integration/test_end_to_end_provisioning.py"
+            pytest_args+=(-m 'e2e')
+            pytest_args+=(tests/integration/test_end_to_end_provisioning.py)
             ;;
         all)
             if [[ "$PERFORMANCE_ENABLED" == false ]]; then
-                pytest_args="$pytest_args -m 'not performance'"
+                pytest_args+=(-m 'not performance')
             fi
             if [[ "$INTEGRATION_ENABLED" == false ]]; then
-                pytest_args="$pytest_args -m 'not integration'"
+                pytest_args+=(-m 'not integration')
             fi
-            pytest_args="$pytest_args tests/"
+            pytest_args+=(tests/)
             ;;
     esac
     
     # Add custom markers
     if [[ -n "$PYTEST_MARKERS" ]]; then
-        pytest_args="$pytest_args -m '$PYTEST_MARKERS'"
+        pytest_args+=(-m "$PYTEST_MARKERS")
     fi
     
     # Environment-specific settings
     if [[ "$ENVIRONMENT" == "ci" ]] || [[ "$CI" == "true" ]]; then
-        pytest_args="$pytest_args --tb=short"
-        pytest_args="$pytest_args --maxfail=10"
+        pytest_args+=(--tb=short)
+        pytest_args+=(--maxfail=10)
     fi
     
     # Execute tests
-    log_info "Executing: $pytest_cmd $pytest_args"
+    # Shell-quoted rendering of the args for logging and for the bash -c in Docker
+    local pytest_args_str
+    printf -v pytest_args_str '%q ' "${pytest_args[@]}"
+    log_info "Executing: ${pytest_cmd[*]} $pytest_args_str"
     
     if [[ "$DOCKER_ENABLED" == true ]]; then
-        run_tests_in_docker "$pytest_cmd $pytest_args"
+        run_tests_in_docker "${pytest_cmd[*]} $pytest_args_str"
     else
-        $pytest_cmd $pytest_args
+        "${pytest_cmd[@]}" "${pytest_args[@]}"
     fi
     
     local test_exit_code=$?
@@ -392,7 +397,7 @@ run_tests() {
 
 # Run tests in Docker
 run_tests_in_docker() {
-    local pytest_cmd="$1"
+    local test_command="$1"
     
     log_info "Running tests in Docker container..."
     
@@ -407,7 +412,7 @@ run_tests_in_docker() {
         bash -c "
             apt-get update && apt-get install -y gcc libpq-dev
             pip install -r tests/requirements.txt
-            $pytest_cmd
+            $test_command
         "
 }
 
@@ -549,10 +554,12 @@ main() {
     validate_environment
     
     # Run tests
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
     
     if run_tests; then
-        local end_time=$(date +%s)
+        local end_time
+        end_time=$(date +%s)
         local duration=$((end_time - start_time))
         
         log_success "All tests completed successfully in ${duration}s"
@@ -562,7 +569,8 @@ main() {
         
         exit 0
     else
-        local end_time=$(date +%s)
+        local end_time
+        end_time=$(date +%s)
         local duration=$((end_time - start_time))
         
         log_error "Tests failed after ${duration}s"

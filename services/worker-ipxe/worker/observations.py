@@ -32,11 +32,17 @@ class ObservedClients:
     def lookup(self, mac: str) -> set[str]:
         """Return the live observed IPs for `mac` (empty if none)."""
         now = time.monotonic()
-        return {ip for (m, ip), ts in self._seen.items() if m == mac and now - ts <= OBSERVATION_TTL_SECONDS}
+        return {
+            ip
+            for (m, ip), ts in self._seen.items()
+            if m == mac and now - ts <= OBSERVATION_TTL_SECONDS
+        }
 
     def _evict(self, now: float) -> None:
         """Drop expired entries, then the oldest one if still full (memory bound only)."""
-        for key in [k for k, ts in self._seen.items() if now - ts > OBSERVATION_TTL_SECONDS]:
+        for key in [
+            k for k, ts in self._seen.items() if now - ts > OBSERVATION_TTL_SECONDS
+        ]:
             del self._seen[key]
         if len(self._seen) >= MAX_OBSERVATIONS:
             del self._seen[min(self._seen, key=lambda k: self._seen[k])]

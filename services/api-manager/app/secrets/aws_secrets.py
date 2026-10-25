@@ -12,11 +12,7 @@ from typing import Any
 
 from quart import current_app
 
-from .base import (
-    BaseSecretsManager,
-    SecretNotFoundError,
-    SecretsManagerError,
-)
+from .base import BaseSecretsManager, SecretNotFoundError, SecretsManagerError
 
 log = logging.getLogger(__name__)
 
@@ -49,21 +45,17 @@ class AWSSecretsManager(BaseSecretsManager):
                         "secretsmanager",
                         region_name=region,
                         aws_access_key_id=access_key,
-                        aws_secret_access_key=secret_key
+                        aws_secret_access_key=secret_key,
                     )
                 else:
                     # Use default credentials (IAM role, environment, etc.)
-                    self._client = boto3.client(
-                        "secretsmanager",
-                        region_name=region
-                    )
+                    self._client = boto3.client("secretsmanager", region_name=region)
 
                 log.info(f"Connected to AWS Secrets Manager in {region}")
 
             except ImportError:
                 raise SecretsManagerError(
-                    "boto3 package not installed. "
-                    "Install with: pip install boto3"
+                    "boto3 package not installed. " "Install with: pip install boto3"
                 )
 
         return self._client
@@ -81,8 +73,7 @@ class AWSSecretsManager(BaseSecretsManager):
             secret_name = self._normalize_path(path)
 
             response = await asyncio.to_thread(
-                self.client.get_secret_value,
-                SecretId=secret_name
+                self.client.get_secret_value, SecretId=secret_name
             )
 
             # Secret can be string or binary
@@ -94,6 +85,7 @@ class AWSSecretsManager(BaseSecretsManager):
                     return {"value": secret_string}
             else:
                 import base64
+
                 decoded = base64.b64decode(response["SecretBinary"])
                 return {"value": decoded.decode()}
 
@@ -119,7 +111,7 @@ class AWSSecretsManager(BaseSecretsManager):
                 await asyncio.to_thread(
                     self.client.put_secret_value,
                     SecretId=secret_name,
-                    SecretString=secret_string
+                    SecretString=secret_string,
                 )
             except ClientError as e:
                 if e.response["Error"]["Code"] == "ResourceNotFoundException":
@@ -127,7 +119,7 @@ class AWSSecretsManager(BaseSecretsManager):
                     await asyncio.to_thread(
                         self.client.create_secret,
                         Name=secret_name,
-                        SecretString=secret_string
+                        SecretString=secret_string,
                     )
                 else:
                     raise
@@ -148,7 +140,7 @@ class AWSSecretsManager(BaseSecretsManager):
             await asyncio.to_thread(
                 self.client.delete_secret,
                 SecretId=secret_name,
-                ForceDeleteWithoutRecovery=True
+                ForceDeleteWithoutRecovery=True,
             )
 
             log.info(f"Secret deleted from AWS at path: {path}")
@@ -167,8 +159,7 @@ class AWSSecretsManager(BaseSecretsManager):
             prefix = self._normalize_path(path) if path else ""
 
             paginator = await asyncio.to_thread(
-                self.client.get_paginator,
-                "list_secrets"
+                self.client.get_paginator, "list_secrets"
             )
 
             for page in paginator.paginate():

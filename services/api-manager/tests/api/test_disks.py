@@ -119,8 +119,9 @@ def test_detect_write_files_collision_skips_swap(dal, seed_node):
 
 
 def test_detect_write_files_collision_against_other_disk_plan(dal, seed_node):
-    from app.api.disks import detect_write_files_collision
     from datetime import datetime, timezone
+
+    from app.api.disks import detect_write_files_collision
 
     now = datetime.now(timezone.utc)
     dal.disk_plans.insert(
@@ -200,6 +201,7 @@ async def test_plan_dry_run_returns_script_no_rows_written(client, seed_node, da
     # Verify no disk plans were written in dry-run mode
     # Use a truthy column filter to count all rows
     from sqlalchemy import literal
+
     assert dal(dal.disk_plans.id != literal(None)).count() == 0
 
 
@@ -223,8 +225,16 @@ async def test_plan_commit_writes_rows(client, seed_node, dal):
 
 @pytest.mark.asyncio
 async def test_plan_replan_replaces_previous(client, seed_node, dal):
-    body1 = {"partitions": [{"index": 1, "mount_point": "/", "size_mb": 100, "fs_type": "ext4"}]}
-    body2 = {"partitions": [{"index": 1, "mount_point": "/srv", "size_mb": 200, "fs_type": "xfs"}]}
+    body1 = {
+        "partitions": [
+            {"index": 1, "mount_point": "/", "size_mb": 100, "fs_type": "ext4"}
+        ]
+    }
+    body2 = {
+        "partitions": [
+            {"index": 1, "mount_point": "/srv", "size_mb": 200, "fs_type": "xfs"}
+        ]
+    }
     r1 = await client.post(
         f"/api/v1/nodes/{seed_node.node_id}/disks/{seed_node.sda}/plan", json=body1
     )
@@ -243,13 +253,24 @@ async def test_plan_rejects_collision_with_other_disk(client, seed_node, dal):
 
     now = datetime.now(timezone.utc)
     dal.disk_plans.insert(
-        node_id=seed_node.node_id, disk_id=seed_node.sdb, tenant_id="acme",
-        partition_index=1, mount_point="/data", size_bytes=1, fs_type="xfs",
-        encryption="none", created_at=now, updated_at=now,
+        node_id=seed_node.node_id,
+        disk_id=seed_node.sdb,
+        tenant_id="acme",
+        partition_index=1,
+        mount_point="/data",
+        size_bytes=1,
+        fs_type="xfs",
+        encryption="none",
+        created_at=now,
+        updated_at=now,
     )
     dal.commit()
 
-    body = {"partitions": [{"index": 1, "mount_point": "/data", "size_mb": 100, "fs_type": "ext4"}]}
+    body = {
+        "partitions": [
+            {"index": 1, "mount_point": "/data", "size_mb": 100, "fs_type": "ext4"}
+        ]
+    }
     resp = await client.post(
         f"/api/v1/nodes/{seed_node.node_id}/disks/{seed_node.sda}/plan", json=body
     )
@@ -293,7 +314,11 @@ async def test_plan_rejects_oversize_partitions(client, seed_node):
 
 @pytest.mark.asyncio
 async def test_plan_404_unknown_disk(client, seed_node):
-    body = {"partitions": [{"index": 1, "mount_point": "/", "size_mb": 1, "fs_type": "ext4"}]}
+    body = {
+        "partitions": [
+            {"index": 1, "mount_point": "/", "size_mb": 1, "fs_type": "ext4"}
+        ]
+    }
     resp = await client.post(
         f"/api/v1/nodes/{seed_node.node_id}/disks/9999/plan", json=body
     )
@@ -312,7 +337,11 @@ async def test_plan_400_missing_body(client, seed_node):
 
 @pytest.mark.asyncio
 async def test_plan_422_validation_error(client, seed_node):
-    body = {"partitions": [{"index": 0, "mount_point": "/", "size_mb": 1, "fs_type": "ext4"}]}
+    body = {
+        "partitions": [
+            {"index": 0, "mount_point": "/", "size_mb": 1, "fs_type": "ext4"}
+        ]
+    }
     resp = await client.post(
         f"/api/v1/nodes/{seed_node.node_id}/disks/{seed_node.sda}/plan", json=body
     )
@@ -477,16 +506,23 @@ async def test_disk_in_other_tenant_is_invisible(client, dal, seed_node):
     """A disk on a different tenant must not be returnable via this tenant's
     routes — even if the URL guesses the disk_id correctly."""
     from datetime import datetime, timezone
+
     now = datetime.now(timezone.utc)
     other_node = dal.nodes.insert(
-        tenant_id="rival", name="rival-1", state="ready",
+        tenant_id="rival",
+        name="rival-1",
+        state="ready",
         dmi_uuid="11111111-1111-1111-1111-111111111111",
         primary_nic_mac="aa:bb:cc:dd:ee:99",
     )
     other_disk = dal.disks.insert(
-        node_id=other_node, tenant_id="rival", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed",
-        created_at=now, updated_at=now,
+        node_id=other_node,
+        tenant_id="rival",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     dal.commit()
     resp = await client.patch(

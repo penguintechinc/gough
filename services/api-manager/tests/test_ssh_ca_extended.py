@@ -11,22 +11,10 @@ Focuses on error paths and edge cases:
 
 from __future__ import annotations
 
-import asyncio
-import subprocess
-import tempfile
-from datetime import datetime, timezone
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.ssh_ca import (
-    SSHCertificateAuthority,
-    SSHCAException,
-    generate_key_id,
-    validate_principals,
-)
-
+from app.ssh_ca import SSHCertificateAuthority, generate_key_id, validate_principals
 
 # ============================================================================
 # ensure_ca_initialized tests (lines 60-69)
@@ -89,7 +77,7 @@ class TestGetCAPublicKey:
         mock_config.public_key = "ssh-rsa AAAA... gough-ca"
         mock_db.return_value.select.return_value.first.return_value = mock_config
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
             ca = SSHCertificateAuthority()
             public_key = ca.get_ca_public_key()
 
@@ -100,7 +88,7 @@ class TestGetCAPublicKey:
         mock_db = MagicMock()
         mock_db.return_value.select.return_value.first.return_value = None
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
             ca = SSHCertificateAuthority()
 
             with pytest.raises(RuntimeError, match="not initialized"):
@@ -181,8 +169,8 @@ class TestGetPrivateKeyPath:
         mock_config.private_key_vault_path = "/var/lib/gough/ssh_ca/ca_key"
         mock_db.return_value.select.return_value.first.return_value = mock_config
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
-            with patch('app.ssh_ca.Path.exists', return_value=True):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
+            with patch("app.ssh_ca.Path.exists", return_value=True):
                 ca = SSHCertificateAuthority()
                 path = ca._get_private_key_path()
 
@@ -193,7 +181,7 @@ class TestGetPrivateKeyPath:
         mock_db = MagicMock()
         mock_db.return_value.select.return_value.first.return_value = None
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
             ca = SSHCertificateAuthority()
 
             with pytest.raises(RuntimeError, match="not initialized"):
@@ -206,8 +194,8 @@ class TestGetPrivateKeyPath:
         mock_config.private_key_vault_path = "/nonexistent/ca_key"
         mock_db.return_value.select.return_value.first.return_value = mock_config
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
-            with patch('app.ssh_ca.Path.exists', return_value=False):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
+            with patch("app.ssh_ca.Path.exists", return_value=False):
                 ca = SSHCertificateAuthority()
 
                 with pytest.raises(RuntimeError, match="not found"):

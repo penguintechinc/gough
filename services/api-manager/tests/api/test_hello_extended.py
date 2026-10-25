@@ -1,16 +1,13 @@
 """Test suite for app/hello.py endpoint."""
 
 import pytest
-import json
-from datetime import datetime
-from types import SimpleNamespace
-from unittest.mock import Mock, MagicMock
 
 
 @pytest.fixture
 def hello_app(monkeypatch, app):
     """Setup hello API blueprint with auth stubbed."""
     import importlib
+
     import app.middleware as mw_mod
 
     def _passthrough(*dargs, **dkwargs):
@@ -22,6 +19,7 @@ def hello_app(monkeypatch, app):
     monkeypatch.setattr(mw_mod, "maintainer_or_admin_required", _passthrough)
 
     import app.hello as hello_mod
+
     hello_mod = importlib.reload(hello_mod)
 
     app.register_blueprint(hello_mod.hello_bp)
@@ -29,6 +27,7 @@ def hello_app(monkeypatch, app):
     @app.before_request
     async def _inject_user():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "email": "admin@test.local",
@@ -62,6 +61,7 @@ async def test_hello_endpoint_uses_full_name(hello_app):
     @hello_app.before_request
     async def _set_full_name():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "email": "admin@test.local",
@@ -82,6 +82,7 @@ async def test_hello_endpoint_fallback_to_email(hello_app):
     @hello_app.before_request
     async def _no_full_name():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "email": "user@test.local",
@@ -113,6 +114,7 @@ async def test_hello_protected_admin_access(hello_app):
     @hello_app.before_request
     async def _set_admin():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "email": "admin@test.local",
@@ -136,6 +138,7 @@ async def test_hello_protected_maintainer_access(hello_app):
     @hello_app.before_request
     async def _set_maintainer():
         from quart import g
+
         g.current_user = {
             "id": 2,
             "email": "maint@test.local",

@@ -18,13 +18,12 @@ import pytest
 import sqlalchemy as sa
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from quart import Quart
-
 from app import catalog
 from app.api import lxd_cluster
 from app.api.lxd_cluster import lxd_bp
 from app.mirrors import MirrorConfig, MirrorConfigError, load_mirror_config
 from app.workers.plan_compiler import _render_cni_install
+from quart import Quart
 
 APP_DIR = Path(__file__).resolve().parents[2] / "app"
 VERSIONS_DIR = Path(__file__).resolve().parents[2] / "alembic" / "versions"
@@ -54,7 +53,9 @@ MIRROR_ENV = {
 
 def _render(params: dict[str, object] | None = None, mirrors: MirrorConfig | None = MIRROR):  # type: ignore[no-untyped-def]
     """Render the cilium install for the control plane endpoint used in fixtures."""
-    return _render_cni_install("cilium", params or {}, "10.2.0.10:6443", mirror_config=mirrors)
+    return _render_cni_install(
+        "cilium", params or {}, "10.2.0.10:6443", mirror_config=mirrors
+    )
 
 
 def _load_migration(stem: str) -> ModuleType:
@@ -89,7 +90,11 @@ def test_render_verifies_every_artifact_before_apply() -> None:
     _, runcmds, _ = _render()
     verify_steps = [cmd for cmd in runcmds if "sha256sum -c -" in cmd]
     assert len(verify_steps) == 3
-    for sha in (MIRROR.gateway_api_crds_sha256, MIRROR.cilium_crds_sha256, MIRROR.cilium_chart_sha256):
+    for sha in (
+        MIRROR.gateway_api_crds_sha256,
+        MIRROR.cilium_crds_sha256,
+        MIRROR.cilium_chart_sha256,
+    ):
         assert any(sha in cmd for cmd in verify_steps)
     # Each verify step must fail the run, never warn.
     assert all("|| exit 1" in cmd for cmd in verify_steps)
@@ -115,19 +120,29 @@ def test_render_default_version_is_1_20_1() -> None:
 def test_render_writes_containerd_mirror_per_registry() -> None:
     """Each mirrored registry gets a hosts.toml that routes pulls to the mirror."""
     write_files, runcmds, _ = _render()
-    hosts = {f["path"]: f["content"] for f in write_files if f["path"].endswith("hosts.toml")}
+    hosts = {
+        f["path"]: f["content"] for f in write_files if f["path"].endswith("hosts.toml")
+    }
     assert set(hosts) == {
         "/etc/containerd/certs.d/docker.io/hosts.toml",
         "/etc/containerd/certs.d/quay.io/hosts.toml",
         "/etc/containerd/certs.d/registry.k8s.io/hosts.toml",
         "/etc/containerd/certs.d/ghcr.io/hosts.toml",
     }
-    assert 'server = "https://registry-1.docker.io"' in hosts["/etc/containerd/certs.d/docker.io/hosts.toml"]
-    assert f'[host."{MIRROR.registry_mirror}"]' in hosts["/etc/containerd/certs.d/quay.io/hosts.toml"]
+    assert (
+        'server = "https://registry-1.docker.io"'
+        in hosts["/etc/containerd/certs.d/docker.io/hosts.toml"]
+    )
+    assert (
+        f'[host."{MIRROR.registry_mirror}"]'
+        in hosts["/etc/containerd/certs.d/quay.io/hosts.toml"]
+    )
     assert any("config_path" in cmd and "FATAL" in cmd for cmd in runcmds)
 
 
-def test_render_fails_loudly_without_mirror_config(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_render_fails_loudly_without_mirror_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No mirror env means a validation error naming the missing key, not an upstream fallback."""
     for key in MIRROR_ENV:
         monkeypatch.delenv(key, raising=False)
@@ -163,8 +178,16 @@ def test_mirror_settings_validated(key: str, value: str, message: str) -> None:
 def test_load_mirror_config_defaults_registries() -> None:
     """Mirrored registries default to the four upstream registries when unset."""
     config = load_mirror_config(MIRROR_ENV)
-    assert config.mirrored_registries == ("docker.io", "quay.io", "registry.k8s.io", "ghcr.io")
-    assert config.cilium_chart_url("1.20.1") == "https://mirror.airgap.test/charts/cilium-1.20.1.tgz"
+    assert config.mirrored_registries == (
+        "docker.io",
+        "quay.io",
+        "registry.k8s.io",
+        "ghcr.io",
+    )
+    assert (
+        config.cilium_chart_url("1.20.1")
+        == "https://mirror.airgap.test/charts/cilium-1.20.1.tgz"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -205,12 +228,16 @@ def test_builtin_controller_biome_renamed() -> None:
 
 def test_catalog_pins_cilium_1_20_1_with_mirror_chart_source() -> None:
     """Catalog Cilium matches the biomes repo and carries no upstream chart repository."""
-    cni = next(b for b in catalog.BUILTIN_BIOMES if b["name"] == "k8s-controller")["default_cni"]
+    cni = next(b for b in catalog.BUILTIN_BIOMES if b["name"] == "k8s-controller")[
+        "default_cni"
+    ]
     assert cni["version"] == "1.20.1"
     assert cni["chart_source"] == "mirror"
     assert "chart_repo" not in cni
     digests = cni["image_digests"]
-    assert digests["cilium"].endswith("sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b")
+    assert digests["cilium"].endswith(
+        "sha256:ae9ea21f7427fe24bc6ea7247eb552157a1b0a431744045d3f641545ca71d11b"
+    )
     assert digests["operator_generic"].endswith(
         "sha256:6c3885fc7b629099fdbe2a5c87869c86feb825fa18fae299eac0f61918d16ecf"
     )
@@ -219,14 +246,18 @@ def test_catalog_pins_cilium_1_20_1_with_mirror_chart_source() -> None:
     )
 
 
-def test_legacy_alias_maps_with_deprecation_warning(caplog: pytest.LogCaptureFixture) -> None:
+def test_legacy_alias_maps_with_deprecation_warning(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """k8s-primary is accepted as input, mapped to k8s-controller, and logs a deprecation warning."""
     with caplog.at_level(logging.WARNING, logger="app.catalog"):
         assert catalog.canonical_biome_name("k8s-primary") == "k8s-controller"
     assert any("deprecated biome name" in rec.getMessage() for rec in caplog.records)
 
 
-def test_non_alias_names_pass_through_silently(caplog: pytest.LogCaptureFixture) -> None:
+def test_non_alias_names_pass_through_silently(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """Names that are not aliases are unchanged and produce no warning."""
     with caplog.at_level(logging.WARNING, logger="app.catalog"):
         assert catalog.canonical_biome_name("k8s-worker") == "k8s-worker"
@@ -265,7 +296,11 @@ def test_bundle_cache_migration_is_the_head() -> None:
 
 def _sqlite_biomes(conn: sa.Connection) -> None:
     """Create a minimal biomes table and seed legacy and built-in rows."""
-    conn.execute(sa.text("CREATE TABLE biomes (id INTEGER PRIMARY KEY, name VARCHAR(255), egg_kind VARCHAR(64))"))
+    conn.execute(
+        sa.text(
+            "CREATE TABLE biomes (id INTEGER PRIMARY KEY, name VARCHAR(255), egg_kind VARCHAR(64))"
+        )
+    )
     conn.execute(
         sa.text(
             "INSERT INTO biomes (name, egg_kind) VALUES "
@@ -289,17 +324,28 @@ def test_rename_migration_renames_rows_and_is_idempotent() -> None:
         with Operations.context(MigrationContext.configure(conn)):
             module.upgrade()
             module.upgrade()
-        assert _names(conn) == [("k8s-controller", "k8s-controller"), ("nest-agent", None)]
+        assert _names(conn) == [
+            ("k8s-controller", "k8s-controller"),
+            ("nest-agent", None),
+        ]
 
 
-def test_rename_migration_never_overwrites_existing_controller_row(caplog: pytest.LogCaptureFixture) -> None:
+def test_rename_migration_never_overwrites_existing_controller_row(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """When both names exist the legacy row is left untouched and a warning is logged."""
     module = _load_migration("20261022_1300_rename_k8s_primary_biome")
     engine = sa.create_engine("sqlite:///:memory:")
     with engine.begin() as conn:
         _sqlite_biomes(conn)
-        conn.execute(sa.text("INSERT INTO biomes (name, egg_kind) VALUES ('k8s-controller', NULL)"))
-        with Operations.context(MigrationContext.configure(conn)), caplog.at_level(logging.WARNING):
+        conn.execute(
+            sa.text(
+                "INSERT INTO biomes (name, egg_kind) VALUES ('k8s-controller', NULL)"
+            )
+        )
+        with Operations.context(MigrationContext.configure(conn)), caplog.at_level(
+            logging.WARNING
+        ):
             module.upgrade()
         assert _names(conn)[0] == ("k8s-primary", "k8s-primary")
         assert any("biome rename skipped" in rec.getMessage() for rec in caplog.records)
@@ -340,7 +386,11 @@ def test_lxd_join_route_registered_on_app() -> None:
     """Registering lxd_bp exposes POST /api/v1/lxd/cluster-join-tokens."""
     app = Quart(__name__)
     app.register_blueprint(lxd_bp)
-    rules = [r for r in app.url_map.iter_rules() if r.rule == "/api/v1/lxd/cluster-join-tokens"]
+    rules = [
+        r
+        for r in app.url_map.iter_rules()
+        if r.rule == "/api/v1/lxd/cluster-join-tokens"
+    ]
     assert rules, "join token route missing from url_map"
     assert "POST" in rules[0].methods
 

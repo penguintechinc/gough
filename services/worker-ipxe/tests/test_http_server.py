@@ -5,8 +5,6 @@ presigned URL validation for SSRF attacks, and proper 400 responses
 on malformed input.
 """
 
-import pytest
-from unittest.mock import Mock, patch, AsyncMock
 from worker.services.http_server import _validate_image_path, _validate_presigned_url
 
 
@@ -85,13 +83,17 @@ class TestPresignedURLValidation:
 
     def test_valid_https_url(self):
         """Valid HTTPS URL to external storage should pass."""
-        is_valid, msg = _validate_presigned_url("https://storage.example.com/bucket/image.iso?signature=xyz")
+        is_valid, msg = _validate_presigned_url(
+            "https://storage.example.com/bucket/image.iso?signature=xyz"
+        )
         assert is_valid is True
         assert msg == ""
 
     def test_valid_http_url(self):
         """HTTP URL (for non-sensitive storage) should pass."""
-        is_valid, msg = _validate_presigned_url("http://storage.example.com/bucket/image.iso?signature=xyz")
+        is_valid, msg = _validate_presigned_url(
+            "http://storage.example.com/bucket/image.iso?signature=xyz"
+        )
         assert is_valid is True
         assert msg == ""
 
@@ -139,7 +141,9 @@ class TestPresignedURLValidation:
 
     def test_reject_ftp_scheme(self):
         """Reject FTP and other non-HTTP schemes."""
-        is_valid, msg = _validate_presigned_url("ftp://storage.example.com/bucket/image.iso")
+        is_valid, msg = _validate_presigned_url(
+            "ftp://storage.example.com/bucket/image.iso"
+        )
         assert is_valid is False
         assert "http" in msg.lower()
 

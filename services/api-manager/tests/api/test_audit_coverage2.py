@@ -7,11 +7,9 @@ from __future__ import annotations
 
 import base64
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
-from dataclasses import dataclass, field
-
-import pytest
 
 from app.api.audit import _serialize_audit_event
 
@@ -189,7 +187,6 @@ def test_serialize_audit_event_null_fields():
 
 def test_serialize_audit_event_all_fields_populated():
     """_serialize_audit_event serializes all populated fields."""
-    now = datetime.now(timezone.utc)
     request_id = str(uuid.uuid4())
     resource_id = str(uuid.uuid4())
 

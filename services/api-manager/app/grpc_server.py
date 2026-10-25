@@ -27,8 +27,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-import sys
 import string
+import sys
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timezone
@@ -42,13 +42,23 @@ _GRPC_PKG_DIR = os.path.join(os.path.dirname(__file__), "grpc")
 if _GRPC_PKG_DIR not in sys.path:
     sys.path.insert(0, _GRPC_PKG_DIR)
 
-from gough import ipxe_pb2, ipxe_pb2_grpc  # noqa: E402
-from gough import joiner_pb2, joiner_pb2_grpc  # noqa: E402
-from gough import biomes_pb2, biomes_pb2_grpc  # noqa: E402
-from gough import audit_pb2, audit_pb2_grpc  # noqa: E402
-from gough import identity_pb2, identity_pb2_grpc  # noqa: E402
-
-from app.db.rls import CROSS_TENANT_SENTINEL, get_current_tenant, set_current_tenant  # noqa: E402
+from app.db.rls import (  # noqa: E402
+    CROSS_TENANT_SENTINEL,
+    get_current_tenant,
+    set_current_tenant,
+)
+from gough import (  # noqa: E402
+    audit_pb2,
+    audit_pb2_grpc,
+    biomes_pb2,
+    biomes_pb2_grpc,
+    identity_pb2,
+    identity_pb2_grpc,
+    ipxe_pb2,
+    ipxe_pb2_grpc,
+    joiner_pb2,
+    joiner_pb2_grpc,
+)
 
 log = logging.getLogger(__name__)
 
@@ -96,7 +106,7 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
         request: ipxe_pb2.MintBootstrapTokenRequest,
         context: grpc.aio.ServicerContext,
     ) -> ipxe_pb2.MintBootstrapTokenResponse:
-        from app.api.ipxe import _find_node_or_machine_by_mac, _mint_bootstrap_jwt
+        from app.api.ipxe import _mint_bootstrap_jwt
         from app.db.database import get_db
 
         try:
@@ -104,11 +114,16 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
             node = None
             if request.node_id:
                 node = await asyncio.to_thread(
-                    lambda: db(db.nodes.id == request.node_id).select().first()
-                    if hasattr(db, "nodes") else None
+                    lambda: (
+                        db(db.nodes.id == request.node_id).select().first()
+                        if hasattr(db, "nodes")
+                        else None
+                    )
                 )
             if node is None:
-                await context.abort(grpc.StatusCode.NOT_FOUND, f"Node {request.node_id} not found")
+                await context.abort(
+                    grpc.StatusCode.NOT_FOUND, f"Node {request.node_id} not found"
+                )
                 return ipxe_pb2.MintBootstrapTokenResponse()
 
             mac: str = getattr(node, "primary_nic_mac", None) or ""
@@ -120,6 +135,7 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
 
             now_ts = int(datetime.now(timezone.utc).timestamp())
             from app.api.ipxe import _BOOTSTRAP_JWT_TTL_SECONDS
+
             expiration = now_ts + _BOOTSTRAP_JWT_TTL_SECONDS
 
             return ipxe_pb2.MintBootstrapTokenResponse(
@@ -136,31 +152,36 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
         request: ipxe_pb2.ResolveBootScriptRequest,
         context: grpc.aio.ServicerContext,
     ) -> ipxe_pb2.ResolveBootScriptResponse:
+        import os
+
         from app.api.ipxe import (
-            _normalize_mac,
             _find_node_or_machine_by_mac,
-            _render_helper_ipxe_script,
+            _normalize_mac,
             _render_deploy_ipxe_script,
         )
-        import os
 
         try:
             mac = request.mac_address or ""
             normalized = await asyncio.to_thread(_normalize_mac, mac)
             if not normalized:
-                await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"Invalid MAC: {mac}")
+                await context.abort(
+                    grpc.StatusCode.INVALID_ARGUMENT, f"Invalid MAC: {mac}"
+                )
                 return ipxe_pb2.ResolveBootScriptResponse()
 
             record: dict[str, Any] | None = await asyncio.to_thread(
                 _find_node_or_machine_by_mac, normalized
             )
             if record is None:
-                await context.abort(grpc.StatusCode.NOT_FOUND, f"MAC not found: {normalized}")
+                await context.abort(
+                    grpc.StatusCode.NOT_FOUND, f"MAC not found: {normalized}"
+                )
                 return ipxe_pb2.ResolveBootScriptResponse()
 
             primary_url = os.getenv("PRIMARY_BASE_URL", "https://localhost")
 
             from app.api.ipxe import _mint_bootstrap_jwt
+
             token, _nonce = await asyncio.to_thread(
                 lambda: _mint_bootstrap_jwt(
                     normalized,
@@ -188,7 +209,9 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
         from app.db.database import get_db
 
         try:
-            normalized = await asyncio.to_thread(_normalize_mac, request.mac_address or "")
+            normalized = await asyncio.to_thread(
+                _normalize_mac, request.mac_address or ""
+            )
             if not normalized:
                 await context.abort(
                     grpc.StatusCode.INVALID_ARGUMENT,
@@ -265,9 +288,11 @@ class IPXEServicer(ipxe_pb2_grpc.IPXEServicer):
 
                 template_row = None
                 if hasattr(db, "cloud_init_templates"):
-                    template_row = db(
-                        db.cloud_init_templates.is_default == True  # noqa: E712
-                    ).select().first()
+                    template_row = (
+                        db(db.cloud_init_templates.is_default == True)  # noqa: E712
+                        .select()
+                        .first()
+                    )
 
                 if template_row is None:
                     raise LookupError("No default cloud-init template configured")
@@ -375,24 +400,31 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
         ``_resolve_ready_biome() is None`` to that), rather than
         introducing a second, distinguishable failure mode.
         """
-        from app.db.database import get_db
-        from app.workers.joiner_secret_emitter import ExtractedMaterial, persist_extracted_material
-        from app.security.joiner_envelope import zero_bytes
-        from quart import current_app
         import uuid as _uuid
+
+        from app.db.database import get_db
+        from app.security.joiner_envelope import zero_bytes
+        from app.workers.joiner_secret_emitter import (
+            ExtractedMaterial,
+            persist_extracted_material,
+        )
+        from quart import current_app
 
         try:
             node_id = int(request.node_id)
         except (TypeError, ValueError):
             await context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"Invalid node_id: {request.node_id!r}"
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Invalid node_id: {request.node_id!r}",
             )
             return joiner_pb2.EmitResponse()
 
         db = get_db()
         vault_client = current_app.config.get("VAULT_CLIENT")
         material_provider = current_app.config.get("JOINER_ROTATE_MATERIAL_PROVIDER")
-        cluster_id = str(_uuid.UUID(current_app.config.get("CLUSTER_ID", str(_uuid.uuid4()))))
+        cluster_id = str(
+            _uuid.UUID(current_app.config.get("CLUSTER_ID", str(_uuid.uuid4())))
+        )
 
         def _resolve_ready_biome() -> tuple[int, str, str] | None:
             with _cross_tenant_scope():
@@ -404,7 +436,11 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
                 for assignment in assignments:
                     biome = db(db.biomes.id == assignment.egg_id).select().first()
                     if biome is not None and biome.emits_joiner_secrets:
-                        return int(biome.id), str(biome.tenant_id), str(biome.biome_kind)
+                        return (
+                            int(biome.id),
+                            str(biome.tenant_id),
+                            str(biome.biome_kind),
+                        )
 
             return None
 
@@ -417,7 +453,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
                 raise LookupError(f"No ready biome assignment for node {node_id}")
             emitter_biome_id, tenant_id, biome_kind = resolved
 
-            material: ExtractedMaterial = await asyncio.to_thread(material_provider, None)
+            material: ExtractedMaterial = await asyncio.to_thread(
+                material_provider, None
+            )
 
             def _persist() -> tuple[str, Any]:
                 with _cross_tenant_scope(), db.transaction() as tx:
@@ -444,7 +482,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
                 try:
                     zero_bytes(material.plaintext)
                 except Exception:  # pragma: no cover - best-effort
-                    log.debug("zero_bytes(material.plaintext) failed; bytes will be GC'd")
+                    log.debug(
+                        "zero_bytes(material.plaintext) failed; bytes will be GC'd"
+                    )
 
             return joiner_pb2.EmitResponse(
                 secret_id=new_id,
@@ -478,15 +518,18 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
         ``IdentityServicer.VerifyOTPN``'s existing correct decrypt pattern
         in this same file.
         """
+        import uuid as _uuid
+
         from app.db.database import get_db
         from app.security.joiner_envelope import EnvelopeCiphertext, decrypt_envelope
         from quart import current_app
-        import uuid as _uuid
 
         try:
             secret_id = str(_uuid.UUID(request.secret_id))
         except (TypeError, ValueError) as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}")
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}"
+            )
             return joiner_pb2.ConsumeResponse()
 
         db = get_db()
@@ -546,16 +589,19 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
         (constructor and ``.emit()`` kwargs neither one matches the real
         class, same finding task 6a made for ``app/api/joiner_secrets.py``).
         """
-        from app.db.database import get_db
-        from app.workers.joiner_secret_emitter import persist_extracted_material
-        from app.security.joiner_envelope import zero_bytes
-        from quart import current_app
         import uuid as _uuid
+
+        from app.db.database import get_db
+        from app.security.joiner_envelope import zero_bytes
+        from app.workers.joiner_secret_emitter import persist_extracted_material
+        from quart import current_app
 
         try:
             secret_id = str(_uuid.UUID(request.secret_id))
         except (TypeError, ValueError) as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}")
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}"
+            )
             return joiner_pb2.RotateResponse()
 
         db = get_db()
@@ -571,7 +617,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
             if row.revoked_at is not None:
                 raise LookupError("Cannot rotate a revoked secret")
 
-            material_provider = current_app.config.get("JOINER_ROTATE_MATERIAL_PROVIDER")
+            material_provider = current_app.config.get(
+                "JOINER_ROTATE_MATERIAL_PROVIDER"
+            )
             if material_provider is None:
                 raise RuntimeError("JOINER_ROTATE_MATERIAL_PROVIDER not configured")
 
@@ -610,7 +658,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
                 try:
                     zero_bytes(material.plaintext)
                 except Exception:  # pragma: no cover - best-effort
-                    log.debug("zero_bytes(material.plaintext) failed; bytes will be GC'd")
+                    log.debug(
+                        "zero_bytes(material.plaintext) failed; bytes will be GC'd"
+                    )
 
             return joiner_pb2.RotateResponse(
                 new_secret_id=new_id,
@@ -637,13 +687,16 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
         context: grpc.aio.ServicerContext,
     ) -> joiner_pb2.RevokeResponse:
         """Mark a joiner secret revoked (never hard-deletes; see class docstring)."""
-        from app.db.database import get_db
         import uuid as _uuid
+
+        from app.db.database import get_db
 
         try:
             secret_id = str(_uuid.UUID(request.secret_id))
         except (TypeError, ValueError) as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}")
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, f"Invalid secret_id: {exc}"
+            )
             return joiner_pb2.RevokeResponse()
 
         db = get_db()
@@ -690,10 +743,11 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
         verbatim (not internally consistent as keyset pagination, but not
         this task's call to redesign).
         """
-        from app.db.database import get_db
-        import uuid as _uuid
         import base64
         import json
+        import uuid as _uuid
+
+        from app.db.database import get_db
 
         db = get_db()
         limit = request.limit if request.limit > 0 else 50
@@ -703,7 +757,8 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
             node_id = int(request.node_id)
         except (TypeError, ValueError):
             await context.abort(
-                grpc.StatusCode.INVALID_ARGUMENT, f"Invalid node_id: {request.node_id!r}"
+                grpc.StatusCode.INVALID_ARGUMENT,
+                f"Invalid node_id: {request.node_id!r}",
             )
             return joiner_pb2.JoinerListResponse()
 
@@ -712,7 +767,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
 
             if cursor:
                 try:
-                    decoded = json.loads(base64.urlsafe_b64decode(cursor.encode()).decode())
+                    decoded = json.loads(
+                        base64.urlsafe_b64decode(cursor.encode()).decode()
+                    )
                     after_id = str(_uuid.UUID(decoded["id"]))
                     query = query & (db.joiner_secrets.id > after_id)
                 except Exception:
@@ -742,7 +799,9 @@ class JoinerSecretsServicer(joiner_pb2_grpc.JoinerSecretsServicer):
             secrets = [
                 joiner_pb2.JoinerSecret(
                     id=str(r.id),
-                    node_id=str(r.emitter_node_id) if r.emitter_node_id is not None else "",
+                    node_id=(
+                        str(r.emitter_node_id) if r.emitter_node_id is not None else ""
+                    ),
                     rotation_class=r.rotation_class or "",
                     key_version=0,
                     created_at=r.created_at.isoformat() if r.created_at else "",
@@ -778,6 +837,7 @@ class BiomesServicer(biomes_pb2_grpc.BiomesServicer):
         from app.db.database import get_db
 
         try:
+
             def _do_deploy() -> tuple[int, str]:
                 db = get_db()
 
@@ -843,6 +903,7 @@ class BiomesServicer(biomes_pb2_grpc.BiomesServicer):
         from app.db.database import get_db
 
         try:
+
             def _fetch() -> dict[str, Any]:
                 db = get_db()
 
@@ -858,7 +919,11 @@ class BiomesServicer(biomes_pb2_grpc.BiomesServicer):
                     "name": getattr(biome, "name", ""),
                     "version": getattr(biome, "version", ""),
                     "state": getattr(biome, "state", ""),
-                    "created_at": int(getattr(biome, "created_at", datetime.now(timezone.utc)).timestamp()),
+                    "created_at": int(
+                        getattr(
+                            biome, "created_at", datetime.now(timezone.utc)
+                        ).timestamp()
+                    ),
                 }
 
             biome_data = await asyncio.to_thread(_fetch)
@@ -887,6 +952,7 @@ class BiomesServicer(biomes_pb2_grpc.BiomesServicer):
         from app.db.database import get_db
 
         try:
+
             def _verify() -> tuple[bool, str]:
                 db = get_db()
 
@@ -954,10 +1020,11 @@ class AuditServicer(audit_pb2_grpc.AuditServicer):
         Genuinely fixing this endpoint needs that wiring -- out of scope for
         both this file and that one.
         """
-        from app.api.audit import _get_db_session
-        from app.security.audit_chain import AuditEventWriter
-        from app.models_m1 import AuditEvent as AuditEventModel
         import json
+
+        from app.api.audit import _get_db_session
+        from app.models_m1 import AuditEvent as AuditEventModel
+        from app.security.audit_chain import AuditEventWriter
 
         try:
             event_data = json.loads(request.event_data)
@@ -966,7 +1033,9 @@ class AuditServicer(audit_pb2_grpc.AuditServicer):
             cluster_id = event_data.get("cluster_id", "grpc")
 
             def _do_append() -> AuditEventModel:
-                writer = AuditEventWriter(db_session=db, cluster_id=cluster_id, signer=None)
+                writer = AuditEventWriter(
+                    db_session=db, cluster_id=cluster_id, signer=None
+                )
                 event = writer.append(
                     actor_sub=event_data.get("actor_sub", "unknown"),
                     action=event_data.get("action", "unknown"),
@@ -989,8 +1058,10 @@ class AuditServicer(audit_pb2_grpc.AuditServicer):
                 timestamp=int(event.ts.timestamp()),
             )
 
-        except json.JSONDecodeError as exc:
-            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "event_data must be JSON")
+        except json.JSONDecodeError:
+            await context.abort(
+                grpc.StatusCode.INVALID_ARGUMENT, "event_data must be JSON"
+            )
             return audit_pb2.AppendEventResponse()
         except Exception as exc:
             log.exception("Audit.AppendEvent gRPC handler failed: %s", exc)
@@ -1017,9 +1088,10 @@ class AuditServicer(audit_pb2_grpc.AuditServicer):
         entry). No tenant filter in the original query either -- see class
         docstring on ``_cross_tenant_scope``.
         """
-        from app.db.database import get_db
-        from typing import cast
         import json
+        from typing import cast
+
+        from app.db.database import get_db
 
         db = get_db()
 
@@ -1130,10 +1202,11 @@ class AuditServicer(audit_pb2_grpc.AuditServicer):
         No tenant filter in the original query -- see class docstring on
         ``_cross_tenant_scope``.
         """
-        from app.db.database import get_db
-        from typing import cast
         import json
         import uuid as _uuid
+        from typing import cast
+
+        from app.db.database import get_db
 
         db = get_db()
 
@@ -1205,12 +1278,12 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
         request: identity_pb2.IssueSVIDRequest,
         context: grpc.aio.ServicerContext,
     ) -> identity_pb2.IssueSVIDResponse:
+        from datetime import datetime, timedelta, timezone
+
         from cryptography import x509
-        from cryptography.x509.oid import NameOID, ExtensionOID
         from cryptography.hazmat.primitives import hashes, serialization
         from cryptography.hazmat.primitives.asymmetric import ec
-        from datetime import datetime, timezone, timedelta
-        import base64
+        from cryptography.x509.oid import NameOID
 
         try:
             service_name = request.service_name or "gough-service"
@@ -1221,9 +1294,7 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
                 ca_key_pem = os.getenv("GOUGH_CA_KEY_PEM")
 
                 if request.csr_pem:
-                    csr = x509.load_pem_x509_csr(
-                        request.csr_pem.encode(), backend=None
-                    )
+                    csr = x509.load_pem_x509_csr(request.csr_pem.encode(), backend=None)
                     public_key = csr.public_key()
                 else:
                     private_key = ec.generate_private_key(ec.SECP256R1())
@@ -1231,45 +1302,44 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
 
                 if not ca_cert_pem or not ca_key_pem:
                     ca_private_key = ec.generate_private_key(ec.SECP256R1())
-                    ca_public_key = ca_private_key.public_key()
                 else:
                     ca_private_key = serialization.load_pem_private_key(
                         ca_key_pem.encode(), password=None, backend=None
                     )
-                    ca_public_key = serialization.load_pem_public_key(
+                    serialization.load_pem_public_key(
                         ca_cert_pem.encode(), backend=None
                     )
 
                 now = datetime.now(timezone.utc)
                 expires_at = now + timedelta(seconds=ttl_seconds)
 
-                subject_name = x509.Name([
-                    x509.NameAttribute(NameOID.COMMON_NAME, service_name)
-                ])
-                issuer_name = x509.Name([
-                    x509.NameAttribute(NameOID.COMMON_NAME, "gough-ca")
-                ])
+                subject_name = x509.Name(
+                    [x509.NameAttribute(NameOID.COMMON_NAME, service_name)]
+                )
+                issuer_name = x509.Name(
+                    [x509.NameAttribute(NameOID.COMMON_NAME, "gough-ca")]
+                )
 
-                cert = x509.CertificateBuilder().subject_name(
-                    subject_name
-                ).issuer_name(
-                    issuer_name
-                ).public_key(
-                    public_key
-                ).serial_number(
-                    x509.random_serial_number()
-                ).not_valid_before(
-                    now
-                ).not_valid_after(
-                    expires_at
-                ).add_extension(
-                    x509.SubjectAlternativeName([
-                        x509.UniformResourceIdentifier(
-                            f"spiffe://penguintech.io/gough/{service_name}"
-                        )
-                    ]),
-                    critical=False,
-                ).sign(ca_private_key, hashes.SHA256())
+                cert = (
+                    x509.CertificateBuilder()
+                    .subject_name(subject_name)
+                    .issuer_name(issuer_name)
+                    .public_key(public_key)
+                    .serial_number(x509.random_serial_number())
+                    .not_valid_before(now)
+                    .not_valid_after(expires_at)
+                    .add_extension(
+                        x509.SubjectAlternativeName(
+                            [
+                                x509.UniformResourceIdentifier(
+                                    f"spiffe://penguintech.io/gough/{service_name}"
+                                )
+                            ]
+                        ),
+                        critical=False,
+                    )
+                    .sign(ca_private_key, hashes.SHA256())
+                )
 
                 cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
 
@@ -1287,7 +1357,9 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
 
                 return cert_pem, key_pem, expires_ts, spiffe_id
 
-            cert_pem, key_pem, expires_ts, spiffe_id = await asyncio.to_thread(_issue_svid)
+            cert_pem, key_pem, expires_ts, spiffe_id = await asyncio.to_thread(
+                _issue_svid
+            )
 
             return identity_pb2.IssueSVIDResponse(
                 certificate_pem=cert_pem,
@@ -1336,7 +1408,10 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
                     row = (
                         db(
                             (db.joiner_secrets.emitter_node_id == node_id)
-                            & (db.joiner_secrets.rotation_class == request.rotation_class)
+                            & (
+                                db.joiner_secrets.rotation_class
+                                == request.rotation_class
+                            )
                         )
                         .select()
                         .first()
@@ -1366,7 +1441,9 @@ class IdentityServicer(identity_pb2_grpc.IdentityServicer):
 
                 return True, plaintext, row.rotation_class or "", str(request.node_id)
 
-            valid, secret_bytes, rotation_class, node_id = await asyncio.to_thread(_verify_otp)
+            valid, secret_bytes, rotation_class, node_id = await asyncio.to_thread(
+                _verify_otp
+            )
 
             return identity_pb2.VerifyOTPNResponse(
                 valid=valid,

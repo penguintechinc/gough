@@ -12,10 +12,7 @@ complete integration testing; unit tests of the helper functions suffice.
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
-
 
 # =============================================================================
 # Tests: Authorization via scopes, not role names (FIX #16)
@@ -48,9 +45,9 @@ async def test_migration_lock_override_requires_actual_scope():
         g.principal = None
 
         scopes = mig_mod._principal_scopes()
-        assert "gough.migration.override-lock" not in scopes, (
-            "FIX #16 failed: scopes still auto-granted by role name"
-        )
-        assert "gough.capacity.read" in scopes, (
-            "Actual scopes from JWT should be present"
-        )
+        assert (
+            "gough.migration.override-lock" not in scopes
+        ), "FIX #16 failed: scopes still auto-granted by role name"
+        assert (
+            "gough.capacity.read" in scopes
+        ), "Actual scopes from JWT should be present"

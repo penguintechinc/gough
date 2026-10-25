@@ -12,27 +12,32 @@ Uses SQLite in-memory database for isolation.
 
 from __future__ import annotations
 
-import json
-import pytest
-from datetime import datetime, timedelta
-from typing import Generator, Any
+import importlib
+import os
 
 # Import Flask and related modules
 import sys
-import os
 
-# Add services/flask-backend to path for imports
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../../services/flask-backend"))
-
-from app import create_app
-from app.models import init_db, get_db
-from app.config import Config
+import pytest
+from flask import Flask
 from flask_security.utils import hash_password
 
+# Add services/flask-backend to path for imports
+sys.path.insert(
+    0, os.path.join(os.path.dirname(__file__), "../../../services/flask-backend")
+)
+
+_mod_app = importlib.import_module("app")
+create_app = _mod_app.create_app
+_mod_app_config = importlib.import_module("app.config")
+Config = _mod_app_config.Config
+_mod_app_models = importlib.import_module("app.models")
+get_db = _mod_app_models.get_db
 
 # ============================================================================
 # Test Configuration
 # ============================================================================
+
 
 class TestConfig(Config):
     """Test configuration with SQLite in-memory database."""
@@ -63,6 +68,7 @@ class TestConfig(Config):
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture(scope="function")
 def app() -> Flask:
     """Create and configure test Flask application."""
@@ -70,7 +76,7 @@ def app() -> Flask:
 
     with app.app_context():
         # Initialize database with in-memory SQLite
-        db = get_db()
+        get_db()
         # Tables are already created by init_db
         yield app
 
@@ -92,8 +98,7 @@ def admin_user(app):
         admin_role = user_datastore.find_role("admin")
         if not admin_role:
             admin_role = user_datastore.create_role(
-                name="admin",
-                description="Administrator role"
+                name="admin", description="Administrator role"
             )
 
         # Create admin user
@@ -102,7 +107,7 @@ def admin_user(app):
             password=hash_password("admin123"),
             full_name="Admin User",
             active=True,
-            roles=[admin_role]
+            roles=[admin_role],
         )
 
         db.commit()
@@ -121,8 +126,7 @@ def regular_user(app):
         viewer_role = user_datastore.find_role("viewer")
         if not viewer_role:
             viewer_role = user_datastore.create_role(
-                name="viewer",
-                description="Viewer role"
+                name="viewer", description="Viewer role"
             )
 
         # Create regular user
@@ -131,7 +135,7 @@ def regular_user(app):
             password=hash_password("user123"),
             full_name="Regular User",
             active=True,
-            roles=[viewer_role]
+            roles=[viewer_role],
         )
 
         db.commit()
@@ -144,11 +148,7 @@ def auth_headers(client, admin_user) -> dict:
     """Get authentication headers for admin user."""
     # Login to get JWT token
     response = client.post(
-        "/api/v1/auth/login",
-        json={
-            "email": "admin@test.local",
-            "password": "admin123"
-        }
+        "/api/v1/auth/login", json={"email": "admin@test.local", "password": "admin123"}
     )
 
     if response.status_code == 200:
@@ -164,11 +164,7 @@ def auth_headers(client, admin_user) -> dict:
 def user_auth_headers(client, regular_user) -> dict:
     """Get authentication headers for regular user."""
     response = client.post(
-        "/api/v1/auth/login",
-        json={
-            "email": "user@test.local",
-            "password": "user123"
-        }
+        "/api/v1/auth/login", json={"email": "user@test.local", "password": "user123"}
     )
 
     if response.status_code == 200:
@@ -183,6 +179,7 @@ def user_auth_headers(client, regular_user) -> dict:
 # Team Management Tests
 # ============================================================================
 
+
 @pytest.mark.api
 def test_create_team_success(client, app, admin_user, auth_headers):
     """Test successful team creation by admin user."""
@@ -190,7 +187,7 @@ def test_create_team_success(client, app, admin_user, auth_headers):
         # Login as admin first
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         if login_response.status_code == 200:
@@ -200,7 +197,7 @@ def test_create_team_success(client, app, admin_user, auth_headers):
             # Use test client with user context
             with client:
                 # Set up authenticated context
-                client.environ_base["HTTP_AUTHORIZATION"] = f"Bearer test-token"
+                client.environ_base["HTTP_AUTHORIZATION"] = "Bearer test-token"
                 headers = {}
 
         response = client.post(
@@ -208,13 +205,16 @@ def test_create_team_success(client, app, admin_user, auth_headers):
             json={
                 "name": "Test Team",
                 "description": "Test team description",
-                "metadata": {"env": "test"}
+                "metadata": {"env": "test"},
             },
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         # Accept both 201 and 200 responses
-        assert response.status_code in [200, 201], f"Status {response.status_code}: {response.get_json()}"
+        assert response.status_code in [
+            200,
+            201,
+        ], f"Status {response.status_code}: {response.get_json()}"
         data = response.get_json()
         assert "team" in data or "message" in data
         if "team" in data:
@@ -227,7 +227,7 @@ def test_create_team_unauthorized(client, app, regular_user):
     with app.app_context():
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "user@test.local", "password": "user123"}
+            json={"email": "user@test.local", "password": "user123"},
         )
 
         headers = {}
@@ -237,15 +237,15 @@ def test_create_team_unauthorized(client, app, regular_user):
 
         response = client.post(
             "/api/v1/teams/",
-            json={
-                "name": "Unauthorized Team",
-                "description": "Should fail"
-            },
-            headers=headers if headers else None
+            json={"name": "Unauthorized Team", "description": "Should fail"},
+            headers=headers if headers else None,
         )
 
         # Non-admin should get 403 Forbidden
-        assert response.status_code in [403, 401], f"Expected 403/401, got {response.status_code}"
+        assert response.status_code in [
+            403,
+            401,
+        ], f"Expected 403/401, got {response.status_code}"
 
 
 @pytest.mark.api
@@ -259,22 +259,19 @@ def test_list_teams(client, app, admin_user):
             name="Team A",
             description="Test team A",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         # Add admin as team member
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -282,10 +279,7 @@ def test_list_teams(client, app, admin_user):
             token = login_response.get_json().get("access_token")
             headers = {"Authorization": f"Bearer {token}"}
 
-        response = client.get(
-            "/api/v1/teams/",
-            headers=headers if headers else None
-        )
+        response = client.get("/api/v1/teams/", headers=headers if headers else None)
 
         assert response.status_code in [200, 401], f"Status {response.status_code}"
         if response.status_code == 200:
@@ -304,7 +298,7 @@ def test_get_team_details(client, app, admin_user):
             name="Details Team",
             description="For testing details",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         # Add admin as member
@@ -312,14 +306,14 @@ def test_get_team_details(client, app, admin_user):
             team_id=team_id,
             user_id=admin_user.id,
             role="member",
-            added_by=admin_user.id
+            added_by=admin_user.id,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -328,8 +322,7 @@ def test_get_team_details(client, app, admin_user):
             headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get(
-            f"/api/v1/teams/{team_id}",
-            headers=headers if headers else None
+            f"/api/v1/teams/{team_id}", headers=headers if headers else None
         )
 
         assert response.status_code in [200, 401]
@@ -350,22 +343,19 @@ def test_update_team(client, app, admin_user):
             name="Update Team",
             description="Original description",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         # Add admin as owner
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -375,11 +365,8 @@ def test_update_team(client, app, admin_user):
 
         response = client.patch(
             f"/api/v1/teams/{team_id}",
-            json={
-                "name": "Updated Team",
-                "description": "Updated description"
-            },
-            headers=headers if headers else None
+            json={"name": "Updated Team", "description": "Updated description"},
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [200, 401]
@@ -400,14 +387,14 @@ def test_delete_team(client, app, admin_user):
             name="Delete Team",
             description="To be deleted",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -416,8 +403,7 @@ def test_delete_team(client, app, admin_user):
             headers = {"Authorization": f"Bearer {token}"}
 
         response = client.delete(
-            f"/api/v1/teams/{team_id}",
-            headers=headers if headers else None
+            f"/api/v1/teams/{team_id}", headers=headers if headers else None
         )
 
         assert response.status_code in [200, 401]
@@ -426,6 +412,7 @@ def test_delete_team(client, app, admin_user):
 # ============================================================================
 # Team Member Management Tests
 # ============================================================================
+
 
 @pytest.mark.api
 def test_add_team_member(client, app, admin_user, regular_user):
@@ -438,22 +425,19 @@ def test_add_team_member(client, app, admin_user, regular_user):
             name="Member Team",
             description="For member testing",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         # Add admin as owner
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -463,11 +447,8 @@ def test_add_team_member(client, app, admin_user, regular_user):
 
         response = client.post(
             f"/api/v1/teams/{team_id}/members",
-            json={
-                "user_id": regular_user.id,
-                "role": "member"
-            },
-            headers=headers if headers else None
+            json={"user_id": regular_user.id, "role": "member"},
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [201, 200, 401]
@@ -484,28 +465,25 @@ def test_list_team_members(client, app, admin_user, regular_user):
             name="Members List Team",
             description="For listing members",
             created_by=admin_user.id,
-            is_active=True
+            is_active=True,
         )
 
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.team_members.insert(
             team_id=team_id,
             user_id=regular_user.id,
             role="member",
-            added_by=admin_user.id
+            added_by=admin_user.id,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -514,8 +492,7 @@ def test_list_team_members(client, app, admin_user, regular_user):
             headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get(
-            f"/api/v1/teams/{team_id}/members",
-            headers=headers if headers else None
+            f"/api/v1/teams/{team_id}/members", headers=headers if headers else None
         )
 
         assert response.status_code in [200, 401]
@@ -532,30 +509,25 @@ def test_remove_team_member(client, app, admin_user, regular_user):
 
         # Create team with two members
         team_id = db.resource_teams.insert(
-            name="Remove Member Team",
-            created_by=admin_user.id,
-            is_active=True
+            name="Remove Member Team", created_by=admin_user.id, is_active=True
         )
 
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.team_members.insert(
             team_id=team_id,
             user_id=regular_user.id,
             role="member",
-            added_by=admin_user.id
+            added_by=admin_user.id,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -565,7 +537,7 @@ def test_remove_team_member(client, app, admin_user, regular_user):
 
         response = client.delete(
             f"/api/v1/teams/{team_id}/members/{regular_user.id}",
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [200, 401, 403]
@@ -575,6 +547,7 @@ def test_remove_team_member(client, app, admin_user, regular_user):
 # Resource Management Tests
 # ============================================================================
 
+
 @pytest.mark.api
 def test_assign_resource(client, app, admin_user):
     """Test assigning a resource to a team."""
@@ -583,24 +556,19 @@ def test_assign_resource(client, app, admin_user):
 
         # Create team
         team_id = db.resource_teams.insert(
-            name="Resource Team",
-            created_by=admin_user.id,
-            is_active=True
+            name="Resource Team", created_by=admin_user.id, is_active=True
         )
 
         # Add admin as owner
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -613,9 +581,9 @@ def test_assign_resource(client, app, admin_user):
             json={
                 "resource_type": "cloud",
                 "resource_id": "aws-account-123",
-                "permissions": ["read", "write"]
+                "permissions": ["read", "write"],
             },
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [201, 200, 401]
@@ -629,17 +597,12 @@ def test_list_team_resources(client, app, admin_user):
 
         # Create team
         team_id = db.resource_teams.insert(
-            name="Resources List Team",
-            created_by=admin_user.id,
-            is_active=True
+            name="Resources List Team", created_by=admin_user.id, is_active=True
         )
 
         # Add member
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         # Assign resources
@@ -648,14 +611,14 @@ def test_list_team_resources(client, app, admin_user):
             resource_type="cloud",
             resource_id="aws-123",
             permissions='["read", "write"]',
-            assigned_by=admin_user.id
+            assigned_by=admin_user.id,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -664,8 +627,7 @@ def test_list_team_resources(client, app, admin_user):
             headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get(
-            f"/api/v1/teams/{team_id}/resources",
-            headers=headers if headers else None
+            f"/api/v1/teams/{team_id}/resources", headers=headers if headers else None
         )
 
         assert response.status_code in [200, 401]
@@ -682,17 +644,12 @@ def test_unassign_resource(client, app, admin_user):
 
         # Create team
         team_id = db.resource_teams.insert(
-            name="Unassign Resource Team",
-            created_by=admin_user.id,
-            is_active=True
+            name="Unassign Resource Team", created_by=admin_user.id, is_active=True
         )
 
         # Add member
         db.team_members.insert(
-            team_id=team_id,
-            user_id=admin_user.id,
-            role="owner",
-            added_by=admin_user.id
+            team_id=team_id, user_id=admin_user.id, role="owner", added_by=admin_user.id
         )
 
         # Assign resource
@@ -701,14 +658,14 @@ def test_unassign_resource(client, app, admin_user):
             resource_type="cloud",
             resource_id="aws-456",
             permissions='["read"]',
-            assigned_by=admin_user.id
+            assigned_by=admin_user.id,
         )
 
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -718,7 +675,7 @@ def test_unassign_resource(client, app, admin_user):
 
         response = client.delete(
             f"/api/v1/teams/{team_id}/resources/{assignment_id}",
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [200, 401, 403]
@@ -728,13 +685,14 @@ def test_unassign_resource(client, app, admin_user):
 # Error Handling Tests
 # ============================================================================
 
+
 @pytest.mark.api
 def test_team_not_found(client, app, admin_user):
     """Test accessing non-existent team returns 404."""
     with app.app_context():
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -743,8 +701,7 @@ def test_team_not_found(client, app, admin_user):
             headers = {"Authorization": f"Bearer {token}"}
 
         response = client.get(
-            "/api/v1/teams/99999",
-            headers=headers if headers else None
+            "/api/v1/teams/99999", headers=headers if headers else None
         )
 
         assert response.status_code in [404, 401]
@@ -756,7 +713,7 @@ def test_invalid_request_body(client, app, admin_user):
     with app.app_context():
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -767,7 +724,7 @@ def test_invalid_request_body(client, app, admin_user):
         response = client.post(
             "/api/v1/teams/",
             json={"invalid_field": "value"},
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [400, 401]
@@ -781,15 +738,13 @@ def test_duplicate_team_name(client, app, admin_user):
 
         # Create first team
         db.resource_teams.insert(
-            name="Duplicate Test",
-            created_by=admin_user.id,
-            is_active=True
+            name="Duplicate Test", created_by=admin_user.id, is_active=True
         )
         db.commit()
 
         login_response = client.post(
             "/api/v1/auth/login",
-            json={"email": "admin@test.local", "password": "admin123"}
+            json={"email": "admin@test.local", "password": "admin123"},
         )
 
         headers = {}
@@ -801,7 +756,7 @@ def test_duplicate_team_name(client, app, admin_user):
         response = client.post(
             "/api/v1/teams/",
             json={"name": "Duplicate Test"},
-            headers=headers if headers else None
+            headers=headers if headers else None,
         )
 
         assert response.status_code in [409, 401]

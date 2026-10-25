@@ -2,7 +2,6 @@
 
 import fakeredis.aioredis
 import pytest
-
 from worker.boot_tokens import BootTokenStore
 from worker.services import http_server as http_mod
 

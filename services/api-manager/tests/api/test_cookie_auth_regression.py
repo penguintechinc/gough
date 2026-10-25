@@ -78,7 +78,9 @@ class TestLoginSetsCookies:
         assert refresh["path"] == "/api/v1/auth"
 
         csrf = cookies["gough_csrf"]
-        assert not csrf["httponly"], "gough_csrf must be JS-readable for double-submit CSRF"
+        assert not csrf[
+            "httponly"
+        ], "gough_csrf must be JS-readable for double-submit CSRF"
         assert csrf["samesite"].lower() == "lax"
         assert csrf["path"] == "/"
 
@@ -122,14 +124,18 @@ class TestCookieOnlyAuthentication:
 
 
 class TestCsrfDoubleSubmit:
-    async def test_cookie_auth_post_without_csrf_header_returns_403(self, real_auth_env):
+    async def test_cookie_auth_post_without_csrf_header_returns_403(
+        self, real_auth_env
+    ):
         await _login(real_auth_env)
         resp = await real_auth_env.client.post("/api/v1/webhooks", json={})
         assert resp.status_code == 403
         body = await resp.get_json()
         assert body.get("error") == "csrf_failed"
 
-    async def test_cookie_auth_post_with_mismatched_csrf_header_returns_403(self, real_auth_env):
+    async def test_cookie_auth_post_with_mismatched_csrf_header_returns_403(
+        self, real_auth_env
+    ):
         await _login(real_auth_env)
         resp = await real_auth_env.client.post(
             "/api/v1/webhooks", json={}, headers={"X-CSRF-Token": "wrong-value"}
@@ -138,7 +144,9 @@ class TestCsrfDoubleSubmit:
         body = await resp.get_json()
         assert body.get("error") == "csrf_failed"
 
-    async def test_cookie_auth_post_with_matching_csrf_header_not_csrf_blocked(self, real_auth_env):
+    async def test_cookie_auth_post_with_matching_csrf_header_not_csrf_blocked(
+        self, real_auth_env
+    ):
         await _login(real_auth_env)
         csrf_token = _csrf_cookie_value(real_auth_env)
         resp = await real_auth_env.client.post(

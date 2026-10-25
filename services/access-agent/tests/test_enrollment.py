@@ -15,7 +15,6 @@ from typing import Any
 
 import httpx
 import pytest
-
 from agent import enrollment as enrollment_mod
 from agent.config import AgentConfig
 from agent.enrollment import AgentEnrollment, EnrollmentError
@@ -23,7 +22,9 @@ from agent.enrollment import AgentEnrollment, EnrollmentError
 Handler = Callable[[httpx.Request], httpx.Response]
 
 
-def make_enrollment(tmp_path: Path, handler: Handler, **overrides: Any) -> AgentEnrollment:
+def make_enrollment(
+    tmp_path: Path, handler: Handler, **overrides: Any
+) -> AgentEnrollment:
     """Build an enrollment handler whose HTTP client routes through ``handler``.
 
     Args:
@@ -63,7 +64,9 @@ def enroll_ok_body(**extra: Any) -> dict[str, Any]:
 
 def test_http_client_property_is_built_from_config(tmp_path: Path) -> None:
     """The lazily-built client targets the configured base URL and verify setting."""
-    enr = AgentEnrollment(AgentConfig(management_server_url="https://x.test", verify_ssl=False))
+    enr = AgentEnrollment(
+        AgentConfig(management_server_url="https://x.test", verify_ssl=False)
+    )
     client = enr.http_client
     assert str(client.base_url) == "https://x.test"
     assert enr.http_client is client
@@ -96,7 +99,9 @@ def test_enroll_success_sends_key_and_persists_identity(
         seen["path"] = req.url.path
         seen["key"] = req.headers["X-Enrollment-Key"]
         seen["body"] = json.loads(req.content)
-        return httpx.Response(201, json=enroll_ok_body(config={"heartbeat_interval": 45}))
+        return httpx.Response(
+            201, json=enroll_ok_body(config={"heartbeat_interval": 45})
+        )
 
     monkeypatch.setattr(AgentEnrollment, "_get_primary_ip", lambda self: "10.1.2.3")
     enr = make_enrollment(tmp_path, handler, capabilities=["ssh"])
@@ -124,7 +129,9 @@ def test_enroll_without_optional_fields_skips_ca_and_config(
     """Missing CA key and server config leave the CA file unwritten and interval unchanged."""
     monkeypatch.setattr(AgentEnrollment, "_get_primary_ip", lambda self: None)
     body = {"agent_id": "a", "access_token": "t", "refresh_token": "r"}
-    enr = make_enrollment(tmp_path, lambda req: httpx.Response(201, json=body), heartbeat_interval=30)
+    enr = make_enrollment(
+        tmp_path, lambda req: httpx.Response(201, json=body), heartbeat_interval=30
+    )
     enr.enroll()
     assert not (tmp_path / "state" / "ca.pub").exists()
     assert enr.config.heartbeat_interval == 30
@@ -147,8 +154,12 @@ def test_token_file_is_mode_0600_from_creation(
         real_dump(obj, fp, **kwargs)
 
     monkeypatch.setattr(enrollment_mod.json, "dump", recording_dump)
-    monkeypatch.setattr(os, "umask", lambda _m: 0o022)  # ensure a permissive umask in play
-    enr = make_enrollment(tmp_path, lambda req: httpx.Response(201, json=enroll_ok_body()))
+    monkeypatch.setattr(
+        os, "umask", lambda _m: 0o022
+    )  # ensure a permissive umask in play
+    enr = make_enrollment(
+        tmp_path, lambda req: httpx.Response(201, json=enroll_ok_body())
+    )
     monkeypatch.setattr(AgentEnrollment, "_get_primary_ip", lambda self: None)
     enr.enroll()
 
@@ -182,7 +193,9 @@ def test_enroll_maps_auth_and_conflict_statuses(
     tmp_path: Path, status: int, fragment: str
 ) -> None:
     """401 and 409 map to specific, actionable enrollment errors."""
-    enr = make_enrollment(tmp_path, lambda req: httpx.Response(status, json={"error": "x"}))
+    enr = make_enrollment(
+        tmp_path, lambda req: httpx.Response(status, json={"error": "x"})
+    )
     with pytest.raises(EnrollmentError, match=fragment):
         enr.enroll()
     assert not (tmp_path / "state" / "tokens.json").exists()
@@ -199,7 +212,9 @@ def test_enroll_server_error_with_json_body_is_reported(tmp_path: Path) -> None:
         enr.enroll()
 
 
-def test_enroll_non_json_error_body_still_raises_enrollment_error(tmp_path: Path) -> None:
+def test_enroll_non_json_error_body_still_raises_enrollment_error(
+    tmp_path: Path,
+) -> None:
     """A proxy HTML error page must become EnrollmentError, not a raw JSON decode failure."""
     enr = make_enrollment(
         tmp_path,
@@ -234,7 +249,9 @@ def test_refresh_success_rotates_and_persists_tokens(tmp_path: Path) -> None:
 
     def handler(req: httpx.Request) -> httpx.Response:
         seen["auth"] = req.headers["Authorization"]
-        return httpx.Response(200, json={"access_token": "acc-2", "refresh_token": "ref-2"})
+        return httpx.Response(
+            200, json={"access_token": "acc-2", "refresh_token": "ref-2"}
+        )
 
     enr = make_enrollment(tmp_path, handler, refresh_token="ref-1", agent_id="agent-1")
     access, refresh = enr.refresh_tokens()
@@ -246,7 +263,9 @@ def test_refresh_success_rotates_and_persists_tokens(tmp_path: Path) -> None:
 
 def test_refresh_401_means_revoked(tmp_path: Path) -> None:
     """A 401 on refresh reports the refresh token as expired or revoked."""
-    enr = make_enrollment(tmp_path, lambda req: httpx.Response(401), refresh_token="ref-1")
+    enr = make_enrollment(
+        tmp_path, lambda req: httpx.Response(401), refresh_token="ref-1"
+    )
     with pytest.raises(EnrollmentError, match="expired or revoked"):
         enr.refresh_tokens()
 
@@ -254,7 +273,9 @@ def test_refresh_401_means_revoked(tmp_path: Path) -> None:
 def test_refresh_server_error_is_reported(tmp_path: Path) -> None:
     """Non-200, non-401 refresh responses surface the server's error message."""
     enr = make_enrollment(
-        tmp_path, lambda req: httpx.Response(500, json={"error": "kaboom"}), refresh_token="ref-1"
+        tmp_path,
+        lambda req: httpx.Response(500, json={"error": "kaboom"}),
+        refresh_token="ref-1",
     )
     with pytest.raises(EnrollmentError, match="Token refresh failed: kaboom"):
         enr.refresh_tokens()
@@ -279,7 +300,9 @@ def test_is_enrolled_requires_all_three_fields(tmp_path: Path) -> None:
     path.parent.mkdir(parents=True)
     path.write_text(json.dumps({"access_token": "a", "refresh_token": "r"}))
     assert enr.is_enrolled() is False
-    path.write_text(json.dumps({"access_token": "a", "refresh_token": "r", "agent_id": "x"}))
+    path.write_text(
+        json.dumps({"access_token": "a", "refresh_token": "r", "agent_id": "x"})
+    )
     assert enr.is_enrolled() is True
 
 
@@ -299,11 +322,20 @@ def test_load_tokens_populates_config(tmp_path: Path) -> None:
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
-            {"agent_id": "a1", "access_token": "t1", "refresh_token": "r1", "ca_public_key": "k"}
+            {
+                "agent_id": "a1",
+                "access_token": "t1",
+                "refresh_token": "r1",
+                "ca_public_key": "k",
+            }
         )
     )
     assert enr.load_tokens() is True
-    assert (enr.config.agent_id, enr.config.access_token, enr.config.refresh_token) == ("a1", "t1", "r1")
+    assert (enr.config.agent_id, enr.config.access_token, enr.config.refresh_token) == (
+        "a1",
+        "t1",
+        "r1",
+    )
     assert enr.config.ca_public_key == "k"
 
 
@@ -324,7 +356,9 @@ def test_save_ca_key_is_noop_without_key(tmp_path: Path) -> None:
     assert not (tmp_path / "state" / "ca.pub").exists()
 
 
-def test_primary_ip_returns_socket_address(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_primary_ip_returns_socket_address(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """_get_primary_ip reports the local address the kernel picks for the route."""
 
     class FakeUDP:
@@ -345,7 +379,9 @@ def test_primary_ip_returns_socket_address(monkeypatch: pytest.MonkeyPatch, tmp_
     assert enr._get_primary_ip() == "192.168.7.9"
 
 
-def test_primary_ip_none_when_no_route(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_primary_ip_none_when_no_route(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A host without a default route yields None instead of raising."""
 
     class NoRoute:

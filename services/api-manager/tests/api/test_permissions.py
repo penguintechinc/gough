@@ -7,10 +7,7 @@ and the permission-based decorators.
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timezone
-from types import SimpleNamespace
-from typing import Any
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -42,8 +39,8 @@ def mock_db():
 @pytest.fixture()
 def perms_module(monkeypatch, mock_db):
     """Import permissions module with mocked get_db."""
-    import app.permissions as perms_mod
     import app.middleware as middleware_mod
+    import app.permissions as perms_mod
 
     # Reload FIRST so the module has fresh imports, then apply monkeypatches.
     # (Reloading after patching would undo the patches via re-import.)
@@ -72,7 +69,9 @@ def test_check_team_access_user_is_owner(perms_module, mock_db):
     mock_db.return_value = db_query
 
     # Call: check if user 1 can access team 100 as admin (owner >= admin)
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="admin")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="admin"
+    )
 
     assert result is True
 
@@ -86,7 +85,9 @@ def test_check_team_access_user_is_admin(perms_module, mock_db):
     db_query.select.return_value.first.return_value = membership
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="member")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="member"
+    )
 
     assert result is True
 
@@ -100,7 +101,9 @@ def test_check_team_access_user_is_member(perms_module, mock_db):
     db_query.select.return_value.first.return_value = membership
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="admin")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="admin"
+    )
 
     assert result is False
 
@@ -114,7 +117,9 @@ def test_check_team_access_user_is_viewer(perms_module, mock_db):
     db_query.select.return_value.first.return_value = membership
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="viewer")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="viewer"
+    )
 
     assert result is True
 
@@ -128,7 +133,9 @@ def test_check_team_access_viewer_cannot_access_as_member(perms_module, mock_db)
     db_query.select.return_value.first.return_value = membership
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="member")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="member"
+    )
 
     assert result is False
 
@@ -139,7 +146,9 @@ def test_check_team_access_no_membership(perms_module, mock_db):
     db_query.select.return_value.first.return_value = None
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="member")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="member"
+    )
 
     assert result is False
 
@@ -150,7 +159,9 @@ def test_check_team_access_invalid_role(perms_module, mock_db):
     db_query.select.return_value.first.return_value = MagicMock(role="superuser")
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="member")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="member"
+    )
 
     assert result is False
 
@@ -161,7 +172,9 @@ def test_check_team_access_db_error(perms_module, mock_db):
     db_query.select.side_effect = AttributeError("DB error")
     mock_db.return_value = db_query
 
-    result = perms_module.check_team_access(user_id=1, team_id=100, required_role="member")
+    result = perms_module.check_team_access(
+        user_id=1, team_id=100, required_role="member"
+    )
 
     assert result is False
 
@@ -245,7 +258,7 @@ def test_resource_permission_read_with_team_member(perms_module, mock_db):
     membership.role = "member"
 
     # This test is complex due to multiple DB calls; simplified mock
-    result = perms_module.check_resource_permission(
+    perms_module.check_resource_permission(
         user_id=1, resource_type="cloud", resource_id=50, permission="read"
     )
 
@@ -269,7 +282,7 @@ def test_resource_permission_no_team_id(perms_module, mock_db):
     resource.team_id = None
 
     # Remove team_id attribute to test hasattr
-    delattr(resource, 'team_id')
+    delattr(resource, "team_id")
     resource.team_id = None
 
     db_query = MagicMock()
@@ -298,12 +311,12 @@ def test_check_shell_access_with_shell_permission(perms_module, monkeypatch):
     """User with shell permission should have shell access."""
     # Mock check_resource_permission to return True
     monkeypatch.setattr(
-        perms_module,
-        "check_resource_permission",
-        lambda *args, **kwargs: True
+        perms_module, "check_resource_permission", lambda *args, **kwargs: True
     )
 
-    result = perms_module.check_shell_access(user_id=1, resource_type="cloud", resource_id=50)
+    result = perms_module.check_shell_access(
+        user_id=1, resource_type="cloud", resource_id=50
+    )
 
     assert result is True
 
@@ -311,12 +324,12 @@ def test_check_shell_access_with_shell_permission(perms_module, monkeypatch):
 def test_check_shell_access_without_shell_permission(perms_module, monkeypatch):
     """User without shell permission should not have shell access."""
     monkeypatch.setattr(
-        perms_module,
-        "check_resource_permission",
-        lambda *args, **kwargs: False
+        perms_module, "check_resource_permission", lambda *args, **kwargs: False
     )
 
-    result = perms_module.check_shell_access(user_id=1, resource_type="cloud", resource_id=50)
+    result = perms_module.check_shell_access(
+        user_id=1, resource_type="cloud", resource_id=50
+    )
 
     assert result is False
 
@@ -350,12 +363,8 @@ def test_require_team_permission_user_has_access(perms_module, monkeypatch):
     import asyncio
 
     # Mock get_current_user and check_team_access
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
-    monkeypatch.setattr(
-        perms_module, "check_team_access", lambda *args, **kwargs: True
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
+    monkeypatch.setattr(perms_module, "check_team_access", lambda *args, **kwargs: True)
 
     # Create a test route with the decorator
     @perms_module.require_team_permission(required_role="member")
@@ -368,14 +377,14 @@ def test_require_team_permission_user_has_access(perms_module, monkeypatch):
     assert result[0]["status"] == "ok"
 
 
-@pytest.mark.skip(reason="Decorator calls jsonify() which requires Quart app context; test runs outside HTTP context")
+@pytest.mark.skip(
+    reason="Decorator calls jsonify() which requires Quart app context; test runs outside HTTP context"
+)
 def test_require_team_permission_user_denied_access(perms_module, monkeypatch):
     """Decorator should deny if user lacks team access."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
     monkeypatch.setattr(
         perms_module, "check_team_access", lambda *args, **kwargs: False
     )
@@ -389,14 +398,14 @@ def test_require_team_permission_user_denied_access(perms_module, monkeypatch):
     assert result[1] == 403
 
 
-@pytest.mark.skip(reason="Decorator accesses request.is_json which requires a Quart request context; test runs outside HTTP context")
+@pytest.mark.skip(
+    reason="Decorator accesses request.is_json which requires a Quart request context; test runs outside HTTP context"
+)
 def test_require_team_permission_no_team_id(perms_module, monkeypatch):
     """Decorator should deny if team_id is missing."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
 
     @perms_module.require_team_permission(required_role="member")
     async def test_route():
@@ -407,14 +416,14 @@ def test_require_team_permission_no_team_id(perms_module, monkeypatch):
     assert result[1] == 403
 
 
-@pytest.mark.skip(reason="Decorator calls jsonify() which requires Quart app context; test runs outside HTTP context")
+@pytest.mark.skip(
+    reason="Decorator calls jsonify() which requires Quart app context; test runs outside HTTP context"
+)
 def test_require_team_permission_no_current_user(perms_module, monkeypatch):
     """Decorator should deny if no current user."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: None
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: None)
 
     @perms_module.require_team_permission(required_role="member")
     async def test_route(team_id):
@@ -434,9 +443,7 @@ def test_require_resource_permission_user_has_access(perms_module, monkeypatch):
     """Decorator should allow if user has resource permission."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
     monkeypatch.setattr(
         perms_module, "check_resource_permission", lambda *args, **kwargs: True
     )
@@ -461,9 +468,7 @@ def test_require_resource_permission_user_denied(perms_module, monkeypatch):
     """Decorator should deny if user lacks resource permission."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
     monkeypatch.setattr(
         perms_module, "check_resource_permission", lambda *args, **kwargs: False
     )
@@ -484,14 +489,14 @@ def test_require_resource_permission_user_denied(perms_module, monkeypatch):
     assert result[1] == 403
 
 
-@pytest.mark.skip(reason="Decorator accesses request.args which requires a Quart request context; test runs outside HTTP context")
+@pytest.mark.skip(
+    reason="Decorator accesses request.args which requires a Quart request context; test runs outside HTTP context"
+)
 def test_require_resource_permission_missing_params(perms_module, monkeypatch):
     """Decorator should deny if resource_type or resource_id missing."""
     import asyncio
 
-    monkeypatch.setattr(
-        perms_module, "get_current_user", lambda: {"id": 1}
-    )
+    monkeypatch.setattr(perms_module, "get_current_user", lambda: {"id": 1})
 
     @perms_module.require_resource_permission(permission="read")
     async def test_route():
@@ -514,4 +519,10 @@ def test_team_roles_constant(perms_module):
 
 def test_resource_permissions_constant(perms_module):
     """RESOURCE_PERMISSIONS constant should be defined."""
-    assert perms_module.RESOURCE_PERMISSIONS == ["read", "write", "execute", "admin", "shell"]
+    assert perms_module.RESOURCE_PERMISSIONS == [
+        "read",
+        "write",
+        "execute",
+        "admin",
+        "shell",
+    ]

@@ -4,12 +4,7 @@ Covers cert pinning verification, fingerprint normalization, and env flag gating
 """
 
 import pytest
-import os
-from unittest.mock import Mock, patch
-from worker.services.power_manager import (
-    BMCCredentials,
-    _normalize_fingerprint,
-)
+from worker.services.power_manager import BMCCredentials, _normalize_fingerprint
 
 
 class TestFingerprintNormalization:

@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import pytest
 import respx
-
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 from worker.services import http_server as http_mod
@@ -26,7 +25,8 @@ def _server(monkeypatch: pytest.MonkeyPatch) -> HTTPBootServer:
     monkeypatch.delenv("IMAGE_STREAM_CHUNK_SIZE", raising=False)
     cfg = WorkerConfig(
         api_manager_url=API,
-        worker_api_key="http-key", redis_url="redis://test:6379/0",
+        worker_api_key="http-key",
+        redis_url="redis://test:6379/0",
         worker_id="w-http",
         dhcp_mode="disabled",
         dhcp_interface="eth0",
@@ -51,14 +51,18 @@ async def test_health_returns_json_status(monkeypatch: pytest.MonkeyPatch) -> No
 
 
 @pytest.mark.asyncio
-async def test_ipxe_route_returns_plain_script_with_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipxe_route_returns_plain_script_with_auth(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """GET /ipxe/<mac>.ipxe serves the generated script as text/plain and calls api-manager authenticated."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=True) as router:
         route = router.get(f"{API}/api/v1/internal/boot-script/{MAC_PATH}").mock(
             return_value=httpx.Response(200, json={"script": "#!ipxe\nexit\n"})
         )
-        resp = await server.app.test_client().get(f"/ipxe/{MAC}.ipxe", scope_base=CLIENT)
+        resp = await server.app.test_client().get(
+            f"/ipxe/{MAC}.ipxe", scope_base=CLIENT
+        )
         body = await resp.get_data(as_text=True)
 
     assert resp.status_code == 200
@@ -69,12 +73,18 @@ async def test_ipxe_route_returns_plain_script_with_auth(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_ipxe_route_invalid_mac_returns_error_script_not_500(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipxe_route_invalid_mac_returns_error_script_not_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A malformed MAC still returns 200 with an error iPXE script, and never calls the API."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
-        route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, json={}))
-        resp = await server.app.test_client().get("/ipxe/not-a-mac.ipxe", scope_base=CLIENT)
+        route = router.get(url__regex=r".*").mock(
+            return_value=httpx.Response(200, json={})
+        )
+        resp = await server.app.test_client().get(
+            "/ipxe/not-a-mac.ipxe", scope_base=CLIENT
+        )
         body = await resp.get_data(as_text=True)
 
     assert resp.status_code == 200
@@ -83,7 +93,9 @@ async def test_ipxe_route_invalid_mac_returns_error_script_not_500(monkeypatch: 
 
 
 @pytest.mark.asyncio
-async def test_ipxe_route_generation_failure_returns_500_script(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipxe_route_generation_failure_returns_500_script(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unexpected failure in script generation becomes a 500 iPXE error script with the cause."""
     server = _server(monkeypatch)
 
@@ -98,11 +110,15 @@ async def test_ipxe_route_generation_failure_returns_500_script(monkeypatch: pyt
 
     assert resp.status_code == 500
     assert resp.mimetype == "text/plain"
-    assert body == "#!ipxe\necho Error generating boot script\nshell\n"  # cause never reflected
+    assert (
+        body == "#!ipxe\necho Error generating boot script\nshell\n"
+    )  # cause never reflected
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_metadata_route_serves_yaml(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_metadata_route_serves_yaml(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """GET /cloud-init/<id>/meta-data relays api-manager metadata as text/yaml."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=True) as router:
@@ -118,11 +134,15 @@ async def test_cloud_init_metadata_route_serves_yaml(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_metadata_route_upstream_failure_is_fallback_200(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_metadata_route_upstream_failure_is_fallback_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Upstream failure degrades to the fallback document (200), which cloud-init can still parse."""
     server = _server(monkeypatch)
     with respx.mock:
-        respx.get(f"{API}/api/v1/internal/cloud-init/node-2/meta-data").mock(return_value=httpx.Response(502))
+        respx.get(f"{API}/api/v1/internal/cloud-init/node-2/meta-data").mock(
+            return_value=httpx.Response(502)
+        )
         resp = await server.app.test_client().get("/cloud-init/node-2/meta-data")
         body = await resp.get_data(as_text=True)
 
@@ -131,7 +151,9 @@ async def test_cloud_init_metadata_route_upstream_failure_is_fallback_200(monkey
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_metadata_route_exception_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_metadata_route_exception_returns_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An exception escaping the handler is surfaced as a 500 YAML comment with the message."""
     server = _server(monkeypatch)
 
@@ -150,7 +172,9 @@ async def test_cloud_init_metadata_route_exception_returns_500(monkeypatch: pyte
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_userdata_route_serves_cloud_config(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_userdata_route_serves_cloud_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """GET /cloud-init/<id>/user-data relays user-data as text/cloud-config."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=True) as router:
@@ -166,11 +190,15 @@ async def test_cloud_init_userdata_route_serves_cloud_config(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_userdata_route_upstream_failure_is_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_userdata_route_upstream_failure_is_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Upstream 500 on user-data degrades to the fallback cloud-config (200)."""
     server = _server(monkeypatch)
     with respx.mock:
-        respx.get(f"{API}/api/v1/internal/cloud-init/node-5/user-data").mock(return_value=httpx.Response(500))
+        respx.get(f"{API}/api/v1/internal/cloud-init/node-5/user-data").mock(
+            return_value=httpx.Response(500)
+        )
         resp = await server.app.test_client().get("/cloud-init/node-5/user-data")
         body = await resp.get_data(as_text=True)
 
@@ -179,7 +207,9 @@ async def test_cloud_init_userdata_route_upstream_failure_is_fallback(monkeypatc
 
 
 @pytest.mark.asyncio
-async def test_cloud_init_userdata_route_exception_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cloud_init_userdata_route_exception_returns_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An exception from the user-data handler is a 500 cloud-config comment with the message."""
     server = _server(monkeypatch)
 
@@ -214,7 +244,9 @@ async def test_image_route_rejects_invalid_paths_with_400(
     """Unsafe image paths are refused with 400 and never reach api-manager."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
-        route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, json={}))
+        route = router.get(url__regex=r".*").mock(
+            return_value=httpx.Response(200, json={})
+        )
         resp = await server.app.test_client().get(path)
         body = await resp.get_data(as_text=True)
 
@@ -225,11 +257,15 @@ async def test_image_route_rejects_invalid_paths_with_400(
 
 
 @pytest.mark.asyncio
-async def test_image_route_unknown_image_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_image_route_unknown_image_returns_404(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """api-manager reporting the image missing maps to a 404 for the booting machine."""
     server = _server(monkeypatch)
     with respx.mock:
-        respx.get(f"{API}/api/v1/internal/image-url/boot/nope.iso").mock(return_value=httpx.Response(404))
+        respx.get(f"{API}/api/v1/internal/image-url/boot/nope.iso").mock(
+            return_value=httpx.Response(404)
+        )
         resp = await server.app.test_client().get("/images/boot/nope.iso")
         body = await resp.get_data(as_text=True)
 
@@ -238,14 +274,20 @@ async def test_image_route_unknown_image_returns_404(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_image_route_presigned_url_to_loopback_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_image_route_presigned_url_to_loopback_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A presigned URL pointing at loopback (SSRF) is refused with 400 and no storage request is made."""
     server = _server(monkeypatch)
     with respx.mock(assert_all_called=False) as router:
         router.get(f"{API}/api/v1/internal/image-url/boot/x.iso").mock(
-            return_value=httpx.Response(200, json={"url": "http://127.0.0.2:9000/bucket/x.iso"})
+            return_value=httpx.Response(
+                200, json={"url": "http://127.0.0.2:9000/bucket/x.iso"}
+            )
         )
-        storage = router.get(url__regex=r"http://127\.0\.0\.2.*").mock(return_value=httpx.Response(200))
+        storage = router.get(url__regex=r"http://127\.0\.0\.2.*").mock(
+            return_value=httpx.Response(200)
+        )
         resp = await server.app.test_client().get("/images/boot/x.iso")
         body = await resp.get_data(as_text=True)
 
@@ -255,22 +297,30 @@ async def test_image_route_presigned_url_to_loopback_is_refused(monkeypatch: pyt
 
 
 @pytest.mark.asyncio
-async def test_image_route_missing_url_field_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_image_route_missing_url_field_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An api-manager 200 without a url field is rejected as an invalid presigned URL."""
     server = _server(monkeypatch)
     with respx.mock:
-        respx.get(f"{API}/api/v1/internal/image-url/boot/y.iso").mock(return_value=httpx.Response(200, json={}))
+        respx.get(f"{API}/api/v1/internal/image-url/boot/y.iso").mock(
+            return_value=httpx.Response(200, json={})
+        )
         resp = await server.app.test_client().get("/images/boot/y.iso")
 
     assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_image_route_api_connect_error_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_image_route_api_connect_error_returns_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A transport failure talking to api-manager is a 500 with a generic body (no internals leaked)."""
     server = _server(monkeypatch)
     with respx.mock:
-        respx.get(f"{API}/api/v1/internal/image-url/boot/z.iso").mock(side_effect=httpx.ConnectError("refused"))
+        respx.get(f"{API}/api/v1/internal/image-url/boot/z.iso").mock(
+            side_effect=httpx.ConnectError("refused")
+        )
         resp = await server.app.test_client().get("/images/boot/z.iso")
         body = await resp.get_data(as_text=True)
 
@@ -301,7 +351,9 @@ async def test_start_serves_on_configured_port(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_start_error_is_logged_and_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_start_error_is_logged_and_reraised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A serve failure propagates to the caller so the worker can fail loudly."""
     server = _server(monkeypatch)
 
@@ -329,7 +381,9 @@ def test_image_path_validator_accepts_allowed_charset() -> None:
 
 
 @pytest.mark.parametrize("candidate", ["a\n", "a b", "a?x=1", "a\\b"])
-def test_image_path_validator_rejects_trailing_newline_and_others(candidate: str) -> None:
+def test_image_path_validator_rejects_trailing_newline_and_others(
+    candidate: str,
+) -> None:
     """Trailing newline and other disallowed characters are rejected (regex must fullmatch)."""
     is_valid, _ = http_mod._validate_image_path(candidate)
 
@@ -345,6 +399,7 @@ def test_helper_upstream_error_mapping() -> None:
 
 def test_helper_total_length_rules() -> None:
     """Content-Range total is read on 206; Content-Length on 200; encoded or unknown lengths give None."""
+
     def resp(status: int, headers: dict[str, str]) -> httpx.Response:
         """Build a bare upstream response."""
         return httpx.Response(status, headers=headers)

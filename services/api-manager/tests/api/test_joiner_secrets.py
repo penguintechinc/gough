@@ -15,7 +15,6 @@ ephemeral Quart app whose ``DB_SESSION_FACTORY`` returns a stub session.
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -25,8 +24,6 @@ from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import pytest
-from quart import Quart, g
-
 from app.api import joiner_secrets as joiner_module
 from app.api.joiner_secrets import (
     DEFAULT_MFA_REQUIRED_LANES,
@@ -37,6 +34,7 @@ from app.api.joiner_secrets import (
 from app.security.credentials import CredentialType, Principal
 from app.security.tenant import TenantContext
 from app.workers.joiner_secret_emitter import ExtractedMaterial
+from quart import Quart, g
 
 SECRET_FIELDS_MUST_BE_ABSENT: frozenset[str] = frozenset(
     {"ciphertext", "dek_wrapped", "iv", "auth_tag"}

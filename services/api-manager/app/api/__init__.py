@@ -4,16 +4,16 @@ This module contains all REST API endpoints for Gough organized by domain.
 """
 
 from .agents import agents_bp
-from .lxd_cluster import lxd_bp
 from .audit import audit_bp
+from .biomes import biomes_bp
 from .capacity import capacity_bp
 from .clouds import clouds_bp
 from .clusters import clusters_bp
 from .disks import disks_bp
-from .biomes import biomes_bp
 from .integrations import integrations_bp
 from .ipxe import ipxe_bp
 from .joiner_secrets import joiner_secrets_bp
+from .lxd_cluster import lxd_bp
 from .migration import migration_bp
 from .nodes import nodes_bp
 from .primary import primary_bp

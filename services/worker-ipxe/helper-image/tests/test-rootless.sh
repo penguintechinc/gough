@@ -11,7 +11,6 @@ set -euo pipefail
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
-YELLOW='\033[0;33m'
 NC='\033[0m'
 
 # Configuration
@@ -89,7 +88,8 @@ test_image_metadata() {
     log_info "Test 4: Verifying rootless image metadata..."
 
     # Check that securityContext is properly configured
-    local config=$(docker inspect "$IMAGE" --format='{{json .Config}}')
+    local config
+    config=$(docker inspect "$IMAGE" --format='{{json .Config}}')
 
     # Verify no privileged flags (basic check)
     if echo "$config" | grep -q "Privileged.*true"; then

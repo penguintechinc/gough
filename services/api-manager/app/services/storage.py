@@ -13,7 +13,7 @@ import asyncio
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 import boto3
@@ -22,6 +22,9 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from ..db.run_db import run_db
 from ..models import get_db
+
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_TRUE = True
 
 log = logging.getLogger(__name__)
 
@@ -186,7 +189,7 @@ class StorageService:
                 extra_args["Metadata"] = metadata
 
             try:
-                response = client.upload_file(
+                client.upload_file(
                     file_path, bucket_name, object_key, ExtraArgs=extra_args or None
                 )
                 head = client.head_object(Bucket=bucket_name, Key=object_key)
@@ -393,9 +396,7 @@ class StorageService:
                     }
 
                 if create_config:
-                    response = client.create_bucket(
-                        Bucket=bucket_name, **create_config
-                    )
+                    response = client.create_bucket(Bucket=bucket_name, **create_config)
                 else:
                     response = client.create_bucket(Bucket=bucket_name)
 
@@ -490,18 +491,31 @@ async def get_storage_service(
     # the request coroutine inline.
     def _fetch_config() -> Any:
         if config_id:
-            return db(
-                (db.storage_config.id == config_id) & (db.storage_config.is_active == True)
-            ).select().first()
+            return (
+                db(
+                    (db.storage_config.id == config_id)
+                    & (db.storage_config.is_active == _DB_TRUE)
+                )
+                .select()
+                .first()
+            )
         elif config_name:
-            return db(
-                (db.storage_config.name == config_name)
-                & (db.storage_config.is_active == True)
-            ).select().first()
-        return db(
-            (db.storage_config.is_default == True)
-            & (db.storage_config.is_active == True)
-        ).select().first()
+            return (
+                db(
+                    (db.storage_config.name == config_name)
+                    & (db.storage_config.is_active == _DB_TRUE)
+                )
+                .select()
+                .first()
+            )
+        return (
+            db(
+                (db.storage_config.is_default == _DB_TRUE)
+                & (db.storage_config.is_active == _DB_TRUE)
+            )
+            .select()
+            .first()
+        )
 
     config_row = await run_db(_fetch_config)
 

@@ -18,8 +18,9 @@ Tests for:
 - PATCH /api/v1/clusters/{id}/config
 """
 
-import pytest
 import json
+
+import pytest
 
 
 @pytest.mark.asyncio

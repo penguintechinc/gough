@@ -28,8 +28,8 @@ from .base import (
     BaseSecretsManager,
     SecretAccessError,
     SecretNotFoundError,
-    SecretValidationError,
     SecretsManagerError,
+    SecretValidationError,
 )
 from .encrypted_db import EncryptedDBSecretsManager
 
@@ -68,9 +68,7 @@ async def get_secrets_manager(backend: str | None = None) -> BaseSecretsManager:
 
     if backend not in _BACKENDS:
         available = ", ".join(_BACKENDS.keys())
-        raise ValueError(
-            f"Unknown secrets backend: {backend}. Available: {available}"
-        )
+        raise ValueError(f"Unknown secrets backend: {backend}. Available: {available}")
 
     backend_class = _BACKENDS[backend]
     return backend_class()
@@ -87,30 +85,35 @@ def _ensure_backends_registered() -> None:
     # Try to register optional backends
     try:
         from .vault import VaultSecretsManager
+
         register_backend("vault", VaultSecretsManager)
     except ImportError:
         log.debug("Vault backend not available (hvac not installed)")
 
     try:
         from .infisical import InfisicalSecretsManager
+
         register_backend("infisical", InfisicalSecretsManager)
     except ImportError:
         log.debug("Infisical backend not available")
 
     try:
         from .aws_secrets import AWSSecretsManager
+
         register_backend("aws", AWSSecretsManager)
     except ImportError:
         log.debug("AWS Secrets Manager not available (boto3 not installed)")
 
     try:
         from .gcp_secrets import GCPSecretsManager
+
         register_backend("gcp", GCPSecretsManager)
     except ImportError:
         log.debug("GCP Secret Manager not available")
 
     try:
         from .azure_keyvault import AzureKeyVaultSecretsManager
+
         register_backend("azure", AzureKeyVaultSecretsManager)
     except ImportError:
         log.debug("Azure Key Vault not available")

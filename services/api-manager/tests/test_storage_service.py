@@ -8,20 +8,17 @@ Coverage targets:
 - get_storage_service() function with different configurations
 """
 
-import pytest
-import asyncio
-import json
 from datetime import datetime, timezone
-from unittest.mock import Mock, MagicMock, AsyncMock, patch
 from types import SimpleNamespace
-from dataclasses import asdict
+from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
+import pytest
 from app.services.storage import (
-    StorageConfig,
-    StorageService,
-    StorageError,
-    StorageConfigNotFoundError,
     StorageAccessError,
+    StorageConfig,
+    StorageConfigNotFoundError,
+    StorageError,
+    StorageService,
     StorageValidationError,
     get_storage_service,
 )
@@ -213,7 +210,10 @@ class TestStorageServiceInitialization:
             created_at=now,
             updated_at=now,
         )
-        creds = {"access_key_id": "AKIAIOSFODNN7EXAMPLE", "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"}
+        creds = {
+            "access_key_id": "AKIAIOSFODNN7EXAMPLE",
+            "secret_access_key": "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+        }
         service = StorageService(config, creds)
         client = service._get_client()
         assert client is not None
@@ -411,7 +411,9 @@ class TestStorageServiceOperations:
         service = StorageService(config, creds)
 
         mock_client = MagicMock()
-        mock_client.generate_presigned_url.return_value = "https://s3.example.com/bucket/key/file.txt?expires=..."
+        mock_client.generate_presigned_url.return_value = (
+            "https://s3.example.com/bucket/key/file.txt?expires=..."
+        )
         service._client = mock_client
 
         url = await service.get_presigned_url("key/file.txt", expiration=7200)
@@ -443,8 +445,20 @@ class TestStorageServiceOperations:
         mock_client = MagicMock()
         mock_client.list_objects_v2.return_value = {
             "Contents": [
-                {"Key": "file1.txt", "Size": 100, "ETag": '"abc"', "LastModified": now, "StorageClass": "STANDARD"},
-                {"Key": "file2.txt", "Size": 200, "ETag": '"def"', "LastModified": now, "StorageClass": "STANDARD"},
+                {
+                    "Key": "file1.txt",
+                    "Size": 100,
+                    "ETag": '"abc"',
+                    "LastModified": now,
+                    "StorageClass": "STANDARD",
+                },
+                {
+                    "Key": "file2.txt",
+                    "Size": 200,
+                    "ETag": '"def"',
+                    "LastModified": now,
+                    "StorageClass": "STANDARD",
+                },
             ]
         }
         service._client = mock_client
@@ -478,7 +492,10 @@ class TestStorageServiceOperations:
         service = StorageService(config, creds)
 
         mock_client = MagicMock()
-        mock_client.delete_object.return_value = {"DeleteMarker": True, "VersionId": "v1"}
+        mock_client.delete_object.return_value = {
+            "DeleteMarker": True,
+            "VersionId": "v1",
+        }
         service._client = mock_client
 
         result = await service.delete_object("key/file.txt")
@@ -638,7 +655,10 @@ async def test_get_storage_service_by_id(monkeypatch, tmp_path):
 
     async def _mock_get_secrets_manager():
         mgr = AsyncMock()
-        mgr.get_secret.return_value = {"access_key_id": "key", "secret_access_key": "secret"}
+        mgr.get_secret.return_value = {
+            "access_key_id": "key",
+            "secret_access_key": "secret",
+        }
         return mgr
 
     # get_secrets_manager is imported inside the function, patch at source module

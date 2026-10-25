@@ -25,6 +25,7 @@ log = logging.getLogger(__name__)
 
 class EnrollmentError(Exception):
     """Raised when agent enrollment fails."""
+
     pass
 
 
@@ -169,7 +170,9 @@ class AgentEnrollment:
 
         # Write a fresh sibling file created 0600 with O_EXCL (never world-readable, never
         # a partial file at the final path), then atomically rename over the target.
-        tmp_path = token_path.with_name(f".{token_path.name}.{secrets.token_hex(8)}.tmp")
+        tmp_path = token_path.with_name(
+            f".{token_path.name}.{secrets.token_hex(8)}.tmp"
+        )
         fd = os.open(tmp_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
         try:
             with os.fdopen(fd, "w") as f:
@@ -215,7 +218,10 @@ class AgentEnrollment:
                     raise
                 reason = type(e).__name__
             else:
-                if response.status_code not in RETRYABLE_STATUSES or attempt >= attempts:
+                if (
+                    response.status_code not in RETRYABLE_STATUSES
+                    or attempt >= attempts
+                ):
                     return response
                 last = response
                 last = response
@@ -223,12 +229,16 @@ class AgentEnrollment:
                 if response.status_code in (429, 503):
                     retry_after = parse_retry_after(response.headers.get("Retry-After"))
 
-            ceiling = min(cfg.enroll_max_delay_s, cfg.enroll_base_delay_s * (2 ** (attempt - 1)))
+            ceiling = min(
+                cfg.enroll_max_delay_s, cfg.enroll_base_delay_s * (2 ** (attempt - 1))
+            )
             delay = self._uniform(0.0, ceiling)
             if retry_after is not None:
                 delay = max(delay, retry_after)
             if self._monotonic() + delay > deadline:
-                log.warning(f"Enrollment retry budget exhausted after {attempt} attempt(s)")
+                log.warning(
+                    f"Enrollment retry budget exhausted after {attempt} attempt(s)"
+                )
                 if last is not None:
                     return last
                 raise httpx.ConnectError(f"retry budget exhausted ({reason})")
@@ -342,7 +352,9 @@ class AgentEnrollment:
                 raise EnrollmentError("Refresh token expired or revoked")
 
             if response.status_code != 200:
-                raise EnrollmentError(f"Token refresh failed: {_error_message(response)}")
+                raise EnrollmentError(
+                    f"Token refresh failed: {_error_message(response)}"
+                )
 
             data = response.json()
 

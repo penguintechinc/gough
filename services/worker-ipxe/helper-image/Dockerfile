@@ -80,11 +80,12 @@ ARG DISCOVERY_AGENT_BINARY=/build/discovery-agent
 #   go build -tags netgo -ldflags '-extldflags -static' -o discovery-agent ./cmd/agent
 COPY ${DISCOVERY_AGENT_BINARY} /tmp/discovery-agent
 
-# Verify binary is executable
+# Verify binary is executable and is a valid ELF (pipefail so a failing `file` fails the build)
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN chmod +x /tmp/discovery-agent && \
-    # Quick validation: binary exists and is ELF
-    file /tmp/discovery-agent | grep -q "ELF" || \
-    (echo "ERROR: discovery-agent is not a valid ELF binary" && exit 1)
+    if ! file /tmp/discovery-agent | grep -q "ELF"; then \
+        echo "ERROR: discovery-agent is not a valid ELF binary"; exit 1; \
+    fi
 
 # Runtime stage: minimal final image
 FROM base-builder AS runtime

@@ -15,10 +15,8 @@ from __future__ import annotations
 
 import hashlib
 import importlib
-import json
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
 
 import pytest
 from quart import Quart, g
@@ -88,24 +86,32 @@ def agents_client(dal, monkeypatch, request):
 
     # Patch get_db before importing agents module
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal)
 
     # Stub auth decorators
     import app.middleware as mw_mod
+
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(mw_mod, "roles_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "get_current_user", lambda: {
-        "id": "test-user-id",
-        "username": "test-user",
-        "role": "admin",
-    })
+    monkeypatch.setattr(
+        mw_mod,
+        "get_current_user",
+        lambda: {
+            "id": "test-user-id",
+            "username": "test-user",
+            "role": "admin",
+        },
+    )
 
     # Stub audit logger
     import app.audit as audit_mod
+
     monkeypatch.setattr(audit_mod, "get_audit_logger", lambda: None)
 
     # Reload agents blueprint
     import app.api.agents as agents_mod
+
     agents_mod = importlib.reload(agents_mod)
     monkeypatch.setattr(agents_mod, "get_db", lambda: dal)
     # Tenant isolation has dedicated tests (TestAgentTenantIsolation, real tenant_owns); every
@@ -138,8 +144,7 @@ class TestEnrollmentKeyCreation:
     async def test_create_enrollment_key_success(self, agents_client, dal):
         """Create enrollment key with valid input."""
         response = await agents_client.post(
-            "/api/v1/agents/enrollment-keys",
-            json={"expires_in_days": 7}
+            "/api/v1/agents/enrollment-keys", json={"expires_in_days": 7}
         )
         assert response.status_code == 201
         body = await response.get_json()
@@ -149,10 +154,7 @@ class TestEnrollmentKeyCreation:
 
     async def test_create_enrollment_key_no_expiry(self, agents_client):
         """Create enrollment key without expiry."""
-        response = await agents_client.post(
-            "/api/v1/agents/enrollment-keys",
-            json={}
-        )
+        response = await agents_client.post("/api/v1/agents/enrollment-keys", json={})
         # Should succeed with default expiry
         assert response.status_code in (201, 200)
         body = await response.get_json()
@@ -161,18 +163,20 @@ class TestEnrollmentKeyCreation:
     async def test_create_enrollment_key_negative_expiry(self, agents_client):
         """Create enrollment key with invalid expiry should fail."""
         response = await agents_client.post(
-            "/api/v1/agents/enrollment-keys",
-            json={"expires_in_days": -1}
+            "/api/v1/agents/enrollment-keys", json={"expires_in_days": -1}
         )
         assert response.status_code in (400, 422, 201)
 
-    @pytest.mark.xfail(reason="known bug: agents.py uses await request.args which is not awaitable in Quart", strict=False)
-    async def test_create_enrollment_key_db_error(self, agents_client, monkeypatch, dal):
+    @pytest.mark.xfail(
+        reason="known bug: agents.py uses await request.args which is not awaitable in Quart",
+        strict=False,
+    )
+    async def test_create_enrollment_key_db_error(
+        self, agents_client, monkeypatch, dal
+    ):
         """Create enrollment key with database error should rollback."""
-        import app.api.agents as agents_mod
 
         # Patch insert to raise exception
-        original_insert = dal.enrollment_keys.insert
 
         def failing_insert(**kwargs):
             raise RuntimeError("Database error")
@@ -180,8 +184,7 @@ class TestEnrollmentKeyCreation:
         monkeypatch.setattr(dal.enrollment_keys, "insert", failing_insert)
 
         response = await agents_client.post(
-            "/api/v1/agents/enrollment-keys",
-            json={"expires_in_days": 7}
+            "/api/v1/agents/enrollment-keys", json={"expires_in_days": 7}
         )
         assert response.status_code == 500
         body = await response.get_json()
@@ -222,13 +225,17 @@ class TestEnrollmentKeyListing:
         dal.commit()
 
         # List without used keys
-        response = await agents_client.get("/api/v1/agents/enrollment-keys?include_used=false")
+        response = await agents_client.get(
+            "/api/v1/agents/enrollment-keys?include_used=false"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         assert body["count"] == 1
 
         # List with used keys
-        response = await agents_client.get("/api/v1/agents/enrollment-keys?include_used=true")
+        response = await agents_client.get(
+            "/api/v1/agents/enrollment-keys?include_used=true"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         assert body["count"] == 2
@@ -258,7 +265,10 @@ class TestEnrollmentKeyListing:
 class TestEnrollmentKeyRevocation:
     """Tests for DELETE /enrollment-keys/<key_id> endpoint."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 146 uses db.enrollment_keys(key_id) which is not valid penguin-dal API", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py line 146 uses db.enrollment_keys(key_id) which is not valid penguin-dal API",
+        strict=False,
+    )
     async def test_revoke_enrollment_key_success(self, agents_client, dal):
         """Revoke an existing enrollment key."""
         key_hash = hashlib.sha256(b"test-key").hexdigest()
@@ -269,12 +279,17 @@ class TestEnrollmentKeyRevocation:
         )
         dal.commit()
 
-        response = await agents_client.delete(f"/api/v1/agents/enrollment-keys/{int(key_id)}")
+        response = await agents_client.delete(
+            f"/api/v1/agents/enrollment-keys/{int(key_id)}"
+        )
         assert response.status_code in (200, 204)
         body = await response.get_json()
         assert "message" in body or response.status_code == 204
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 146 uses db.enrollment_keys(key_id) which is not valid penguin-dal API", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py line 146 uses db.enrollment_keys(key_id) which is not valid penguin-dal API",
+        strict=False,
+    )
     async def test_revoke_nonexistent_key(self, agents_client):
         """Revoke nonexistent key should return 404."""
         response = await agents_client.delete("/api/v1/agents/enrollment-keys/99999")
@@ -282,7 +297,10 @@ class TestEnrollmentKeyRevocation:
         body = await response.get_json()
         assert "error" in body
 
-    @pytest.mark.xfail(reason="known bug: agents.py uses await request.args which is not awaitable in Quart", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py uses await request.args which is not awaitable in Quart",
+        strict=False,
+    )
     async def test_revoke_key_db_error(self, agents_client, dal, monkeypatch):
         """Revoke with database error should rollback."""
         key_hash = hashlib.sha256(b"test-key").hexdigest()
@@ -293,20 +311,24 @@ class TestEnrollmentKeyRevocation:
         dal.commit()
 
         # Mock delete to raise exception
-        import app.api.agents as agents_mod
+
         original_query = dal.__call__
 
         def failing_query(*args, **kwargs):
             result = original_query(*args, **kwargs)
-            if hasattr(result, 'delete'):
+            if hasattr(result, "delete"):
+
                 def failing_delete(*a, **kw):
                     raise RuntimeError("Delete failed")
+
                 result.delete = failing_delete
             return result
 
         monkeypatch.setattr(dal, "__call__", failing_query)
 
-        response = await agents_client.delete(f"/api/v1/agents/enrollment-keys/{int(key_id)}")
+        response = await agents_client.delete(
+            f"/api/v1/agents/enrollment-keys/{int(key_id)}"
+        )
         assert response.status_code == 500
 
 
@@ -327,7 +349,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "valid-key"},
-            json={"hostname": "agent-1"}
+            json={"hostname": "agent-1"},
         )
         assert response.status_code == 201
         body = await response.get_json()
@@ -337,8 +359,7 @@ class TestAgentEnrollment:
     async def test_enroll_agent_no_key_header(self, agents_client):
         """Enroll without enrollment key header should fail."""
         response = await agents_client.post(
-            "/api/v1/agents/enroll",
-            json={"hostname": "agent-1"}
+            "/api/v1/agents/enroll", json={"hostname": "agent-1"}
         )
         assert response.status_code == 401
         body = await response.get_json()
@@ -351,9 +372,7 @@ class TestAgentEnrollment:
         dal.commit()
 
         response = await agents_client.post(
-            "/api/v1/agents/enroll",
-            headers={"X-Enrollment-Key": "valid-key"},
-            json={}
+            "/api/v1/agents/enroll", headers={"X-Enrollment-Key": "valid-key"}, json={}
         )
         assert response.status_code == 400
 
@@ -366,7 +385,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "valid-key"},
-            json={"hostname": "  "}
+            json={"hostname": "  "},
         )
         assert response.status_code == 400
 
@@ -377,8 +396,7 @@ class TestAgentEnrollment:
         dal.commit()
 
         response = await agents_client.post(
-            "/api/v1/agents/enroll",
-            headers={"X-Enrollment-Key": "valid-key"}
+            "/api/v1/agents/enroll", headers={"X-Enrollment-Key": "valid-key"}
         )
         assert response.status_code == 400
 
@@ -387,7 +405,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "invalid-key"},
-            json={"hostname": "agent-1"}
+            json={"hostname": "agent-1"},
         )
         assert response.status_code == 401
         body = await response.get_json()
@@ -406,7 +424,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "expired-key"},
-            json={"hostname": "agent-1"}
+            json={"hostname": "agent-1"},
         )
         assert response.status_code == 401
 
@@ -425,13 +443,16 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "used-key"},
-            json={"hostname": "agent-2"}
+            json={"hostname": "agent-2"},
         )
         assert response.status_code == 409
         body = await response.get_json()
         assert "already used" in body.get("error", "").lower()
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py line 189 uses await request.headers which is not awaitable in Quart",
+        strict=False,
+    )
     async def test_enroll_agent_db_error(self, agents_client, dal, monkeypatch):
         """Enroll with database error should rollback."""
         key_hash = hashlib.sha256(b"valid-key").hexdigest()
@@ -439,7 +460,6 @@ class TestAgentEnrollment:
         dal.commit()
 
         # Mock access_agents.insert to raise exception
-        original_insert = dal.access_agents.insert
 
         def failing_insert(**kwargs):
             raise RuntimeError("Insert failed")
@@ -449,7 +469,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "valid-key"},
-            json={"hostname": "agent-1"}
+            json={"hostname": "agent-1"},
         )
         assert response.status_code == 500
 
@@ -467,7 +487,7 @@ class TestAgentEnrollment:
                 "ip_address": "192.168.1.100",
                 "agent_version": "1.0.0",
                 "capabilities": ["ssh", "sftp", "file-transfer"],
-            }
+            },
         )
         assert response.status_code == 201
         body = await response.get_json()
@@ -488,7 +508,7 @@ class TestAgentEnrollment:
         response = await agents_client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "valid-key"},
-            json={"hostname": "agent-1"}
+            json={"hostname": "agent-1"},
         )
         assert response.status_code == 201
         body = await response.get_json()
@@ -512,7 +532,7 @@ class TestAgentListing:
             dal.enrollment_keys.insert(key_hash=key_hash)
 
             dal.access_agents.insert(
-        tenant_id="default",
+                tenant_id="default",
                 agent_id=f"agent-{i}",
                 hostname=f"host-{i}",
                 enrollment_key_hash=key_hash,
@@ -530,7 +550,7 @@ class TestAgentListing:
         # Create agents with different statuses
         for status in ["active", "inactive", "error"]:
             dal.access_agents.insert(
-        tenant_id="default",
+                tenant_id="default",
                 agent_id=f"agent-{status}",
                 hostname=f"host-{status}",
                 status=status,
@@ -542,7 +562,9 @@ class TestAgentListing:
         body = await response.get_json()
         # Should include active agent
         agents = body.get("agents", [])
-        assert any(a.get("status") == "active" for a in agents) or body.get("count") == 0
+        assert (
+            any(a.get("status") == "active" for a in agents) or body.get("count") == 0
+        )
 
 
 class TestAgentDetails:
@@ -551,7 +573,7 @@ class TestAgentDetails:
     async def test_get_agent_success(self, agents_client, dal):
         """Get details of enrolled agent."""
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id="test-agent-123",
             hostname="test-host",
             status="active",
@@ -561,7 +583,10 @@ class TestAgentDetails:
         response = await agents_client.get("/api/v1/agents/test-agent-123")
         assert response.status_code == 200
         body = await response.get_json()
-        assert body.get("agent", {}).get("agent_id") == "test-agent-123" or body.get("agent_id") == "test-agent-123"
+        assert (
+            body.get("agent", {}).get("agent_id") == "test-agent-123"
+            or body.get("agent_id") == "test-agent-123"
+        )
 
     async def test_get_nonexistent_agent(self, agents_client):
         """Get nonexistent agent should return 404."""
@@ -572,11 +597,14 @@ class TestAgentDetails:
 class TestAgentHeartbeat:
     """Tests for heartbeat/status update endpoints."""
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 303 uses await request.headers which is not awaitable in Quart", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py line 303 uses await request.headers which is not awaitable in Quart",
+        strict=False,
+    )
     async def test_heartbeat_success(self, agents_client, dal):
         """Agent heartbeat updates last_heartbeat."""
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
         )
@@ -584,16 +612,19 @@ class TestAgentHeartbeat:
 
         response = await agents_client.post(
             "/api/v1/agents/heartbeat",
-            json={"status": "healthy", "agent_id": "test-agent"}
+            json={"status": "healthy", "agent_id": "test-agent"},
         )
         assert response.status_code in (200, 204)
 
-    @pytest.mark.xfail(reason="known bug: agents.py line 626 uses await request.headers which is not awaitable in Quart", strict=False)
+    @pytest.mark.xfail(
+        reason="known bug: agents.py line 626 uses await request.headers which is not awaitable in Quart",
+        strict=False,
+    )
     async def test_heartbeat_nonexistent_agent(self, agents_client):
         """Heartbeat for nonexistent agent should return 404."""
         response = await agents_client.post(
             "/api/v1/agents/heartbeat",
-            json={"status": "healthy", "agent_id": "nonexistent-agent"}
+            json={"status": "healthy", "agent_id": "nonexistent-agent"},
         )
         assert response.status_code == 404
 
@@ -604,15 +635,14 @@ class TestAgentTokenRefresh:
     async def test_refresh_token_success(self, agents_client, dal):
         """Refresh agent token with valid refresh token."""
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
         )
         dal.commit()
 
         response = await agents_client.post(
-            "/api/v1/agents/refresh",
-            json={"refresh_token": "valid-refresh-token"}
+            "/api/v1/agents/refresh", json={"refresh_token": "valid-refresh-token"}
         )
         # Should return new access token or error (depends on implementation)
         assert response.status_code in (200, 401, 400)
@@ -620,8 +650,7 @@ class TestAgentTokenRefresh:
     async def test_refresh_token_invalid(self, agents_client):
         """Refresh with invalid token should fail."""
         response = await agents_client.post(
-            "/api/v1/agents/refresh",
-            json={"refresh_token": "invalid-token"}
+            "/api/v1/agents/refresh", json={"refresh_token": "invalid-token"}
         )
         assert response.status_code in (401, 404, 400)
 
@@ -632,7 +661,7 @@ class TestAgentDeregistration:
     async def test_deregister_agent_success(self, agents_client, dal):
         """Suspend an enrolled agent."""
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id="test-agent",
             hostname="test-host",
             status="active",
@@ -653,6 +682,7 @@ class TestAuthorizationEnforcement:
 
     async def test_create_key_requires_admin(self, agents_client, monkeypatch):
         """Create enrollment key requires admin role."""
+
         # Test with non-admin role
         def mock_user_non_admin():
             return {
@@ -661,14 +691,11 @@ class TestAuthorizationEnforcement:
                 "role": "user",
             }
 
-        import app.api.agents as agents_mod
-        original_get_current = agents_mod.get_current_user
         # Note: This test assumes roles_required decorator is properly enforced
         # The actual enforcement happens via the decorator, which is stubbed in fixtures
 
         response = await agents_client.post(
-            "/api/v1/agents/enrollment-keys",
-            json={"expires_in_days": 7}
+            "/api/v1/agents/enrollment-keys", json={"expires_in_days": 7}
         )
         # Decorator is stubbed, so this should succeed
         # In real deployment, non-admin would get 403
@@ -679,16 +706,28 @@ class TestAgentTenantIsolation:
     """regression: agent endpoints must not expose or mutate another tenant's agents."""
 
     async def test_foreign_and_unstamped_agents_are_invisible(self, agents_client, dal):
-        for agent_id, tenant in (("own-agent", "default"), ("foreign-agent", "globex"), ("legacy-agent", None)):
-            dal.access_agents.insert(agent_id=agent_id, hostname=agent_id, status="active", tenant_id=tenant)
+        for agent_id, tenant in (
+            ("own-agent", "default"),
+            ("foreign-agent", "globex"),
+            ("legacy-agent", None),
+        ):
+            dal.access_agents.insert(
+                agent_id=agent_id, hostname=agent_id, status="active", tenant_id=tenant
+            )
         dal.commit()
 
         listing = await (await agents_client.get("/api/v1/agents/")).get_json()
         assert [a["agent_id"] for a in listing["agents"]] == ["own-agent"]
 
         for hidden in ("foreign-agent", "legacy-agent"):
-            assert (await agents_client.get(f"/api/v1/agents/{hidden}")).status_code == 404
-            assert (await agents_client.post(f"/api/v1/agents/{hidden}/suspend")).status_code == 404
-            assert (await agents_client.post(f"/api/v1/agents/{hidden}/resume")).status_code == 404
+            assert (
+                await agents_client.get(f"/api/v1/agents/{hidden}")
+            ).status_code == 404
+            assert (
+                await agents_client.post(f"/api/v1/agents/{hidden}/suspend")
+            ).status_code == 404
+            assert (
+                await agents_client.post(f"/api/v1/agents/{hidden}/resume")
+            ).status_code == 404
             row = dal(dal.access_agents.agent_id == hidden).select().first()
             assert row.status == "active"  # the cross-tenant suspend/resume never ran

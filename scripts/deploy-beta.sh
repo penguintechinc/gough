@@ -27,7 +27,6 @@ NAMESPACE="gough-beta"
 CHART_PATH="k8s/helm"
 IMAGE_REGISTRY="registry-dal2.penguintech.io"
 KUBE_CONTEXT="dal2-beta"
-APP_HOST="gough.penguintech.cloud"
 
 # Services to deploy
 SERVICES=("api-manager" "webui" "worker-ipxe")
@@ -331,12 +330,15 @@ verify_deployment() {
 
         retry_count=0
         while [[ $retry_count -lt $max_retries ]]; do
-            local ready_replicas=$(kubectl get deployment \
+            local ready_replicas
+            ready_replicas=$(kubectl get deployment \
                 -n "$NAMESPACE" \
                 -l "app.kubernetes.io/name=$service" \
                 -o jsonpath='{.items[0].status.readyReplicas}' 2>/dev/null || echo "0")
 
-            local desired_replicas=$(kubectl get deployment \
+            local desired_replicas
+
+            desired_replicas=$(kubectl get deployment \
                 -n "$NAMESPACE" \
                 -l "app.kubernetes.io/name=$service" \
                 -o jsonpath='{.items[0].spec.replicas}' 2>/dev/null || echo "0")

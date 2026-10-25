@@ -17,8 +17,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from pydantic import ValidationError
-
 from app.api._schemas.nodes import (
     AcceleratorInfo,
     DiscoverRequest,
@@ -26,9 +24,13 @@ from app.api._schemas.nodes import (
     NumaTopology,
     SmartAttribute,
 )
+from pydantic import ValidationError
 
 # Re-use the nodes_app / dal wiring from the discover endpoint suite.
-from tests.api.test_nodes import dal, nodes_app  # noqa: F401
+from tests.api import test_nodes as _nodes_suite
+
+dal = _nodes_suite.dal
+nodes_app = _nodes_suite.nodes_app
 
 GOLDEN_PATH = (
     Path(__file__).resolve().parents[3]
@@ -71,10 +73,14 @@ def _unknown_keys(payload: dict[str, Any]) -> list[str]:
     for field, model in _NESTED.items():
         items = payload.get(field) or []
         for idx, item in enumerate(items):
-            unknown += [f"{field}[{idx}].{k}" for k in item if k not in model.model_fields]
+            unknown += [
+                f"{field}[{idx}].{k}" for k in item if k not in model.model_fields
+            ]
     numa = payload.get("numa_topology")
     if isinstance(numa, dict):
-        unknown += [f"numa_topology.{k}" for k in numa if k not in NumaTopology.model_fields]
+        unknown += [
+            f"numa_topology.{k}" for k in numa if k not in NumaTopology.model_fields
+        ]
     return unknown
 
 
@@ -108,7 +114,7 @@ def test_golden_fixture_rejects_malformed_cert_sha() -> None:
 
 
 @pytest.mark.asyncio
-async def test_golden_payload_posts_and_persists_hardware_json(nodes_app, dal) -> None:  # noqa: F811
+async def test_golden_payload_posts_and_persists_hardware_json(nodes_app, dal) -> None:
     """POST the golden body through the real route; assert 2xx and persisted fields."""
     payload = copy.deepcopy(_load_golden())
     payload["dmi_uuid"] = str(uuid.uuid4())
@@ -118,7 +124,9 @@ async def test_golden_payload_posts_and_persists_hardware_json(nodes_app, dal) -
     with patch(
         "app.security.credentials.validate_one_time_bootstrap_token",
         return_value=principal,
-    ), patch("app.clients.spire.SpireClient.register_workload", return_value="entry-c1"):
+    ), patch(
+        "app.clients.spire.SpireClient.register_workload", return_value="entry-c1"
+    ):
         async with nodes_app.test_client() as client:
             resp = await client.post(
                 "/api/v1/nodes/discover",
@@ -145,4 +153,3 @@ async def test_golden_payload_posts_and_persists_hardware_json(nodes_app, dal) -
     assert hw["smart_attributes"][0]["device"] == "sda"
     assert len(hw["accelerators"]) == 3
     assert hw["numa_topology"]["nodes"] == 2
-

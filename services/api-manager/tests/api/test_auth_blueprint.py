@@ -1,20 +1,18 @@
 """Tests for app.auth blueprint endpoints."""
 
-import json
 from datetime import datetime, timedelta
-from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 
 import bcrypt
 import jwt
 import pytest
-from quart import Quart, g
+from quart import g
 
 
 @pytest.fixture()
 def auth_app():
     """Create a Quart test app with auth blueprint registered."""
-    from quart import Quart, Blueprint, jsonify
+    from quart import Blueprint, Quart, jsonify
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -75,6 +73,7 @@ def auth_app():
     @auth_bp.route("/login", methods=["POST"])
     async def login():
         from quart import request
+
         data = await request.get_json() if request.is_json else None
 
         if not data:
@@ -104,22 +103,30 @@ def auth_app():
         access_token = create_access_token(user["id"], user["role"])
         refresh_token, refresh_expires = create_refresh_token(user["id"])
 
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "Bearer",
-            "expires_in": int(app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-            "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "full_name": user.get("full_name", ""),
-                "role": user["role"],
-            },
-        }), 200
+        return (
+            jsonify(
+                {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": "Bearer",
+                    "expires_in": int(
+                        app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                    ),
+                    "user": {
+                        "id": user["id"],
+                        "email": user["email"],
+                        "full_name": user.get("full_name", ""),
+                        "role": user["role"],
+                    },
+                }
+            ),
+            200,
+        )
 
     @auth_bp.route("/refresh", methods=["POST"])
     async def refresh():
         from quart import request
+
         data = await request.get_json() if request.is_json else None
 
         if not data:
@@ -152,35 +159,57 @@ def auth_app():
         access_token = create_access_token(user["id"], user["role"])
         new_refresh_token, refresh_expires = create_refresh_token(user["id"])
 
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": new_refresh_token,
-            "token_type": "Bearer",
-            "expires_in": int(app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "access_token": access_token,
+                    "refresh_token": new_refresh_token,
+                    "token_type": "Bearer",
+                    "expires_in": int(
+                        app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                    ),
+                }
+            ),
+            200,
+        )
 
     @auth_bp.route("/logout", methods=["POST"])
     async def logout():
-        return jsonify({
-            "message": "Successfully logged out",
-            "tokens_revoked": 1,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Successfully logged out",
+                    "tokens_revoked": 1,
+                }
+            ),
+            200,
+        )
 
     @auth_bp.route("/me", methods=["GET"])
     async def get_me():
         user = users.get(1)  # Mocked current user
-        return jsonify({
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-            "is_active": user["is_active"],
-            "created_at": user["created_at"].isoformat() if user.get("created_at") else None,
-        }), 200
+        return (
+            jsonify(
+                {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "full_name": user.get("full_name", ""),
+                    "role": user["role"],
+                    "is_active": user["is_active"],
+                    "created_at": (
+                        user["created_at"].isoformat()
+                        if user.get("created_at")
+                        else None
+                    ),
+                }
+            ),
+            200,
+        )
 
     @auth_bp.route("/register", methods=["POST"])
     async def register():
         from quart import request
+
         data = await request.get_json() if request.is_json else None
 
         if not data:
@@ -215,15 +244,20 @@ def auth_app():
         }
         users[uid] = user
 
-        return jsonify({
-            "message": "Registration successful",
-            "user": {
-                "id": user["id"],
-                "email": user["email"],
-                "full_name": user.get("full_name", ""),
-                "role": user["role"],
-            },
-        }), 201
+        return (
+            jsonify(
+                {
+                    "message": "Registration successful",
+                    "user": {
+                        "id": user["id"],
+                        "email": user["email"],
+                        "full_name": user.get("full_name", ""),
+                        "role": user["role"],
+                    },
+                }
+            ),
+            201,
+        )
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
 

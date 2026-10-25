@@ -3,21 +3,20 @@
 from __future__ import annotations
 
 import pytest
-
 from app.security.tenant import (
-    TENANT_CLAIM_NAME,
     DEFAULT_TENANT,
-    TenantContext,
+    TENANT_CLAIM_NAME,
     TenantClaimMissingError,
+    TenantContext,
     TenantMismatchError,
-    extract_tenant_from_jwt,
     assert_tenant_match,
+    extract_tenant_from_jwt,
 )
-
 
 # ==============================================================================
 # Test: TenantContext Pydantic Model
 # ==============================================================================
+
 
 class TestTenantContext:
     """TenantContext data model tests."""
@@ -43,6 +42,7 @@ class TestTenantContext:
 # ==============================================================================
 # Test: JWT Tenant Extraction
 # ==============================================================================
+
 
 class TestExtractTenantFromJWT:
     """Tests for extract_tenant_from_jwt function."""
@@ -132,6 +132,7 @@ class TestExtractTenantFromJWT:
 # Test: Tenant Match Validation
 # ==============================================================================
 
+
 class TestAssertTenantMatch:
     """Tests for assert_tenant_match function."""
 
@@ -163,6 +164,7 @@ class TestAssertTenantMatch:
 # ==============================================================================
 # Test: Constants
 # ==============================================================================
+
 
 class TestConstants:
     """Tests for module-level constants."""

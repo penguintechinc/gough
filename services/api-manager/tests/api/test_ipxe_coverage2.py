@@ -13,12 +13,9 @@ Focus areas:
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone
-from typing import Any
-from unittest.mock import MagicMock, AsyncMock
-from types import SimpleNamespace
 import importlib
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -27,8 +24,10 @@ def _passthrough_decorator(*dargs, **dkwargs):
     """Support both styles: @auth_required and @require_scopes("...")."""
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         return dargs[0]
+
     def _wrap(fn):
         return fn
+
     return _wrap
 
 
@@ -60,6 +59,7 @@ def ipxe_app(monkeypatch):
         setattr(mod, name, _passthrough_decorator)
 
     import app.api.ipxe as ipxe_mod
+
     ipxe_mod = importlib.reload(ipxe_mod)
 
     from quart import Quart, g
@@ -168,7 +168,9 @@ class TestDeployMachine:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_deploy_machine_invalid_state(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_deploy_machine_invalid_state(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test deploy_machine when machine is in invalid state."""
         app, ipxe_mod = ipxe_app
 
@@ -186,16 +188,22 @@ class TestDeployMachine:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_deploy_machine_no_body(self, ipxe_client, ipxe_app, monkeypatch, mock_machine):
+    async def test_deploy_machine_no_body(
+        self, ipxe_client, ipxe_app, monkeypatch, mock_machine
+    ):
         """Test deploy_machine with no request body."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
 
-        response = await ipxe_client.post("/api/v1/ipxe/machines/sys-123/deploy", json=None)
+        response = await ipxe_client.post(
+            "/api/v1/ipxe/machines/sys-123/deploy", json=None
+        )
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_deploy_machine_missing_image_id(self, ipxe_client, ipxe_app, monkeypatch, mock_machine):
+    async def test_deploy_machine_missing_image_id(
+        self, ipxe_client, ipxe_app, monkeypatch, mock_machine
+    ):
         """Test deploy_machine without required image_id."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
@@ -206,7 +214,9 @@ class TestDeployMachine:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    async def test_deploy_machine_image_not_found(self, ipxe_client, ipxe_app, monkeypatch, mock_machine):
+    async def test_deploy_machine_image_not_found(
+        self, ipxe_client, ipxe_app, monkeypatch, mock_machine
+    ):
         """Test deploy_machine with non-existent image."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
@@ -236,14 +246,24 @@ class TestDeployMachine:
 
     @pytest.mark.asyncio
     async def test_deploy_machine_success(
-        self, ipxe_client, ipxe_app, monkeypatch, mock_machine, mock_image, mock_boot_config
+        self,
+        ipxe_client,
+        ipxe_app,
+        monkeypatch,
+        mock_machine,
+        mock_image,
+        mock_boot_config,
     ):
         """Test successful machine deployment."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
         monkeypatch.setattr(ipxe_mod, "_get_image_by_id", lambda *a: mock_image)
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
-        monkeypatch.setattr(ipxe_mod, "_create_deployment_job", lambda *a, **kw: "job-123")
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
+        monkeypatch.setattr(
+            ipxe_mod, "_create_deployment_job", lambda *a, **kw: "job-123"
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.post(
@@ -278,7 +298,9 @@ class TestUpdateMachineBiomes:
     """Test update_machine_biomes endpoint."""
 
     @pytest.mark.asyncio
-    async def test_update_biomes_machine_not_found(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_update_biomes_machine_not_found(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test update_machine_biomes with non-existent machine."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: None)
@@ -290,12 +312,16 @@ class TestUpdateMachineBiomes:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_update_biomes_no_body(self, ipxe_client, ipxe_app, monkeypatch, mock_machine):
+    async def test_update_biomes_no_body(
+        self, ipxe_client, ipxe_app, monkeypatch, mock_machine
+    ):
         """Test update_machine_biomes with no request body."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
 
-        response = await ipxe_client.put("/api/v1/ipxe/machines/sys-123/biomes", json=None)
+        response = await ipxe_client.put(
+            "/api/v1/ipxe/machines/sys-123/biomes", json=None
+        )
         assert response.status_code == 400
 
     @pytest.mark.asyncio
@@ -375,7 +401,9 @@ class TestDeleteMachine:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_machine_deployed_state(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_delete_machine_deployed_state(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test delete_machine when machine is deployed."""
         app, ipxe_mod = ipxe_app
 
@@ -423,12 +451,15 @@ class TestUpdateBootConfig:
     """Test update_boot_config endpoint."""
 
     @pytest.mark.asyncio
-    async def test_update_boot_config_not_found(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_update_boot_config_not_found(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test update_boot_config with non-existent config."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: None)
 
-        response = await ipxe_client.put("/api/v1/ipxe/boot-configs/999",
+        response = await ipxe_client.put(
+            "/api/v1/ipxe/boot-configs/999",
             json={"description": "Updated"},
         )
         assert response.status_code == 404
@@ -439,19 +470,25 @@ class TestUpdateBootConfig:
     ):
         """Test update_boot_config with no request body."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         response = await ipxe_client.put("/api/v1/ipxe/boot-configs/1", json=None)
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().update() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().update() pattern requires full db setup"
+    )
     async def test_update_boot_config_description(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test update_boot_config with description change."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         updated_config = dict(mock_boot_config)
@@ -459,31 +496,39 @@ class TestUpdateBootConfig:
         db_mock.return_value.select.return_value.first.return_value = updated_config
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: db_mock)
 
-        response = await ipxe_client.put("/api/v1/ipxe/boot-configs/1",
+        response = await ipxe_client.put(
+            "/api/v1/ipxe/boot-configs/1",
             json={"description": "New description"},
         )
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().update() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().update() pattern requires full db setup"
+    )
     async def test_update_boot_config_multiple_fields(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test update_boot_config with multiple fields."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         updated_config = dict(mock_boot_config)
-        updated_config.update({
-            "description": "Updated",
-            "kernel_params": "console=ttyS0 quiet",
-            "timeout_seconds": 60,
-        })
+        updated_config.update(
+            {
+                "description": "Updated",
+                "kernel_params": "console=ttyS0 quiet",
+                "timeout_seconds": 60,
+            }
+        )
         db_mock.return_value.select.return_value.first.return_value = updated_config
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: db_mock)
 
-        response = await ipxe_client.put("/api/v1/ipxe/boot-configs/1",
+        response = await ipxe_client.put(
+            "/api/v1/ipxe/boot-configs/1",
             json={
                 "description": "Updated",
                 "kernel_params": "console=ttyS0 quiet",
@@ -493,13 +538,17 @@ class TestUpdateBootConfig:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().update() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().update() pattern requires full db setup"
+    )
     async def test_update_boot_config_kernel_params(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test update_boot_config with kernel params change."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         updated_config = dict(mock_boot_config)
@@ -507,7 +556,8 @@ class TestUpdateBootConfig:
         db_mock.return_value.select.return_value.first.return_value = updated_config
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: db_mock)
 
-        response = await ipxe_client.put("/api/v1/ipxe/boot-configs/1",
+        response = await ipxe_client.put(
+            "/api/v1/ipxe/boot-configs/1",
             json={"kernel_params": "console=ttyS1 debug"},
         )
         assert response.status_code == 200
@@ -522,7 +572,9 @@ class TestDeleteBootConfig:
     """Test delete_boot_config endpoint."""
 
     @pytest.mark.asyncio
-    async def test_delete_boot_config_not_found(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_delete_boot_config_not_found(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test delete_boot_config with non-existent config."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: None)
@@ -531,13 +583,17 @@ class TestDeleteBootConfig:
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().count() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().count() pattern requires full db setup"
+    )
     async def test_delete_boot_config_in_use(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test delete_boot_config when it's in use by machines."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         query_mock = MagicMock()
@@ -549,13 +605,17 @@ class TestDeleteBootConfig:
         assert response.status_code == 400
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().count() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().count() pattern requires full db setup"
+    )
     async def test_delete_boot_config_success(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test successful boot config deletion."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         query_mock = MagicMock()
@@ -567,13 +627,17 @@ class TestDeleteBootConfig:
         assert response.status_code == 200
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason="penguin-dal query().count() pattern requires full db setup")
+    @pytest.mark.xfail(
+        reason="penguin-dal query().count() pattern requires full db setup"
+    )
     async def test_delete_boot_config_used_by_many(
         self, ipxe_client, ipxe_app, monkeypatch, mock_boot_config
     ):
         """Test delete_boot_config when many machines use it."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: mock_boot_config
+        )
 
         db_mock = MagicMock()
         query_mock = MagicMock()
@@ -594,7 +658,9 @@ class TestPreviewBootConfig:
     """Test preview_boot_config endpoint."""
 
     @pytest.mark.asyncio
-    async def test_preview_boot_config_not_found(self, ipxe_client, ipxe_app, monkeypatch):
+    async def test_preview_boot_config_not_found(
+        self, ipxe_client, ipxe_app, monkeypatch
+    ):
         """Test preview_boot_config with non-existent config."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: None)
@@ -615,7 +681,9 @@ class TestPreviewBootConfig:
             "ipxe_script": "#!ipxe\necho Hello World\nboot",
             "default_image_id": None,
         }
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: config_with_script)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: config_with_script
+        )
 
         response = await ipxe_client.get("/api/v1/ipxe/boot-configs/1/preview")
         assert response.status_code == 200
@@ -637,7 +705,9 @@ class TestPreviewBootConfig:
             "timeout_seconds": 30,
             "kernel_params": "",
         }
-        monkeypatch.setattr(ipxe_mod, "_get_boot_config_by_id", lambda *a: config_with_image)
+        monkeypatch.setattr(
+            ipxe_mod, "_get_boot_config_by_id", lambda *a: config_with_image
+        )
         monkeypatch.setattr(ipxe_mod, "_get_image_by_id", lambda *a: mock_image)
 
         response = await ipxe_client.get("/api/v1/ipxe/boot-configs/1/preview")
@@ -690,7 +760,9 @@ class TestSyncMachineToElder:
         """Test sync_machine_to_elder when Elder is not configured."""
         app, ipxe_mod = ipxe_app
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=None)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.post("/api/v1/ipxe/machines/sys-123/sync-elder")
@@ -708,7 +780,9 @@ class TestSyncMachineToElder:
         mock_elder.__aenter__ = AsyncMock(return_value=mock_elder)
         mock_elder.__aexit__ = AsyncMock(return_value=None)
         mock_elder.sync_machine = AsyncMock(return_value={"status": "synced"})
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=mock_elder))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=mock_elder)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.post("/api/v1/ipxe/machines/sys-123/sync-elder")
@@ -723,7 +797,9 @@ class TestSyncMachineToElder:
         monkeypatch.setattr(ipxe_mod, "_get_machine_by_id", lambda *a: mock_machine)
 
         mock_elder = AsyncMock(side_effect=Exception("Connection failed"))
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=mock_elder))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=mock_elder)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.post("/api/v1/ipxe/machines/sys-123/sync-elder")
@@ -744,7 +820,9 @@ class TestGetElderStatus:
     ):
         """Test get_elder_status when Elder is not configured."""
         app, ipxe_mod = ipxe_app
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=None))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=None)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.get("/api/v1/ipxe/elder/status")
@@ -753,9 +831,7 @@ class TestGetElderStatus:
         assert data["configured"] is False
 
     @pytest.mark.asyncio
-    async def test_get_elder_status_healthy(
-        self, ipxe_client, ipxe_app, monkeypatch
-    ):
+    async def test_get_elder_status_healthy(self, ipxe_client, ipxe_app, monkeypatch):
         """Test get_elder_status when Elder is healthy."""
         app, ipxe_mod = ipxe_app
 
@@ -764,7 +840,9 @@ class TestGetElderStatus:
         mock_elder.__aexit__ = AsyncMock(return_value=None)
         mock_elder.health_check = AsyncMock(return_value=True)
         mock_elder.elder_url = "http://elder:8080"
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=mock_elder))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=mock_elder)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.get("/api/v1/ipxe/elder/status")
@@ -774,9 +852,7 @@ class TestGetElderStatus:
         assert data["healthy"] is True
 
     @pytest.mark.asyncio
-    async def test_get_elder_status_unhealthy(
-        self, ipxe_client, ipxe_app, monkeypatch
-    ):
+    async def test_get_elder_status_unhealthy(self, ipxe_client, ipxe_app, monkeypatch):
         """Test get_elder_status when Elder is unhealthy."""
         app, ipxe_mod = ipxe_app
 
@@ -785,7 +861,9 @@ class TestGetElderStatus:
         mock_elder.__aexit__ = AsyncMock(return_value=None)
         mock_elder.health_check = AsyncMock(return_value=False)
         mock_elder.elder_url = "http://elder:8080"
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=mock_elder))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=mock_elder)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.get("/api/v1/ipxe/elder/status")
@@ -805,7 +883,9 @@ class TestGetElderStatus:
         mock_elder.__aenter__ = AsyncMock(return_value=mock_elder)
         mock_elder.__aexit__ = AsyncMock(return_value=None)
         mock_elder.health_check = AsyncMock(side_effect=Exception("Connection refused"))
-        monkeypatch.setattr("app.integrations.get_elder_client", AsyncMock(return_value=mock_elder))
+        monkeypatch.setattr(
+            "app.integrations.get_elder_client", AsyncMock(return_value=mock_elder)
+        )
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: MagicMock())
 
         response = await ipxe_client.get("/api/v1/ipxe/elder/status")

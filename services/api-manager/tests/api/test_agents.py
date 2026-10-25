@@ -76,6 +76,7 @@ def agents_client(dal, monkeypatch):
 
     # Patch get_db before importing agents module
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal)
 
     # Stub auth decorators
@@ -83,18 +84,24 @@ def agents_client(dal, monkeypatch):
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(mw_mod, "roles_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "get_current_user", lambda: {
-        "id": "test-user-id",
-        "username": "test-user",
-        "role": "admin",
-    })
+    monkeypatch.setattr(
+        mw_mod,
+        "get_current_user",
+        lambda: {
+            "id": "test-user-id",
+            "username": "test-user",
+            "role": "admin",
+        },
+    )
 
     # Stub audit logger
     import app.audit as audit_mod
+
     monkeypatch.setattr(audit_mod, "get_audit_logger", lambda: None)
 
     # Reload agents blueprint
     import app.api.agents as agents_mod
+
     agents_mod = importlib.reload(agents_mod)
     monkeypatch.setattr(agents_mod, "get_db", lambda: dal)
 
@@ -133,9 +140,9 @@ def agents_app(mock_db, monkeypatch):
     monkeypatch.setattr(models_mod, "get_db", lambda: mock_db)
 
     # Stub auth decorators
+    import app.audit as audit_mod
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
-    import app.audit as audit_mod
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(mw_mod, "roles_required", _passthrough_decorator)
@@ -238,7 +245,7 @@ class TestRevokeEnrollmentKey:
 
         fake_key = MagicMock()
         fake_key.id = 1
-        fake_key.__getitem__ = lambda _s, _k: "{\"tenant_id\": \"default\"}"
+        fake_key.__getitem__ = lambda _s, _k: '{"tenant_id": "default"}'
         mock_db.enrollment_keys.return_value = fake_key
 
         def _db_call(*args, **kwargs):
@@ -470,10 +477,7 @@ async def test_create_enrollment_key_with_dal(agents_client):
 @pytest.mark.asyncio
 async def test_create_enrollment_key_with_metadata_dal(agents_client):
     """Test POST /api/v1/agents/enrollment-keys with metadata."""
-    body = {
-        "expires_in_hours": 48,
-        "metadata": {"location": "dc-1", "team": "ops"}
-    }
+    body = {"expires_in_hours": 48, "metadata": {"location": "dc-1", "team": "ops"}}
     response = await agents_client.post(
         "/api/v1/agents/enrollment-keys",
         data=json.dumps(body),
@@ -486,7 +490,9 @@ async def test_create_enrollment_key_with_metadata_dal(agents_client):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 146: db.enrollment_keys(key_id) incorrect syntax")
+@pytest.mark.xfail(
+    reason="agents.py line 146: db.enrollment_keys(key_id) incorrect syntax"
+)
 async def test_revoke_enrollment_key_with_dal(agents_client, dal):
     """Test DELETE /api/v1/agents/enrollment-keys/<id> with real dal."""
     key_hash = hashlib.sha256(b"revoke-test").hexdigest()
@@ -508,7 +514,9 @@ async def test_revoke_enrollment_key_with_dal(agents_client, dal):
 
 
 @pytest.mark.asyncio
-@pytest.mark.xfail(reason="agents.py line 146: db.enrollment_keys(key_id) incorrect syntax")
+@pytest.mark.xfail(
+    reason="agents.py line 146: db.enrollment_keys(key_id) incorrect syntax"
+)
 async def test_revoke_enrollment_key_not_found_dal(agents_client):
     """Test DELETE on non-existent key returns 404."""
     response = await agents_client.delete(
@@ -658,7 +666,6 @@ async def test_enroll_agent_no_body_dal(agents_client):
 async def test_enroll_agent_no_hostname_dal(agents_client):
     """Test POST /api/v1/agents/enroll without hostname returns 400."""
     enrollment_key = "ENROLL-1234-5678"
-    key_hash = hashlib.sha256(enrollment_key.encode()).hexdigest()
 
     # Use agents_client's dal (get it from the app context)
     # We need to access the dal that was passed into agents_client fixture
@@ -889,7 +896,7 @@ class TestRegressionEvalRCEAgentsPy395:
         agent_id = "rce-refresh-agent"
         malicious_payload = "__import__('os').system('id > /tmp/pwned-agents-py-395')"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=agent_id,
             hostname="rce-refresh-host",
             status="active",
@@ -1178,7 +1185,7 @@ class TestRegressionGH31EnrollmentCompleted:
         # Seed agents with mixed enrollment_completed values
         enrolled_agent_id = "enrolled-agent-1"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=enrolled_agent_id,
             hostname="enrolled-host",
             ip_address="192.168.1.1",
@@ -1190,7 +1197,7 @@ class TestRegressionGH31EnrollmentCompleted:
 
         pending_agent_id = "pending-agent-1"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=pending_agent_id,
             hostname="pending-host",
             ip_address="192.168.1.2",
@@ -1208,28 +1215,28 @@ class TestRegressionGH31EnrollmentCompleted:
         assert len(agents) >= 2
 
         # Verify enrolled agent has enrollment_completed=True
-        enrolled = next(
-            (a for a in agents if a["agent_id"] == enrolled_agent_id), None
-        )
-        assert enrolled is not None, f"Enrolled agent {enrolled_agent_id} not found in list"
+        enrolled = next((a for a in agents if a["agent_id"] == enrolled_agent_id), None)
+        assert (
+            enrolled is not None
+        ), f"Enrolled agent {enrolled_agent_id} not found in list"
         assert (
             "enrollment_completed" in enrolled
         ), "enrollment_completed missing from list response"
-        assert enrolled["enrollment_completed"] is True, (
-            "enrollment_completed should be True for enrolled agent in list response"
-        )
+        assert (
+            enrolled["enrollment_completed"] is True
+        ), "enrollment_completed should be True for enrolled agent in list response"
 
         # Verify pending agent has enrollment_completed=False
-        pending = next(
-            (a for a in agents if a["agent_id"] == pending_agent_id), None
-        )
-        assert pending is not None, f"Pending agent {pending_agent_id} not found in list"
+        pending = next((a for a in agents if a["agent_id"] == pending_agent_id), None)
+        assert (
+            pending is not None
+        ), f"Pending agent {pending_agent_id} not found in list"
         assert (
             "enrollment_completed" in pending
         ), "enrollment_completed missing from list response"
-        assert pending["enrollment_completed"] is False, (
-            "enrollment_completed should be False for pending agent in list response"
-        )
+        assert (
+            pending["enrollment_completed"] is False
+        ), "enrollment_completed should be False for pending agent in list response"
 
     @pytest.mark.asyncio
     async def test_enrollment_completed_present_in_detail_response(
@@ -1238,7 +1245,7 @@ class TestRegressionGH31EnrollmentCompleted:
         """Regression: gh-31. enrollment_completed must be present in detail agent responses."""
         agent_id = "detail-agent-1"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=agent_id,
             hostname="detail-host",
             ip_address="192.168.1.10",
@@ -1258,9 +1265,9 @@ class TestRegressionGH31EnrollmentCompleted:
         assert (
             "enrollment_completed" in agent
         ), "enrollment_completed missing from detail response"
-        assert agent["enrollment_completed"] is True, (
-            "enrollment_completed should be True in detail response"
-        )
+        assert (
+            agent["enrollment_completed"] is True
+        ), "enrollment_completed should be True in detail response"
 
     @pytest.mark.asyncio
     async def test_enrollment_completed_consistency_between_list_and_detail(
@@ -1269,7 +1276,7 @@ class TestRegressionGH31EnrollmentCompleted:
         """Regression: gh-31. enrollment_completed values must match in list and detail responses."""
         agent_id = "consistency-agent-1"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=agent_id,
             hostname="consistency-host",
             ip_address="192.168.1.20",
@@ -1296,8 +1303,5 @@ class TestRegressionGH31EnrollmentCompleted:
 
         # Verify enrollment_completed matches between list and detail
         assert (
-            list_agent["enrollment_completed"]
-            == detail_agent["enrollment_completed"]
-        ), (
-            "enrollment_completed must match between list and detail responses"
-        )
+            list_agent["enrollment_completed"] == detail_agent["enrollment_completed"]
+        ), "enrollment_completed must match between list and detail responses"

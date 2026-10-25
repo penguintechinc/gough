@@ -20,9 +20,9 @@ license-server, waddlebot.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import os
-import dataclasses
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -32,13 +32,13 @@ from quart import Blueprint, current_app, jsonify, request
 from ..middleware import auth_required
 from ..security.scope_enforcement import require_scopes
 from ..workers.integration_provisioner import (
-    Credentials,
+    REQUIRED_SCOPES,
+    SUPPORTED_PRODUCTS,
     CredentialMissingError,
+    Credentials,
     IntegrationError,
     IntegrationProvisioner,
     ProductApiError,
-    REQUIRED_SCOPES,
-    SUPPORTED_PRODUCTS,
     UnsupportedProductError,
 )
 

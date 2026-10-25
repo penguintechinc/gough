@@ -2,16 +2,13 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import datetime
-from unittest.mock import MagicMock, call, patch
-
-import pytest
-
+from unittest.mock import MagicMock, patch
 
 # ---------------------------------------------------------------------------
 # Helpers — build mock DB objects
 # ---------------------------------------------------------------------------
+
 
 def _row(**kwargs) -> MagicMock:
     """Simulate a penguin-dal Row-like object."""
@@ -81,30 +78,36 @@ def _make_db(
 # RoleMixin
 # ---------------------------------------------------------------------------
 
+
 class TestRoleMixin:
     def test_eq_with_same_name_role(self):
         from app.security_datastore import PyDALRole
+
         r1 = PyDALRole(name="admin")
         r2 = PyDALRole(name="admin")
         assert r1 == r2
 
     def test_eq_with_string(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="viewer")
         assert r == "viewer"
 
     def test_neq_different_name(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="admin")
         assert r != "viewer"
 
     def test_hash_by_name(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="admin")
         assert hash(r) == hash("admin")
 
     def test_eq_non_role_non_str_returns_false(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="admin")
         assert r != 42
 
@@ -113,46 +116,55 @@ class TestRoleMixin:
 # UserMixin
 # ---------------------------------------------------------------------------
 
+
 class TestUserMixin:
     def test_is_authenticated(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=1, email="a@b.com", active=True)
         assert u.is_authenticated is True
 
     def test_is_anonymous(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=1, email="a@b.com")
         assert u.is_anonymous is False
 
     def test_is_active_when_active_true(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=1, email="a@b.com", active=True)
         assert u.is_active is True
 
     def test_is_active_when_active_false(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=1, email="a@b.com", active=False)
         assert u.is_active is False
 
     def test_get_id_returns_string(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=5, email="a@b.com")
         assert u.get_id() == "5"
 
     def test_get_id_when_none(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         assert u.get_id() == ""
 
     def test_has_role_by_string(self):
-        from app.security_datastore import PyDALUser, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUser
+
         role = PyDALRole(name="admin")
         u = PyDALUser(id=1, email="a@b.com", roles=[role])
         assert u.has_role("admin") is True
         assert u.has_role("viewer") is False
 
     def test_has_role_by_role_object(self):
-        from app.security_datastore import PyDALUser, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUser
+
         role = PyDALRole(name="admin")
         u = PyDALUser(id=1, email="a@b.com", roles=[role])
         assert u.has_role(role) is True
@@ -162,10 +174,14 @@ class TestUserMixin:
 # PyDALRole
 # ---------------------------------------------------------------------------
 
+
 class TestPyDALRole:
     def test_properties_from_kwargs(self):
         from app.security_datastore import PyDALRole
-        r = PyDALRole(name="maintainer", description="Maintainer role", permissions="read")
+
+        r = PyDALRole(
+            name="maintainer", description="Maintainer role", permissions="read"
+        )
         assert r.name == "maintainer"
         assert r.description == "Maintainer role"
         assert r.permissions == "read"
@@ -173,23 +189,27 @@ class TestPyDALRole:
 
     def test_repr(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="admin")
         assert "admin" in repr(r)
 
     def test_name_setter(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="viewer")
         r.name = "admin"
         assert r.name == "admin"
 
     def test_description_setter(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="x")
         r.description = "New desc"
         assert r.description == "New desc"
 
     def test_permissions_setter(self):
         from app.security_datastore import PyDALRole
+
         r = PyDALRole(name="x")
         r.permissions = "write"
         assert r.permissions == "write"
@@ -199,11 +219,19 @@ class TestPyDALRole:
 # PyDALUser
 # ---------------------------------------------------------------------------
 
+
 class TestPyDALUser:
     def test_properties_from_kwargs(self):
         from app.security_datastore import PyDALUser
-        u = PyDALUser(id=7, email="u@example.com", password="hash", active=True,
-                      fs_uniquifier="uid-123", full_name="Test User")
+
+        u = PyDALUser(
+            id=7,
+            email="u@example.com",
+            password="hash",
+            active=True,
+            fs_uniquifier="uid-123",
+            full_name="Test User",
+        )
         assert u.id == 7
         assert u.email == "u@example.com"
         assert u.password == "hash"
@@ -213,34 +241,40 @@ class TestPyDALUser:
 
     def test_repr(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=1, email="test@test.com")
         assert "test@test.com" in repr(u)
 
     def test_email_setter(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="old@test.com")
         u.email = "new@test.com"
         assert u.email == "new@test.com"
 
     def test_password_setter(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         u.password = "newhash"
         assert u.password == "newhash"
 
     def test_active_setter(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com", active=True)
         u.active = False
         assert u.active is False
 
     def test_roles_default_empty(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         assert u.roles == []
 
     def test_roles_setter(self):
-        from app.security_datastore import PyDALUser, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUser
+
         u = PyDALUser(email="a@b.com")
         roles = [PyDALRole(name="admin")]
         u.roles = roles
@@ -248,12 +282,14 @@ class TestPyDALUser:
 
     def test_get_security_payload(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(id=3, email="sec@test.com")
         payload = u.get_security_payload()
         assert payload == {"id": 3, "email": "sec@test.com"}
 
     def test_optional_properties_default_none(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         assert u.confirmed_at is None
         assert u.last_login_at is None
@@ -265,17 +301,20 @@ class TestPyDALUser:
 
     def test_login_count_default_zero(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         assert u.login_count == 0
 
     def test_login_count_setter(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         u.login_count = 5
         assert u.login_count == 5
 
     def test_tf_setters(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         u.tf_totp_secret = "TOTP123"
         u.tf_primary_method = "authenticator"
@@ -284,6 +323,7 @@ class TestPyDALUser:
 
     def test_login_ip_setters(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         u.last_login_ip = "1.2.3.4"
         u.current_login_ip = "5.6.7.8"
@@ -292,6 +332,7 @@ class TestPyDALUser:
 
     def test_login_at_setters(self):
         from app.security_datastore import PyDALUser
+
         u = PyDALUser(email="a@b.com")
         now = datetime.utcnow()
         u.last_login_at = now
@@ -305,6 +346,7 @@ class TestPyDALUser:
 # ---------------------------------------------------------------------------
 # PyDALUserDatastore.find_user
 # ---------------------------------------------------------------------------
+
 
 def _make_db_with_row(row) -> MagicMock:
     """Make a MagicMock DB where any db(query).select().first() returns `row`."""
@@ -325,7 +367,7 @@ def _make_db_with_row(row) -> MagicMock:
 
 class TestFindUser:
     def test_find_by_id_returns_user(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
 
         user_row = MagicMock()
         user_row.id = 1
@@ -355,7 +397,7 @@ class TestFindUser:
         assert result is None
 
     def test_find_by_email(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
 
         user_row = MagicMock()
         user_row.id = 2
@@ -374,7 +416,7 @@ class TestFindUser:
         assert isinstance(result, PyDALUser)
 
     def test_find_by_email_case_insensitive(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUserDatastore
 
         user_row = MagicMock()
         user_row.id = 3
@@ -393,7 +435,7 @@ class TestFindUser:
         assert result is not None
 
     def test_find_by_fs_uniquifier(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUserDatastore
 
         user_row = MagicMock()
         user_row.id = 4
@@ -432,9 +474,10 @@ class TestFindUser:
 # PyDALUserDatastore.find_role
 # ---------------------------------------------------------------------------
 
+
 class TestFindRole:
     def test_find_role_returns_role(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUserDatastore
 
         role_row = MagicMock()
         role_row.id = 10
@@ -460,9 +503,11 @@ class TestFindRole:
 # PyDALUserDatastore.activate_user / deactivate_user / toggle_active
 # ---------------------------------------------------------------------------
 
+
 class TestActivationMethods:
     def _make_store_and_user(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user = MagicMock()
         query = MagicMock()
@@ -472,7 +517,7 @@ class TestActivationMethods:
         return store, user, db, query
 
     def test_deactivate_user(self):
-        from app.security_datastore import PyDALUser
+
         store, user, db, query = self._make_store_and_user()
         result = store.deactivate_user(user)
         assert result is True
@@ -494,7 +539,7 @@ class TestActivationMethods:
         assert user.active is False
 
     def test_toggle_active_from_false_to_true(self):
-        from app.security_datastore import PyDALUser
+
         store, user, db, query = self._make_store_and_user()
         user._data["active"] = False
         result = store.toggle_active(user)
@@ -506,9 +551,11 @@ class TestActivationMethods:
 # PyDALUserDatastore.add_role_to_user / remove_role_from_user
 # ---------------------------------------------------------------------------
 
+
 class TestRoleManagement:
     def _make_store(self, existing_role_row=None):
         from app.security_datastore import PyDALUserDatastore
+
         db = MagicMock()
         db.auth_role = MagicMock()
         db.auth_user = MagicMock()
@@ -520,7 +567,8 @@ class TestRoleManagement:
         return store, db
 
     def test_add_role_to_user_by_role_object(self):
-        from app.security_datastore import PyDALUser, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUser
+
         store, db = self._make_store(existing_role_row=None)
         user = PyDALUser(id=1, email="a@b.com")
         role = PyDALRole(id=10, name="admin")
@@ -530,7 +578,8 @@ class TestRoleManagement:
         db.commit.assert_called()
 
     def test_add_role_to_user_by_string(self):
-        from app.security_datastore import PyDALUser, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUser
+
         store, db = self._make_store(existing_role_row=None)
         user = PyDALUser(id=1, email="a@b.com")
         role_obj = PyDALRole(id=10, name="admin")
@@ -540,6 +589,7 @@ class TestRoleManagement:
 
     def test_add_role_returns_false_when_role_not_found(self):
         from app.security_datastore import PyDALUser
+
         store, db = self._make_store()
         user = PyDALUser(id=1, email="a@b.com")
         with patch.object(store, "find_role", return_value=None):
@@ -547,7 +597,8 @@ class TestRoleManagement:
         assert result is False
 
     def test_add_role_returns_false_when_already_has_role(self):
-        from app.security_datastore import PyDALUser, PyDALRole, PyDALUserDatastore
+        from app.security_datastore import PyDALRole, PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_role = MagicMock()
         db.auth_user = MagicMock()
@@ -562,7 +613,8 @@ class TestRoleManagement:
         assert result is False
 
     def test_remove_role_from_user(self):
-        from app.security_datastore import PyDALUser, PyDALRole, PyDALUserDatastore
+        from app.security_datastore import PyDALRole, PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user_roles = MagicMock()
         db.auth_role = MagicMock()
@@ -577,7 +629,8 @@ class TestRoleManagement:
         assert role not in user.roles
 
     def test_remove_role_by_string(self):
-        from app.security_datastore import PyDALUser, PyDALRole, PyDALUserDatastore
+        from app.security_datastore import PyDALRole, PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user_roles = MagicMock()
         db.auth_role = MagicMock()
@@ -592,7 +645,8 @@ class TestRoleManagement:
         assert result is True
 
     def test_remove_role_returns_false_when_not_deleted(self):
-        from app.security_datastore import PyDALUser, PyDALRole, PyDALUserDatastore
+        from app.security_datastore import PyDALRole, PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user_roles = MagicMock()
         db.auth_role = MagicMock()
@@ -605,8 +659,8 @@ class TestRoleManagement:
         assert result is False
 
     def test_remove_role_returns_false_when_role_not_found(self):
-        from app.security_datastore import PyDALUser
-        from app.security_datastore import PyDALUserDatastore
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         store = PyDALUserDatastore(db)
         user = PyDALUser(id=1, email="a@b.com")
@@ -619,9 +673,11 @@ class TestRoleManagement:
 # PyDALUserDatastore.set_uniquifier
 # ---------------------------------------------------------------------------
 
+
 class TestSetUniquifier:
     def test_set_with_explicit_value(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user = MagicMock()
         query = MagicMock()
@@ -633,7 +689,8 @@ class TestSetUniquifier:
         db.commit.assert_called()
 
     def test_set_with_auto_generated_value(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user = MagicMock()
         query = MagicMock()
@@ -650,9 +707,11 @@ class TestSetUniquifier:
 # PyDALUserDatastore.put
 # ---------------------------------------------------------------------------
 
+
 class TestPut:
     def test_put_existing_user_updates(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user = MagicMock()
         query = MagicMock()
@@ -665,7 +724,8 @@ class TestPut:
         db.commit.assert_called()
 
     def test_put_existing_role_updates(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALRole
+        from app.security_datastore import PyDALRole, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_role = MagicMock()
         query = MagicMock()
@@ -682,9 +742,11 @@ class TestPut:
 # PyDALUserDatastore.delete_user
 # ---------------------------------------------------------------------------
 
+
 class TestDeleteUser:
     def test_delete_user_removes_roles_and_user(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         db.auth_user = MagicMock()
         db.auth_user_roles = MagicMock()
@@ -697,7 +759,8 @@ class TestDeleteUser:
         db.commit.assert_called()
 
     def test_delete_user_noop_when_no_id(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         store = PyDALUserDatastore(db)
         user = PyDALUser(email="noid@example.com")
@@ -709,9 +772,11 @@ class TestDeleteUser:
 # PyDALUserDatastore.reset_user_access
 # ---------------------------------------------------------------------------
 
+
 class TestResetUserAccess:
     def test_reset_calls_set_uniquifier(self):
-        from app.security_datastore import PyDALUserDatastore, PyDALUser
+        from app.security_datastore import PyDALUser, PyDALUserDatastore
+
         db = MagicMock()
         store = PyDALUserDatastore(db)
         user = PyDALUser(id=1, email="a@b.com")

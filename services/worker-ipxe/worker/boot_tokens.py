@@ -37,7 +37,8 @@ _RATE_PREFIX = "gough:boot-rate:"
 _IPMACS_PREFIX = "gough:boot-ip-macs:"  # per source IP: distinct MACs minted for
 
 TOKEN_CAP_REFUSED = Counter(
-    "worker_ipxe_boot_token_cap_refused_total", "Boot token mints refused: per-MAC live-token cap reached"
+    "worker_ipxe_boot_token_cap_refused_total",
+    "Boot token mints refused: per-MAC live-token cap reached",
 )
 
 
@@ -56,7 +57,9 @@ class IPMintLimitError(TokenCapError):
 class RedisLike(Protocol):
     """Subset of redis.asyncio.Redis used here (lets tests inject fakeredis)."""
 
-    async def eval(self, script: str, numkeys: int, *keys_and_args: str | int) -> object:
+    async def eval(
+        self, script: str, numkeys: int, *keys_and_args: str | int
+    ) -> object:
         """Run a Lua script atomically."""
 
     async def get(self, name: str) -> object:
@@ -163,10 +166,19 @@ class BootTokenStore:
         try:
             result = int(
                 await self._client.eval(  # type: ignore[arg-type]
-                    _MINT_LUA, 3,
-                    f"{_KEY_PREFIX}{machine}:{source_ip}", _LIVE_PREFIX + machine,
+                    _MINT_LUA,
+                    3,
+                    f"{_KEY_PREFIX}{machine}:{source_ip}",
+                    _LIVE_PREFIX + machine,
                     _IPMACS_PREFIX + source_ip,
-                    now, ttl, self._cap, max_macs_per_ip, record, source_ip, machine, self._ttl,
+                    now,
+                    ttl,
+                    self._cap,
+                    max_macs_per_ip,
+                    record,
+                    source_ip,
+                    machine,
+                    self._ttl,
                 )
             )
         except Exception as exc:
@@ -174,14 +186,18 @@ class BootTokenStore:
         if result == -2:
             TOKEN_CAP_REFUSED.inc()
             logger.warning("boot_token_ip_mac_limit", limit=max_macs_per_ip)
-            raise IPMintLimitError("this address has requested tokens for too many machines")
+            raise IPMintLimitError(
+                "this address has requested tokens for too many machines"
+            )
         if result == -1:
             TOKEN_CAP_REFUSED.inc()
             logger.warning("boot_token_cap_reached", cap=self._cap)
             raise TokenCapError("too many live boot tokens for this machine")
         return token
 
-    async def redeem(self, token: str, machine: str, source_ip: str, stage: str) -> bool:
+    async def redeem(
+        self, token: str, machine: str, source_ip: str, stage: str
+    ) -> bool:
         """Consume the (machine, ip) token; True only if hash, expiry and stage all match.
 
         A failed attempt does not burn the live token. Single use is atomic: DEL reports
@@ -234,7 +250,12 @@ class BootTokenStore:
         return count <= limit
 
     async def charge_failure(
-        self, pair: str, ip_key: str, pair_limit: int, ip_limit: int, window_seconds: int
+        self,
+        pair: str,
+        ip_key: str,
+        pair_limit: int,
+        ip_limit: int,
+        window_seconds: int,
     ) -> bool:
         """Atomically charge one failed redemption to both counters; False once either is over.
 
@@ -243,8 +264,13 @@ class BootTokenStore:
         """
         try:
             ok = await self._client.eval(  # type: ignore[arg-type]
-                _FAIL_LUA, 2, _RATE_PREFIX + pair, _RATE_PREFIX + ip_key,
-                pair_limit, ip_limit, window_seconds,
+                _FAIL_LUA,
+                2,
+                _RATE_PREFIX + pair,
+                _RATE_PREFIX + ip_key,
+                pair_limit,
+                ip_limit,
+                window_seconds,
             )
         except Exception as exc:
             raise StoreUnavailableError("boot token store unavailable") from exc

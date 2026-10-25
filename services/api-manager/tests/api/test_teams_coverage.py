@@ -8,7 +8,7 @@ from __future__ import annotations
 import importlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -44,14 +44,15 @@ def teams_app(monkeypatch, mock_db):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.teams as teams_mod
+
     teams_mod = importlib.reload(teams_mod)
 
     monkeypatch.setattr(teams_mod, "get_db", lambda: mock_db)
-    monkeypatch.setattr(teams_mod, "get_current_user", lambda: {
-        "id": 1,
-        "email": "admin@test.com",
-        "role": "admin"
-    })
+    monkeypatch.setattr(
+        teams_mod,
+        "get_current_user",
+        lambda: {"id": 1, "email": "admin@test.com", "role": "admin"},
+    )
     monkeypatch.setattr(teams_mod, "user_has_role", lambda role: role == "admin")
 
     from quart import Quart, g
@@ -63,11 +64,7 @@ def teams_app(monkeypatch, mock_db):
 
     @app.before_request
     async def _inject_identity():
-        g.current_user = {
-            "id": 1,
-            "email": "admin@test.com",
-            "role": "admin"
-        }
+        g.current_user = {"id": 1, "email": "admin@test.com", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
     return app, teams_mod
@@ -112,11 +109,7 @@ async def test_add_member_with_expires_at_valid(teams_app):
     client = app.test_client()
     response = await client.post(
         "/api/v1/teams/1/members",
-        json={
-            "user_id": 2,
-            "role": "admin",
-            "expires_at": "2025-12-31T23:59:59"
-        }
+        json={"user_id": 2, "role": "admin", "expires_at": "2025-12-31T23:59:59"},
     )
 
     assert response.status_code == 201
@@ -144,11 +137,7 @@ async def test_add_member_with_expires_at_invalid_format(teams_app):
 
     client = app.test_client()
     response = await client.post(
-        "/api/v1/teams/1/members",
-        json={
-            "user_id": 2,
-            "expires_at": "invalid-date"
-        }
+        "/api/v1/teams/1/members", json={"user_id": 2, "expires_at": "invalid-date"}
     )
 
     assert response.status_code == 400
@@ -177,10 +166,7 @@ async def test_add_member_db_error(teams_app):
     mock_db.team_members.insert.side_effect = Exception("DB error")
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 2}
-    )
+    response = await client.post("/api/v1/teams/1/members", json={"user_id": 2})
 
     assert response.status_code == 500
     assert mock_db.rollback.called
@@ -206,10 +192,7 @@ async def test_add_member_non_admin_no_permission(teams_app, monkeypatch):
     mock_db.return_value = member_query
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 2}
-    )
+    response = await client.post("/api/v1/teams/1/members", json={"user_id": 2})
 
     assert response.status_code == 403
     data = await response.get_json()
@@ -296,7 +279,7 @@ async def test_list_members_with_expires_at(teams_app):
             "added_by": 1,
             "added_at": datetime.now(timezone.utc),
             "expires_at": datetime(2025, 12, 31, 23, 59, 59),
-        }
+        },
     ]
 
     members_query = MagicMock()
@@ -426,8 +409,8 @@ async def test_assign_resource_success(teams_app):
         json={
             "resource_type": "cloud",
             "resource_id": "aws-prod",
-            "permissions": {"read": True, "write": False}
-        }
+            "permissions": {"read": True, "write": False},
+        },
     )
 
     assert response.status_code == 201
@@ -448,10 +431,7 @@ async def test_assign_resource_missing_resource_type(teams_app):
     client = app.test_client()
     response = await client.post(
         "/api/v1/teams/1/resources",
-        json={
-            "resource_id": "aws-prod",
-            "permissions": {"read": True}
-        }
+        json={"resource_id": "aws-prod", "permissions": {"read": True}},
     )
 
     assert response.status_code == 400
@@ -472,10 +452,7 @@ async def test_assign_resource_missing_resource_id(teams_app):
     client = app.test_client()
     response = await client.post(
         "/api/v1/teams/1/resources",
-        json={
-            "resource_type": "cloud",
-            "permissions": {"read": True}
-        }
+        json={"resource_type": "cloud", "permissions": {"read": True}},
     )
 
     assert response.status_code == 400
@@ -496,10 +473,7 @@ async def test_assign_resource_missing_permissions(teams_app):
     client = app.test_client()
     response = await client.post(
         "/api/v1/teams/1/resources",
-        json={
-            "resource_type": "cloud",
-            "resource_id": "aws-prod"
-        }
+        json={"resource_type": "cloud", "resource_id": "aws-prod"},
     )
 
     assert response.status_code == 400
@@ -523,8 +497,8 @@ async def test_assign_resource_invalid_permissions_type(teams_app):
         json={
             "resource_type": "cloud",
             "resource_id": "aws-prod",
-            "permissions": "invalid"
-        }
+            "permissions": "invalid",
+        },
     )
 
     assert response.status_code == 400
@@ -550,8 +524,8 @@ async def test_assign_resource_db_error(teams_app):
         json={
             "resource_type": "cloud",
             "resource_id": "aws-prod",
-            "permissions": {"read": True}
-        }
+            "permissions": {"read": True},
+        },
     )
 
     assert response.status_code == 500
@@ -582,8 +556,8 @@ async def test_assign_resource_non_admin_no_permission(teams_app, monkeypatch):
         json={
             "resource_type": "cloud",
             "resource_id": "aws-prod",
-            "permissions": {"read": True}
-        }
+            "permissions": {"read": True},
+        },
     )
 
     assert response.status_code == 403
@@ -622,7 +596,7 @@ async def test_list_resources_success(teams_app):
             "permissions": '{"admin": true}',
             "assigned_by": 1,
             "assigned_at": datetime.now(timezone.utc),
-        }
+        },
     ]
 
     resources_query = MagicMock()

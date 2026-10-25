@@ -83,8 +83,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Optional, cast
 
-from prometheus_client import Counter, Gauge
-
 from app.db.rls import CROSS_TENANT_SENTINEL, get_current_tenant, set_current_tenant
 from app.security.audit_chain import (
     AuditEvent,
@@ -94,6 +92,7 @@ from app.security.audit_chain import (
 )
 from app.workers import leader_lease as leader_lease_module
 from app.workers.leader_lease import LeaderLeaseHandle
+from prometheus_client import Counter, Gauge
 
 logger = logging.getLogger(__name__)
 

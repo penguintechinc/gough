@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import json
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
+
+import pytest
 
 pytestmark = pytest.mark.asyncio
 
@@ -14,7 +14,9 @@ class TestUpgradeBiome:
     """Tests for upgrade_biome endpoint — behavioral tests with real DB."""
 
     @pytest.mark.asyncio
-    async def test_request_returns_202_with_run_id(self, authed_client, db, monkeypatch):
+    async def test_request_returns_202_with_run_id(
+        self, authed_client, db, monkeypatch
+    ):
         """POST /api/v1/biomes/{id}/upgrade returns 202 with upgrade_run_id."""
         biome_id = db.biomes.insert(
             name="test-lxc-biome",
@@ -50,15 +52,19 @@ class TestUpgradeBiome:
 
         # Mock background task to prevent it from running
         captured = {}
+
         def fake_add_background_task(fn, *args, **kwargs):
             captured["fn"] = fn
             captured["args"] = args
             captured["kwargs"] = kwargs
 
         import app.api.biomes as biomes_mod
-        monkeypatch.setattr(biomes_mod, "current_app", MagicMock(
-            add_background_task=fake_add_background_task
-        ))
+
+        monkeypatch.setattr(
+            biomes_mod,
+            "current_app",
+            MagicMock(add_background_task=fake_add_background_task),
+        )
 
         response = await authed_client.post(
             f"/api/v1/biomes/{biome_id}/upgrade",
@@ -136,7 +142,9 @@ class TestUpgradeBiome:
         data = await response.get_json()
         assert data["error"]["code"] == "forbidden_scope"  # 2
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed"
+    )
     @pytest.mark.asyncio
     async def test_canary_success_progresses_to_batched(self, db):
         """Canary success → status=completed, phase=done."""
@@ -159,7 +167,9 @@ class TestUpgradeBiome:
                 tenant_id="__default__",
             )
             db.commit()
-            db.deployments.insert(biome_id=biome_id, node_id=node_id, status="completed")
+            db.deployments.insert(
+                biome_id=biome_id, node_id=node_id, status="completed"
+            )
             db.commit()
 
         run_id = "test-run-123"
@@ -179,11 +189,14 @@ class TestUpgradeBiome:
         )
         db.commit()
 
-        with patch("app.api.biomes._deploy_and_health_check", new_callable=AsyncMock) as mock_deploy:
+        with patch(
+            "app.api.biomes._deploy_and_health_check", new_callable=AsyncMock
+        ) as mock_deploy:
             mock_deploy.return_value = True
             with patch("app.api.biomes.get_db", return_value=db):
+
                 from app.api.biomes import _execute_upgrade_orchestration
-                import asyncio
+
                 await _execute_upgrade_orchestration(
                     biome_id=biome_id,
                     run_id=run_id,
@@ -196,7 +209,9 @@ class TestUpgradeBiome:
         assert run.phase == "done"  # 2
         assert run.nodes_completed == 3  # 3
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed"
+    )
     @pytest.mark.asyncio
     async def test_canary_failure_rolls_back(self, db):
         """Canary failure → status=rolled_back, phase=canary."""
@@ -219,7 +234,9 @@ class TestUpgradeBiome:
                 tenant_id="__default__",
             )
             db.commit()
-            db.deployments.insert(biome_id=biome_id, node_id=node_id, status="completed")
+            db.deployments.insert(
+                biome_id=biome_id, node_id=node_id, status="completed"
+            )
             db.commit()
 
         run_id = "test-run-fail-canary"
@@ -239,10 +256,13 @@ class TestUpgradeBiome:
         )
         db.commit()
 
-        with patch("app.api.biomes._deploy_and_health_check", new_callable=AsyncMock) as mock_deploy:
+        with patch(
+            "app.api.biomes._deploy_and_health_check", new_callable=AsyncMock
+        ) as mock_deploy:
             mock_deploy.return_value = False
             with patch("app.api.biomes.get_db", return_value=db):
                 from app.api.biomes import _execute_upgrade_orchestration
+
                 await _execute_upgrade_orchestration(
                     biome_id=biome_id,
                     run_id=run_id,
@@ -255,7 +275,9 @@ class TestUpgradeBiome:
         assert run.phase == "canary"  # 2
         assert run.rollback_reason == "canary_failed"  # 3
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed"
+    )
     @pytest.mark.asyncio
     async def test_batched_failure_marks_failed(self, db):
         """Batched phase failure → status=failed, phase=batched."""
@@ -278,7 +300,9 @@ class TestUpgradeBiome:
                 tenant_id="__default__",
             )
             db.commit()
-            db.deployments.insert(biome_id=biome_id, node_id=node_id, status="completed")
+            db.deployments.insert(
+                biome_id=biome_id, node_id=node_id, status="completed"
+            )
             db.commit()
 
         run_id = "test-run-fail-batch"
@@ -304,9 +328,12 @@ class TestUpgradeBiome:
             call_count[0] += 1
             return call_count[0] == 1
 
-        with patch("app.api.biomes._deploy_and_health_check", side_effect=side_effect_deploy):
+        with patch(
+            "app.api.biomes._deploy_and_health_check", side_effect=side_effect_deploy
+        ):
             with patch("app.api.biomes.get_db", return_value=db):
                 from app.api.biomes import _execute_upgrade_orchestration
+
                 await _execute_upgrade_orchestration(
                     biome_id=biome_id,
                     run_id=run_id,
@@ -319,7 +346,9 @@ class TestUpgradeBiome:
         assert run.phase == "batched"  # 2
         assert run.rollback_reason == "batched_phase_failed"  # 3
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed"
+    )
     @pytest.mark.asyncio
     async def test_batch_size_honored(self, db):
         """Batch size from rollout_plan is respected."""
@@ -342,7 +371,9 @@ class TestUpgradeBiome:
                 tenant_id="__default__",
             )
             db.commit()
-            db.deployments.insert(biome_id=biome_id, node_id=node_id, status="completed")
+            db.deployments.insert(
+                biome_id=biome_id, node_id=node_id, status="completed"
+            )
             db.commit()
 
         run_id = "test-run-batch-size"
@@ -368,9 +399,12 @@ class TestUpgradeBiome:
             node_batches.append(nodes)
             return True
 
-        with patch("app.api.biomes._deploy_and_health_check", side_effect=capture_deploy):
+        with patch(
+            "app.api.biomes._deploy_and_health_check", side_effect=capture_deploy
+        ):
             with patch("app.api.biomes.get_db", return_value=db):
                 from app.api.biomes import _execute_upgrade_orchestration
+
                 await _execute_upgrade_orchestration(
                     biome_id=biome_id,
                     run_id=run_id,
@@ -383,7 +417,9 @@ class TestUpgradeBiome:
         assert len(node_batches[1]) == 2  # 3 - batch
         assert len(node_batches[2]) == 2  # 4 - batch
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — Quart background-task patching + DB schema mirror needed"
+    )
     @pytest.mark.asyncio
     async def test_get_upgrade_run_returns_row(self, authed_client, db):
         """GET /api/v1/biomes/{id}/upgrade-runs/{run_id} returns 200."""
@@ -536,22 +572,30 @@ class TestDeployAndHealthCheck:
         import app.api.biomes as biomes_mod
 
         biome_id = db.biomes.insert(
-            name="--force", biome_kind="lxc", workload_type="container",
-            phase="post_deploy", tenant_id="__default__",
+            name="--force",
+            biome_kind="lxc",
+            workload_type="container",
+            phase="post_deploy",
+            tenant_id="__default__",
         )
         node_id = db.nodes.insert(
-            name="node-1", state="ready",
+            name="node-1",
+            state="ready",
             dmi_uuid="00000000-0000-0000-0000-000000000002",
-            primary_nic_mac="aa:bb:cc:dd:ee:02", tenant_id="__default__",
+            primary_nic_mac="aa:bb:cc:dd:ee:02",
+            tenant_id="__default__",
         )
         db.commit()
         migrate = MagicMock()
         monkeypatch.setattr(biomes_mod, "get_db", lambda: db)
         monkeypatch.setattr("app.clients.lxd_extra.live_migrate", migrate)
 
-        assert await biomes_mod._deploy_and_health_check(
-            [str(node_id)], biome_id, "v1", "run-x"
-        ) is False
+        assert (
+            await biomes_mod._deploy_and_health_check(
+                [str(node_id)], biome_id, "v1", "run-x"
+            )
+            is False
+        )
         migrate.assert_not_called()
 
     @pytest.mark.asyncio
@@ -562,19 +606,27 @@ class TestDeployAndHealthCheck:
         import app.api.biomes as biomes_mod
 
         biome_id = db.biomes.insert(
-            name="web", biome_kind="k8s", workload_type="container",
-            phase="post_deploy", tenant_id="__default__",
+            name="web",
+            biome_kind="k8s",
+            workload_type="container",
+            phase="post_deploy",
+            tenant_id="__default__",
         )
         node_id = db.nodes.insert(
-            name="node-1", state="ready",
+            name="node-1",
+            state="ready",
             dmi_uuid="00000000-0000-0000-0000-000000000003",
-            primary_nic_mac="aa:bb:cc:dd:ee:03", tenant_id="__default__",
+            primary_nic_mac="aa:bb:cc:dd:ee:03",
+            tenant_id="__default__",
         )
         db.commit()
         monkeypatch.setattr(biomes_mod, "get_db", lambda: db)
-        assert await biomes_mod._deploy_and_health_check(
-            [str(node_id)], biome_id, "v1", "run-k"
-        ) is False
+        assert (
+            await biomes_mod._deploy_and_health_check(
+                [str(node_id)], biome_id, "v1", "run-k"
+            )
+            is False
+        )
 
     @pytest.mark.asyncio
     async def test_returns_false_when_biome_not_found(

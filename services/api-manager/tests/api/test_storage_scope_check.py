@@ -10,9 +10,8 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-from quart import Quart, g
-
 from app.api.storage import _user_has_scope
+from quart import Quart, g
 
 
 async def _check(user: Any, scope: str) -> bool:

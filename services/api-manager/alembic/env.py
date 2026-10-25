@@ -4,18 +4,14 @@ This module configures Alembic to work with the Gough database using
 environment variables for connection configuration.
 """
 
-from logging.config import fileConfig
-import os
-
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
-from alembic import context
-
 # Import the Base and all models
 import sys
 import types
+from logging.config import fileConfig
 from pathlib import Path
+
+from alembic import context
+from sqlalchemy import engine_from_config, pool
 
 # Add app directory to path (the bare "config" import below needs this)
 service_root = Path(__file__).parent.parent
@@ -42,8 +38,6 @@ if "app" not in sys.modules:
 if str(service_root) not in sys.path:
     sys.path.insert(0, str(service_root))
 
-from app.models_sqlalchemy import Base  # noqa: E402
-
 # Importing models_m1 registers its classes (nodes, biomes,
 # node_egg_assignments, joiner_secrets, audit_events, leader_leases, ...)
 # onto Base.metadata -- models_m1 shares Base rather than declaring its own
@@ -53,6 +47,7 @@ from app.models_sqlalchemy import Base  # noqa: E402
 # M1 table on the next `alembic revision --autogenerate`.
 from app import models_m1  # noqa: E402,F401
 from app.db.init_db import Base as InitBase  # noqa: E402
+from app.models_sqlalchemy import Base  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -123,10 +118,7 @@ def run_migrations_online() -> None:
     )
 
     with connectable.connect() as connection:
-        context.configure(
-            connection=connection,
-            target_metadata=target_metadata
-        )
+        context.configure(connection=connection, target_metadata=target_metadata)
 
         with context.begin_transaction():
             context.run_migrations()

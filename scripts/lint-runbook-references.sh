@@ -43,12 +43,12 @@ EXPECTED_ALERTS=(
 
 # Scan for actual alerts referenced in code
 FOUND_ALERTS=()
-for file in $(find "$CODE_DIR" -type f \( -name "*.py" -o -name "*.go" \) 2>/dev/null); do
+while IFS= read -r -d '' file; do
   # Look for patterns like: gough.audit.chain_integrity_failure or alert("audit-chain-break")
   if grep -q "gough\.\|alert(" "$file"; then
     FOUND_ALERTS+=("$(basename "$file")")
   fi
-done
+done < <(find "$CODE_DIR" -type f \( -name "*.py" -o -name "*.go" \) -print0 2>/dev/null)
 
 # Check for missing runbooks
 MISSING=()

@@ -6,12 +6,10 @@ JetStream context are mocked at the boundary.
 
 from __future__ import annotations
 
-import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.clients.nats import (
     AUDIT_STREAM,
     EVENTS_STREAM,
@@ -27,11 +25,12 @@ from app.clients.nats import (
 )
 from app.clients.vault import VaultError, VaultKvReadResponse
 
-
 # ---------- helpers ---------------------------------------------------------
 
 
-def _vault_with_creds(creds: str | None = "-----BEGIN NATS USER NKEY-----\nSEED\n-----END-----") -> MagicMock:
+def _vault_with_creds(
+    creds: str | None = "-----BEGIN NATS USER NKEY-----\nSEED\n-----END-----",
+) -> MagicMock:
     vault = MagicMock()
     if creds is None:
         vault.kv_read.return_value = VaultKvReadResponse(data={}, metadata={})
@@ -262,9 +261,7 @@ class TestPublish:
         js.update_stream = AsyncMock()
         js.add_stream = AsyncMock()
         # First publish ok, second (audit) fails
-        js.publish = AsyncMock(
-            side_effect=[MagicMock(seq=1), ConnectionClosedError()]
-        )
+        js.publish = AsyncMock(side_effect=[MagicMock(seq=1), ConnectionClosedError()])
 
         client = _make_client()
         ctx, _nc = _patch_connect(js)

@@ -10,9 +10,6 @@ Tests:
 """
 
 import json
-from datetime import datetime
-from io import BytesIO
-from unittest.mock import patch, MagicMock
 
 import pytest
 import yaml
@@ -34,13 +31,13 @@ class TestBiomesListEndpoint:
             name="snap-app",
             display_name="Snap App",
             biome_kind="custom",
-            workload_type="lxc"
+            workload_type="lxc",
         )
         db.biomes.insert(
             name="cloud-init-app",
             display_name="Cloud Init App",
             biome_kind="k8s-worker",
-            workload_type="lxc"
+            workload_type="lxc",
         )
         db.commit()
 
@@ -54,9 +51,7 @@ class TestBiomesListEndpoint:
         names = ["zebra", "apple", "banana"]
         for name in names:
             db.biomes.insert(
-                name=name,
-                display_name=name.capitalize(),
-                biome_kind="custom"
+                name=name, display_name=name.capitalize(), biome_kind="custom"
             )
         db.commit()
 
@@ -75,7 +70,7 @@ class TestBiomesCreateEndpoint:
             display_name="Nginx Web Server",
             description="High-performance web server",
             biome_kind="custom",
-            workload_type="lxc"
+            workload_type="lxc",
         )
         db.commit()
 
@@ -87,19 +82,14 @@ class TestBiomesCreateEndpoint:
     def test_create_biome_validation_missing_name(self, db):
         """Test that name is required."""
         with pytest.raises(Exception):
-            db.biomes.insert(
-                display_name="Test",
-                biome_kind="custom"
-            )
+            db.biomes.insert(display_name="Test", biome_kind="custom")
             db.commit()
 
     def test_create_biome_validation_invalid_kind(self, db):
         """Test that invalid biome kind defaults or fails appropriately."""
         # biome_kind defaults to "custom", so we test with a valid kind
         biome_id = db.biomes.insert(
-            name="test",
-            display_name="Test",
-            biome_kind="k8s-worker"
+            name="test", display_name="Test", biome_kind="k8s-worker"
         )
         db.commit()
 
@@ -115,7 +105,7 @@ class TestBiomesCreateEndpoint:
             biome_kind="custom",
             workload_type="lxc",
             phase="post_deploy",
-            registry_url="ghcr.io/library/postgresql:15"
+            registry_url="ghcr.io/library/postgresql:15",
         )
         db.commit()
 
@@ -127,19 +117,12 @@ class TestBiomesCreateEndpoint:
 
     def test_create_cloud_init_biome(self, db):
         """Test creating a cloud-init biome."""
-        cloud_init_yaml = """#cloud-config
-packages:
-  - curl
-  - vim
-runcmd:
-  - echo "Setup complete"
-"""
         biome_id = db.biomes.insert(
             name="base-setup",
             display_name="Base Setup",
             biome_kind="custom",
             phase="post_deploy",
-            workload_type="lxc"
+            workload_type="lxc",
         )
         db.commit()
 
@@ -154,7 +137,7 @@ runcmd:
             display_name="Ubuntu LXD Container",
             biome_kind="custom",
             workload_type="lxc",
-            registry_url="images://ubuntu/24.04/cloud"
+            registry_url="images://ubuntu/24.04/cloud",
         )
         db.commit()
 
@@ -167,10 +150,7 @@ runcmd:
         """Test creating biome with dependencies."""
         # Create base biome
         base_id = db.biomes.insert(
-            name="base",
-            display_name="Base",
-            biome_kind="custom",
-            workload_type="lxc"
+            name="base", display_name="Base", biome_kind="custom", workload_type="lxc"
         )
         db.commit()
 
@@ -180,7 +160,7 @@ runcmd:
             display_name="Application",
             biome_kind="custom",
             workload_type="lxc",
-            consumes_joiner_secrets_from=json.dumps([base_id])
+            consumes_joiner_secrets_from=json.dumps([base_id]),
         )
         db.commit()
 
@@ -190,18 +170,12 @@ runcmd:
 
     def test_create_biome_duplicate_name(self, db):
         """Test that duplicate biome names are rejected."""
-        db.biomes.insert(
-            name="duplicate",
-            display_name="First",
-            biome_kind="custom"
-        )
+        db.biomes.insert(name="duplicate", display_name="First", biome_kind="custom")
         db.commit()
 
         with pytest.raises(Exception):
             db.biomes.insert(
-                name="duplicate",
-                display_name="Second",
-                biome_kind="custom"
+                name="duplicate", display_name="Second", biome_kind="custom"
             )
             db.commit()
 
@@ -212,8 +186,7 @@ class TestBiomesUpdateEndpoint:
     def test_update_biome_basic_fields(self, db, test_biome):
         """Test updating basic biome fields."""
         db(db.biomes.id == test_biome.id).update(
-            display_name="Updated Biome",
-            description="Updated description"
+            display_name="Updated Biome", description="Updated description"
         )
         db.commit()
 
@@ -228,13 +201,12 @@ class TestBiomesUpdateEndpoint:
             name="test-biome",
             display_name="Test",
             biome_kind="custom",
-            phase="post_deploy"
+            phase="post_deploy",
         )
         db.commit()
 
         db(db.biomes.id == biome_id).update(
-            phase="phase2_initial",
-            workload_type="qemu"
+            phase="phase2_initial", workload_type="qemu"
         )
         db.commit()
 
@@ -248,14 +220,12 @@ class TestBiomesUpdateEndpoint:
             name="test-registry",
             display_name="Test Registry",
             biome_kind="custom",
-            registry_url="images://ubuntu/22.04/cloud"
+            registry_url="images://ubuntu/22.04/cloud",
         )
         db.commit()
 
         new_url = "images://ubuntu/24.04/cloud"
-        db(db.biomes.id == biome_id).update(
-            registry_url=new_url
-        )
+        db(db.biomes.id == biome_id).update(registry_url=new_url)
         db.commit()
 
         biome = db.biomes(biome_id)
@@ -265,7 +235,7 @@ class TestBiomesUpdateEndpoint:
         """Test updating hardware tag requirements."""
         db(db.biomes.id == test_biome.id).update(
             requires_hardware_tags=json.dumps(["nvme", "gpu"]),
-            prefers_hardware_tags=json.dumps(["high-memory"])
+            prefers_hardware_tags=json.dumps(["high-memory"]),
         )
         db.commit()
 
@@ -276,8 +246,7 @@ class TestBiomesUpdateEndpoint:
     def test_update_biome_image_digest(self, db, test_biome):
         """Test updating image digest and signature."""
         db(db.biomes.id == test_biome.id).update(
-            image_digest="sha256:abcdef1234567890",
-            signature_verified=True
+            image_digest="sha256:abcdef1234567890", signature_verified=True
         )
         db.commit()
 
@@ -292,9 +261,7 @@ class TestBiomesDeleteEndpoint:
     def test_delete_biome(self, db):
         """Test deleting a biome."""
         biome_id = db.biomes.insert(
-            name="to-delete",
-            display_name="To Delete",
-            biome_kind="custom"
+            name="to-delete", display_name="To Delete", biome_kind="custom"
         )
         db.commit()
 
@@ -309,7 +276,7 @@ class TestBiomesDeleteEndpoint:
         db.biome_groups.insert(
             name="group",
             display_name="Group",
-            biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}])
+            biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
         )
         db.commit()
 
@@ -333,7 +300,7 @@ class TestBiomeGroupsListEndpoint:
             db.biome_groups.insert(
                 name=f"group-{i}",
                 display_name=f"Group {i}",
-                biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}])
+                biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
             )
         db.commit()
 
@@ -350,7 +317,7 @@ class TestBiomeGroupsCreateEndpoint:
             name="group-1",
             display_name="Group One",
             description="Test group",
-            biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}])
+            biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
         )
         db.commit()
 
@@ -365,21 +332,18 @@ class TestBiomeGroupsCreateEndpoint:
         biome_ids = []
         for i in range(3):
             bid = db.biomes.insert(
-                name=f"biome-{i}",
-                display_name=f"Biome {i}",
-                biome_kind="custom"
+                name=f"biome-{i}", display_name=f"Biome {i}", biome_kind="custom"
             )
             biome_ids.append(bid)
         db.commit()
 
         biomes_data = [
-            {"biome_id": bid, "order": i+1}
-            for i, bid in enumerate(biome_ids)
+            {"biome_id": bid, "order": i + 1} for i, bid in enumerate(biome_ids)
         ]
         group_id = db.biome_groups.insert(
             name="multi-group",
             display_name="Multi Biome Group",
-            biomes=json.dumps(biomes_data)
+            biomes=json.dumps(biomes_data),
         )
         db.commit()
 
@@ -392,7 +356,6 @@ class TestBiomeGroupsCreateEndpoint:
         """Test that invalid biome ID is rejected."""
         # Trying to reference non-existent biome
         # This would be validation in the API
-        biomes_data = [{"biome_id": 99999, "order": 1}]
         # In real API, this would fail validation
         # For database level, we're not enforcing foreign key here
 
@@ -415,14 +378,16 @@ class TestBiomeGroupsGetEndpoint:
         for biome_ref in biomes_data:
             biome = db.biomes(biome_ref["biome_id"])
             if biome:
-                resolved_biomes.append({
-                    "order": biome_ref.get("order", 0),
-                    "biome": {
-                        "id": biome.id,
-                        "name": biome.name,
-                        "display_name": biome.display_name
+                resolved_biomes.append(
+                    {
+                        "order": biome_ref.get("order", 0),
+                        "biome": {
+                            "id": biome.id,
+                            "name": biome.name,
+                            "display_name": biome.display_name,
+                        },
                     }
-                })
+                )
 
         assert len(resolved_biomes) == 1
         assert resolved_biomes[0]["biome"]["name"] == "test-k8s-worker"
@@ -434,8 +399,7 @@ class TestBiomeGroupsUpdateEndpoint:
     def test_update_group_basic_fields(self, db, test_biome_group):
         """Test updating group basic fields."""
         db(db.biome_groups.id == test_biome_group.id).update(
-            display_name="Updated Group Name",
-            description="Updated description"
+            display_name="Updated Group Name", description="Updated description"
         )
         db.commit()
 
@@ -446,18 +410,12 @@ class TestBiomeGroupsUpdateEndpoint:
     def test_update_group_biomes(self, db, test_biome_group):
         """Test updating biomes in group."""
         new_biome_id = db.biomes.insert(
-            name="new-biome",
-            display_name="New Biome",
-            biome_kind="custom"
+            name="new-biome", display_name="New Biome", biome_kind="custom"
         )
         db.commit()
 
-        new_biomes = json.dumps([
-            {"biome_id": new_biome_id, "order": 1}
-        ])
-        db(db.biome_groups.id == test_biome_group.id).update(
-            biomes=new_biomes
-        )
+        new_biomes = json.dumps([{"biome_id": new_biome_id, "order": 1}])
+        db(db.biome_groups.id == test_biome_group.id).update(biomes=new_biomes)
         db.commit()
 
         updated = db.biome_groups(test_biome_group.id)
@@ -527,7 +485,7 @@ packages:
 packages:
   - vim
   - nano
-"""
+""",
         ]
         merged = self._merge_configs(configs)
         packages = merged.get("packages", [])
@@ -542,7 +500,7 @@ hostname: old-name
 """,
             """#cloud-config
 hostname: new-name
-"""
+""",
         ]
         merged = self._merge_configs(configs)
         assert merged["hostname"] == "new-name"
@@ -559,7 +517,7 @@ write_files:
 write_files:
   - path: /etc/other.conf
     content: value2
-"""
+""",
         ]
         merged = self._merge_configs(configs)
         # Dicts get updated/merged
@@ -569,16 +527,13 @@ write_files:
         """Test rendering cloud-init from multiple biomes."""
         # Create biomes with cloud-init spec
         biome1_id = db.biomes.insert(
-            name="base",
-            display_name="Base",
-            biome_kind="custom",
-            phase="post_deploy"
+            name="base", display_name="Base", biome_kind="custom", phase="post_deploy"
         )
         biome2_id = db.biomes.insert(
             name="webserver",
             display_name="Webserver",
             biome_kind="custom",
-            phase="post_deploy"
+            phase="post_deploy",
         )
         db.commit()
 
@@ -623,9 +578,7 @@ class TestLXDImageUpload:
         """Test that upload only works for LXC biomes."""
         # Create non-LXC biome
         qemu_biome = db.biomes.insert(
-            name="qemu-app",
-            display_name="QEMU App",
-            workload_type="qemu"
+            name="qemu-app", display_name="QEMU App", workload_type="qemu"
         )
         db.commit()
 
@@ -639,18 +592,15 @@ class TestLXDImageUpload:
             name="lxc-ubuntu",
             display_name="LXC Ubuntu",
             workload_type="lxc",
-            registry_url="images://ubuntu/24.04/cloud"
+            registry_url="images://ubuntu/24.04/cloud",
         )
         db.commit()
 
         # Simulate upload metadata
-        file_data = b"fake image data"
         image_digest = "sha256:abc123def456"
-        size = len(file_data)
 
         db(db.biomes.id == biome_id).update(
-            image_digest=image_digest,
-            signature_verified=True
+            image_digest=image_digest, signature_verified=True
         )
         db.commit()
 
@@ -661,6 +611,7 @@ class TestLXDImageUpload:
     def test_upload_calculates_checksum(self):
         """Test checksum calculation for uploads."""
         import hashlib
+
         file_data = b"test image content"
         checksum = hashlib.sha256(file_data).hexdigest()
         assert len(checksum) == 64  # SHA256 hex length

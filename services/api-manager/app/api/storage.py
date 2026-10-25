@@ -10,7 +10,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Optional, Any
+from typing import Any
 
 from quart import Blueprint, jsonify, request
 
@@ -18,12 +18,8 @@ from ..auth import require_auth, require_role
 from ..db.run_db import run_db
 from ..models import get_db
 from ..services.storage import (
-    StorageConfig,
-    StorageService,
-    StorageError,
     StorageConfigNotFoundError,
-    StorageAccessError,
-    StorageValidationError,
+    StorageError,
     get_storage_service,
 )
 from ._dto import serialize_storage_config
@@ -43,6 +39,7 @@ storage_bp = Blueprint("storage", __name__)
 def _user_has_scope(scope: str) -> bool:
     """Check if current user has a specific scope."""
     from ..middleware import get_current_user
+
     user = get_current_user() or {}
     payload = user.get("_jwt_payload") or {}
     raw = payload.get("scope", "")
@@ -118,17 +115,18 @@ async def create_storage_config():
         return jsonify({"error": "Name is required"}), 400
 
     if provider_type not in ["s3", "minio", "gcs", "azure_blob"]:
-        return jsonify(
-            {"error": "Invalid provider_type. Must be: s3, minio, gcs, azure_blob"}
-        ), 400
+        return (
+            jsonify(
+                {"error": "Invalid provider_type. Must be: s3, minio, gcs, azure_blob"}
+            ),
+            400,
+        )
 
     if not credentials_path:
         return jsonify({"error": "credentials_path is required"}), 400
 
     if provider_type != "s3" and not endpoint_url:
-        return jsonify(
-            {"error": "endpoint_url required for non-AWS providers"}
-        ), 400
+        return jsonify({"error": "endpoint_url required for non-AWS providers"}), 400
 
     db = get_db()
 
@@ -189,7 +187,9 @@ async def get_storage_config(config_id: int):
 
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
-    config_row = await run_db(lambda: db(db.storage_config.id == config_id).select().first())
+    config_row = await run_db(
+        lambda: db(db.storage_config.id == config_id).select().first()
+    )
 
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
@@ -231,7 +231,9 @@ async def update_storage_config(config_id: int):
 
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
-    config_row = await run_db(lambda: db(db.storage_config.id == config_id).select().first())
+    config_row = await run_db(
+        lambda: db(db.storage_config.id == config_id).select().first()
+    )
 
     if not config_row:
         return jsonify({"error": "Storage configuration not found"}), 404
@@ -252,11 +254,15 @@ async def update_storage_config(config_id: int):
                 lambda: db(
                     (db.storage_config.name == name)
                     & (db.storage_config.id != config_id)
-                ).select().first()
+                )
+                .select()
+                .first()
             )
             if existing:
                 return (
-                    jsonify({"error": f"Storage configuration '{name}' already exists"}),
+                    jsonify(
+                        {"error": f"Storage configuration '{name}' already exists"}
+                    ),
                     409,
                 )
             update_fields["name"] = name
@@ -617,7 +623,10 @@ async def list_storage_quotas():
         200: List of storage quotas with pagination metadata
     """
     if not _user_has_scope("gough.storage.read"):
-        return jsonify({"error": "Insufficient scope: gough.storage.read required"}), 403
+        return (
+            jsonify({"error": "Insufficient scope: gough.storage.read required"}),
+            403,
+        )
 
     db = get_db()
 
@@ -637,25 +646,31 @@ async def list_storage_quotas():
 
     # Fetch all quotas. Regression: gh-22 -- now off the event loop via
     # run_db() instead of blocking the request coroutine inline.
-    quotas_rows = await run_db(lambda: query.select(orderby=~db.storage_quotas.created_at))
+    quotas_rows = await run_db(
+        lambda: query.select(orderby=~db.storage_quotas.created_at)
+    )
 
     quotas = []
     for row in quotas_rows:
-        quotas.append({
-            "id": str(row.id),
-            "tenant_id": row.tenant_id,
-            "resource_type": row.resource_type,
-            "limit_value": float(row.limit_value) if row.limit_value else None,
-            "used_value": float(row.used_value) if row.used_value else None,
-            "unit": row.unit,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        })
+        quotas.append(
+            {
+                "id": str(row.id),
+                "tenant_id": row.tenant_id,
+                "resource_type": row.resource_type,
+                "limit_value": float(row.limit_value) if row.limit_value else None,
+                "used_value": float(row.used_value) if row.used_value else None,
+                "unit": row.unit,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+        )
 
-    return envelope_success({
-        "quotas": quotas,
-        "total": len(quotas),
-    })
+    return envelope_success(
+        {
+            "quotas": quotas,
+            "total": len(quotas),
+        }
+    )
 
 
 @storage_bp.route("/quota-request", methods=["POST"])
@@ -678,14 +693,23 @@ async def request_storage_quota():
         400: Invalid request
     """
     if not _user_has_scope("gough.storage.configure"):
-        return jsonify({"error": "Insufficient scope: gough.storage.configure required"}), 403
+        return (
+            jsonify({"error": "Insufficient scope: gough.storage.configure required"}),
+            403,
+        )
 
     data = await request.get_json(silent=True)
     if not data:
         return err_bad_request("JSON body required")
 
     # Validate required fields
-    required_fields = ["tenant_id", "resource_type", "requested_value", "unit", "justification"]
+    required_fields = [
+        "tenant_id",
+        "resource_type",
+        "requested_value",
+        "unit",
+        "justification",
+    ]
     for field in required_fields:
         if field not in data or not data.get(field):
             return err_bad_request(f"Required field missing: {field}")

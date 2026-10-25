@@ -19,11 +19,9 @@ import threading
 import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Fixtures (copied from test_nodes.py for self-contained test runs)
@@ -576,7 +574,6 @@ class TestAuditLog:
         assert resp.status_code in (200, 204)
 
         # Check audit_events table for the action
-        audits = dal(dal.audit_events.resource_id == str(seed_node)).select()
         # May or may not have audit entries; function handles gracefully
 
     @pytest.mark.asyncio
@@ -891,7 +888,7 @@ class TestDecommissionEdgeCases:
         """Decommissioning twice may fail."""
         # Try decommissioning once
         async with nodes_app.test_client() as client:
-            resp1 = await client.delete(f"/api/v1/nodes/{seed_node}")
+            await client.delete(f"/api/v1/nodes/{seed_node}")
         # First call may succeed or fail
 
         # Try again
@@ -939,7 +936,6 @@ class TestBootstrapNonceStore:
     async def test_discover_with_no_redis_uses_db_fallback(self, nodes_app):
         """Discovery works with DB fallback when Redis unavailable."""
         from unittest.mock import patch as mpatch
-        from app.security.credentials import InvalidCredentialError
 
         # Mock the bootstrap token validator to succeed
         mock_principal = MagicMock()
@@ -948,7 +944,9 @@ class TestBootstrapNonceStore:
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
             return_value=mock_principal,
-        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="token-123"):
+        ), mpatch(
+            "app.clients.spire.SpireClient.register_workload", return_value="token-123"
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
                     "/api/v1/nodes/discover",

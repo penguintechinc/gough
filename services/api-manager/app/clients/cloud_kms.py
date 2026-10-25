@@ -119,7 +119,9 @@ class CloudKMSClient:
         return cls(
             provider=provider,
             key_id=key_id,
-            region=os.getenv("AWS_REGION") or os.getenv("GOUGH_CLOUD_KMS_REGION") or None,
+            region=os.getenv("AWS_REGION")
+            or os.getenv("GOUGH_CLOUD_KMS_REGION")
+            or None,
             vault_url=os.getenv("GOUGH_AZURE_KEY_VAULT_URL") or None,
         )
 
@@ -150,7 +152,9 @@ class CloudKMSClient:
         client = self._get_boto3_client()
         try:
             resp = client.encrypt(KeyId=self.key_id, Plaintext=plaintext)
-        except Exception as exc:  # noqa: BLE001 — boto3 raises provider-specific exceptions
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — boto3 raises provider-specific exceptions
             raise CloudKMSError(f"AWS KMS encrypt failed: {exc}") from exc
 
         ciphertext = resp.get("CiphertextBlob")
@@ -186,7 +190,9 @@ class CloudKMSClient:
         try:
             resp = session.post(url, json=payload, timeout=self.timeout)
             resp.raise_for_status()
-        except Exception as exc:  # noqa: BLE001 — requests/google-auth transport exceptions
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 — requests/google-auth transport exceptions
             raise CloudKMSError(f"GCP Cloud KMS encrypt failed: {exc}") from exc
 
         data = resp.json()
@@ -233,7 +239,9 @@ class CloudKMSClient:
             "value": base64.urlsafe_b64encode(plaintext).decode("ascii").rstrip("="),
         }
         try:
-            resp = session.post(url, json=payload, headers=headers, timeout=self.timeout)
+            resp = session.post(
+                url, json=payload, headers=headers, timeout=self.timeout
+            )
             resp.raise_for_status()
         except Exception as exc:  # noqa: BLE001 — requests transport exceptions
             raise CloudKMSError(f"Azure Key Vault encrypt failed: {exc}") from exc

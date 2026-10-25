@@ -9,7 +9,6 @@ enableCiliumEndpointSlice (refused by chart 1.20.1) is absent.
 from __future__ import annotations
 
 import yaml
-
 from app import catalog
 from app.mirrors import MirrorConfig
 from app.workers.plan_compiler import _render_cni_install
@@ -32,7 +31,11 @@ def _values_yaml() -> str:
         "cilium", {}, "10.2.0.10:6443", mirror_config=MIRROR
     )
     assert errors == []
-    return next(f["content"] for f in write_files if f["path"] == "/etc/gough/cilium-values.yaml")
+    return next(
+        f["content"]
+        for f in write_files
+        if f["path"] == "/etc/gough/cilium-values.yaml"
+    )
 
 
 def test_values_have_no_upstream_registry_names() -> None:
@@ -45,7 +48,10 @@ def test_values_have_no_upstream_registry_names() -> None:
 def test_values_omit_endpoint_slice_key() -> None:
     """enableCiliumEndpointSlice is refused by chart 1.20.1 and must not be rendered or defaulted."""
     assert "enableCiliumEndpointSlice" not in _values_yaml()
-    assert "enableCiliumEndpointSlice" not in catalog.BUILTIN_BIOMES[0]["default_cni"]["values"]
+    assert (
+        "enableCiliumEndpointSlice"
+        not in catalog.BUILTIN_BIOMES[0]["default_cni"]["values"]
+    )
 
 
 def test_every_image_pinned_by_digest_to_mirror_path() -> None:

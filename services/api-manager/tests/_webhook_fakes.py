@@ -118,10 +118,14 @@ class _Transit:
         else:  # pragma: no cover
             raise ValueError(f"unsupported key_type: {key.key_type}")
 
-        public_pem = priv.public_key().public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        ).decode("ascii")
+        public_pem = (
+            priv.public_key()
+            .public_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            .decode("ascii")
+        )
         key.latest_version += 1
         key.versions[key.latest_version] = _TransitVersion(
             private_key=priv, public_pem=public_pem
@@ -141,9 +145,7 @@ class _KVv2:
         self.store[(mount_point, path)] = dict(secret)
         return {"data": {"version": 1}}
 
-    def read_secret_version(
-        self, *, path: str, mount_point: str = "secret"
-    ) -> dict:
+    def read_secret_version(self, *, path: str, mount_point: str = "secret") -> dict:
         if (mount_point, path) not in self.store:
             raise KeyError(path)
         return {"data": {"data": dict(self.store[(mount_point, path)])}}

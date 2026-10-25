@@ -10,9 +10,12 @@ Tests:
 
 import json
 from datetime import datetime
-from unittest.mock import patch, MagicMock, call
+from unittest.mock import MagicMock, patch
 
 import pytest
+
+# DAL expression operand: `field == True` builds a SQL equality query (not an identity check).
+_TRUE = True
 
 
 class TestStorageConfig:
@@ -30,12 +33,14 @@ class TestStorageConfig:
             is_active=True,
             is_default=True,
             use_ssl=True,
-            config_data=json.dumps({
-                "access_key_env": "MINIO_ACCESS_KEY",
-                "secret_key_env": "MINIO_SECRET_KEY",
-                "path_style": False
-            }),
-            created_by=test_user.id
+            config_data=json.dumps(
+                {
+                    "access_key_env": "MINIO_ACCESS_KEY",
+                    "secret_key_env": "MINIO_SECRET_KEY",
+                    "path_style": False,
+                }
+            ),
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -61,7 +66,7 @@ class TestStorageConfig:
                 endpoint_url=endpoint,
                 bucket_name=f"bucket-{name}",
                 credentials_path=f"secrets:{name}",
-                created_by=test_user.id
+                created_by=test_user.id,
             )
         db.commit()
 
@@ -75,7 +80,7 @@ class TestStorageConfig:
             provider_type="s3",
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:test",
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -85,7 +90,7 @@ class TestStorageConfig:
                 provider_type="s3",
                 endpoint_url="http://other:9000",
                 credentials_path="secrets:test",
-                created_by=test_user.id
+                created_by=test_user.id,
             )
             db.commit()
 
@@ -98,7 +103,7 @@ class TestStorageConfig:
             endpoint_url="http://inactive:9000",
             credentials_path="secrets:inactive",
             is_active=False,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         # Create active config
         db.storage_config.insert(
@@ -108,11 +113,11 @@ class TestStorageConfig:
             credentials_path="secrets:active",
             is_active=True,
             is_default=True,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
-        active = db(db.storage_config.is_active == True).select().first()
+        active = db(db.storage_config.is_active == _TRUE).select().first()
         assert active.name == "active"
 
     def test_default_storage_config(self, db, test_user):
@@ -124,7 +129,7 @@ class TestStorageConfig:
             credentials_path="secrets:config1",
             is_active=True,
             is_default=False,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.storage_config.insert(
             name="config2",
@@ -133,12 +138,18 @@ class TestStorageConfig:
             credentials_path="secrets:config2",
             is_active=True,
             is_default=True,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
-        default = db((db.storage_config.is_active == True) &
-                    (db.storage_config.is_default == True)).select().first()
+        default = (
+            db(
+                (db.storage_config.is_active == _TRUE)
+                & (db.storage_config.is_default == _TRUE)
+            )
+            .select()
+            .first()
+        )
         assert default.name == "config2"
 
     def test_storage_config_data_json(self, db, test_user):
@@ -148,7 +159,7 @@ class TestStorageConfig:
             "signature_version": "s3v4",
             "max_retries": 3,
             "timeout": 30,
-            "custom_headers": {"X-Custom": "value"}
+            "custom_headers": {"X-Custom": "value"},
         }
         config_id = db.storage_config.insert(
             name="json-config",
@@ -156,7 +167,7 @@ class TestStorageConfig:
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:test",
             config_data=json.dumps(config_data),
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -169,13 +180,13 @@ class TestStorageConfig:
 class TestStorageOperations:
     """Tests for storage operations with mocked boto3."""
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_upload_file(self, mock_boto3_client, db, test_storage_config):
         """Test uploading file to S3."""
         # Setup mock
         client = MagicMock()
         mock_boto3_client.return_value = client
-        client.put_object.return_value = {'ETag': '"abc123"'}
+        client.put_object.return_value = {"ETag": '"abc123"'}
 
         # Simulate upload
         file_data = b"test file content"
@@ -183,10 +194,7 @@ class TestStorageOperations:
         key = "uploads/test-image.tar.gz"
 
         client.put_object(
-            Bucket=bucket,
-            Key=key,
-            Body=file_data,
-            ContentType="application/gzip"
+            Bucket=bucket, Key=key, Body=file_data, ContentType="application/gzip"
         )
 
         # Verify
@@ -195,7 +203,7 @@ class TestStorageOperations:
         assert call_kwargs["Bucket"] == bucket
         assert call_kwargs["Key"] == key
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_download_file(self, mock_boto3_client, db, test_storage_config):
         """Test downloading file from S3."""
         client = MagicMock()
@@ -203,8 +211,8 @@ class TestStorageOperations:
 
         file_data = b"downloaded content"
         client.get_object.return_value = {
-            'Body': MagicMock(read=MagicMock(return_value=file_data)),
-            'ContentLength': len(file_data)
+            "Body": MagicMock(read=MagicMock(return_value=file_data)),
+            "ContentLength": len(file_data),
         }
 
         # Simulate download
@@ -212,20 +220,20 @@ class TestStorageOperations:
         key = "images/ubuntu-24.04.tar.gz"
 
         response = client.get_object(Bucket=bucket, Key=key)
-        content = response['Body'].read()
+        content = response["Body"].read()
 
         assert content == file_data
         client.get_object.assert_called_once_with(Bucket=bucket, Key=key)
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_head_object(self, mock_boto3_client, db, test_storage_config):
         """Test checking object metadata."""
         client = MagicMock()
         mock_boto3_client.return_value = client
         client.head_object.return_value = {
-            'ContentLength': 1000000,
-            'LastModified': datetime.utcnow(),
-            'ETag': '"abc123def456"'
+            "ContentLength": 1000000,
+            "LastModified": datetime.utcnow(),
+            "ETag": '"abc123def456"',
         }
 
         bucket = test_storage_config.bucket_name
@@ -233,36 +241,36 @@ class TestStorageOperations:
 
         response = client.head_object(Bucket=bucket, Key=key)
 
-        assert response['ContentLength'] == 1000000
-        assert 'ETag' in response
+        assert response["ContentLength"] == 1000000
+        assert "ETag" in response
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_list_objects(self, mock_boto3_client, db, test_storage_config):
         """Test listing objects in bucket."""
         client = MagicMock()
         mock_boto3_client.return_value = client
         client.list_objects_v2.return_value = {
-            'Contents': [
-                {'Key': 'image1.tar.gz', 'Size': 100},
-                {'Key': 'image2.tar.gz', 'Size': 200},
-                {'Key': 'image3.tar.gz', 'Size': 300},
+            "Contents": [
+                {"Key": "image1.tar.gz", "Size": 100},
+                {"Key": "image2.tar.gz", "Size": 200},
+                {"Key": "image3.tar.gz", "Size": 300},
             ],
-            'KeyCount': 3
+            "KeyCount": 3,
         }
 
         bucket = test_storage_config.bucket_name
         response = client.list_objects_v2(Bucket=bucket, Prefix="images/")
 
-        assert response['KeyCount'] == 3
-        assert len(response['Contents']) == 3
-        assert response['Contents'][0]['Key'] == 'image1.tar.gz'
+        assert response["KeyCount"] == 3
+        assert len(response["Contents"]) == 3
+        assert response["Contents"][0]["Key"] == "image1.tar.gz"
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_delete_object(self, mock_boto3_client, db, test_storage_config):
         """Test deleting object from S3."""
         client = MagicMock()
         mock_boto3_client.return_value = client
-        client.delete_object.return_value = {'DeleteMarker': True}
+        client.delete_object.return_value = {"DeleteMarker": True}
 
         bucket = test_storage_config.bucket_name
         key = "old-image.tar.gz"
@@ -271,18 +279,18 @@ class TestStorageOperations:
 
         client.delete_object.assert_called_once_with(Bucket=bucket, Key=key)
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_s3_multipart_upload(self, mock_boto3_client, db, test_storage_config):
         """Test multipart upload for large files."""
         client = MagicMock()
         mock_boto3_client.return_value = client
 
         # Mock multipart upload
-        client.create_multipart_upload.return_value = {'UploadId': 'test-upload-id'}
-        client.upload_part.return_value = {'ETag': '"part-etag"'}
+        client.create_multipart_upload.return_value = {"UploadId": "test-upload-id"}
+        client.upload_part.return_value = {"ETag": '"part-etag"'}
         client.complete_multipart_upload.return_value = {
-            'ETag': '"complete-etag"',
-            'Location': 'http://bucket.s3.amazonaws.com/key'
+            "ETag": '"complete-etag"',
+            "Location": "http://bucket.s3.amazonaws.com/key",
         }
 
         bucket = test_storage_config.bucket_name
@@ -290,33 +298,29 @@ class TestStorageOperations:
 
         # Initiate
         mpu = client.create_multipart_upload(Bucket=bucket, Key=key)
-        upload_id = mpu['UploadId']
-        assert upload_id == 'test-upload-id'
+        upload_id = mpu["UploadId"]
+        assert upload_id == "test-upload-id"
 
         # Upload part
         part = client.upload_part(
-            Bucket=bucket,
-            Key=key,
-            PartNumber=1,
-            UploadId=upload_id,
-            Body=b"part data"
+            Bucket=bucket, Key=key, PartNumber=1, UploadId=upload_id, Body=b"part data"
         )
-        assert 'ETag' in part
+        assert "ETag" in part
 
         # Complete
         complete = client.complete_multipart_upload(
             Bucket=bucket,
             Key=key,
             UploadId=upload_id,
-            MultipartUpload={'Parts': [{'ETag': part['ETag'], 'PartNumber': 1}]}
+            MultipartUpload={"Parts": [{"ETag": part["ETag"], "PartNumber": 1}]},
         )
-        assert 'ETag' in complete
+        assert "ETag" in complete
 
 
 class TestStorageErrors:
     """Tests for storage error handling."""
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_handle_bucket_not_found(self, mock_boto3_client, db, test_storage_config):
         """Test handling bucket not found error."""
         from botocore.exceptions import ClientError
@@ -325,17 +329,17 @@ class TestStorageErrors:
         mock_boto3_client.return_value = client
 
         error = ClientError(
-            {'Error': {'Code': 'NoSuchBucket', 'Message': 'Bucket not found'}},
-            'ListObjects'
+            {"Error": {"Code": "NoSuchBucket", "Message": "Bucket not found"}},
+            "ListObjects",
         )
         client.list_objects_v2.side_effect = error
 
         with pytest.raises(ClientError) as exc_info:
-            client.list_objects_v2(Bucket='non-existent-bucket')
+            client.list_objects_v2(Bucket="non-existent-bucket")
 
-        assert 'NoSuchBucket' in str(exc_info.value)
+        assert "NoSuchBucket" in str(exc_info.value)
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_handle_access_denied(self, mock_boto3_client):
         """Test handling access denied error."""
         from botocore.exceptions import ClientError
@@ -344,15 +348,14 @@ class TestStorageErrors:
         mock_boto3_client.return_value = client
 
         error = ClientError(
-            {'Error': {'Code': 'AccessDenied', 'Message': 'Access Denied'}},
-            'GetObject'
+            {"Error": {"Code": "AccessDenied", "Message": "Access Denied"}}, "GetObject"
         )
         client.get_object.side_effect = error
 
         with pytest.raises(ClientError):
-            client.get_object(Bucket='bucket', Key='key')
+            client.get_object(Bucket="bucket", Key="key")
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_handle_connection_error(self, mock_boto3_client):
         """Test handling connection errors."""
         from botocore.exceptions import BotoCoreError
@@ -364,9 +367,9 @@ class TestStorageErrors:
         client.put_object.side_effect = error
 
         with pytest.raises(BotoCoreError):
-            client.put_object(Bucket='bucket', Key='key', Body=b'data')
+            client.put_object(Bucket="bucket", Key="key", Body=b"data")
 
-    @patch('boto3.client')
+    @patch("boto3.client")
     def test_handle_invalid_credentials(self, mock_boto3_client):
         """Test handling invalid credentials."""
         from botocore.exceptions import ClientError
@@ -375,8 +378,8 @@ class TestStorageErrors:
         mock_boto3_client.return_value = client
 
         error = ClientError(
-            {'Error': {'Code': 'InvalidAccessKeyId', 'Message': 'Invalid credentials'}},
-            'ListBuckets'
+            {"Error": {"Code": "InvalidAccessKeyId", "Message": "Invalid credentials"}},
+            "ListBuckets",
         )
         client.list_buckets.side_effect = error
 
@@ -404,11 +407,11 @@ class TestStorageMultiBackend:
                 bucket_name=f"bucket-{provider_type}",
                 credentials_path=f"secrets:{name}",
                 is_active=True,
-                created_by=test_user.id
+                created_by=test_user.id,
             )
         db.commit()
 
-        configs = db(db.storage_config.is_active == True).select()
+        configs = db(db.storage_config.is_active == _TRUE).select()
         assert len(configs) == 4
 
         providers = {c.provider_type for c in configs}
@@ -424,7 +427,7 @@ class TestStorageMultiBackend:
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:1",
             is_default=True,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         config2_id = db.storage_config.insert(
             name="backend-2",
@@ -432,12 +435,12 @@ class TestStorageMultiBackend:
             endpoint_url="http://localhost:9001",
             credentials_path="secrets:2",
             is_default=False,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
         # Verify initial default
-        default = db((db.storage_config.is_default == True)).select().first()
+        default = db((db.storage_config.is_default == _TRUE)).select().first()
         assert default.name == "backend-1"
 
         # Switch default
@@ -446,7 +449,7 @@ class TestStorageMultiBackend:
         db.commit()
 
         # Verify new default
-        default = db((db.storage_config.is_default == True)).select().first()
+        default = db((db.storage_config.is_default == _TRUE)).select().first()
         assert default.name == "backend-2"
 
     def test_disable_storage_backend(self, db, test_user):
@@ -457,7 +460,7 @@ class TestStorageMultiBackend:
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:test",
             is_active=True,
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -469,7 +472,7 @@ class TestStorageMultiBackend:
         assert config.is_active is False
 
         # Should not appear in active configs
-        active = db(db.storage_config.is_active == True).select()
+        active = db(db.storage_config.is_active == _TRUE).select()
         assert config_id not in [c.id for c in active]
 
 
@@ -483,7 +486,7 @@ class TestStorageCredentials:
             provider_type="s3",
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:gough/minio-prod",
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -498,7 +501,7 @@ class TestStorageCredentials:
             provider_type="s3",
             endpoint_url="http://localhost:9000",
             credentials_path="vault:minio/credentials",  # Reference, not actual credentials
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 
@@ -512,7 +515,7 @@ class TestStorageCredentials:
         # Additional config should also reference secrets, not store plaintext
         config_data = {
             "token_path": "secrets:github/token",
-            "api_key_path": "secrets:stripe/key"
+            "api_key_path": "secrets:stripe/key",
         }
         config_id = db.storage_config.insert(
             name="with-config-data",
@@ -520,7 +523,7 @@ class TestStorageCredentials:
             endpoint_url="http://localhost:9000",
             credentials_path="secrets:s3",
             config_data=json.dumps(config_data),
-            created_by=test_user.id
+            created_by=test_user.id,
         )
         db.commit()
 

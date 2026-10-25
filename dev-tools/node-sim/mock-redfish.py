@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """mock-redfish.py — Minimal mock Redfish HTTP server for QEMU BMC simulation."""
 
-import json
 import argparse
-from pathlib import Path
 import http.server
+import json
 import socketserver
-from datetime import datetime
+from pathlib import Path
+
 
 class RedfishHandler(http.server.BaseHTTPRequestHandler):
     """Minimal Redfish API handler."""
@@ -14,28 +14,38 @@ class RedfishHandler(http.server.BaseHTTPRequestHandler):
     def do_GET(self):
         """Handle GET requests (Redfish read operations)."""
         if self.path == "/redfish/v1/":
-            self._json_response(200, {"@odata.id": "/redfish/v1/", "Systems": {"@odata.id": "/redfish/v1/Systems/"}})
+            self._json_response(
+                200,
+                {
+                    "@odata.id": "/redfish/v1/",
+                    "Systems": {"@odata.id": "/redfish/v1/Systems/"},
+                },
+            )
         elif self.path == "/redfish/v1/Systems/":
-            self._json_response(200, {
-                "@odata.id": "/redfish/v1/Systems/",
-                "Members": [{"@odata.id": "/redfish/v1/Systems/1/"}]
-            })
+            self._json_response(
+                200,
+                {
+                    "@odata.id": "/redfish/v1/Systems/",
+                    "Members": [{"@odata.id": "/redfish/v1/Systems/1/"}],
+                },
+            )
         elif self.path == "/redfish/v1/Systems/1/":
-            self._json_response(200, {
-                "@odata.id": "/redfish/v1/Systems/1/",
-                "Id": "1",
-                "Name": "Gough Sim Node",
-                "SystemType": "Virtual",
-                "Manufacturer": "QEMU",
-                "Model": "gough-sim",
-                "SerialNumber": self.server.dmi_uuid[:8],
-                "UUID": self.server.dmi_uuid,
-                "PowerState": "On",
-                "Status": {"State": "Enabled", "Health": "OK"},
-                "Oem": {
-                    "SmartData": self.server.smart_data
-                }
-            })
+            self._json_response(
+                200,
+                {
+                    "@odata.id": "/redfish/v1/Systems/1/",
+                    "Id": "1",
+                    "Name": "Gough Sim Node",
+                    "SystemType": "Virtual",
+                    "Manufacturer": "QEMU",
+                    "Model": "gough-sim",
+                    "SerialNumber": self.server.dmi_uuid[:8],
+                    "UUID": self.server.dmi_uuid,
+                    "PowerState": "On",
+                    "Status": {"State": "Enabled", "Health": "OK"},
+                    "Oem": {"SmartData": self.server.smart_data},
+                },
+            )
         elif self.path == "/redfish/v1/Systems/1/Actions/ComputerSystem.Reset":
             self._json_response(405, {"error": "Use POST to reset"})
         else:
@@ -49,10 +59,13 @@ class RedfishHandler(http.server.BaseHTTPRequestHandler):
             try:
                 data = json.loads(body)
                 reset_type = data.get("ResetType", "On")
-                self._json_response(200, {
-                    "TaskMonitor": "/redfish/v1/TaskService/Tasks/1",
-                    "ResetType": reset_type
-                })
+                self._json_response(
+                    200,
+                    {
+                        "TaskMonitor": "/redfish/v1/TaskService/Tasks/1",
+                        "ResetType": reset_type,
+                    },
+                )
             except json.JSONDecodeError:
                 self._json_response(400, {"error": "Invalid JSON"})
         else:
@@ -68,6 +81,7 @@ class RedfishHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         """Suppress default logging."""
         pass
+
 
 def main():
     parser = argparse.ArgumentParser(description="Mock Redfish HTTP server")
@@ -88,7 +102,9 @@ def main():
         pass
 
     # Create server with custom state
-    with socketserver.TCPServer(("127.0.0.1", args.port), CustomRedfishHandler) as httpd:
+    with socketserver.TCPServer(
+        ("127.0.0.1", args.port), CustomRedfishHandler
+    ) as httpd:
         httpd.dmi_uuid = args.uuid
         httpd.smart_data = smart_data
         print(f"[mock-redfish] Serving on http://127.0.0.1:{args.port}/")
@@ -97,6 +113,7 @@ def main():
             httpd.serve_forever()
         except KeyboardInterrupt:
             print("\n[mock-redfish] Shutting down")
+
 
 if __name__ == "__main__":
     main()

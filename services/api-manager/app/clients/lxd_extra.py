@@ -38,10 +38,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 import requests
-from pydantic import BaseModel, Field
-
 from app.clients.vault import VaultClient, VaultError
 from app.safe_names import validate_rfc1123_name
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -482,9 +481,7 @@ def live_migrate(
 
     operation_url = body.get("operation") if isinstance(body, dict) else None
     if not operation_url:
-        raise LXDMigrationError(
-            f"LXD migration response missing operation URL: {body}"
-        )
+        raise LXDMigrationError(f"LXD migration response missing operation URL: {body}")
     operation_id = operation_url.rsplit("/", 1)[-1]
 
     try:
@@ -549,9 +546,7 @@ def set_trust_password(
             vault=vault,
         )
     except LXDClusterError as exc:
-        raise LXDConfigError(
-            f"Failed to set core.trust_password: {exc}"
-        ) from exc
+        raise LXDConfigError(f"Failed to set core.trust_password: {exc}") from exc
 
     logger.info(
         "Set LXD core.trust_password cluster_id=%s password=%s",

@@ -35,12 +35,17 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from quart import Blueprint, Response, g, request, current_app
+from quart import Blueprint, Response, current_app, g, request
 
 from .. import capacity_guard
 from .. import metrics as _metrics
 from ..db.run_db import run_db
-from ..licensing import ACTIVE_NODE_STATES, count_active_nodes, feature_enabled, node_allowance
+from ..licensing import (
+    ACTIVE_NODE_STATES,
+    count_active_nodes,
+    feature_enabled,
+    node_allowance,
+)
 from ..middleware import auth_required
 from ..models import get_db
 from ._biome_schema import NodeBiomeAssignRequest
@@ -144,6 +149,7 @@ def _get_firmware_type_from_hardware_json(node: Any) -> Any:
     if isinstance(hw_json, str):
         try:
             import json
+
             hw_json = json.loads(hw_json)
         except (ValueError, TypeError):
             return None
@@ -283,7 +289,9 @@ def _has_scope(scope: str) -> bool:
 # ---------------------------------------------------------------------------
 
 
-async def _nats_publish_safe(subject: str, payload: dict[str, Any], tenant_id: str) -> None:
+async def _nats_publish_safe(
+    subject: str, payload: dict[str, Any], tenant_id: str
+) -> None:
     """Publish to NATS; swallow all errors with a warning log."""
     try:
         from ..clients.nats import NatsClient  # type: ignore[import]
@@ -292,10 +300,13 @@ async def _nats_publish_safe(subject: str, payload: dict[str, Any], tenant_id: s
         if client is None:
             # Try app-level singleton stored by factory
             from quart import current_app  # type: ignore[import]
+
             client = getattr(current_app, "nats_client", None)
 
         if client is None:
-            log.warning("NATS client not wired; skipping publish on subject=%s", subject)
+            log.warning(
+                "NATS client not wired; skipping publish on subject=%s", subject
+            )
             return
 
         await client.publish(
@@ -313,7 +324,9 @@ async def _nats_publish_safe(subject: str, payload: dict[str, Any], tenant_id: s
 # ---------------------------------------------------------------------------
 
 
-def _audit_log(action: str, resource_id: str, *, before: Any = None, after: Any = None) -> None:
+def _audit_log(
+    action: str, resource_id: str, *, before: Any = None, after: Any = None
+) -> None:
     """Write an audit event row if the audit_events table is available."""
     try:
         db = get_db()
@@ -369,10 +382,10 @@ async def discover_node():
 
     # Lazy import to avoid circular imports at module load
     from ..security.credentials import (
-        validate_one_time_bootstrap_token,
-        InvalidCredentialError,
         ExpiredCredentialError,
+        InvalidCredentialError,
         OneTimeTokenReplayError,
+        validate_one_time_bootstrap_token,
     )
 
     # Resolve Redis client — graceful fallback to DB nonce store
@@ -381,14 +394,15 @@ async def discover_node():
     signing_secret: Optional[str] = None
     try:
         from quart import current_app  # type: ignore[import]
+
         vault_client = getattr(current_app, "vault_client", None)
         redis_client = getattr(current_app, "redis_client", None)
         # HS256-minted bootstrap tokens are verified with this shared secret;
         # Vault-transit-minted tokens are verified via vault_client. Without
         # either, the validator fails closed (no unverified decode path).
-        signing_secret = current_app.config.get("JWT_SECRET_KEY") or current_app.config.get(
-            "BOOTSTRAP_JWT_SECRET"
-        )
+        signing_secret = current_app.config.get(
+            "JWT_SECRET_KEY"
+        ) or current_app.config.get("BOOTSTRAP_JWT_SECRET")
     except Exception:  # noqa: BLE001
         pass
 
@@ -412,7 +426,9 @@ async def discover_node():
     try:
         principal = await run_db(_validate_token)
     except OneTimeTokenReplayError as exc:
-        return envelope_error("conflict", f"Bootstrap token nonce already used: {exc.nonce}", 409)
+        return envelope_error(
+            "conflict", f"Bootstrap token nonce already used: {exc.nonce}", 409
+        )
     except ExpiredCredentialError as exc:
         return envelope_error("unauthorized", str(exc), 401)
     except InvalidCredentialError as exc:
@@ -441,10 +457,16 @@ async def discover_node():
     token_mac, token_dmi_hint = _token_identity(principal)
     if not token_mac or _normalize_identity_mac(body.primary_nic_mac) != token_mac:
         log.warning("discover refused: reported MAC does not match the bootstrap token")
-        return envelope_error("forbidden", "Reported identity does not match the bootstrap token", 403)
+        return envelope_error(
+            "forbidden", "Reported identity does not match the bootstrap token", 403
+        )
     if token_dmi_hint is not None and body.dmi_uuid.strip().lower() != token_dmi_hint:
-        log.warning("discover refused: reported dmi_uuid does not match the bootstrap token hint")
-        return envelope_error("forbidden", "Reported identity does not match the bootstrap token", 403)
+        log.warning(
+            "discover refused: reported dmi_uuid does not match the bootstrap token hint"
+        )
+        return envelope_error(
+            "forbidden", "Reported identity does not match the bootstrap token", 403
+        )
 
     # ------------------------------------------------------------------
     # 3. Upsert the node row (match by dmi_uuid; detect identity conflicts)
@@ -466,9 +488,9 @@ async def discover_node():
         existing_by_mac = None
         try:
             existing_by_dmi = db(db.nodes.dmi_uuid == body.dmi_uuid).select().first()
-            existing_by_mac = db(
-                db.nodes.primary_nic_mac == body.primary_nic_mac
-            ).select().first()
+            existing_by_mac = (
+                db(db.nodes.primary_nic_mac == body.primary_nic_mac).select().first()
+            )
         except Exception:  # noqa: BLE001 — table may be minimal on test DBs
             pass
 
@@ -496,7 +518,9 @@ async def discover_node():
             "lshw": body.lshw_json,
             "lsblk": body.lsblk_json,
             "nics": [n.model_dump() for n in body.nics],
-            "numa_topology": body.numa_topology.model_dump() if body.numa_topology else None,
+            "numa_topology": (
+                body.numa_topology.model_dump() if body.numa_topology else None
+            ),
             "accelerators": [a.model_dump() for a in body.accelerators],
             "smart_attributes": [s.model_dump() for s in body.smart_attributes],
             "hostname": body.hostname,
@@ -571,7 +595,9 @@ async def discover_node():
 
     ok, result, identity_conflict = await run_db(_upsert_node)
     if not ok:
-        return envelope_error("internal_error", f"DB error during discover: {result}", 500)
+        return envelope_error(
+            "internal_error", f"DB error during discover: {result}", 500
+        )
     node_id = result
 
     # ------------------------------------------------------------------
@@ -611,7 +637,7 @@ async def discover_node():
     # ------------------------------------------------------------------
     spire_join_token: Optional[str] = None
     try:
-        from ..clients.spire import SpireClient, SpireRegistrationEntry, SpireRegistrationFailed
+        from ..clients.spire import SpireClient, SpireRegistrationEntry
 
         cluster_id = os.getenv("GOUGH_CLUSTER_ID", "default")
         trust_domain = os.getenv("GOUGH_SPIRE_TRUST_DOMAIN", f"gough.{cluster_id}")
@@ -709,7 +735,9 @@ def _token_identity(principal: Any) -> tuple[str, Optional[str]]:
         sub = getattr(principal, "sub", "")
         mac = sub.removeprefix("bootstrap:") if isinstance(sub, str) else ""
     hint = claims.get("dmi_uuid_hint")
-    return _normalize_identity_mac(mac), (hint.strip().lower() if isinstance(hint, str) and hint.strip() else None)
+    return _normalize_identity_mac(mac), (
+        hint.strip().lower() if isinstance(hint, str) and hint.strip() else None
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -727,13 +755,15 @@ class _DbNonceStore:
     def __init__(self, db: Any) -> None:
         self._db = db
 
-    def set(self, key: str, value: str, ex: int = 600, nx: bool = False) -> bool:  # noqa: A003
+    def set(
+        self, key: str, value: str, ex: int = 600, nx: bool = False
+    ) -> bool:  # noqa: A003
         """Return True if the key was newly set (nonce not yet used)."""
         nonce = key.removeprefix("bootstrap:nonce:")
         try:
-            existing = self._db(
-                self._db.bootstrap_nonces.nonce == nonce
-            ).select().first()
+            existing = (
+                self._db(self._db.bootstrap_nonces.nonce == nonce).select().first()
+            )
             if existing:
                 return False  # already used
             now = datetime.now(timezone.utc)
@@ -796,7 +826,9 @@ async def list_nodes():
             "tenant_id filter requires cross_tenant super-admin scope",
             403,
         )
-    effective_tenant = requested_tenant if (requested_tenant and cross_tenant) else tenant_id
+    effective_tenant = (
+        requested_tenant if (requested_tenant and cross_tenant) else tenant_id
+    )
 
     # Parse page_size
     try:
@@ -900,10 +932,15 @@ async def list_nodes():
 async def get_node(node_id: int):
     """Return full node detail including hardware_json."""
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -927,12 +964,19 @@ async def get_node_capacity(node_id: int):
     db = get_db()
 
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
         return err_not_found(f"Node {node_id} not found")
-    if not _is_cross_tenant() and _g(node, "tenant_id", "__default__") != _current_tenant_id():
+    if (
+        not _is_cross_tenant()
+        and _g(node, "tenant_id", "__default__") != _current_tenant_id()
+    ):
         return err_not_found(f"Node {node_id} not found")
 
     view = await run_db(lambda: capacity_guard.get_capacity_view(db.engine, node_id))
@@ -961,10 +1005,15 @@ async def patch_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1009,9 +1058,11 @@ async def patch_node(node_id: int):
     # the race past the fast-path check above.
     def _apply_update() -> tuple[str, Any]:
         if body.name is not None:
-            collision = db(
-                (db.nodes.name == body.name) & (db.nodes.id != node_id)
-            ).select().first()
+            collision = (
+                db((db.nodes.name == body.name) & (db.nodes.id != node_id))
+                .select()
+                .first()
+            )
             if collision:
                 return "conflict", None
 
@@ -1024,9 +1075,11 @@ async def patch_node(node_id: int):
             if body.name is not None:
                 # uq_nodes_tenant_name violation from a concurrent PATCH
                 # that won the race past the fast-path check above.
-                still_colliding = db(
-                    (db.nodes.name == body.name) & (db.nodes.id != node_id)
-                ).select().first()
+                still_colliding = (
+                    db((db.nodes.name == body.name) & (db.nodes.id != node_id))
+                    .select()
+                    .first()
+                )
                 if still_colliding:
                     return "conflict", None
             log.exception("Error patching node %s: %s", node_id, exc)
@@ -1064,10 +1117,15 @@ async def reject_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1115,7 +1173,10 @@ async def reject_node(node_id: int):
     # insert+commit -- run it off the event loop too.
     await run_db(
         lambda: _audit_log(
-            "node.reject", str(node_id), before=before, after={"state": "rejected", "reason": body.reason}
+            "node.reject",
+            str(node_id),
+            before=before,
+            after={"state": "rejected", "reason": body.reason},
         )
     )
     return envelope_success(
@@ -1173,14 +1234,26 @@ def _reserve_deploy_capacity(
     disk_gb = 0
     new_found = False
     for biome_id in dict.fromkeys(biome_ids):
-        biome = db(db.biomes.id == biome_id).select().first() if hasattr(db, "biomes") else None
+        biome = (
+            db(db.biomes.id == biome_id).select().first()
+            if hasattr(db, "biomes")
+            else None
+        )
         if biome is None:
             continue
-        already = db(
-            (assign_tbl.node_id == node_id)
-            & (getattr(assign_tbl, biome_field) == biome_id)
-            & (assign_tbl.status.belongs(["pending", "deploying", "ready", "draining"]))
-        ).select().first()
+        already = (
+            db(
+                (assign_tbl.node_id == node_id)
+                & (getattr(assign_tbl, biome_field) == biome_id)
+                & (
+                    assign_tbl.status.belongs(
+                        ["pending", "deploying", "ready", "draining"]
+                    )
+                )
+            )
+            .select()
+            .first()
+        )
         if already:
             continue
         new_found = True
@@ -1192,7 +1265,9 @@ def _reserve_deploy_capacity(
     outcome = capacity_guard.reserve(
         db.engine,
         node_id,
-        capacity_guard.FitRequest(0.0, ram_mb * 1024 * 1024, disk_gb * 1024**3, pol.default_pool),
+        capacity_guard.FitRequest(
+            0.0, ram_mb * 1024 * 1024, disk_gb * 1024**3, pol.default_pool
+        ),
     )
     if not outcome.fit.ok:
         return None, outcome.fit.reasons
@@ -1234,10 +1309,15 @@ async def deploy_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1280,8 +1360,7 @@ async def deploy_node(node_id: int):
         try:
             if hasattr(db, "disks"):
                 return db(
-                    (db.disks.node_id == node_id)
-                    & (db.disks.smart_status == "failed")
+                    (db.disks.node_id == node_id) & (db.disks.smart_status == "failed")
                 ).select()
         except Exception as exc:  # noqa: BLE001
             log.warning("SMART status check failed (non-fatal): %s", exc)
@@ -1309,7 +1388,11 @@ async def deploy_node(node_id: int):
     # inserted, released on every other path (nothing new, failure, exception).
     reservation_id, fit_refusal = await run_db(
         lambda: _reserve_deploy_capacity(
-            db, node_id, [s.biome_id for s in body.biome_assignments], assign_tbl, biome_field
+            db,
+            node_id,
+            [s.biome_id for s in body.biome_assignments],
+            assign_tbl,
+            biome_field,
         )
     )
     if fit_refusal is not None:
@@ -1329,27 +1412,43 @@ async def deploy_node(node_id: int):
         inserted = 0
         try:
             for spec in body.biome_assignments:
-                biome = db(db.biomes.id == spec.biome_id).select().first() if hasattr(db, "biomes") else None
+                biome = (
+                    db(db.biomes.id == spec.biome_id).select().first()
+                    if hasattr(db, "biomes")
+                    else None
+                )
                 if not biome:
-                    return {"ok": False, "kind": "biome_not_found", "biome_id": spec.biome_id}
+                    return {
+                        "ok": False,
+                        "kind": "biome_not_found",
+                        "biome_id": spec.biome_id,
+                    }
 
                 # Skip if already pending/deploying/ready
-                existing = db(
-                    (assign_tbl.node_id == node_id)
-                    & (getattr(assign_tbl, biome_field) == spec.biome_id)
-                    & (
-                        assign_tbl.status.belongs(
-                            ["pending", "deploying", "ready", "draining"]
+                existing = (
+                    db(
+                        (assign_tbl.node_id == node_id)
+                        & (getattr(assign_tbl, biome_field) == spec.biome_id)
+                        & (
+                            assign_tbl.status.belongs(
+                                ["pending", "deploying", "ready", "draining"]
+                            )
                         )
                     )
-                ).select().first()
+                    .select()
+                    .first()
+                )
                 if existing:
                     ids.append(int(_g(existing, "id")))
                     continue
 
                 # Build insert dict with the correct field names
                 # Map biome field names: biome_id → egg_id, depends_on_biome_instance_id → depends_on_egg_instance_id
-                depends_field = "depends_on_egg_instance_id" if biome_field == "egg_id" else "depends_on_biome_instance_id"
+                depends_field = (
+                    "depends_on_egg_instance_id"
+                    if biome_field == "egg_id"
+                    else "depends_on_biome_instance_id"
+                )
                 insert_data = {
                     "node_id": node_id,
                     biome_field: spec.biome_id,
@@ -1369,7 +1468,9 @@ async def deploy_node(node_id: int):
             db.commit()
             return {"ok": True, "assignment_ids": ids, "inserted": inserted}
         except Exception as exc:  # noqa: BLE001
-            log.exception("Error creating biome assignments for node %s: %s", node_id, exc)
+            log.exception(
+                "Error creating biome assignments for node %s: %s", node_id, exc
+            )
             return {"ok": False, "kind": "internal_error", "error": exc}
 
     settled = reservation_id is None
@@ -1379,9 +1480,11 @@ async def deploy_node(node_id: int):
             held = reservation_id
             keep = bool(result["ok"]) and result.get("inserted", 0) > 0
             await run_db(
-                lambda: capacity_guard.confirm(db.engine, held)
-                if keep
-                else capacity_guard.release(db.engine, held)
+                lambda: (
+                    capacity_guard.confirm(db.engine, held)
+                    if keep
+                    else capacity_guard.release(db.engine, held)
+                )
             )
             settled = True
     finally:
@@ -1448,7 +1551,9 @@ async def deploy_node(node_id: int):
 
             t0 = time.monotonic()
             try:
-                compiled = await asyncio.to_thread(compiler.compile, node_id, plan_request)
+                compiled = await asyncio.to_thread(
+                    compiler.compile, node_id, plan_request
+                )
             except PlanCompilationError as exc:
                 _metrics.plan_compile_total.labels(result="validation_error").inc()
                 log.warning(
@@ -1465,7 +1570,9 @@ async def deploy_node(node_id: int):
                 _metrics.plan_compile_duration_seconds.observe(time.monotonic() - t0)
                 compiler_invoked = True
                 compiled_plan_id = compiled.plan_id
-                compiler_note = f"Plan compiled successfully (plan_id={compiled.plan_id})."
+                compiler_note = (
+                    f"Plan compiled successfully (plan_id={compiled.plan_id})."
+                )
                 log.info(
                     "Plan compiled for node_id=%s plan_id=%s biome_order=%s",
                     node_id,
@@ -1490,7 +1597,9 @@ async def deploy_node(node_id: int):
         lambda: _audit_log(
             "node.deploy",
             str(node_id),
-            after={"biome_assignments": [s.model_dump() for s in body.biome_assignments]},
+            after={
+                "biome_assignments": [s.model_dump() for s in body.biome_assignments]
+            },
         )
     )
     for aid in assignment_ids:
@@ -1535,10 +1644,15 @@ async def evacuate_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1560,6 +1674,7 @@ async def evacuate_node(node_id: int):
     safety_note = "Safety envelope evaluated successfully."
     try:
         from ..workers.migration_engine import evaluate_safety
+
         result = await evaluate_safety(node_id=node_id)
         safety_ok = bool(result.get("safe", True))
         safety_note = result.get("note", "")
@@ -1620,11 +1735,12 @@ async def post_node_event(node_id: int):
             401,
         )
     else:
-        from ..security.credentials import validate_service_svid, InvalidCredentialError
+        from ..security.credentials import InvalidCredentialError, validate_service_svid
 
         trust_bundle_pem: Optional[str] = None
         try:
             from quart import current_app  # type: ignore[import]
+
             trust_bundle_pem = getattr(current_app, "spire_trust_bundle", None)
         except Exception:  # noqa: BLE001
             pass
@@ -1634,8 +1750,6 @@ async def post_node_event(node_id: int):
 
         spiffe_pattern = re.compile(r"spiffe://gough\.[^/]+/node/.*")
         try:
-            from ..security.credentials import validate_service_svid
-
             principal = validate_service_svid(
                 peer_cert_pem=peer_cert_pem,
                 trust_bundle_pem=trust_bundle_pem,
@@ -1660,10 +1774,15 @@ async def post_node_event(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1742,7 +1861,9 @@ async def post_node_event(node_id: int):
             tenant_id=tenant_id,
         )
     except Exception as exc:  # noqa: BLE001
-        log.warning("NATS event publish failed (non-fatal) node_id=%s error=%s", node_id, exc)
+        log.warning(
+            "NATS event publish failed (non-fatal) node_id=%s error=%s", node_id, exc
+        )
 
     return envelope_success(
         {
@@ -1778,10 +1899,15 @@ async def decommission_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1793,7 +1919,9 @@ async def decommission_node(node_id: int):
 
     current_state = _g(node, "state", "new")
     if current_state == "decommissioned":
-        return err_conflict("Node is already decommissioned", details={"state": current_state})
+        return err_conflict(
+            "Node is already decommissioned", details={"state": current_state}
+        )
 
     before = {"state": current_state}
 
@@ -1845,10 +1973,15 @@ async def get_node_tags(node_id: int):
     ``"operator"`` for operator-defined ones.  Operator wins on key collision.
     """
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1898,9 +2031,7 @@ async def get_node_tags(node_id: int):
     operator_tags, operator_keys = await run_db(_fetch_operator_tags)
 
     # Suppress auto tags whose key is shadowed by an operator tag
-    merged_auto = [
-        t for t in auto_tags if t["tag"].split(":")[0] not in operator_keys
-    ]
+    merged_auto = [t for t in auto_tags if t["tag"].split(":")[0] not in operator_keys]
 
     all_tags = merged_auto + operator_tags
     return envelope_success({"tags": all_tags, "total": len(all_tags)})
@@ -1931,10 +2062,15 @@ async def patch_node_tags(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1965,11 +2101,15 @@ async def patch_node_tags(node_id: int):
             # Adds (upsert: insert if not exists)
             for entry in body.add:
                 if hasattr(db, "node_tags_operator"):
-                    existing = db(
-                        (db.node_tags_operator.node_id == node_id)
-                        & (db.node_tags_operator.tag_key == entry.tag_key)
-                        & (db.node_tags_operator.tag_value == entry.tag_value)
-                    ).select().first()
+                    existing = (
+                        db(
+                            (db.node_tags_operator.node_id == node_id)
+                            & (db.node_tags_operator.tag_key == entry.tag_key)
+                            & (db.node_tags_operator.tag_value == entry.tag_value)
+                        )
+                        .select()
+                        .first()
+                    )
                     if not existing:
                         db.node_tags_operator.insert(
                             node_id=node_id,
@@ -2027,10 +2167,15 @@ async def assign_biome_to_node(node_id: int):
     assert body is not None
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -2044,7 +2189,11 @@ async def assign_biome_to_node(node_id: int):
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_biome() -> Any:
-        return db(db.biomes.id == body.biome_id).select().first() if hasattr(db, "biomes") else None
+        return (
+            db(db.biomes.id == body.biome_id).select().first()
+            if hasattr(db, "biomes")
+            else None
+        )
 
     biome = await run_db(_fetch_biome)
     if not biome:
@@ -2055,21 +2204,28 @@ async def assign_biome_to_node(node_id: int):
         return err_internal("node_egg_assignments table not available")
 
     def _check_existing() -> Any:
-        return db(
-            (assign_tbl.node_id == node_id)
-            & (getattr(assign_tbl, biome_field) == body.biome_id)
-            & (
-                assign_tbl.status.belongs(
-                    ["pending", "deploying", "ready", "draining"]
+        return (
+            db(
+                (assign_tbl.node_id == node_id)
+                & (getattr(assign_tbl, biome_field) == body.biome_id)
+                & (
+                    assign_tbl.status.belongs(
+                        ["pending", "deploying", "ready", "draining"]
+                    )
                 )
             )
-        ).select().first()
+            .select()
+            .first()
+        )
 
     existing = await run_db(_check_existing)
     if existing:
         return err_conflict(
             "Biome already assigned to this node",
-            details={"assignment_id": _g(existing, "id"), "status": _g(existing, "status")},
+            details={
+                "assignment_id": _g(existing, "id"),
+                "status": _g(existing, "status"),
+            },
         )
 
     # Regression: gh-22 (Part 4). node_effective_tags() (app/api/_helpers.py)
@@ -2090,8 +2246,11 @@ async def assign_biome_to_node(node_id: int):
         )
 
     if body.depends_on_biome_instance_id is not None:
+
         def _fetch_dep() -> Any:
-            return db(assign_tbl.id == body.depends_on_biome_instance_id).select().first()
+            return (
+                db(assign_tbl.id == body.depends_on_biome_instance_id).select().first()
+            )
 
         dep = await run_db(_fetch_dep)
         if not dep:
@@ -2112,7 +2271,11 @@ async def assign_biome_to_node(node_id: int):
     def _insert_assignment() -> tuple[bool, Any]:
         try:
             # Map field names for backward-compat: egg_id → biome_id, depends_on_egg_instance_id → depends_on_biome_instance_id
-            depends_field = "depends_on_egg_instance_id" if biome_field == "egg_id" else "depends_on_biome_instance_id"
+            depends_field = (
+                "depends_on_egg_instance_id"
+                if biome_field == "egg_id"
+                else "depends_on_biome_instance_id"
+            )
             # ``created_at``/``updated_at`` are NOT NULL on the real
             # ``node_egg_assignments`` table with no server-side default (gh-21
             # regression: this insert used to omit them entirely, which never
@@ -2135,14 +2298,18 @@ async def assign_biome_to_node(node_id: int):
             db.commit()
             return True, db(assign_tbl.id == new_id).select().first()
         except Exception as exc:  # noqa: BLE001
-            log.exception("Error assigning biome %s to node %s: %s", body.biome_id, node_id, exc)
+            log.exception(
+                "Error assigning biome %s to node %s: %s", body.biome_id, node_id, exc
+            )
             return False, exc
 
     ok, result = await run_db(_insert_assignment)
     if not ok:
         return err_internal(str(result))
 
-    return envelope_success({"assignment": _serialize_assignment(result, biome=biome)}, status_code=201)
+    return envelope_success(
+        {"assignment": _serialize_assignment(result, biome=biome)}, status_code=201
+    )
 
 
 @nodes_bp.route("/<int:node_id>/biomes", methods=["GET"])
@@ -2150,10 +2317,15 @@ async def assign_biome_to_node(node_id: int):
 async def list_node_biomes(node_id: int):
     """List biome assignments for a node (Sprint 2 — retained)."""
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -2181,7 +2353,11 @@ async def list_node_biomes(node_id: int):
         pairs: list[tuple[Any, Any]] = []
         for row in rows:
             biome_id = _g(row, biome_field)
-            biome = db(db.biomes.id == biome_id).select().first() if hasattr(db, "biomes") and biome_id else None
+            biome = (
+                db(db.biomes.id == biome_id).select().first()
+                if hasattr(db, "biomes") and biome_id
+                else None
+            )
             pairs.append((row, biome))
         return pairs
 
@@ -2196,10 +2372,15 @@ async def list_node_biomes(node_id: int):
 async def unassign_biome_from_node(node_id: int, biome_id: int):
     """Unassign a biome from a node (Sprint 2 — retained)."""
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -2212,24 +2393,28 @@ async def unassign_biome_from_node(node_id: int, biome_id: int):
 
     assign_tbl, biome_field = _get_assignments_table(db)
     if not assign_tbl:
-        return err_not_found(f"No active assignment for biome {biome_id} on node {node_id}")
+        return err_not_found(
+            f"No active assignment for biome {biome_id} on node {node_id}"
+        )
 
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_assignment() -> Any:
-        return db(
-            (assign_tbl.node_id == node_id)
-            & (getattr(assign_tbl, biome_field) == biome_id)
-            & (
-                assign_tbl.status.belongs(
-                    ["pending", "deploying", "ready"]
-                )
+        return (
+            db(
+                (assign_tbl.node_id == node_id)
+                & (getattr(assign_tbl, biome_field) == biome_id)
+                & (assign_tbl.status.belongs(["pending", "deploying", "ready"]))
             )
-        ).select().first()
+            .select()
+            .first()
+        )
 
     row = await run_db(_fetch_assignment)
     if not row:
-        return err_not_found(f"No active assignment for biome {biome_id} on node {node_id}")
+        return err_not_found(
+            f"No active assignment for biome {biome_id} on node {node_id}"
+        )
 
     # Regression: gh-22. update + commit is one unit of work -- stays in
     # one run_db() closure per the house rule.
@@ -2242,7 +2427,9 @@ async def unassign_biome_from_node(node_id: int, biome_id: int):
             db.commit()
             return True, None
         except Exception as exc:  # noqa: BLE001
-            log.exception("Error unassigning biome %s from node %s: %s", biome_id, node_id, exc)
+            log.exception(
+                "Error unassigning biome %s from node %s: %s", biome_id, node_id, exc
+            )
             return False, exc
 
     ok, err = await run_db(_drain_assignment)
@@ -2278,13 +2465,20 @@ async def get_node_cloud_init(node_id: int) -> Any:
     _VALID_BASELINES = {"native", "hybrid", "full-virtual"}
     baseline = (_req.args.get("baseline") or "native").lower()
     if baseline not in _VALID_BASELINES:
-        return err_bad_request(f"Invalid baseline; must be one of: {', '.join(sorted(_VALID_BASELINES))}")
+        return err_bad_request(
+            f"Invalid baseline; must be one of: {', '.join(sorted(_VALID_BASELINES))}"
+        )
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -2299,9 +2493,11 @@ async def get_node_cloud_init(node_id: int) -> Any:
     def _fetch_template() -> Any:
         try:
             if hasattr(db, "cloud_init_templates"):
-                return db(
-                    db.cloud_init_templates.is_default == True  # noqa: E712
-                ).select().first()
+                return (
+                    db(db.cloud_init_templates.is_default == True)  # noqa: E712
+                    .select()
+                    .first()
+                )
         except Exception as exc:  # noqa: BLE001
             log.warning("Error querying cloud_init_templates: %s", exc)
         return None
@@ -2321,7 +2517,9 @@ async def get_node_cloud_init(node_id: int) -> Any:
             baseline=baseline,
         )
     except Exception as exc:  # noqa: BLE001
-        log.exception("cloud-init template substitution failed for node %s: %s", node_id, exc)
+        log.exception(
+            "cloud-init template substitution failed for node %s: %s", node_id, exc
+        )
         return err_internal("Template render error")
 
     return Response(rendered, status=200, content_type="text/plain; charset=utf-8")
@@ -2355,7 +2553,9 @@ def _parse_ip(raw: Any) -> Any:
         return None
 
 
-def _node_lxd_address(node: Any, agent_ip: Any = None) -> tuple[Optional[str], Optional[str]]:
+def _node_lxd_address(
+    node: Any, agent_ip: Any = None
+) -> tuple[Optional[str], Optional[str]]:
     """Derive the node's LXD ``host:port``; returns ``(address, refusal_reason)``.
 
     ``ipv4_static`` is operator-editable, so it is never trusted alone for an outbound call
@@ -2369,12 +2569,18 @@ def _node_lxd_address(node: Any, agent_ip: Any = None) -> tuple[Optional[str], O
     registered = _parse_ip(_g(node, "ipv4_static") or _g(node, "ipv4"))
     reported = _parse_ip(agent_ip)
     if reported is not None and registered is not None and reported != registered:
-        return None, "node registered address does not match the address its agent reported"
+        return (
+            None,
+            "node registered address does not match the address its agent reported",
+        )
     chosen = reported or registered
     if chosen is None:
         return None, "no registered IP address to join from"
     if _is_blocked_ip(chosen) or chosen.is_unspecified or chosen.is_multicast:
-        return None, "node address is loopback, link-local, metadata or otherwise not routable"
+        return (
+            None,
+            "node address is loopback, link-local, metadata or otherwise not routable",
+        )
     return f"{chosen}:{_LXD_NODE_PORT}", None
 
 
@@ -2399,10 +2605,16 @@ async def node_lxd_join(node_id: int) -> Any:
         return err_bad_request("JSON body required")
 
     if "api_url" in raw:
-        return err_bad_request("api_url is not accepted; the node's registered address is used")
+        return err_bad_request(
+            "api_url is not accepted; the node's registered address is used"
+        )
 
     cluster_id_raw = raw.get("cluster_id") or ""
-    member_name = (raw.get("member_name") or "").strip() if isinstance(raw.get("member_name"), str) else ""
+    member_name = (
+        (raw.get("member_name") or "").strip()
+        if isinstance(raw.get("member_name"), str)
+        else ""
+    )
 
     if not cluster_id_raw or not isinstance(cluster_id_raw, str):
         return err_bad_request("cluster_id is required")
@@ -2412,10 +2624,15 @@ async def node_lxd_join(node_id: int) -> Any:
         return err_validation("member_name must be a valid RFC 1123 hostname")
 
     db = get_db()
+
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -2432,11 +2649,16 @@ async def node_lxd_join(node_id: int) -> Any:
         row = db(db.clusters.id == cluster_id_raw).select().first()
         if row is None:
             return False
-        return _is_cross_tenant() or _g(row, "tenant_id", "__default__") == _current_tenant_id()
+        return (
+            _is_cross_tenant()
+            or _g(row, "tenant_id", "__default__") == _current_tenant_id()
+        )
 
     cluster_ok = await run_db(_check_cluster)
     if cluster_ok is None:
-        return envelope_error("cluster_registry_unavailable", "cluster registry unavailable", 503)
+        return envelope_error(
+            "cluster_registry_unavailable", "cluster registry unavailable", 503
+        )
     if not cluster_ok:
         return err_not_found(f"Cluster {cluster_id_raw} not found")
 
@@ -2446,7 +2668,8 @@ async def node_lxd_join(node_id: int) -> Any:
         if "access_agents" not in getattr(db, "tables", []):
             return None
         rows = db(
-            (db.access_agents.node_id == node_id) & (db.access_agents.status == "active")
+            (db.access_agents.node_id == node_id)
+            & (db.access_agents.status == "active")
         ).select()
         for row in rows:
             if _g(row, "tenant_id") == _g(node, "tenant_id", "__default__"):
@@ -2498,7 +2721,9 @@ async def node_lxd_join(node_id: int) -> Any:
             return True, None
         except Exception as exc:  # noqa: BLE001
             db.rollback()
-            log.exception("DB error recording LXD membership for node %s: %s", node_id, exc)
+            log.exception(
+                "DB error recording LXD membership for node %s: %s", node_id, exc
+            )
             return False, exc
 
     ok, err = await run_db(_record_membership)
@@ -2507,7 +2732,9 @@ async def node_lxd_join(node_id: int) -> Any:
 
     log.info(
         "Node %s joined LXD cluster %s as member %s",
-        node_id, cluster_id_raw, member_name,
+        node_id,
+        cluster_id_raw,
+        member_name,
     )
     return envelope_success(
         {

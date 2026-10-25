@@ -11,19 +11,24 @@ import socket
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from urllib.parse import urlparse
-import structlog
-from decouple import config as env_config
-from quart import Quart, request, Response, jsonify
-from quart.wrappers.response import ResponseBody
-from hypercorn.config import Config
-from hypercorn.asyncio import serve
+
 import httpcore
 import httpx
-
-from worker.boot_tokens import BootTokenStore, StoreUnavailableError, TokenCapError, create_token_store
-from worker.observations import ObservedClients
+import structlog
+from decouple import config as env_config
+from hypercorn.asyncio import serve
+from hypercorn.config import Config
+from quart import Quart, Response, jsonify, request
+from quart.wrappers.response import ResponseBody
+from worker.boot_tokens import (
+    BootTokenStore,
+    StoreUnavailableError,
+    TokenCapError,
+    create_token_store,
+)
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
+from worker.observations import ObservedClients
 from worker.services.ipxe_handler import _MACHINE_ID_RE, IPXEHandler, _normalize_mac
 
 logger = structlog.get_logger()
@@ -49,7 +54,9 @@ _MESSAGE_MAX = 256
 
 
 def _resolve_client_ip(
-    peer: str | None, forwarded_for: str | None, trusted: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...]
+    peer: str | None,
+    forwarded_for: str | None,
+    trusted: tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, ...],
 ) -> str | None:
     """Return the client IP, or None when it cannot be determined (callers reject).
 
@@ -57,6 +64,7 @@ def _resolve_client_ip(
     the chain is walked right to left and the first untrusted hop is the client, so
     entries a client prepends cannot spoof its address.
     """
+
     def parse(text: str) -> ipaddress.IPv4Address | ipaddress.IPv6Address | None:
         """Parse an address, tolerating whitespace; None if malformed."""
         try:
@@ -125,14 +133,18 @@ def _parse_boot_event(data: object) -> tuple[_BootEvent | None, str]:
     if timestamp is not None and not _TIMESTAMP_RE.fullmatch(timestamp):
         return None, "invalid timestamp"
     message = data.get("message")
-    if message is not None and (len(message) > _MESSAGE_MAX or not message.isprintable()):
+    if message is not None and (
+        len(message) > _MESSAGE_MAX or not message.isprintable()
+    ):
         return None, "invalid message"
     return _BootEvent(mac, stage, machine_id, timestamp, message), ""
 
 
 def _load_image_chunk_size() -> int:
     """Read IMAGE_STREAM_CHUNK_SIZE (bytes) from env; fail loudly if below 1."""
-    size = env_config("IMAGE_STREAM_CHUNK_SIZE", default=DEFAULT_IMAGE_CHUNK_SIZE, cast=int)
+    size = env_config(
+        "IMAGE_STREAM_CHUNK_SIZE", default=DEFAULT_IMAGE_CHUNK_SIZE, cast=int
+    )
     if size < 1:
         raise ValueError(f"IMAGE_STREAM_CHUNK_SIZE must be >= 1, got {size}")
     return size
@@ -160,7 +172,9 @@ class _StorageStream:
         await self.client.aclose()
 
 
-async def _open_storage_stream(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
+async def _open_storage_stream(
+    presigned_url: str, storage_host: str | None = None
+) -> _StorageStream:
     """Open a streamed GET to storage without reading the body.
 
     The host is resolved and classified once and the connection goes to that checked IP.
@@ -168,7 +182,9 @@ async def _open_storage_stream(presigned_url: str, storage_host: str | None = No
     """
     client = await _make_storage_client(presigned_url, storage_host)
     try:
-        upstream = await client.send(client.build_request("GET", presigned_url), stream=True)
+        upstream = await client.send(
+            client.build_request("GET", presigned_url), stream=True
+        )
     except BaseException:
         await client.aclose()
         raise
@@ -238,7 +254,9 @@ class _LazyImageBody(ResponseBody):
     stream as belt-and-braces; close is idempotent.
     """
 
-    def __init__(self, presigned_url: str, chunk_size: int, storage_host: str | None = None) -> None:
+    def __init__(
+        self, presigned_url: str, chunk_size: int, storage_host: str | None = None
+    ) -> None:
         """Store the presigned URL, chunk size and storage host; acquires no resources."""
         self.presigned_url = presigned_url
         self.chunk_size = chunk_size
@@ -261,11 +279,18 @@ class _LazyImageBody(ResponseBody):
     async def _chunks(self) -> AsyncIterator[bytes]:
         """Open the storage GET, yield bounded chunks, and close in one try/finally."""
         try:
-            self.stream = await _open_storage_stream(self.presigned_url, self.storage_host)
+            self.stream = await _open_storage_stream(
+                self.presigned_url, self.storage_host
+            )
             if not self.stream.upstream.is_success:
                 # 200 already committed by the HEAD preflight: abort instead of sending an empty body
-                logger.error("image_storage_get_failed", upstream_status=self.stream.upstream.status_code)
-                raise ImageStorageError(f"storage GET returned {self.stream.upstream.status_code}")
+                logger.error(
+                    "image_storage_get_failed",
+                    upstream_status=self.stream.upstream.status_code,
+                )
+                raise ImageStorageError(
+                    f"storage GET returned {self.stream.upstream.status_code}"
+                )
             async for chunk in self.stream.upstream.aiter_bytes(self.chunk_size):
                 yield chunk
         finally:
@@ -279,23 +304,23 @@ def _validate_image_path(image_path: str) -> tuple[bool, str]:
     Returns (is_valid: bool, error_message: str).
     """
     # Check for null bytes
-    if '\x00' in image_path:
+    if "\x00" in image_path:
         return False, "path contains null bytes"
 
     # Reject leading slash (absolute path)
-    if image_path.startswith('/'):
+    if image_path.startswith("/"):
         return False, "path must not start with /"
 
     # Reject backslashes (Windows-style)
-    if '\\' in image_path:
+    if "\\" in image_path:
         return False, "path contains backslashes"
 
     # Check for .. in original form
-    if '..' in image_path:
+    if ".." in image_path:
         return False, "path contains .. traversal"
 
     # Check for URL-encoded traversal attempts (%2e%2e = .., %2f = /)
-    if '%2e%2e' in image_path.lower() or '%2f' in image_path.lower():
+    if "%2e%2e" in image_path.lower() or "%2f" in image_path.lower():
         return False, "path contains URL-encoded traversal"
 
     # Strict allowlist: only [A-Za-z0-9._/-] (fullmatch: `$` would accept a trailing newline)
@@ -305,7 +330,9 @@ def _validate_image_path(image_path: str) -> tuple[bool, str]:
     return True, ""
 
 
-def _ip_blocked(ip: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_private: bool) -> str | None:
+def _ip_blocked(
+    ip: ipaddress.IPv4Address | ipaddress.IPv6Address, allow_private: bool
+) -> str | None:
     """Return a reason if `ip` must not be fetched from, else None.
 
     Loopback, unspecified, link-local (cloud metadata), multicast and reserved ranges are
@@ -332,7 +359,9 @@ def _storage_host(config: WorkerConfig) -> str | None:
     return (parsed.hostname or "").lower() or None
 
 
-def _validate_presigned_url(presigned_url: str, storage_host: str | None = None) -> tuple[bool, str]:
+def _validate_presigned_url(
+    presigned_url: str, storage_host: str | None = None
+) -> tuple[bool, str]:
     """Validate presigned URL to mitigate SSRF attacks (syntax and literal-IP checks).
 
     DNS names are resolved and classified at connect time by `_make_storage_client`,
@@ -346,7 +375,7 @@ def _validate_presigned_url(presigned_url: str, storage_host: str | None = None)
     except ValueError as e:
         return False, f"invalid URL format: {e}"
 
-    if parsed.scheme not in ('https', 'http'):
+    if parsed.scheme not in ("https", "http"):
         return False, f"URL scheme must be http/https, got {parsed.scheme}"
 
     if not hostname:
@@ -365,7 +394,9 @@ def _validate_presigned_url(presigned_url: str, storage_host: str | None = None)
 
 async def _resolve_host(host: str, port: int) -> list[str]:
     """Resolve `host` to IP strings via the event loop's resolver (patchable seam)."""
-    infos = await asyncio.get_running_loop().getaddrinfo(host, port, type=socket.SOCK_STREAM)
+    infos = await asyncio.get_running_loop().getaddrinfo(
+        host, port, type=socket.SOCK_STREAM
+    )
     return [str(info[4][0]) for info in infos]
 
 
@@ -387,7 +418,11 @@ class _PinnedIPBackend(httpcore.AsyncNetworkBackend):
     ) -> httpcore.AsyncNetworkStream:
         """Connect to the pinned IP, ignoring a fresh DNS answer for `host`."""
         return await self._real.connect_tcp(
-            self._ip, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+            self._ip,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
         )
 
     async def sleep(self, seconds: float) -> None:
@@ -414,13 +449,18 @@ async def _make_storage_client(
     if not ips:
         raise ValueError("storage host did not resolve")
     for raw in ips:
-        reason = _ip_blocked(ipaddress.ip_address(raw), allow_private=host == storage_host)
+        reason = _ip_blocked(
+            ipaddress.ip_address(raw), allow_private=host == storage_host
+        )
         if reason:
             raise ValueError(reason)
     transport = httpx.AsyncHTTPTransport()
     transport._pool._network_backend = _PinnedIPBackend(ips[0])  # type: ignore[attr-defined]
     return httpx.AsyncClient(
-        transport=transport, timeout=timeout or _storage_timeout(), follow_redirects=False, trust_env=False
+        transport=transport,
+        timeout=timeout or _storage_timeout(),
+        follow_redirects=False,
+        trust_env=False,
     )
 
 
@@ -449,10 +489,14 @@ class HTTPBootServer:
         self.app.config["MAX_CONTENT_LENGTH"] = BOOT_EVENT_MAX_BYTES
         if token_store is None:
             if not config.redis_url:
-                raise ValueError("REDIS_URL is required for boot tokens and rate limiting")
+                raise ValueError(
+                    "REDIS_URL is required for boot tokens and rate limiting"
+                )
             token_store = create_token_store(config.redis_url)
         self.token_store = token_store
-        self.trusted_proxies = tuple(ipaddress.ip_network(c) for c in config.trusted_proxies)
+        self.trusted_proxies = tuple(
+            ipaddress.ip_network(c) for c in config.trusted_proxies
+        )
         self.ipxe_handler = IPXEHandler(config, enrollment, token_store, observed)
         self.image_chunk_size = _load_image_chunk_size()
         self.server_task = None
@@ -478,20 +522,38 @@ class HTTPBootServer:
             client_ip = self._client_ip()
             logger.info("ipxe_script_request", client_ip=client_ip)
             if client_ip is None:
-                return Response("#!ipxe\necho Unknown client address\nshell\n", mimetype="text/plain", status=400)
+                return Response(
+                    "#!ipxe\necho Unknown client address\nshell\n",
+                    mimetype="text/plain",
+                    status=400,
+                )
 
             try:
-                if not await self.token_store.allow(f"ipxe:{client_ip}", IPXE_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S):
+                if not await self.token_store.allow(
+                    f"ipxe:{client_ip}", IPXE_RATE_LIMIT, BOOT_EVENT_RATE_WINDOW_S
+                ):
                     logger.warning("ipxe_rate_limited", client_ip=client_ip)
-                    return Response("#!ipxe\necho Rate limited\nshell\n", mimetype="text/plain", status=429)
+                    return Response(
+                        "#!ipxe\necho Rate limited\nshell\n",
+                        mimetype="text/plain",
+                        status=429,
+                    )
             except StoreUnavailableError:
-                return Response("#!ipxe\necho Service unavailable\nshell\n", mimetype="text/plain", status=503)
+                return Response(
+                    "#!ipxe\necho Service unavailable\nshell\n",
+                    mimetype="text/plain",
+                    status=503,
+                )
 
             try:
                 script = await self.ipxe_handler.generate_script(mac, client_ip)
                 return Response(script, mimetype="text/plain")
             except TokenCapError:
-                return Response("#!ipxe\necho Too many boot requests for this machine\nshell\n", mimetype="text/plain", status=429)
+                return Response(
+                    "#!ipxe\necho Too many boot requests for this machine\nshell\n",
+                    mimetype="text/plain",
+                    status=429,
+                )
             except Exception as e:
                 logger.error("ipxe_script_generation_error", mac=mac, error=str(e))
                 return Response(
@@ -509,7 +571,9 @@ class HTTPBootServer:
                 metadata = await self.ipxe_handler.get_cloud_init_metadata(machine_id)
                 return Response(metadata, mimetype="text/yaml")
             except Exception as e:
-                logger.error("cloud_init_metadata_error", machine_id=machine_id, error=str(e))
+                logger.error(
+                    "cloud_init_metadata_error", machine_id=machine_id, error=str(e)
+                )
                 return Response("# Error\n", mimetype="text/yaml", status=500)
 
         @self.app.route("/cloud-init/<machine_id>/user-data")
@@ -521,8 +585,12 @@ class HTTPBootServer:
                 userdata = await self.ipxe_handler.get_cloud_init_userdata(machine_id)
                 return Response(userdata, mimetype="text/cloud-config")
             except Exception as e:
-                logger.error("cloud_init_userdata_error", machine_id=machine_id, error=str(e))
-                return Response("#cloud-config\n# Error\n", mimetype="text/cloud-config", status=500)
+                logger.error(
+                    "cloud_init_userdata_error", machine_id=machine_id, error=str(e)
+                )
+                return Response(
+                    "#cloud-config\n# Error\n", mimetype="text/cloud-config", status=500
+                )
 
         @self.app.route("/images/<path:image_path>")
         async def serve_image(image_path: str):
@@ -537,7 +605,9 @@ class HTTPBootServer:
             # Validate image_path against path traversal attacks
             is_valid, error_msg = _validate_image_path(image_path)
             if not is_valid:
-                logger.warning("image_path_validation_failed", path=image_path, reason=error_msg)
+                logger.warning(
+                    "image_path_validation_failed", path=image_path, reason=error_msg
+                )
                 return Response(f"Invalid path: {error_msg}", status=400)
 
             try:
@@ -565,10 +635,14 @@ class HTTPBootServer:
                             return Response("Invalid presigned URL", status=400)
 
                         try:
-                            preflight = await self._preflight_image(presigned_url, image_path)
+                            preflight = await self._preflight_image(
+                                presigned_url, image_path
+                            )
                         except ValueError as blocked:
                             logger.warning(
-                                "presigned_url_validation_failed", path=image_path, reason=str(blocked)
+                                "presigned_url_validation_failed",
+                                path=image_path,
+                                reason=str(blocked),
                             )
                             return Response("Invalid presigned URL", status=400)
                         if isinstance(preflight, Response):
@@ -578,12 +652,18 @@ class HTTPBootServer:
                             out_headers["Content-Type"] = "application/octet-stream"
                             return _ImageHeadResponse(b"", headers=out_headers)
                         return Response(
-                            _LazyImageBody(presigned_url, self.image_chunk_size, _storage_host(self.config)),
+                            _LazyImageBody(
+                                presigned_url,
+                                self.image_chunk_size,
+                                _storage_host(self.config),
+                            ),
                             mimetype="application/octet-stream",
                             headers=out_headers,
                         )
                     else:
-                        logger.error("image_url_fetch_failed", status=response.status_code)
+                        logger.error(
+                            "image_url_fetch_failed", status=response.status_code
+                        )
                         return Response("Image not found", status=404)
 
             except Exception as e:
@@ -617,7 +697,9 @@ class HTTPBootServer:
                 # Redeem first: a valid token is never blocked by any budget. Only a
                 # FAILED redemption is charged (atomically) to the per-(MAC, IP) and the
                 # coarse per-IP counters; over either limit the answer becomes 429.
-                if not await self.token_store.redeem(token, event.mac, client_ip, event.stage):
+                if not await self.token_store.redeem(
+                    token, event.mac, client_ip, event.stage
+                ):
                     within = await self.token_store.charge_failure(
                         f"event-fail:{event.mac}:{client_ip}",
                         f"event-fail-ip:{client_ip}",
@@ -633,7 +715,9 @@ class HTTPBootServer:
                 logger.error("boot_event_store_unavailable")
                 return jsonify({"status": "error"}), 503
 
-            logger.info("boot_event_received", stage=event.stage, machine_id=event.machine_id)
+            logger.info(
+                "boot_event_received", stage=event.stage, machine_id=event.machine_id
+            )
 
             try:
                 api_url = f"{self.config.api_manager_url}/api/v1/internal/boot-event"
@@ -641,13 +725,17 @@ class HTTPBootServer:
                 headers["Content-Type"] = "application/json"
 
                 async with httpx.AsyncClient(timeout=5.0) as client:
-                    upstream = await client.post(api_url, json=event.as_payload(), headers=headers)
+                    upstream = await client.post(
+                        api_url, json=event.as_payload(), headers=headers
+                    )
             except Exception as e:
                 logger.error("boot_event_forward_error", error=str(e))
                 return jsonify({"status": "error"}), 502
 
             if not upstream.is_success:
-                logger.error("boot_event_upstream_rejected", status=upstream.status_code)
+                logger.error(
+                    "boot_event_upstream_rejected", status=upstream.status_code
+                )
                 return jsonify({"status": "error"}), 502
 
             return jsonify({"status": "accepted"}), 202
@@ -655,10 +743,14 @@ class HTTPBootServer:
     def _client_ip(self) -> str | None:
         """Client IP for binding and rate limiting (None if unknown); proxy-aware via TRUSTED_PROXIES."""
         return _resolve_client_ip(
-            request.remote_addr, request.headers.get("X-Forwarded-For"), self.trusted_proxies
+            request.remote_addr,
+            request.headers.get("X-Forwarded-For"),
+            self.trusted_proxies,
         )
 
-    async def _preflight_image(self, presigned_url: str, image_path: str) -> "_ImagePreflight | Response":
+    async def _preflight_image(
+        self, presigned_url: str, image_path: str
+    ) -> "_ImagePreflight | Response":
         """Ranged GET pre-flight (bytes=0-0): returns the total size or an error Response.
 
         Same method as the presigned URL (SigV4 binds the method, so HEAD would 403).
@@ -666,7 +758,9 @@ class HTTPBootServer:
         """
         client = await _make_storage_client(presigned_url, _storage_host(self.config))
         async with client:
-            request = client.build_request("GET", presigned_url, headers={"Range": "bytes=0-0"})
+            request = client.build_request(
+                "GET", presigned_url, headers={"Range": "bytes=0-0"}
+            )
             upstream = await client.send(request, stream=True)
             try:
                 if not upstream.is_success:

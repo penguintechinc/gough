@@ -6,12 +6,12 @@ Serves undionly.kpxe (BIOS) and ipxe.efi (UEFI) from local filesystem.
 
 import asyncio
 import os
-import structlog
 from pathlib import Path
+
+import structlog
 from py3tftp.exceptions import ProtocolException
 from py3tftp.file_io import FileReader
 from py3tftp.protocols import TFTPServerProtocol
-
 from worker.config import WorkerConfig
 
 logger = structlog.get_logger()
@@ -53,7 +53,9 @@ class RootedTFTPServerProtocol(TFTPServerProtocol):
     Write requests are rejected because the worker only serves boot binaries.
     """
 
-    def __init__(self, root: Path, host_interface: str, loop: asyncio.AbstractEventLoop):
+    def __init__(
+        self, root: Path, host_interface: str, loop: asyncio.AbstractEventLoop
+    ):
         """Bind the protocol to a TFTP root, listen address and event loop."""
         super().__init__(host_interface, loop, {})
         self.root = root
@@ -67,7 +69,9 @@ class RootedTFTPServerProtocol(TFTPServerProtocol):
     def select_file_handler(self, packet):
         """Return a handler factory bound to this protocol's root."""
         root = self.root
-        return lambda filename, opts: RootedFileReader(root, filename, opts, packet.mode)
+        return lambda filename, opts: RootedFileReader(
+            root, filename, opts, packet.mode
+        )
 
 
 class TFTPServer:
@@ -96,7 +100,9 @@ class TFTPServer:
             if not file_path.exists():
                 logger.warning("tftp_file_missing", file=filename)
             else:
-                logger.info("tftp_file_found", file=filename, size=file_path.stat().st_size)
+                logger.info(
+                    "tftp_file_found", file=filename, size=file_path.stat().st_size
+                )
 
         # Create TFTP protocol
         self.protocol = RootedTFTPServerProtocol(tftp_root.resolve(), "0.0.0.0", loop)

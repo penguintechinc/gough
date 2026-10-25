@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import os
 import pwd
-import select
 import signal
 import socket
 import subprocess
@@ -24,10 +23,10 @@ from unittest.mock import MagicMock
 
 import paramiko
 import pytest
-
 from agent import rssh_server as rssh
 from agent.cert_validator import CertificateValidator
 from agent.config import AgentConfig
+
 from tests.ssh_certs import SSHKeyPair, generate_keypair, sign_user_certificate
 
 CURRENT_USER = pwd.getpwuid(os.getuid()).pw_name
@@ -62,13 +61,19 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         """Record the production argv and spawn an interactive sh in a temp cwd."""
         recorded.append(list(cmd))
         kwargs["cwd"] = str(tmp_path)
-        argv = ["/bin/sh", "-c", cmd[2]] if len(cmd) > 2 and cmd[1] == "-c" else ["/bin/sh", "-i"]
+        argv = (
+            ["/bin/sh", "-c", cmd[2]]
+            if len(cmd) > 2 and cmd[1] == "-c"
+            else ["/bin/sh", "-i"]
+        )
         return real_popen(argv, **kwargs)
 
     monkeypatch.setattr(
         rssh,
         "subprocess",
-        SimpleNamespace(Popen=redirected_popen, TimeoutExpired=subprocess.TimeoutExpired),
+        SimpleNamespace(
+            Popen=redirected_popen, TimeoutExpired=subprocess.TimeoutExpired
+        ),
     )
 
     config = AgentConfig(
@@ -77,7 +82,9 @@ def ssh_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[SSHEnv]
         host_key_file=str(tmp_path / "host_key"),
         agent_id=AGENT_ID,
     )
-    monkeypatch.setattr(rssh, "account_permitted", lambda *_a, **_k: True)  # PAM stack is host-specific
+    monkeypatch.setattr(
+        rssh, "account_permitted", lambda *_a, **_k: True
+    )  # PAM stack is host-specific
     monkeypatch.setenv("GOUGH_AGENT_SECRET", "s3cret-agent-token")
     env = SSHEnv(server=None, port=0, ca=ca, user=user, tmp=tmp_path)  # type: ignore[arg-type]
     server = rssh.RSSHServer(
@@ -122,7 +129,9 @@ def cert_key(
     """
     pair = key or env.user
     all_principals = [*principals, HOST_PRINCIPAL] if host_scope else principals
-    sign_user_certificate(env.ca, pair, all_principals, validity=validity, extra_args=extra_args)
+    sign_user_certificate(
+        env.ca, pair, all_principals, validity=validity, extra_args=extra_args
+    )
     loaded = paramiko.Ed25519Key.from_private_key_file(str(pair.private_path))
     loaded.load_certificate(str(pair.private_path.with_name(f"{pair.name}-cert.pub")))
     return loaded
@@ -216,7 +225,9 @@ def test_shell_environment_and_pty_geometry_are_applied(ssh_env: SSHEnv) -> None
     assert f"USER_IS={CURRENT_USER}" in out
     assert "40 100" in out
     shell = pwd.getpwuid(os.getuid()).pw_shell
-    assert ssh_env.popen_calls == [[shell if os.access(shell, os.X_OK) else "/bin/sh", "-l"]]
+    assert ssh_env.popen_calls == [
+        [shell if os.access(shell, os.X_OK) else "/bin/sh", "-l"]
+    ]
 
 
 def test_window_change_request_resizes_pty(ssh_env: SSHEnv) -> None:
@@ -237,12 +248,16 @@ def test_shell_exit_ends_session_and_closes_channel(ssh_env: SSHEnv) -> None:
     chan.send("echo ALIVE\n")
     read_until(chan, "ALIVE")
     chan.send("exit\n")
-    assert wait_for(lambda: ssh_env.ended, timeout_s=10), "session-end callback never fired"
+    assert wait_for(
+        lambda: ssh_env.ended, timeout_s=10
+    ), "session-end callback never fired"
     assert ssh_env.server.get_active_session_count() == 0
     assert wait_for(lambda: chan.closed or chan.exit_status_ready(), timeout_s=10)
 
 
-def test_certificate_from_untrusted_ca_is_rejected(ssh_env: SSHEnv, tmp_path: Path) -> None:
+def test_certificate_from_untrusted_ca_is_rejected(
+    ssh_env: SSHEnv, tmp_path: Path
+) -> None:
     """A certificate minted by a different CA cannot authenticate."""
     rogue = generate_keypair(tmp_path, "rogue_ca")
     sign_user_certificate(rogue, ssh_env.user, [CURRENT_USER, HOST_PRINCIPAL])
@@ -256,7 +271,9 @@ def test_certificate_from_untrusted_ca_is_rejected(ssh_env: SSHEnv, tmp_path: Pa
 def test_expired_certificate_is_rejected(ssh_env: SSHEnv) -> None:
     """A trusted but expired certificate is refused."""
     with pytest.raises(paramiko.AuthenticationException):
-        connect(ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], validity="-2h:-1h"))
+        connect(
+            ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], validity="-2h:-1h")
+        )
 
 
 def test_login_name_outside_certificate_principals_is_rejected(ssh_env: SSHEnv) -> None:
@@ -310,7 +327,9 @@ def test_accept_loop_survives_idle_timeouts(ssh_env: SSHEnv) -> None:
     assert client.get_transport() is not None and client.get_transport().is_active()
 
 
-def test_start_twice_is_noop_and_busy_port_raises(ssh_env: SSHEnv, tmp_path: Path) -> None:
+def test_start_twice_is_noop_and_busy_port_raises(
+    ssh_env: SSHEnv, tmp_path: Path
+) -> None:
     """Starting a running server does nothing; binding an occupied port fails loudly."""
     ssh_env.server.start()  # already running: no-op
     config = AgentConfig(
@@ -340,7 +359,9 @@ def test_host_key_is_generated_once_then_reloaded(tmp_path: Path) -> None:
     """A missing host key is generated with 0600 perms and an existing one is reused."""
     key_file = tmp_path / "keys" / "host_key"
     config = AgentConfig(host_key_file=str(key_file))
-    first = rssh.RSSHServer(config, MagicMock(spec=CertificateValidator))._ensure_host_key()
+    first = rssh.RSSHServer(
+        config, MagicMock(spec=CertificateValidator)
+    )._ensure_host_key()
     assert key_file.exists()
     assert oct(key_file.stat().st_mode & 0o777) == "0o600"
 
@@ -355,7 +376,10 @@ def test_server_interface_auth_method_and_channel_policy() -> None:
     iface = rssh.SSHServerInterface(cert_validator=MagicMock(spec=CertificateValidator))
     assert iface.get_allowed_auths("anyone") == "publickey"
     assert iface.check_channel_request("session", 1) == paramiko.OPEN_SUCCEEDED
-    assert iface.check_channel_request("direct-tcpip", 1) == paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+    assert (
+        iface.check_channel_request("direct-tcpip", 1)
+        == paramiko.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+    )
     assert iface.check_channel_shell_request(object()) is True
 
 
@@ -410,7 +434,9 @@ def test_read_input_idle_channel_does_not_busy_poll() -> None:
         stopper.join()
         for fd in (pipe_r, pipe_w, session.master_fd):
             os.close(fd)
-    assert chan.recv_ready_calls <= 15, f"busy-poll: {chan.recv_ready_calls} checks in 0.5s"
+    assert (
+        chan.recv_ready_calls <= 15
+    ), f"busy-poll: {chan.recv_ready_calls} checks in 0.5s"
 
 
 def test_read_input_recv_error_ends_loop() -> None:
@@ -418,7 +444,9 @@ def test_read_input_recv_error_ends_loop() -> None:
     chan = _FakeChannel(payloads=[], raise_on_recv=True)
     session = _session(chan, master_fd=os.open(os.devnull, os.O_WRONLY))
     try:
-        rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._read_input(session)
+        rssh.RSSHServer(
+            AgentConfig(), MagicMock(spec=CertificateValidator)
+        )._read_input(session)
     finally:
         os.close(session.master_fd)
     assert session.running is False
@@ -434,13 +462,17 @@ def test_read_output_relays_pty_data_then_stops_on_eof() -> None:
     session.running = True
     os.write(wfd, b"hello from pty")
     os.close(wfd)
-    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._read_output(session)
+    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._read_output(
+        session
+    )
     assert b"".join(sent) == b"hello from pty"
     assert session.running is False
     os.close(rfd)
 
 
-def test_read_output_select_failure_is_contained(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_read_output_select_failure_is_contained(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unexpected select() failure ends the relay instead of propagating."""
     rfd, wfd = os.pipe()
     session = _session(_FakeChannel(payloads=[]), master_fd=rfd)
@@ -450,7 +482,9 @@ def test_read_output_select_failure_is_contained(monkeypatch: pytest.MonkeyPatch
         raise ValueError("bad fd")
 
     monkeypatch.setattr(rssh.select, "select", boom)
-    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._read_output(session)
+    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._read_output(
+        session
+    )
     assert session.running is False
     os.close(rfd)
     os.close(wfd)
@@ -469,7 +503,9 @@ def test_cleanup_kills_process_that_ignores_terminate() -> None:
     process.wait.side_effect = [subprocess.TimeoutExpired(cmd="bash", timeout=5), 0]
     session = _session(MagicMock(), master_fd=None)
     session.process = process
-    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._cleanup_session(session)
+    rssh.RSSHServer(
+        AgentConfig(), MagicMock(spec=CertificateValidator)
+    )._cleanup_session(session)
     sent = [c.args[0] for c in process.send_signal.call_args_list]
     assert signal.SIGKILL in sent and process.wait.call_count == 2
     assert session.running is False
@@ -485,7 +521,9 @@ def test_cleanup_tolerates_already_closed_descriptors_and_failed_signal() -> Non
     session = _session(channel, master_fd=999_999)
     session.slave_fd = 999_998
     session.process = process
-    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._cleanup_session(session)
+    rssh.RSSHServer(
+        AgentConfig(), MagicMock(spec=CertificateValidator)
+    )._cleanup_session(session)
     channel.close.assert_called_once()
 
 
@@ -516,7 +554,9 @@ def test_reap_process_logs_unexpected_wait_failure() -> None:
     process = MagicMock()
     process.pid = 2**22 + 12345
     process.wait.side_effect = RuntimeError("boom")
-    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._reap_process(process)
+    rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))._reap_process(
+        process
+    )
 
 
 def test_active_session_count_reflects_registry() -> None:

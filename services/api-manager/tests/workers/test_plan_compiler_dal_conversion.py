@@ -36,7 +36,6 @@ from typing import Any
 from unittest.mock import Mock
 
 from app.db.rls import install_rls_events, set_current_tenant
-
 from app.workers.plan_compiler import (
     DiskPlanInput,
     EggAssignmentRef,

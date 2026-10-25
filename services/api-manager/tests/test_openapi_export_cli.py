@@ -10,7 +10,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from app import openapi_export
 
 
@@ -30,11 +29,15 @@ def test_check_passes_immediately_after_write(tmp_path: Path) -> None:
     assert openapi_export.main(["--out-dir", str(tmp_path), "--check"]) == 0
 
 
-def test_check_fails_on_drifted_spec(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_fails_on_drifted_spec(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """A hand-edited spec makes --check return 1 and tell the operator to regenerate."""
     assert openapi_export.main(["--out-dir", str(tmp_path)]) == 0
     spec_path = tmp_path / "openapi.json"
-    spec_path.write_text(spec_path.read_text(encoding="utf-8") + "\n// drift", encoding="utf-8")
+    spec_path.write_text(
+        spec_path.read_text(encoding="utf-8") + "\n// drift", encoding="utf-8"
+    )
 
     rc = openapi_export.main(["--out-dir", str(tmp_path), "--check"])
 
@@ -42,7 +45,9 @@ def test_check_fails_on_drifted_spec(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "spec on disk is out of date" in capsys.readouterr().err
 
 
-def test_check_fails_closed_when_spec_missing(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+def test_check_fails_closed_when_spec_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     """No committed spec at all is treated as drift (empty on-disk copy), never a pass."""
     rc = openapi_export.main(["--out-dir", str(tmp_path), "--check"])
 

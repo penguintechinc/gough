@@ -35,9 +35,9 @@ def shell_app(mock_db, monkeypatch):
     monkeypatch.setattr(models_mod, "get_db", lambda: mock_db)
 
     # Stub auth decorators
+    import app.audit as audit_mod
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
-    import app.audit as audit_mod
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
@@ -88,9 +88,7 @@ class TestCreateSession:
         app, shell_mod, mock_db = shell_app
 
         # Patch check_shell_access to allow access
-        with patch.object(
-            shell_mod, "check_shell_access", return_value=(True, None)
-        ):
+        with patch.object(shell_mod, "check_shell_access", return_value=(True, None)):
             # Mock access_agents query
             fake_agent = MagicMock()
             fake_agent.id = 1
@@ -218,9 +216,7 @@ class TestCreateSession:
         mock_db.return_value.select.return_value = [fake_role]
 
         # Patch check_shell_access to allow access
-        with patch.object(
-            shell_mod, "check_shell_access", return_value=(True, None)
-        ):
+        with patch.object(shell_mod, "check_shell_access", return_value=(True, None)):
             # Setup mock db to return no agent
             def _db_call(*args, **kwargs):
                 q = MagicMock()
@@ -332,7 +328,9 @@ class TestTerminateSession:
         # Mock session record
         fake_session = MagicMock()
         fake_session.user_id = 1
-        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
+        fake_session.tenant_id = (
+            "default"  # the same fake serves the access-agent lookup
+        )
         fake_session.ended_at = None
         fake_session.started_at = datetime.utcnow() - timedelta(minutes=5)
         fake_session.resource_type = "vm"
@@ -381,7 +379,9 @@ class TestTerminateSession:
         # Mock session owned by different user
         fake_session = MagicMock()
         fake_session.user_id = 999  # Different user
-        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
+        fake_session.tenant_id = (
+            "default"  # the same fake serves the access-agent lookup
+        )
         fake_session.ended_at = None
 
         def _db_call(*args, **kwargs):
@@ -407,7 +407,9 @@ class TestTerminateSession:
         # Mock already-terminated session
         fake_session = MagicMock()
         fake_session.user_id = 1
-        fake_session.tenant_id = "default"  # the same fake serves the access-agent lookup
+        fake_session.tenant_id = (
+            "default"  # the same fake serves the access-agent lookup
+        )
         fake_session.ended_at = datetime.utcnow() - timedelta(hours=1)
 
         def _db_call(*args, **kwargs):

@@ -5,19 +5,18 @@ Supports IPMI, Redfish, and Wake-on-LAN for remote power control.
 """
 
 import asyncio
-import structlog
-import subprocess
+import hashlib
+import hmac
 import os
 import re
 import socket
 import ssl
-import hashlib
-import hmac
+from dataclasses import dataclass
+from typing import Literal, Optional
 
 import httpcore
 import httpx
-from typing import Optional, Literal
-from dataclasses import dataclass
+import structlog
 
 logger = structlog.get_logger()
 
@@ -51,7 +50,9 @@ class _PinnedStream(httpcore.AsyncNetworkStream):
     the request, so no credentials are sent to a BMC presenting any other certificate.
     """
 
-    def __init__(self, inner: httpcore.AsyncNetworkStream, pin: str | None, host: str) -> None:
+    def __init__(
+        self, inner: httpcore.AsyncNetworkStream, pin: str | None, host: str
+    ) -> None:
         """Wrap `inner`; `pin` is the normalised fingerprint expected after start_tls."""
         self._inner = inner
         self._pin = pin
@@ -84,7 +85,9 @@ class _PinnedStream(httpcore.AsyncNetworkStream):
         live = hashlib.sha256(der).hexdigest().upper() if der else ""
         if not der or not hmac.compare_digest(_normalize_fingerprint(live), self._pin):
             await tls.aclose()
-            raise RuntimeError(f"BMC {self._host} certificate does not match the pinned fingerprint")
+            raise RuntimeError(
+                f"BMC {self._host} certificate does not match the pinned fingerprint"
+            )
         return _PinnedStream(tls, None, self._host)
 
     def get_extra_info(self, info: str) -> object:
@@ -111,7 +114,11 @@ class _PinnedBackend(httpcore.AsyncNetworkBackend):
     ) -> httpcore.AsyncNetworkStream:
         """Open TCP, returning a stream that pin-checks after start_tls."""
         inner = await self._real.connect_tcp(
-            host, port, timeout=timeout, local_address=local_address, socket_options=socket_options
+            host,
+            port,
+            timeout=timeout,
+            local_address=local_address,
+            socket_options=socket_options,
         )
         return _PinnedStream(inner, self._pin, self._host)
 
@@ -120,7 +127,9 @@ class _PinnedBackend(httpcore.AsyncNetworkBackend):
         await self._real.sleep(seconds)
 
 
-def _build_redfish_client(credentials: BMCCredentials, timeout: float) -> httpx.AsyncClient:
+def _build_redfish_client(
+    credentials: BMCCredentials, timeout: float
+) -> httpx.AsyncClient:
     """Build a Redfish client with mandatory TLS verification, or raise RuntimeError.
 
     Order: a per-BMC pinned leaf fingerprint (credentials.cert_fingerprint) wins, else
@@ -152,7 +161,9 @@ def _build_redfish_client(credentials: BMCCredentials, timeout: float) -> httpx.
     try:
         ctx = ssl.create_default_context(cafile=ca_file)
     except (ssl.SSLError, OSError) as exc:
-        raise RuntimeError(f"REDFISH_CA_FILE {ca_file!r} is not a usable CA bundle: {exc}") from exc
+        raise RuntimeError(
+            f"REDFISH_CA_FILE {ca_file!r} is not a usable CA bundle: {exc}"
+        ) from exc
     ctx.minimum_version = ssl.TLSVersion.TLSv1_2
     return httpx.AsyncClient(verify=ctx, timeout=timeout, trust_env=False)
 
@@ -161,9 +172,12 @@ def _ipmi_base_cmd(credentials: BMCCredentials, *args: str) -> list[str]:
     """Build an ipmitool lanplus command; `-E` makes ipmitool read the password from IPMI_PASSWORD."""
     return [
         "ipmitool",
-        "-I", "lanplus",
-        "-H", credentials.address,
-        "-U", credentials.username,
+        "-I",
+        "lanplus",
+        "-H",
+        credentials.address,
+        "-U",
+        credentials.username,
         "-E",
         *args,
     ]
@@ -388,7 +402,10 @@ class PowerManager:
         # credentials.address contains MAC address for WOL
         mac_address = credentials.address
         if not re.fullmatch(r"[0-9A-Fa-f]{2}([:-]?[0-9A-Fa-f]{2}){5}", mac_address):
-            return False, "Invalid MAC address"  # also blocks option injection into wakeonlan
+            return (
+                False,
+                "Invalid MAC address",
+            )  # also blocks option injection into wakeonlan
 
         try:
             # Send magic packet using wakeonlan utility or manual implementation
@@ -417,7 +434,7 @@ class PowerManager:
 
     async def _send_wol_manual(self, mac_address: str) -> tuple[bool, str]:
         """Send Wake-on-LAN magic packet manually."""
-        
+
         try:
             # Parse MAC address
             mac_bytes = bytes.fromhex(mac_address.replace(":", "").replace("-", ""))
@@ -472,7 +489,9 @@ class PowerManager:
 
         # Build ipmitool command
         persistence = "persistent" if persistent else "options=efiboot"
-        cmd = _ipmi_base_cmd(credentials, "chassis", "bootdev", ipmi_device, persistence)
+        cmd = _ipmi_base_cmd(
+            credentials, "chassis", "bootdev", ipmi_device, persistence
+        )
 
         try:
             logger.info(

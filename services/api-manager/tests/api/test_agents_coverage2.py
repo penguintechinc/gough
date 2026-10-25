@@ -2,13 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
-from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock
 
-import jwt
 import pytest
 from quart import Quart, g
 
@@ -70,21 +66,29 @@ def agents_client(dal, monkeypatch):
     dal.commit()
 
     import app.models as models_mod
+
     monkeypatch.setattr(models_mod, "get_db", lambda: dal)
 
     import app.middleware as mw_mod
+
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(mw_mod, "roles_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "get_current_user", lambda: {
-        "id": "test-user-id",
-        "username": "test-user",
-        "role": "admin",
-    })
+    monkeypatch.setattr(
+        mw_mod,
+        "get_current_user",
+        lambda: {
+            "id": "test-user-id",
+            "username": "test-user",
+            "role": "admin",
+        },
+    )
 
     import app.audit as audit_mod
+
     monkeypatch.setattr(audit_mod, "get_audit_logger", lambda: None)
 
     import app.api.agents as agents_mod
+
     agents_mod = importlib.reload(agents_mod)
     monkeypatch.setattr(agents_mod, "get_db", lambda: dal)
 
@@ -138,7 +142,7 @@ class TestSuspendResumeAgent:
         """Test suspending an active agent."""
         agent_id = "test-agent"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=agent_id,
             hostname="test-host",
             status="active",
@@ -153,7 +157,7 @@ class TestSuspendResumeAgent:
         """Test resuming a suspended agent."""
         agent_id = "test-agent"
         dal.access_agents.insert(
-        tenant_id="default",
+            tenant_id="default",
             agent_id=agent_id,
             hostname="test-host",
             status="suspended",

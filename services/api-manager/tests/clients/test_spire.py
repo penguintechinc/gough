@@ -1,5 +1,6 @@
 """Tests for SPIRE client."""
 
+import importlib
 import json
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
@@ -8,15 +9,14 @@ import pytest
 
 pytest.importorskip("pyspiffe")
 
-from app.clients.spire import (
-    SpireClient,
-    SpireError,
-    SpireRegistrationEntry,
-    SpireRegistrationFailed,
-    SpireSvid,
-    SpireSvidUnavailable,
-    SpireWorkloadApiUnavailable,
-)
+_mod_app_clients_spire = importlib.import_module("app.clients.spire")
+SpireClient = _mod_app_clients_spire.SpireClient
+SpireError = _mod_app_clients_spire.SpireError
+SpireRegistrationEntry = _mod_app_clients_spire.SpireRegistrationEntry
+SpireRegistrationFailed = _mod_app_clients_spire.SpireRegistrationFailed
+SpireSvid = _mod_app_clients_spire.SpireSvid
+SpireSvidUnavailable = _mod_app_clients_spire.SpireSvidUnavailable
+SpireWorkloadApiUnavailable = _mod_app_clients_spire.SpireWorkloadApiUnavailable
 
 
 class TestSpireModels:
@@ -67,13 +67,17 @@ class TestSpireClientInit:
         assert client.workload_api_socket == "unix:///run/spire/agent.sock"
         assert client.server_address == "spire-server:8081"
 
-    def test_init_reads_env_socket_address(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_init_reads_env_socket_address(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """SpireClient reads workload socket from env."""
         monkeypatch.setenv("SPIRE_AGENT_SOCKET", "unix:///custom/api.sock")
         client = SpireClient()
         assert client.workload_api_socket == "unix:///custom/api.sock"
 
-    def test_init_reads_env_server_address(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_init_reads_env_server_address(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """SpireClient reads server address from env."""
         monkeypatch.setenv("SPIRE_SERVER_ADDRESS", "spire:9081")
         client = SpireClient(workload_api_socket="unix:///tmp/api.sock")
@@ -127,7 +131,9 @@ class TestFetchX509Svid:
         assert svid.key_pem == "KEY_PEM"
 
     @patch("app.clients.spire.DefaultWorkloadApiClient")
-    def test_fetch_x509_svid_unavailable_raises(self, mock_api_class: MagicMock) -> None:
+    def test_fetch_x509_svid_unavailable_raises(
+        self, mock_api_class: MagicMock
+    ) -> None:
         """fetch_x509_svid raises SpireWorkloadApiUnavailable on error."""
         mock_api = MagicMock()
         mock_api_class.return_value = mock_api
@@ -275,9 +281,7 @@ class TestListRegistrations:
                     {
                         "spiffeID": "spiffe://ex.com/app1",
                         "parentID": "spiffe://ex.com/agent",
-                        "selectors": [
-                            {"type": "k8s", "value": "pod:p1"}
-                        ],
+                        "selectors": [{"type": "k8s", "value": "pod:p1"}],
                         "ttl": 3600,
                     }
                 ]
@@ -295,7 +299,9 @@ class TestListRegistrations:
     @patch("app.clients.spire.subprocess.run")
     def test_list_registrations_filtered_parent(self, mock_run: MagicMock) -> None:
         """list_registrations filters by parent_id."""
-        mock_run.return_value = MagicMock(returncode=0, stdout='{"entries": []}', stderr="")
+        mock_run.return_value = MagicMock(
+            returncode=0, stdout='{"entries": []}', stderr=""
+        )
 
         client = SpireClient(server_address="spire:8081")
         client.list_registrations(parent_id="spiffe://ex.com/agent")

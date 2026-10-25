@@ -3,7 +3,6 @@
 import asyncio
 
 import pytest
-
 from test_dhcp_packets import ADDR, PXE_DISCOVER, FakeTransport, _server
 from worker import observations as obs
 from worker.observations import ObservedClients
@@ -45,7 +44,9 @@ def test_live_record_is_not_overwritten(monkeypatch: pytest.MonkeyPatch) -> None
     assert seen.lookup(MAC) == {"10.0.0.5"}
 
 
-def test_bounded_size_evicts_expired_then_oldest(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_bounded_size_evicts_expired_then_oldest(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """At capacity a new pair evicts expired entries first, otherwise the oldest (memory bound only)."""
     monkeypatch.setattr(obs, "MAX_OBSERVATIONS", 3)
     clock = [1000.0]
@@ -65,7 +66,9 @@ def test_bounded_size_evicts_expired_then_oldest(monkeypatch: pytest.MonkeyPatch
     assert seen.lookup("b") == set() and seen.lookup("e") == {"10.0.0.10"}
 
 
-def test_proxydhcp_records_pxe_client_observation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_proxydhcp_records_pxe_client_observation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A PXE DISCOVER records the MAC (separators stripped) against the datagram's source IP."""
     seen = ObservedClients()
     server = _server(monkeypatch)

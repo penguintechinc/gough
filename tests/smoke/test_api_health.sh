@@ -6,8 +6,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Color codes
 RED='\033[0;31m'
@@ -36,7 +34,6 @@ echo ""
 test_endpoint() {
     local name=$1
     local endpoint=$2
-    local retries=$MAX_RETRIES
     local attempt=0
 
     echo -n "Testing $name ($endpoint)... "

@@ -11,7 +11,6 @@ functions must degrade gracefully in rather than crash.
 from __future__ import annotations
 
 import pytest
-
 from app.workers.migration_engine import evaluate_safety, execute_migration
 
 

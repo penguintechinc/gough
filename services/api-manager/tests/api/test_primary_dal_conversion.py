@@ -27,11 +27,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytest
-from quart import Quart, g
-
 from app.api import primary as primary_module
 from app.api.primary import _get_joiner_secrets, _rotate_bootstrap_ca
-
+from quart import Quart, g
 
 # =============================================================================
 # Seed helpers
@@ -85,8 +83,11 @@ def _seed_node(dal_db: Any, **overrides: Any) -> int:
     helper in this test suite."""
     now = datetime.now(timezone.utc)
     base: dict[str, Any] = dict(
-        name=f"node-{uuid.uuid4().hex[:8]}", state="new", tenant_id="acme",
-        created_at=now, updated_at=now,
+        name=f"node-{uuid.uuid4().hex[:8]}",
+        state="new",
+        tenant_id="acme",
+        created_at=now,
+        updated_at=now,
     )
     base.update(overrides)
     return int(dal_db.nodes.insert(**base))
@@ -105,16 +106,22 @@ class TestGetJoinerSecrets:
         """Filter case: cluster_id match + allowlisted extractor_name."""
         cluster_id = str(uuid.uuid4())
         _seed_joiner_secret(
-            pg_db, cluster_id=cluster_id, extractor_name="kubeadm_join_token",
+            pg_db,
+            cluster_id=cluster_id,
+            extractor_name="kubeadm_join_token",
             ciphertext=b"tok",
         )
         _seed_joiner_secret(
-            pg_db, cluster_id=cluster_id, extractor_name="kubeadm_ca_hash",
+            pg_db,
+            cluster_id=cluster_id,
+            extractor_name="kubeadm_ca_hash",
             ciphertext=b"hash",
         )
         # Not in the allowlist -- must be excluded from the result.
         _seed_joiner_secret(
-            pg_db, cluster_id=cluster_id, extractor_name="not_relevant",
+            pg_db,
+            cluster_id=cluster_id,
+            extractor_name="not_relevant",
             ciphertext=b"x",
         )
 
@@ -128,11 +135,15 @@ class TestGetJoinerSecrets:
     async def test_excludes_revoked_and_expired(self, pg_db: Any) -> None:
         cluster_id = str(uuid.uuid4())
         _seed_joiner_secret(
-            pg_db, cluster_id=cluster_id, extractor_name="kubeadm_join_token",
+            pg_db,
+            cluster_id=cluster_id,
+            extractor_name="kubeadm_join_token",
             revoked_at=datetime.now(timezone.utc),
         )
         _seed_joiner_secret(
-            pg_db, cluster_id=cluster_id, extractor_name="kubeadm_ca_hash",
+            pg_db,
+            cluster_id=cluster_id,
+            extractor_name="kubeadm_ca_hash",
             expires_at=datetime.now(timezone.utc) - timedelta(hours=1),
         )
 
@@ -200,8 +211,7 @@ def _build_app(*, dal_db: Any, monkeypatch: pytest.MonkeyPatch) -> tuple[Quart, 
             "_jwt_payload": {
                 "tenant": "acme",
                 "scope": (
-                    "gough.cluster.read gough.cluster.admin "
-                    "gough.cluster.superadmin"
+                    "gough.cluster.read gough.cluster.admin " "gough.cluster.superadmin"
                 ),
                 "sub": "test-operator",
             }
@@ -242,7 +252,9 @@ class TestFrontendSwitchPrimaryNodeLookup:
             return {}
 
         app, primary_mod = _build_app(dal_db=pg_db, monkeypatch=monkeypatch)
-        monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+        monkeypatch.setattr(
+            primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint
+        )
         monkeypatch.setattr(primary_mod, "_emit_gracious_arp", fake_arp)
 
         client = app.test_client()
@@ -270,7 +282,9 @@ class TestFrontendSwitchPrimaryNodeLookup:
             return {}
 
         app, primary_mod = _build_app(dal_db=pg_db, monkeypatch=monkeypatch)
-        monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+        monkeypatch.setattr(
+            primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint
+        )
         monkeypatch.setattr(primary_mod, "_emit_gracious_arp", fake_arp)
 
         resp = await app.test_client().post(
@@ -296,7 +310,9 @@ class TestFrontendSwitchPrimaryNodeLookup:
             return {}
 
         app, primary_mod = _build_app(dal_db=pg_db, monkeypatch=monkeypatch)
-        monkeypatch.setattr(primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint)
+        monkeypatch.setattr(
+            primary_mod, "_update_endpoint_on_nodes", fake_update_endpoint
+        )
         monkeypatch.setattr(primary_mod, "_emit_gracious_arp", fake_arp)
 
         client = app.test_client()

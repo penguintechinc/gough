@@ -65,6 +65,9 @@ from ..db.database import get_db
 from ..db.rls import CROSS_TENANT_SENTINEL, get_current_tenant, set_current_tenant
 from . import leader_lease as _leader_lease
 
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_TRUE = True
+
 logger = logging.getLogger(__name__)
 
 
@@ -349,7 +352,9 @@ def _grpc_smartctl_runner(node: Any) -> dict[str, dict[str, Any]]:
             except grpc.RpcError as exc:
                 logger.warning(
                     "smart_sweeper: ExecCommand RPC failed for node=%s device=%s: %s",
-                    node_id, device_path, exc,
+                    node_id,
+                    device_path,
+                    exc,
                 )
                 DISKS_PROBED.labels(status="error").inc()
                 continue
@@ -358,7 +363,10 @@ def _grpc_smartctl_runner(node: Any) -> dict[str, dict[str, Any]]:
                 logger.warning(
                     "smart_sweeper: smartctl command-line error for node=%s "
                     "device=%s (exit_code=%s): %s",
-                    node_id, device_path, resp.exit_code, resp.output,
+                    node_id,
+                    device_path,
+                    resp.exit_code,
+                    resp.output,
                 )
                 DISKS_PROBED.labels(status="error").inc()
                 continue
@@ -369,7 +377,10 @@ def _grpc_smartctl_runner(node: Any) -> dict[str, dict[str, Any]]:
                 logger.warning(
                     "smart_sweeper: smartctl output for node=%s device=%s was not "
                     "valid JSON (exit_code=%s): %s",
-                    node_id, device_path, resp.exit_code, exc,
+                    node_id,
+                    device_path,
+                    resp.exit_code,
+                    exc,
                 )
                 DISKS_PROBED.labels(status="error").inc()
     finally:
@@ -512,13 +523,19 @@ class SMARTSweeper:
                 continue
 
             for device_path, smart_blob in probe.items():
-                row = db(
-                    (db.disks.node_id == node.id)
-                    & (db.disks.device_path == device_path)
-                ).select().first()
+                row = (
+                    db(
+                        (db.disks.node_id == node.id)
+                        & (db.disks.device_path == device_path)
+                    )
+                    .select()
+                    .first()
+                )
                 if row is None:
                     logger.debug(
-                        "smart_sweeper: unknown disk %s on node %s", device_path, node.id
+                        "smart_sweeper: unknown disk %s on node %s",
+                        device_path,
+                        node.id,
                     )
                     continue
                 self._update_disk(db, row, smart_blob, result)
@@ -559,7 +576,10 @@ class SMARTSweeper:
             # be visible in logs without needing a NATS subscriber attached.
             logger.warning(
                 "smart_sweeper: disk %s on node %s transitioned %s -> %s (%s)",
-                row.device_path, int(row.node_id), prior, new_status,
+                row.device_path,
+                int(row.node_id),
+                prior,
+                new_status,
                 ", ".join(reasons) or "no specific reason",
             )
             self._emit_warning(payload)
@@ -577,7 +597,7 @@ class SMARTSweeper:
     def _refresh_capacity_metrics(self, db: Any) -> None:
         """Recompute ``gough_storage_capacity_used_bytes`` from disk_plans."""
         STORAGE_CAPACITY_USED._metrics.clear()  # reset stale label series
-        rows = db(db.disks.reserved_for_storage == True).select(
+        rows = db(db.disks.reserved_for_storage == _DB_TRUE).select(
             db.disks.tenant_id,
             db.disks.storage_backend,
             db.disks.tier,
@@ -605,8 +625,9 @@ def _resolve_publisher() -> Callable[[str, dict[str, Any]], None]:
     otherwise a structured ``logger.info`` so the event is at least visible.
     """
     try:
-        from quart import current_app
         from unittest.mock import MagicMock
+
+        from quart import current_app
 
         nats = getattr(current_app, "nats_client", None)
         if (

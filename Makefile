@@ -245,16 +245,16 @@ k8s-clean: ## Kubernetes - Delete all resources
 # Code Quality Commands
 lint: ## Code Quality - Run linting for all languages
 	@echo "$(BLUE)Linting all code...$(RESET)"
-	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules --ignore=E501 || true; fi
-	@if command -v black >/dev/null 2>&1; then echo "$(YELLOW)-- black --$(RESET)"; black --check . --exclude '/(\.git|venv|__pycache__|node_modules)/' || true; fi
-	@if command -v isort >/dev/null 2>&1; then echo "$(YELLOW)-- isort --$(RESET)"; isort --check-only . || true; fi
-	@if command -v mypy >/dev/null 2>&1; then echo "$(YELLOW)-- mypy --$(RESET)"; python3 -m mypy . --ignore-missing-imports || true; fi
-	@if command -v golangci-lint >/dev/null 2>&1; then echo "$(YELLOW)-- golangci-lint --$(RESET)"; golangci-lint run || true; fi
-	@if command -v hadolint >/dev/null 2>&1; then echo "$(YELLOW)-- hadolint --$(RESET)"; find . -name "Dockerfile*" -not -path "*/.git/*" | xargs hadolint || true; fi
-	@if command -v shellcheck >/dev/null 2>&1; then echo "$(YELLOW)-- shellcheck --$(RESET)"; find . -name "*.sh" -not -path "*/.git/*" | xargs shellcheck || true; fi
-	@if command -v spectral >/dev/null 2>&1; then echo "$(YELLOW)-- spectral (OpenAPI) --$(RESET)"; $(MAKE) lint-openapi || true; fi
-	@npm run lint 2>/dev/null || true
-	@cd services/webui && npm run lint 2>/dev/null || true
+	@if command -v flake8 >/dev/null 2>&1; then echo "$(YELLOW)-- flake8 --$(RESET)"; python3 -m flake8 . --max-line-length=120 --exclude=.git,__pycache__,venv,node_modules --ignore=E501,E203,E704,W503; fi
+	@if command -v black >/dev/null 2>&1; then echo "$(YELLOW)-- black --$(RESET)"; black --check . --exclude '/(\.git|venv|__pycache__|node_modules)/'; fi
+	@if command -v isort >/dev/null 2>&1; then echo "$(YELLOW)-- isort --$(RESET)"; isort --profile black --check-only .; fi
+	@if command -v mypy >/dev/null 2>&1; then echo "$(YELLOW)-- mypy --$(RESET)"; python3 -m mypy . --ignore-missing-imports; fi
+	@if command -v golangci-lint >/dev/null 2>&1; then echo "$(YELLOW)-- golangci-lint --$(RESET)"; for mod in $$(find . -name go.mod -not -path "*/.git/*" -not -path "*/node_modules/*" | xargs -n1 dirname); do echo "   module $$mod"; (cd "$$mod" && golangci-lint run --build-tags noxdp ./...) || exit 1; done; fi
+	@if command -v hadolint >/dev/null 2>&1; then echo "$(YELLOW)-- hadolint --$(RESET)"; find . -name "Dockerfile*" -not -path "*/.git/*" | xargs hadolint; fi
+	@if command -v shellcheck >/dev/null 2>&1; then echo "$(YELLOW)-- shellcheck --$(RESET)"; find . -name "*.sh" -not -path "*/.git/*" | xargs shellcheck; fi
+	@if command -v spectral >/dev/null 2>&1; then echo "$(YELLOW)-- spectral (OpenAPI) --$(RESET)"; $(MAKE) lint-openapi; fi
+	@npm run lint
+	@cd services/webui && npm run lint
 
 lint-go: ## Code Quality - Run Go linting
 	@echo "$(BLUE)Linting Go code...$(RESET)"
@@ -472,13 +472,13 @@ test-functional: ## Testing - Run functional tests
 
 test-security: ## Testing - Run security scans (full suite)
 	@echo "$(BLUE)Running security scans...$(RESET)"
-	@if command -v bandit >/dev/null 2>&1; then echo "$(YELLOW)-- bandit --$(RESET)"; bandit -r . -x ./tests,./venv,./.git --quiet || true; fi
-	@if command -v pip-audit >/dev/null 2>&1; then echo "$(YELLOW)-- pip-audit --$(RESET)"; find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" | xargs -I{} pip-audit -r {} 2>/dev/null || true; fi
-	@if command -v gosec >/dev/null 2>&1; then echo "$(YELLOW)-- gosec --$(RESET)"; gosec ./... || true; fi
-	@if command -v govulncheck >/dev/null 2>&1; then echo "$(YELLOW)-- govulncheck --$(RESET)"; govulncheck ./... || true; fi
-	@npm audit 2>/dev/null || true
-	@cd services/webui && npm audit 2>/dev/null || true
-	@if command -v gitleaks >/dev/null 2>&1; then echo "$(YELLOW)-- gitleaks --$(RESET)"; gitleaks detect --source . --no-git 2>/dev/null || true; fi
+	@if command -v bandit >/dev/null 2>&1; then echo "$(YELLOW)-- bandit --$(RESET)"; bandit -r . -x ./tests,./venv,./.git --quiet; fi
+	@if command -v pip-audit >/dev/null 2>&1; then echo "$(YELLOW)-- pip-audit --$(RESET)"; find . -name "requirements.txt" -not -path "*/.git/*" -not -path "*/venv/*" | xargs -I{} pip-audit -r {}; fi
+	@if command -v gosec >/dev/null 2>&1; then echo "$(YELLOW)-- gosec --$(RESET)"; gosec ./...; fi
+	@if command -v govulncheck >/dev/null 2>&1; then echo "$(YELLOW)-- govulncheck --$(RESET)"; govulncheck ./...; fi
+	@npm audit
+	@cd services/webui && npm audit
+	@if command -v gitleaks >/dev/null 2>&1; then echo "$(YELLOW)-- gitleaks --$(RESET)"; gitleaks detect --source . --no-git; fi
 
 test-workers: ## Testing - Run worker tests
 	@echo "$(BLUE)Running worker tests...$(RESET)"

@@ -12,13 +12,12 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import app.api.primary as primary
 import grpc
 import pytest
-from quart import Quart
-
-import app.api.primary as primary
 from app.audit import AuditLogger
 from app.grpc.gough import discovery_pb2_grpc
+from quart import Quart
 
 
 class _Col:
@@ -68,7 +67,9 @@ class _Stub:
         return _Stub.behaviour(req, timeout)
 
 
-def _node(ipv4: str | None = "10.0.0.5", ipv6: str | None = None, family: str | None = None) -> Any:
+def _node(
+    ipv4: str | None = "10.0.0.5", ipv6: str | None = None, family: str | None = None
+) -> Any:
     """Node row with the given address columns."""
     return SimpleNamespace(ipv4=ipv4, ipv6=ipv6, preferred_addr_family=family)
 
@@ -101,7 +102,9 @@ def _install_db(monkeypatch: pytest.MonkeyPatch, rows: dict[int, Any]) -> _FakeD
     return db
 
 
-async def _arp(vip: str, node_ids: list[int], audit: Any = None) -> dict[int, dict[str, Any]]:
+async def _arp(
+    vip: str, node_ids: list[int], audit: Any = None
+) -> dict[int, dict[str, Any]]:
     """Run the ARP helper inside an app context, optionally with an audit extension."""
     app = Quart(__name__)
     if audit is not None:
@@ -110,8 +113,9 @@ async def _arp(vip: str, node_ids: list[int], audit: Any = None) -> dict[int, di
         return await primary._emit_gracious_arp(vip, node_ids)
 
 
-async def _bgp(vip: str, node_ids: list[int], action: str = "advertise",
-               audit: Any = None) -> dict[int, dict[str, Any]]:
+async def _bgp(
+    vip: str, node_ids: list[int], action: str = "advertise", audit: Any = None
+) -> dict[int, dict[str, Any]]:
     """Run the BGP helper inside an app context, optionally with an audit extension."""
     app = Quart(__name__)
     if audit is not None:
@@ -160,7 +164,9 @@ async def test_arp_ipv4_uses_arping_on_resolved_node(
     assert grpc_calls["requests"][0].command == "arping -U -c 3 10.0.0.100"
 
 
-async def test_arp_ipv6_uses_ndisc6(monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]) -> None:
+async def test_arp_ipv6_uses_ndisc6(
+    monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]
+) -> None:
     """IPv6 VIP runs ndisc6 and the IPv6 node address is bracketed for the target."""
     _install_db(monkeypatch, {1: _node(ipv4=None, ipv6="fd00::5")})
 
@@ -210,10 +216,14 @@ async def test_arp_node_without_address_reported_and_audited(
     assert audit.log.call_count == 1
 
 
-async def test_arp_nonzero_exit_reported(monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]) -> None:
+async def test_arp_nonzero_exit_reported(
+    monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]
+) -> None:
     """A failing arping surfaces its exit code and output, not success."""
     _install_db(monkeypatch, {1: _node()})
-    _Stub.behaviour = lambda req, timeout: SimpleNamespace(exit_code=1, output="no route")
+    _Stub.behaviour = lambda req, timeout: SimpleNamespace(
+        exit_code=1, output="no route"
+    )
 
     result = await _arp("10.0.0.100", [1])
 
@@ -235,7 +245,9 @@ async def test_bgp_rejects_non_ip_vip_without_rpc(
     assert audit.log.call_args.kwargs["resource_type"] == "primary.bgp"
 
 
-async def test_bgp_ipv4_advertise_uses_slash_32(monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]) -> None:
+async def test_bgp_ipv4_advertise_uses_slash_32(
+    monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]
+) -> None:
     """IPv4 VIP is announced as a /32 host route with the requested action."""
     _install_db(monkeypatch, {1: _node()})
 
@@ -247,7 +259,9 @@ async def test_bgp_ipv4_advertise_uses_slash_32(monkeypatch: pytest.MonkeyPatch,
     assert req.target == "--vip 10.0.0.100/32 --action advertise"
 
 
-async def test_bgp_ipv6_withdraw_uses_slash_128(monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]) -> None:
+async def test_bgp_ipv6_withdraw_uses_slash_128(
+    monkeypatch: pytest.MonkeyPatch, grpc_calls: dict[str, Any]
+) -> None:
     """IPv6 VIP is withdrawn as a /128 host route."""
     _install_db(monkeypatch, {1: _node(ipv4=None, ipv6="fd00::5")})
 

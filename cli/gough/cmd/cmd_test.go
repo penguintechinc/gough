@@ -31,8 +31,8 @@ func setupTestEnv(t *testing.T, handler http.HandlerFunc) (*httptest.Server, fun
 
 	return srv, func() {
 		srv.Close()
-		os.Unsetenv("GOUGH_TOKEN")
-		os.Unsetenv("GOUGH_CLUSTER_URL")
+		_ = os.Unsetenv("GOUGH_TOKEN")
+		_ = os.Unsetenv("GOUGH_CLUSTER_URL")
 	}
 }
 

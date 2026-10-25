@@ -15,8 +15,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pytest
-from penguin_dal import DB
-
 from app.workers import leader_lease as ll
 from app.workers.leader_lease import (
     LeaderLeaseHandle,
@@ -27,7 +25,7 @@ from app.workers.leader_lease import (
     renew,
     wait_for_leader,
 )
-
+from penguin_dal import DB
 
 # ---------------------------------------------------------------------------
 # Pure helper — no DB.
@@ -131,7 +129,8 @@ def test_release_clears_holder_and_returns_true(pg_db: DB) -> None:
     assert ok is True
 
     rows = pg_db.executesql(
-        "SELECT holder_id FROM leader_leases WHERE lease_name = %(name)s", {"name": "lease"}
+        "SELECT holder_id FROM leader_leases WHERE lease_name = %(name)s",
+        {"name": "lease"},
     )
     assert rows == [(None,)]
 
@@ -213,7 +212,9 @@ def test_concurrent_acquirers_only_one_wins(pg_db: DB) -> None:
         with lock:
             results.append(h)
 
-    threads = [threading.Thread(target=worker, args=(f"replica-{i}",)) for i in range(10)]
+    threads = [
+        threading.Thread(target=worker, args=(f"replica-{i}",)) for i in range(10)
+    ]
     for t in threads:
         t.start()
     for t in threads:

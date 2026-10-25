@@ -116,9 +116,9 @@ def _policy_to_regex(policy_path: str) -> re.Pattern:
     Returns:
         Compiled regex pattern that matches concrete paths
     """
-    parts = re.split(r'<[^>]+>', policy_path)
-    pattern = r'[^/]+'.join(re.escape(p) for p in parts)
-    return re.compile(r'^' + pattern + r'$')
+    parts = re.split(r"<[^>]+>", policy_path)
+    pattern = r"[^/]+".join(re.escape(p) for p in parts)
+    return re.compile(r"^" + pattern + r"$")
 
 
 def lookup_required_scopes(
@@ -158,7 +158,7 @@ def lookup_required_scopes(
             return scopes
 
         # Template match: use regex if policy has params
-        if '<' in policy_path:
+        if "<" in policy_path:
             pattern = _policy_to_regex(policy_path)
             if pattern.match(path):
                 return scopes
@@ -205,11 +205,16 @@ def require_scopes(*required_scopes: str) -> Callable:
             try:
                 check_scopes(provided_scopes, required_set)
             except InsufficientScopeError as e:
-                return jsonify({
-                    "error": "Insufficient scopes",
-                    "required": sorted(e.required),
-                    "provided": sorted(e.provided),
-                }), 403
+                return (
+                    jsonify(
+                        {
+                            "error": "Insufficient scopes",
+                            "required": sorted(e.required),
+                            "provided": sorted(e.provided),
+                        }
+                    ),
+                    403,
+                )
 
             result = f(*args, **kwargs)
             if hasattr(result, "__await__"):
@@ -252,10 +257,15 @@ async def scope_enforcement_middleware(app) -> None:
             app.logger.warning(
                 f"Endpoint not in scope policy: {method} {path}, denying"
             )
-            return jsonify({
-                "error": "Endpoint not registered in scope policy",
-                "status": "forbidden_scope",
-            }), 403
+            return (
+                jsonify(
+                    {
+                        "error": "Endpoint not registered in scope policy",
+                        "status": "forbidden_scope",
+                    }
+                ),
+                403,
+            )
 
         # Scope source: the penguin-aaa claims populated by OIDCAuthMiddleware
         # (request.scope["state"]["claims"]) are authoritative. Fall back to the
@@ -277,9 +287,14 @@ async def scope_enforcement_middleware(app) -> None:
         try:
             check_scopes(provided_scopes, required_scopes)
         except InsufficientScopeError as e:
-            return jsonify({
-                "error": "Insufficient scopes",
-                "status": "forbidden_scope",
-                "required": sorted(e.required),
-                "provided": sorted(e.provided),
-            }), 403
+            return (
+                jsonify(
+                    {
+                        "error": "Insufficient scopes",
+                        "status": "forbidden_scope",
+                        "required": sorted(e.required),
+                        "provided": sorted(e.provided),
+                    }
+                ),
+                403,
+            )

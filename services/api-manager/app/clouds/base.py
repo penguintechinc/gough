@@ -16,18 +16,18 @@ from typing import Any
 class MachineState(str, Enum):
     """Unified machine state across all providers."""
 
-    PENDING = "pending"           # Being created/provisioned
-    RUNNING = "running"           # Running and accessible
-    STOPPED = "stopped"           # Stopped but exists
-    TERMINATED = "terminated"     # Destroyed/deleted
-    ERROR = "error"               # In error state
-    UNKNOWN = "unknown"           # State cannot be determined
+    PENDING = "pending"  # Being created/provisioned
+    RUNNING = "running"  # Running and accessible
+    STOPPED = "stopped"  # Stopped but exists
+    TERMINATED = "terminated"  # Destroyed/deleted
+    ERROR = "error"  # In error state
+    UNKNOWN = "unknown"  # State cannot be determined
 
     # MaaS-specific states mapped to unified
     COMMISSIONING = "commissioning"
     DEPLOYING = "deploying"
-    READY = "ready"               # MaaS: ready for deployment
-    ALLOCATED = "allocated"       # MaaS: allocated to user
+    READY = "ready"  # MaaS: ready for deployment
+    ALLOCATED = "allocated"  # MaaS: allocated to user
 
 
 @dataclass(slots=True)
@@ -35,13 +35,13 @@ class MachineSpec:
     """Specification for creating a new machine."""
 
     name: str
-    image: str                           # OS image (e.g., "ubuntu-22.04", ami-xxx)
-    size: str                            # Instance size (e.g., "t3.medium", "n1-standard-2")
-    region: str = ""                     # Region/zone (optional for some providers)
-    cloud_init: str = ""                 # Cloud-init user data
+    image: str  # OS image (e.g., "ubuntu-22.04", ami-xxx)
+    size: str  # Instance size (e.g., "t3.medium", "n1-standard-2")
+    region: str = ""  # Region/zone (optional for some providers)
+    cloud_init: str = ""  # Cloud-init user data
     ssh_keys: list[str] = field(default_factory=list)  # SSH public keys
     networks: list[str] = field(default_factory=list)  # Network IDs/names
-    storage_gb: int = 0                  # Root disk size (0 = default)
+    storage_gb: int = 0  # Root disk size (0 = default)
     tags: dict[str, str] = field(default_factory=dict)  # Provider tags/labels
     extra: dict[str, Any] = field(default_factory=dict)  # Provider-specific options
 
@@ -50,14 +50,14 @@ class MachineSpec:
 class Machine:
     """Unified machine representation across all providers."""
 
-    id: str                              # Provider-specific ID
-    name: str                            # Machine name
-    state: MachineState                  # Current state
-    provider: str                        # Provider type (maas, lxd, aws, etc.)
-    provider_id: str                     # Provider's cloud_providers table ID
-    region: str = ""                     # Region/zone
-    image: str = ""                      # OS image
-    size: str = ""                       # Instance size
+    id: str  # Provider-specific ID
+    name: str  # Machine name
+    state: MachineState  # Current state
+    provider: str  # Provider type (maas, lxd, aws, etc.)
+    provider_id: str  # Provider's cloud_providers table ID
+    region: str = ""  # Region/zone
+    image: str = ""  # OS image
+    size: str = ""  # Instance size
     public_ips: list[str] = field(default_factory=list)
     private_ips: list[str] = field(default_factory=list)
     created_at: datetime | None = None

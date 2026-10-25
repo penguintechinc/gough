@@ -15,8 +15,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, cast
 
 import pytest
-from penguin_dal import DB
-
 from app.db.rls import (
     CROSS_TENANT_SENTINEL,
     get_current_tenant,
@@ -34,6 +32,7 @@ from app.security.audit_chain import (
     insert_genesis_row,
     verify_chain,
 )
+from penguin_dal import DB
 
 
 def _rows(result: Any) -> list[tuple[Any, ...]]:

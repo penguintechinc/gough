@@ -5,6 +5,7 @@ with principal-based access control and configurable validity periods.
 Uses PyDAL for database operations as required by CLAUDE.md.
 """
 
+import asyncio
 import os
 import re
 import subprocess
@@ -13,18 +14,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
 
-import asyncio
+from app.db.run_db import run_db
+from app.models import get_db
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from quart import Quart, current_app
 
-from app.db.run_db import run_db
-from app.models import get_db
-
 
 class SSHCAException(Exception):
     """Exception raised for SSH CA errors."""
+
     pass
 
 
@@ -56,8 +56,8 @@ class SSHCertificateAuthority:
             app: Quart application instance
         """
         self.app = app
-        app.extensions = getattr(app, 'extensions', {})
-        app.extensions['ssh_ca'] = self
+        app.extensions = getattr(app, "extensions", {})
+        app.extensions["ssh_ca"] = self
 
     async def ensure_ca_initialized(self) -> None:
         """Ensure CA is initialized, creating if needed."""
@@ -88,21 +88,21 @@ class SSHCertificateAuthority:
             rsa.generate_private_key,
             public_exponent=65537,
             key_size=self.CA_KEY_SIZE,
-            backend=default_backend()
+            backend=default_backend(),
         )
 
         # Serialize private key to OpenSSH format
         private_key_bytes = private_key.private_bytes(
             encoding=serialization.Encoding.PEM,
             format=serialization.PrivateFormat.OpenSSH,
-            encryption_algorithm=serialization.NoEncryption()
+            encryption_algorithm=serialization.NoEncryption(),
         )
 
         # Serialize public key to OpenSSH format
         public_key = private_key.public_key()
         public_key_bytes = public_key.public_bytes(
             encoding=serialization.Encoding.OpenSSH,
-            format=serialization.PublicFormat.OpenSSH
+            format=serialization.PublicFormat.OpenSSH,
         )
 
         # Store private key in temporary location (Vault integration pending)
@@ -113,9 +113,7 @@ class SSHCertificateAuthority:
         await asyncio.to_thread(private_key_path.write_bytes, private_key_bytes)
         await asyncio.to_thread(os.chmod, private_key_path, 0o600)
 
-        current_app.logger.info(
-            f"SSH CA private key stored at {private_key_path}"
-        )
+        current_app.logger.info(f"SSH CA private key stored at {private_key_path}")
 
         # Store public key and metadata in database using PyDAL.
         # Regression: gh-22. Read-then-write (check-existing, then
@@ -129,14 +127,14 @@ class SSHCertificateAuthority:
 
             if existing:
                 db(db.ssh_ca_config.id == existing.id).update(
-                    public_key=public_key_bytes.decode('utf-8'),
+                    public_key=public_key_bytes.decode("utf-8"),
                     private_key_vault_path=str(private_key_path),
                 )
             else:
                 db.ssh_ca_config.insert(
                     ca_name="gough-user-ca",
                     ca_type="user",
-                    public_key=public_key_bytes.decode('utf-8'),
+                    public_key=public_key_bytes.decode("utf-8"),
                     private_key_vault_path=str(private_key_path),
                     cert_validity_seconds=self.DEFAULT_VALIDITY_SECONDS,
                     max_validity_seconds=self.MAX_VALIDITY_SECONDS,
@@ -245,14 +243,19 @@ class SSHCertificateAuthority:
             principals_str = ",".join(principals)
             cmd = [
                 "ssh-keygen",
-                "-s", str(ca_private_key_path),
-                "-I", key_id,
-                "-n", principals_str,
-                "-V", f"+{validity_seconds}s",
+                "-s",
+                str(ca_private_key_path),
+                "-I",
+                key_id,
+                "-n",
+                principals_str,
+                "-V",
+                f"+{validity_seconds}s",
                 *(["-O", f"source-address={source_address}"] if source_address else []),
                 *(["-O", f"force-command={force_command}"] if force_command else []),
-                "-z", str(int(datetime.utcnow().timestamp())),
-                str(user_key_path)
+                "-z",
+                str(int(datetime.utcnow().timestamp())),
+                str(user_key_path),
             ]
 
             try:
@@ -262,13 +265,11 @@ class SSHCertificateAuthority:
                     capture_output=True,
                     text=True,
                     check=True,
-                    timeout=30
+                    timeout=30,
                 )
                 current_app.logger.debug(f"ssh-keygen output: {result.stdout}")
             except subprocess.CalledProcessError as e:
-                current_app.logger.error(
-                    f"ssh-keygen failed: {e.stderr}"
-                )
+                current_app.logger.error(f"ssh-keygen failed: {e.stderr}")
                 raise RuntimeError(f"Failed to sign SSH key: {e.stderr}")
             except FileNotFoundError as e:
                 raise RuntimeError(f"ssh-keygen binary not found: {e}") from e
@@ -281,9 +282,7 @@ class SSHCertificateAuthority:
 
             signed_cert = await asyncio.to_thread(cert_path.read_text)
             signed_cert = signed_cert.strip()
-            current_app.logger.info(
-                f"Successfully signed SSH certificate: {key_id}"
-            )
+            current_app.logger.info(f"Successfully signed SSH certificate: {key_id}")
 
             return signed_cert
 
@@ -306,9 +305,7 @@ class SSHCertificateAuthority:
         private_key_path = Path(ca_config.private_key_vault_path)
 
         if not private_key_path.exists():
-            raise RuntimeError(
-                f"CA private key not found at {private_key_path}"
-            )
+            raise RuntimeError(f"CA private key not found at {private_key_path}")
 
         return private_key_path
 
@@ -347,10 +344,7 @@ def generate_key_id(user_email: str, resource_id: str) -> str:
     return f"{user_email}@{resource_id}-{timestamp}"
 
 
-def validate_principals(
-    principals: List[str],
-    allowed_principals: List[str]
-) -> bool:
+def validate_principals(principals: List[str], allowed_principals: List[str]) -> bool:
     """Validate principals against allowed list.
 
     Args:

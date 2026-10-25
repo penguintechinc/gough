@@ -32,7 +32,9 @@ class SSHKeyPair:
         return self.private_path.with_name(f"{self.name}.pub")
 
 
-def generate_keypair(directory: Path, name: str, kind: KeyKind = "ed25519") -> SSHKeyPair:
+def generate_keypair(
+    directory: Path, name: str, kind: KeyKind = "ed25519"
+) -> SSHKeyPair:
     """Generate an unencrypted OpenSSH keypair with ``cryptography``.
 
     Args:
@@ -44,9 +46,9 @@ def generate_keypair(directory: Path, name: str, kind: KeyKind = "ed25519") -> S
         The key pair description with the private key chmod'ed to 0600.
     """
     if kind == "ed25519":
-        key: ed25519.Ed25519PrivateKey | rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey = (
-            ed25519.Ed25519PrivateKey.generate()
-        )
+        key: (
+            ed25519.Ed25519PrivateKey | rsa.RSAPrivateKey | ec.EllipticCurvePrivateKey
+        ) = ed25519.Ed25519PrivateKey.generate()
     elif kind == "rsa":
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     else:
@@ -57,10 +59,14 @@ def generate_keypair(directory: Path, name: str, kind: KeyKind = "ed25519") -> S
         serialization.PrivateFormat.OpenSSH,
         serialization.NoEncryption(),
     )
-    public_line = key.public_key().public_bytes(
-        serialization.Encoding.OpenSSH,
-        serialization.PublicFormat.OpenSSH,
-    ).decode()
+    public_line = (
+        key.public_key()
+        .public_bytes(
+            serialization.Encoding.OpenSSH,
+            serialization.PublicFormat.OpenSSH,
+        )
+        .decode()
+    )
 
     private_path = directory / name
     private_path.write_bytes(private_pem)

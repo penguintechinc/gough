@@ -34,7 +34,7 @@ from typing import Any, Callable, Iterable, Optional
 
 import yaml
 from pydantic import BaseModel
-from quart import Blueprint, Quart
+from quart import Blueprint
 
 logger = logging.getLogger(__name__)
 
@@ -197,9 +197,7 @@ def import_blueprints(
 # ==============================================================================
 
 # HTTP methods we expose in OpenAPI. HEAD/OPTIONS are auto-derived by tooling.
-_OPENAPI_METHODS: frozenset[str] = frozenset(
-    {"GET", "POST", "PUT", "PATCH", "DELETE"}
-)
+_OPENAPI_METHODS: frozenset[str] = frozenset({"GET", "POST", "PUT", "PATCH", "DELETE"})
 
 
 def _model_attr(view: Callable[..., Any], *names: str) -> Optional[type[BaseModel]]:
@@ -311,17 +309,18 @@ def _extract_routes(
             ) -> None:
                 if view_func is None:
                     return
-                method_set = (
-                    {m.upper() for m in methods}
-                    if methods
-                    else {"GET"}
-                )
+                method_set = {m.upper() for m in methods} if methods else {"GET"}
                 method_set &= _OPENAPI_METHODS
                 if not method_set:
                     return
                 full_rule = (self.url_prefix or "") + rule
                 captured.append(
-                    (full_rule, endpoint or view_func.__name__, view_func, sorted(method_set))
+                    (
+                        full_rule,
+                        endpoint or view_func.__name__,
+                        view_func,
+                        sorted(method_set),
+                    )
                 )
 
             # Several Quart helpers call these during deferred replay.
@@ -441,9 +440,7 @@ def _error_schema() -> dict[str, Any]:
     }
 
 
-def _build_responses(
-    route: RouteMeta, registry: _SchemaRegistry
-) -> dict[str, Any]:
+def _build_responses(route: RouteMeta, registry: _SchemaRegistry) -> dict[str, Any]:
     responses: dict[str, Any] = OrderedDict()
 
     if route.response_model is not None:
@@ -555,7 +552,9 @@ def build_spec(
             operation["description"] = route.description
         operation["tags"] = sorted(set(route.tags))
         tags_seen.update(route.tags)
-        operation["operationId"] = f"{route.blueprint_name}_{route.view.__name__}_{route.method.lower()}"
+        operation["operationId"] = (
+            f"{route.blueprint_name}_{route.view.__name__}_{route.method.lower()}"
+        )
         if path_params:
             operation["parameters"] = path_params
         body = _build_request_body(route, registry)
@@ -588,7 +587,10 @@ def build_spec(
         ]
     )
     spec["servers"] = [
-        {"url": "https://{host}", "variables": {"host": {"default": "gough.localhost.local"}}}
+        {
+            "url": "https://{host}",
+            "variables": {"host": {"default": "gough.localhost.local"}},
+        }
     ]
     spec["tags"] = [
         {"name": tag, "description": f"{tag} resource group"}
@@ -604,8 +606,6 @@ def build_spec(
     spec["security"] = [{"bearerAuth": []}]
 
     return spec
-
-
 
 
 # ==============================================================================
@@ -667,9 +667,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         action="store_true",
         help="Exit non-zero if regenerated spec differs from on-disk copy.",
     )
-    parser.add_argument(
-        "-v", "--verbose", action="store_true", help="Verbose logging."
-    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging.")
     args = parser.parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
@@ -679,8 +677,11 @@ def main(argv: Optional[list[str]] = None) -> int:
     spec = build_spec()
 
     if args.check:
-        existing_json = (args.out_dir / "openapi.json").read_text(encoding="utf-8") \
-            if (args.out_dir / "openapi.json").exists() else ""
+        existing_json = (
+            (args.out_dir / "openapi.json").read_text(encoding="utf-8")
+            if (args.out_dir / "openapi.json").exists()
+            else ""
+        )
         new_json = json.dumps(_to_plain(spec), indent=2, sort_keys=False) + "\n"
         if existing_json != new_json:
             sys.stderr.write(

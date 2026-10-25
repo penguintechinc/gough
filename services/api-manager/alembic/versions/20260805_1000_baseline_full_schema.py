@@ -36,12 +36,11 @@ model-driven ``create_all()``. The database-name GRANT bug (a literal
 here rather than carried over.
 """
 
-from alembic import op
 import sqlalchemy as sa
-
+from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = '20260805_1000_baseline'
+revision = "20260805_1000_baseline"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -109,10 +108,10 @@ def upgrade() -> None:
     # column as VARCHAR(32); this revision's own id fits, but a future
     # descriptively-named revision easily won't (several previously did).
     # SQLite has no enforced VARCHAR length, so this is a no-op there.
-    if op.get_bind().dialect.name != 'sqlite':
+    if op.get_bind().dialect.name != "sqlite":
         op.alter_column(
-            'alembic_version',
-            'version_num',
+            "alembic_version",
+            "version_num",
             existing_type=sa.String(32),
             type_=sa.String(255),
         )
@@ -145,7 +144,6 @@ def upgrade() -> None:
     if str(service_root) not in sys.path:
         sys.path.insert(0, str(service_root))
 
-    from app.models_sqlalchemy import Base as MainBase
     # Importing models_m1 registers its classes (nodes, biomes,
     # node_egg_assignments, deployments, joiner_secrets, audit_events,
     # migration_events, migration_policy, leader_leases, dr_drills,
@@ -156,6 +154,7 @@ def upgrade() -> None:
     # which does the same import for exactly this reason).
     from app import models_m1  # noqa: F401
     from app.db.init_db import Base as InitBase
+    from app.models_sqlalchemy import Base as MainBase
 
     bind = op.get_bind()
     MainBase.metadata.create_all(bind=bind, checkfirst=True)
@@ -172,13 +171,22 @@ def upgrade() -> None:
         sa.Column("token_hash", sa.Text(), nullable=False),
         sa.Column("used", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("used_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["node_id"], ["nodes.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
-    op.create_index("ix_vault_bootstrap_tokens_node_id", "vault_bootstrap_tokens", ["node_id"])
-    op.create_index("ix_vault_bootstrap_tokens_expires_at", "vault_bootstrap_tokens", ["expires_at"])
+    op.create_index(
+        "ix_vault_bootstrap_tokens_node_id", "vault_bootstrap_tokens", ["node_id"]
+    )
+    op.create_index(
+        "ix_vault_bootstrap_tokens_expires_at", "vault_bootstrap_tokens", ["expires_at"]
+    )
 
     op.create_table(
         "alert_rules",
@@ -187,11 +195,26 @@ def upgrade() -> None:
         sa.Column("severity", sa.Text(), nullable=False),
         sa.Column("metric_name", sa.Text(), nullable=False),
         sa.Column("threshold", sa.Numeric(), nullable=False),
-        sa.Column("duration_seconds", sa.Integer(), nullable=False, server_default=sa.literal(60)),
+        sa.Column(
+            "duration_seconds",
+            sa.Integer(),
+            nullable=False,
+            server_default=sa.literal(60),
+        ),
         sa.Column("action", sa.Text(), nullable=False),
         sa.Column("enabled", sa.Boolean(), nullable=False, server_default=sa.true()),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
-        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.func.now()),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            nullable=False,
+            server_default=sa.func.now(),
+        ),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("name"),
     )
@@ -201,7 +224,7 @@ def upgrade() -> None:
     # here would now fail with "table already exists". This was the
     # follow-up this migration's docstring called for.
 
-    if dialect != 'postgresql':
+    if dialect != "postgresql":
         return
 
     # --- Postgres-only views (webui-ro role), carried over from
@@ -240,19 +263,51 @@ def upgrade() -> None:
     # identifier, not an expression -- must look the name up and interpolate
     # it) and dropping the dangling "egg_groups" grant (no migration or model
     # anywhere ever created that table). ---
-    db_name = bind.execute(sa.text('SELECT current_database()')).scalar()
+    db_name = bind.execute(sa.text("SELECT current_database()")).scalar()
 
-    for role in ("api-manager-rw", "worker-ipxe-rw", "webui-ro", "audit-reader", "migration-runner"):
+    for role in (
+        "api-manager-rw",
+        "worker-ipxe-rw",
+        "webui-ro",
+        "audit-reader",
+        "migration-runner",
+    ):
         op.execute(f'CREATE ROLE "{role}" WITH LOGIN')
-    for role in ("api-manager-rw", "worker-ipxe-rw", "webui-ro", "audit-reader", "migration-runner"):
+    for role in (
+        "api-manager-rw",
+        "worker-ipxe-rw",
+        "webui-ro",
+        "audit-reader",
+        "migration-runner",
+    ):
         op.execute(f'GRANT CONNECT ON DATABASE "{db_name}" TO "{role}"')
-    for role in ("api-manager-rw", "worker-ipxe-rw", "webui-ro", "audit-reader", "migration-runner"):
+    for role in (
+        "api-manager-rw",
+        "worker-ipxe-rw",
+        "webui-ro",
+        "audit-reader",
+        "migration-runner",
+    ):
         op.execute(f'GRANT USAGE ON SCHEMA public TO "{role}"')
 
-    m1_tables = ['nodes', 'disks', 'disk_plans', 'node_egg_assignments', 'biomes',
-                 'storage_backends', 'migration_events', 'migration_policy',
-                 'joiner_secrets', 'node_bmc', 'hardware_firmware', 'spiffe_trust_entries',
-                 'leader_leases', 'dr_drills', 'slo_definitions', 'node_tags_operator']
+    m1_tables = [
+        "nodes",
+        "disks",
+        "disk_plans",
+        "node_egg_assignments",
+        "biomes",
+        "storage_backends",
+        "migration_events",
+        "migration_policy",
+        "joiner_secrets",
+        "node_bmc",
+        "hardware_firmware",
+        "spiffe_trust_entries",
+        "leader_leases",
+        "dr_drills",
+        "slo_definitions",
+        "node_tags_operator",
+    ]
     for tbl in m1_tables:
         op.execute(f'GRANT SELECT, INSERT, UPDATE ON {tbl} TO "api-manager-rw"')
     op.execute('GRANT SELECT, INSERT ON audit_events TO "api-manager-rw"')
@@ -271,7 +326,9 @@ def upgrade() -> None:
     # currently issue UPDATEs, but webhook_endpoints has an updated_at column
     # future writers will need, and there's no reason this role should be
     # missing the one DML verb the m1_tables loop grants everyone else.
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON webhook_endpoints TO "api-manager-rw"')
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON webhook_endpoints TO "api-manager-rw"'
+    )
     # node_events (app.models_m1.NodeEvent) -- same gap class as
     # webhook_endpoints/audit_events above: left out of the m1_tables list
     # entirely (gh-22), so "api-manager-rw" had no grant on it at all. The
@@ -298,17 +355,29 @@ def upgrade() -> None:
     op.execute('GRANT SELECT, INSERT, UPDATE ON clusters TO "api-manager-rw"')
     op.execute('GRANT SELECT, INSERT, UPDATE ON cluster_config TO "api-manager-rw"')
     op.execute('GRANT SELECT, INSERT, UPDATE ON storage_quotas TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE ON storage_quota_requests TO "api-manager-rw"')
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE ON storage_quota_requests TO "api-manager-rw"'
+    )
     # deployment_logs is SELECT-only in app.api.biomes.get_deployment_logs
     # today; INSERT is granted ahead of a future writer per the approved
     # profile, same "future writer" rationale as clusters/storage_quotas
     # above.
     op.execute('GRANT SELECT, INSERT ON deployment_logs TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON resource_permissions TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON biome_groups TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_machines TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_images TO "api-manager-rw"')
-    op.execute('GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_boot_configs TO "api-manager-rw"')
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON resource_permissions TO "api-manager-rw"'
+    )
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON biome_groups TO "api-manager-rw"'
+    )
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_machines TO "api-manager-rw"'
+    )
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_images TO "api-manager-rw"'
+    )
+    op.execute(
+        'GRANT SELECT, INSERT, UPDATE, DELETE ON ipxe_boot_configs TO "api-manager-rw"'
+    )
     op.execute('GRANT SELECT, INSERT, UPDATE ON ipxe_config TO "api-manager-rw"')
     # boot_events is an append-only log written by app.api.ipxe._log_boot_event
     # -- no UPDATE/DELETE anywhere in the codebase. Only api-manager-rw writes
@@ -378,8 +447,8 @@ def upgrade() -> None:
 
     op.execute('GRANT SELECT ON audit_events TO "audit-reader"')
     op.execute(
-        'GRANT SELECT (id, cluster_id, tenant_id, biome_kind, scope, ttl_seconds, '
-        'expires_at, rotation_class, created_at, rotated_at, revoked_at) '
+        "GRANT SELECT (id, cluster_id, tenant_id, biome_kind, scope, ttl_seconds, "
+        "expires_at, rotation_class, created_at, rotated_at, revoked_at) "
         'ON joiner_secrets TO "audit-reader"'
     )
 
@@ -404,14 +473,29 @@ def upgrade() -> None:
     # default tenant under this policy's IN (tenant_id, '__default__',
     # '__all__') clause until a follow-up threads tenant through the handlers
     # -- accepted interim behavior per the approved profile, not a bug here.
-    rls_tables = ['nodes', 'disks', 'disk_plans', 'node_egg_assignments', 'biomes',
-                  'storage_backends', 'migration_events',
-                  'joiner_secrets', 'audit_events', 'dr_drills', 'slo_definitions',
-                  'hardware_firmware', 'node_tags_operator', 'node_bmc',
-                  'webhook_endpoints',
-                  'clusters', 'storage_quotas', 'storage_quota_requests', 'biome_groups']
+    rls_tables = [
+        "nodes",
+        "disks",
+        "disk_plans",
+        "node_egg_assignments",
+        "biomes",
+        "storage_backends",
+        "migration_events",
+        "joiner_secrets",
+        "audit_events",
+        "dr_drills",
+        "slo_definitions",
+        "hardware_firmware",
+        "node_tags_operator",
+        "node_bmc",
+        "webhook_endpoints",
+        "clusters",
+        "storage_quotas",
+        "storage_quota_requests",
+        "biome_groups",
+    ]
     for tbl in rls_tables:
-        op.execute(f'ALTER TABLE {tbl} ENABLE ROW LEVEL SECURITY')
+        op.execute(f"ALTER TABLE {tbl} ENABLE ROW LEVEL SECURITY")
         op.execute(f"""
             CREATE POLICY tenant_isolation ON {tbl}
             USING (current_setting('app.current_tenant', true) IN (tenant_id, '__default__', '__all__'))
@@ -432,7 +516,7 @@ def upgrade() -> None:
     # baseline in place is correct here -- Gough has never gone to
     # production, this migration has never applied against a real database
     # (see module docstring).
-    op.execute('ALTER TABLE node_events ENABLE ROW LEVEL SECURITY')
+    op.execute("ALTER TABLE node_events ENABLE ROW LEVEL SECURITY")
     op.execute("""
         CREATE POLICY node_events_tenant_isolation
           ON node_events

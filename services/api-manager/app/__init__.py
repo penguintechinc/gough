@@ -9,33 +9,34 @@ This module creates and configures the Quart application with:
 - Rate limiting for API protection
 """
 
-import os
 import json
+import os
+from pathlib import Path
+
 import bcrypt
 import yaml
-from pathlib import Path
+from penguin_aaa.audit.emitter import Emitter
+from penguin_aaa.middleware.asgi import AuditMiddleware, OIDCAuthMiddleware
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from quart import Quart, Response
 from quart_cors import cors
-from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
-from penguin_aaa.middleware.asgi import AuditMiddleware, OIDCAuthMiddleware
-from penguin_aaa.audit.emitter import Emitter
 
+from .audit import init_audit_logger
+from .catalog import seed_builtin_biomes
 from .config import Config
 from .db.run_db import run_db
-from .models import init_db, get_db
-from .security_datastore import PyDALUserDatastore
-from .audit import init_audit_logger
-from .rate_limit import init_rate_limiter, install_global_rate_limiting
-from .ssh_ca import SSHCertificateAuthority
-from .websocket import init_websocket
-from .middleware import CookieAuthShimMiddleware, wire_middleware
-from .catalog import seed_builtin_biomes
 from .lifecycle import close_runtime_resources, redis_client_kwargs
 from .metrics import (
     audit_logger_degraded,
     biome_seed_degraded,
     capacity_predictor_degraded,
 )
+from .middleware import CookieAuthShimMiddleware, wire_middleware
+from .models import get_db, init_db
+from .rate_limit import init_rate_limiter, install_global_rate_limiting
+from .security_datastore import PyDALUserDatastore
+from .ssh_ca import SSHCertificateAuthority
+from .websocket import init_websocket
 
 
 def _resolve_cors_origins(app: Quart) -> list[str]:
@@ -68,9 +69,12 @@ async def create_app(config_class: type = Config) -> Quart:
     config_class.validate_secrets()
 
     # Initialize CORS (fail-closed default; see _resolve_cors_origins).
-    app = cors(app, allow_origin=_resolve_cors_origins(app),
-               allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-               allow_headers=["Content-Type", "Authorization"])
+    app = cors(
+        app,
+        allow_origin=_resolve_cors_origins(app),
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Content-Type", "Authorization"],
+    )
 
     # Initialize database on startup
     @app.before_serving
@@ -146,11 +150,12 @@ async def create_app(config_class: type = Config) -> Quart:
         optional dependencies degrade the feature: logged at ERROR and surfaced
         via gough_capacity_predictor_degraded=1.
         """
+        import redis.asyncio as redis
+
+        from .clients.prometheus import PrometheusClient
         from .clients.vault import VaultClient
         from .clients.waddleai import WaddleAIClient
-        from .clients.prometheus import PrometheusClient
         from .workers.capacity_predictor import CapacityPredictor
-        import redis.asyncio as redis
 
         try:
             vault = VaultClient()
@@ -175,7 +180,9 @@ async def create_app(config_class: type = Config) -> Quart:
             redis_url = app.config.get("REDIS_URL")
             if redis_url:
                 try:
-                    candidate = redis.from_url(redis_url, **redis_client_kwargs(app.config))
+                    candidate = redis.from_url(
+                        redis_url, **redis_client_kwargs(app.config)
+                    )
                     await candidate.ping()
                     redis_client = candidate
                 except Exception as e:
@@ -204,32 +211,32 @@ async def create_app(config_class: type = Config) -> Quart:
             capacity_predictor_degraded.set(1)
 
     # Register blueprints
-    from .auth import auth_bp
-    from .users import users_bp
-    from .hello import hello_bp
-    from .api.secrets import secrets_bp
-    from .api.clouds import clouds_bp
-    from .api.teams import teams_bp
-    from .api.ssh_ca import ssh_ca_bp
-    from .api.shell import shell_bp
     from .api.agents import agents_bp
-    from .api.storage import storage_bp
-    from .api.ipxe import ipxe_bp
-    from .api.webhooks import webhooks_bp
-    from .api.biomes import biomes_bp
-    from .api.nodes import nodes_bp
-    from .api.disks import disks_bp
-    from .api.joiner_secrets import joiner_secrets_bp
     from .api.audit import audit_bp
-    from .api.capacity import capacity_bp
-    from .api.integrations import integrations_bp
-    from .api.migration import migration_bp
-    from .api.clusters import clusters_bp
-    from .api.primary import primary_bp
-    from .api.vault import vault_bp
-    from .api.lxd_cluster import lxd_bp
     from .api.biome_cache import biome_cache_bp
+    from .api.biomes import biomes_bp
+    from .api.capacity import capacity_bp
+    from .api.clouds import clouds_bp
+    from .api.clusters import clusters_bp
+    from .api.disks import disks_bp
     from .api.install import install_bp
+    from .api.integrations import integrations_bp
+    from .api.ipxe import ipxe_bp
+    from .api.joiner_secrets import joiner_secrets_bp
+    from .api.lxd_cluster import lxd_bp
+    from .api.migration import migration_bp
+    from .api.nodes import nodes_bp
+    from .api.primary import primary_bp
+    from .api.secrets import secrets_bp
+    from .api.shell import shell_bp
+    from .api.ssh_ca import ssh_ca_bp
+    from .api.storage import storage_bp
+    from .api.teams import teams_bp
+    from .api.vault import vault_bp
+    from .api.webhooks import webhooks_bp
+    from .auth import auth_bp
+    from .hello import hello_bp
+    from .users import users_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/v1/auth")
     app.register_blueprint(users_bp, url_prefix="/api/v1/users")
@@ -295,7 +302,9 @@ async def create_app(config_class: type = Config) -> Quart:
         # (matches app/openapi_export.py's _default_out_dir(); parents[2] was
         # an off-by-one that resolved to services/docs/api/... and could
         # never find the file -- found while regression-testing Fix 2).
-        spec_path = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+        spec_path = (
+            Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+        )
         if spec_path.exists():
             spec_text = spec_path.read_text(encoding="utf-8")
             return Response(spec_text, mimetype="application/json")
@@ -307,7 +316,9 @@ async def create_app(config_class: type = Config) -> Quart:
     async def openapi_yaml():
         """Serve the OpenAPI 3.1 spec in YAML format."""
         # See parents[3] note in openapi_json() above.
-        spec_path = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+        spec_path = (
+            Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+        )
         if spec_path.exists():
             with open(spec_path, encoding="utf-8") as f:
                 spec_dict = json.load(f)
@@ -353,6 +364,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check Vault (defensive: may not be initialized in dev).
         try:
             from .clients.vault import VaultClient  # noqa: F401
+
             readiness_state["checks"]["vault"] = "up"
         except Exception as e:
             readiness_state["checks"]["vault"] = f"error: {str(e)[:50]}"
@@ -360,6 +372,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check SPIRE
         try:
             from pyspiffe.workload_api import WorkloadAPIClient  # noqa: F401
+
             readiness_state["checks"]["spire"] = "unchecked"
         except Exception as e:
             readiness_state["checks"]["spire"] = f"error: {str(e)[:50]}"
@@ -367,6 +380,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check NATS
         try:
             from nats.aio.client import Client  # noqa: F401
+
             readiness_state["checks"]["nats"] = "unchecked"
         except Exception as e:
             readiness_state["checks"]["nats"] = f"error: {str(e)[:50]}"
@@ -441,6 +455,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check Vault (defensive: may not be initialized in dev).
         try:
             from .clients.vault import VaultClient  # noqa: F401
+
             readiness_state["checks"]["vault"] = "up"
         except Exception as e:
             readiness_state["checks"]["vault"] = f"error: {str(e)[:50]}"
@@ -448,6 +463,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check SPIRE
         try:
             from pyspiffe.workload_api import WorkloadAPIClient  # noqa: F401
+
             readiness_state["checks"]["spire"] = "unchecked"
         except Exception as e:
             readiness_state["checks"]["spire"] = f"error: {str(e)[:50]}"
@@ -455,6 +471,7 @@ async def create_app(config_class: type = Config) -> Quart:
         # Check NATS
         try:
             from nats.aio.client import Client  # noqa: F401
+
             readiness_state["checks"]["nats"] = "unchecked"
         except Exception as e:
             readiness_state["checks"]["nats"] = f"error: {str(e)[:50]}"
@@ -503,7 +520,9 @@ async def create_app(config_class: type = Config) -> Quart:
 
         task = asyncio.ensure_future(
             grpc_runner.serve(
-                insecure_allowed=bool(app.config.get("DEBUG") or app.config.get("TESTING")),
+                insecure_allowed=bool(
+                    app.config.get("DEBUG") or app.config.get("TESTING")
+                ),
                 oidc_verifier=app.config.get("OIDC_VERIFIER"),
             )
         )
@@ -570,6 +589,7 @@ async def create_app(config_class: type = Config) -> Quart:
     # it is the outermost layer and records the OIDC gate's 401s too.
     if app.config.get("AUDIT_ENABLED", True):
         from penguin_aaa.audit.sinks import StdoutSink
+
         emitter = Emitter(StdoutSink())
         app.asgi_app = AuditMiddleware(app.asgi_app, emitter)
 
@@ -594,8 +614,7 @@ def _create_default_admin(user_datastore: PyDALUserDatastore, db) -> None:
     admin_role = user_datastore.find_role("admin")
     if not admin_role:
         admin_role = user_datastore.create_role(
-            name="admin",
-            description="Full system access"
+            name="admin", description="Full system access"
         )
 
     # Create admin user

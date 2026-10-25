@@ -40,7 +40,7 @@ fi
 
 # Read current version
 current_version=$(cat "$VERSION_FILE")
-IFS='.' read -r major minor patch build <<< "$current_version"
+IFS='.' read -r major minor patch _ <<< "$current_version"
 
 print_info "Current version: v$current_version"
 
@@ -188,7 +188,6 @@ fi
 update_version_in_file() {
     local file=$1
     local pattern=$2
-    local replacement=$3
 
     if [ -f "$file" ]; then
         if sed -i.bak "$pattern" "$file" 2>/dev/null; then
@@ -253,7 +252,7 @@ print_success "Version management completed!"
 echo ""
 echo "New version: v$new_version"
 echo "Semantic version: v$major.$minor.$patch"
-echo "Build timestamp: $new_build ($(date -d @$new_build 2>/dev/null || date -r $new_build 2>/dev/null || echo "timestamp"))"
+echo "Build timestamp: $new_build ($(date -d "@$new_build" 2>/dev/null || date -r "$new_build" 2>/dev/null || echo "timestamp"))"
 echo ""
 
 # Cleanup backup on success

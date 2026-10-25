@@ -28,12 +28,14 @@ expected.
 from __future__ import annotations
 
 import pytest
-from penguin_dal import DB
-
 from app.db.rls import CROSS_TENANT_SENTINEL, install_rls_events, set_current_tenant
+from penguin_dal import DB
 
 TENANT_A = "tenant-a"
 TENANT_B = "tenant-b"
+# DAL expression operands: `!= None` builds an IS NOT NULL query, so None must stay an
+# operand (not an `is not` identity check); a named constant keeps that intent explicit.
+_NULL = None
 
 
 def _seed_biome(owner_db: DB, *, name: str, tenant_id: str) -> int:
@@ -166,9 +168,14 @@ def _seed_webhook_endpoint(owner_db: DB, *, url: str, tenant_id: str) -> int:
 
     now = datetime.now(timezone.utc)
     return owner_db.webhook_endpoints.insert(
-        tenant_id=tenant_id, url=url, signing_mode="ed25519", active=True,
-        event_filter=[], retry_policy={"mode": "standard"},
-        created_at=now, updated_at=now,
+        tenant_id=tenant_id,
+        url=url,
+        signing_mode="ed25519",
+        active=True,
+        event_filter=[],
+        retry_policy={"mode": "standard"},
+        created_at=now,
+        updated_at=now,
     )
 
 
@@ -488,8 +495,7 @@ def test_api_manager_rw_can_insert_into_every_insert_granted_table_kind(
             pg_db_scoped, node_id=node_id, tenant_id=TENANT_A, stage="probe"
         )
         assert (
-            len(pg_db_scoped(pg_db_scoped.node_events.id == new_event_id).select())
-            == 1
+            len(pg_db_scoped(pg_db_scoped.node_events.id == new_event_id).select()) == 1
         )
 
         # --- UUID-PK tables: no sequence involved, must keep working ---
@@ -521,9 +527,7 @@ def test_api_manager_rw_can_insert_into_every_insert_granted_table_kind(
             rotation_class="vault-unseal",
             created_at=now,
         )
-        assert (
-            len(pg_db_scoped(pg_db_scoped.joiner_secrets.id == js_id).select()) == 1
-        )
+        assert len(pg_db_scoped(pg_db_scoped.joiner_secrets.id == js_id).select()) == 1
     finally:
         set_current_tenant(None)
 
@@ -550,15 +554,23 @@ def _seed_cluster(owner_db: DB, *, cluster_id: str, name: str, tenant_id: str) -
 
     now = datetime.now(timezone.utc)
     owner_db.clusters.insert(
-        id=cluster_id, tenant_id=tenant_id, name=name, created_at=now, updated_at=now,
+        id=cluster_id,
+        tenant_id=tenant_id,
+        name=name,
+        created_at=now,
+        updated_at=now,
     )
     return cluster_id
 
 
 @pytest.fixture
 def two_tenant_clusters(pg_db: DB) -> tuple[str, str]:
-    id_a = _seed_cluster(pg_db, cluster_id="cluster-a", name="cluster-a", tenant_id=TENANT_A)
-    id_b = _seed_cluster(pg_db, cluster_id="cluster-b", name="cluster-b", tenant_id=TENANT_B)
+    id_a = _seed_cluster(
+        pg_db, cluster_id="cluster-a", name="cluster-a", tenant_id=TENANT_A
+    )
+    id_b = _seed_cluster(
+        pg_db, cluster_id="cluster-b", name="cluster-b", tenant_id=TENANT_B
+    )
     return id_a, id_b
 
 
@@ -612,12 +624,17 @@ def test_clusters_owner_connection_is_rls_exempt(
     assert tenant_ids == {TENANT_A, TENANT_B}
 
 
-def _seed_storage_quota(owner_db: DB, *, tenant_id: str, resource_type: str = "storage") -> str:
+def _seed_storage_quota(
+    owner_db: DB, *, tenant_id: str, resource_type: str = "storage"
+) -> str:
     import uuid as _uuid
 
     quota_id = str(_uuid.uuid4())
     owner_db.storage_quotas.insert(
-        id=quota_id, tenant_id=tenant_id, resource_type=resource_type, unit="GB",
+        id=quota_id,
+        tenant_id=tenant_id,
+        resource_type=resource_type,
+        unit="GB",
     )
     return quota_id
 
@@ -635,7 +652,9 @@ def test_storage_quotas_tenant_a_sees_only_own_row(
     install_rls_events(pg_db_scoped.engine)
     set_current_tenant(TENANT_A)
     try:
-        rows = pg_db_scoped(pg_db_scoped.storage_quotas.id != None).select()  # noqa: E711
+        rows = pg_db_scoped(
+            pg_db_scoped.storage_quotas.id != _NULL
+        ).select()  # noqa: E711
     finally:
         set_current_tenant(None)
 
@@ -661,7 +680,9 @@ def test_storage_quotas_cross_tenant_sentinel_sees_all_rows(
     install_rls_events(pg_db_scoped.engine)
     set_current_tenant(CROSS_TENANT_SENTINEL)
     try:
-        rows = pg_db_scoped(pg_db_scoped.storage_quotas.id != None).select()  # noqa: E711
+        rows = pg_db_scoped(
+            pg_db_scoped.storage_quotas.id != _NULL
+        ).select()  # noqa: E711
     finally:
         set_current_tenant(None)
 
@@ -684,8 +705,12 @@ def _seed_storage_quota_request(owner_db: DB, *, tenant_id: str) -> str:
 
     req_id = str(_uuid.uuid4())
     owner_db.storage_quota_requests.insert(
-        id=req_id, tenant_id=tenant_id, resource_type="storage",
-        requested_value=100, unit="GB", justification="need more",
+        id=req_id,
+        tenant_id=tenant_id,
+        resource_type="storage",
+        requested_value=100,
+        unit="GB",
+        justification="need more",
     )
     return req_id
 
@@ -703,7 +728,9 @@ def test_storage_quota_requests_tenant_a_sees_only_own_row(
     install_rls_events(pg_db_scoped.engine)
     set_current_tenant(TENANT_A)
     try:
-        rows = pg_db_scoped(pg_db_scoped.storage_quota_requests.id != None).select()  # noqa: E711
+        rows = pg_db_scoped(
+            pg_db_scoped.storage_quota_requests.id != _NULL
+        ).select()  # noqa: E711
     finally:
         set_current_tenant(None)
 
@@ -718,7 +745,9 @@ def test_storage_quota_requests_unset_tenant_is_fail_closed(
     install_rls_events(pg_db_scoped.engine)
     set_current_tenant(None)
 
-    rows = pg_db_scoped(pg_db_scoped.storage_quota_requests.id != None).select()  # noqa: E711
+    rows = pg_db_scoped(
+        pg_db_scoped.storage_quota_requests.id != _NULL
+    ).select()  # noqa: E711
 
     assert len(rows) == 0
 
@@ -729,7 +758,9 @@ def test_storage_quota_requests_cross_tenant_sentinel_sees_all_rows(
     install_rls_events(pg_db_scoped.engine)
     set_current_tenant(CROSS_TENANT_SENTINEL)
     try:
-        rows = pg_db_scoped(pg_db_scoped.storage_quota_requests.id != None).select()  # noqa: E711
+        rows = pg_db_scoped(
+            pg_db_scoped.storage_quota_requests.id != _NULL
+        ).select()  # noqa: E711
     finally:
         set_current_tenant(None)
 
@@ -770,8 +801,12 @@ def test_storage_quota_requests_with_check_rejects_mismatched_tenant_insert(
     try:
         with _pytest.raises(ProgrammingError, match="row-level security"):
             pg_db_scoped.storage_quota_requests.insert(
-                id=str(_uuid.uuid4()), tenant_id=TENANT_B, resource_type="storage",
-                requested_value=50, unit="GB", justification="cross-tenant attempt",
+                id=str(_uuid.uuid4()),
+                tenant_id=TENANT_B,
+                resource_type="storage",
+                requested_value=50,
+                unit="GB",
+                justification="cross-tenant attempt",
             )
     finally:
         set_current_tenant(None)
@@ -780,7 +815,10 @@ def test_storage_quota_requests_with_check_rejects_mismatched_tenant_insert(
 def _seed_biome_group(owner_db: DB, *, name: str, tenant_id: str) -> int:
     return int(
         owner_db.biome_groups.insert(
-            tenant_id=tenant_id, name=name, display_name=name, biomes=[],
+            tenant_id=tenant_id,
+            name=name,
+            display_name=name,
+            biomes=[],
         )
     )
 
@@ -861,16 +899,24 @@ def test_api_manager_rw_can_insert_into_gh21_orphan_serial_and_uuid_pk_tables(
     set_current_tenant(TENANT_A)
     try:
         image_id = pg_db_scoped.ipxe_images.insert(
-            name="ubuntu-24.04-seq-probe", display_name="Ubuntu 24.04",
-            os_version="24.04", architecture="amd64",
-            kernel_path="minio://kernel", initrd_path="minio://initrd",
+            name="ubuntu-24.04-seq-probe",
+            display_name="Ubuntu 24.04",
+            os_version="24.04",
+            architecture="amd64",
+            kernel_path="minio://kernel",
+            initrd_path="minio://initrd",
         )
         assert len(pg_db_scoped(pg_db_scoped.ipxe_images.id == image_id).select()) == 1
 
         quota_id = str(_uuid.uuid4())
         pg_db_scoped.storage_quotas.insert(
-            id=quota_id, tenant_id=TENANT_A, resource_type="storage", unit="GB",
+            id=quota_id,
+            tenant_id=TENANT_A,
+            resource_type="storage",
+            unit="GB",
         )
-        assert len(pg_db_scoped(pg_db_scoped.storage_quotas.id == quota_id).select()) == 1
+        assert (
+            len(pg_db_scoped(pg_db_scoped.storage_quotas.id == quota_id).select()) == 1
+        )
     finally:
         set_current_tenant(None)

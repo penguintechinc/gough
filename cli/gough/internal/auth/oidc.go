@@ -179,7 +179,7 @@ func RefreshToken(ctx context.Context, ts *TokenSet) (*TokenSet, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 
@@ -243,7 +243,7 @@ func startDeviceFlow(ctx context.Context, clusterURL string) (*DeviceCodeRespons
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -267,7 +267,7 @@ func pollToken(ctx context.Context, tokenURL, deviceCode string) (*TokenSet, err
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, _ := io.ReadAll(resp.Body)
 

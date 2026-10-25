@@ -26,7 +26,9 @@ from urllib.parse import urlsplit
 import httpx
 
 from ..api import biomes as _biomes
-from ..clients.cluster_discovery import _is_blocked_ip  # shared SSRF blocklist (commit 517cf1e)
+from ..clients.cluster_discovery import (  # shared SSRF blocklist (commit 517cf1e)
+    _is_blocked_ip,
+)
 
 log = logging.getLogger(__name__)
 
@@ -185,7 +187,10 @@ async def vet_source(
     parts = urlsplit(url)
     host = (parts.hostname or "").lower()
     if parts.scheme != "https" or not host:
-        log.error("bundle source refused: non-https or missing host", extra={"url_scheme": parts.scheme})
+        log.error(
+            "bundle source refused: non-https or missing host",
+            extra={"url_scheme": parts.scheme},
+        )
         raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE)
     if host not in allowed:
         log.error("bundle source refused: host not allowlisted", extra={"host": host})
@@ -196,7 +201,10 @@ async def vet_source(
     try:
         addresses = await lookup(host, port)
     except OSError as exc:
-        log.error("bundle source refused: resolution failed", extra={"host": host, "error": str(exc)})
+        log.error(
+            "bundle source refused: resolution failed",
+            extra={"host": host, "error": str(exc)},
+        )
         raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE) from exc
     if not addresses:
         log.error("bundle source refused: no addresses", extra={"host": host})
@@ -207,7 +215,9 @@ async def vet_source(
         try:
             ip = ipaddress.ip_address(raw)
         except ValueError as exc:
-            log.error("bundle source refused: unparseable address", extra={"host": host})
+            log.error(
+                "bundle source refused: unparseable address", extra={"host": host}
+            )
             raise BundleSourceRejected(_SOURCE_REJECTED_MESSAGE) from exc
         if _is_blocked_ip(ip):
             log.error(
@@ -276,7 +286,9 @@ async def fetch_vetted(
     return await fetch_pinned(source, max_bytes=max_bytes, transport=transport)
 
 
-async def verify_cosign_blob(blob_path: Path, signature: bytes, key_id: str, workdir: Path) -> None:
+async def verify_cosign_blob(
+    blob_path: Path, signature: bytes, key_id: str, workdir: Path
+) -> None:
     """Verify a bundle with ``cosign verify-blob``; raise BundleSignatureError on any failure.
 
     Reuses the biome signing pipeline's key resolution and subprocess boundary
@@ -297,7 +309,9 @@ async def verify_cosign_blob(blob_path: Path, signature: bytes, key_id: str, wor
     try:
         await _biomes._run_subprocess(argv, timeout=_biomes._COSIGN_TIMEOUT_SECONDS)
     except _biomes.CosignError as exc:
-        raise BundleSignatureError(f"bundle signature verification failed: {exc}") from exc
+        raise BundleSignatureError(
+            f"bundle signature verification failed: {exc}"
+        ) from exc
 
 
 def _check_member_names(names: list[str]) -> str:
@@ -341,7 +355,10 @@ def extract_bundle(data: bytes, workdir: Path) -> tuple[BundleFile, ...]:
     root_dir = workdir / root
     files: list[BundleFile] = []
     for biome_dir in sorted(p for p in root_dir.iterdir() if p.is_dir()):
-        if biome_dir.name not in ALWAYS_CACHED_DIRS and not (biome_dir / "biome.json").is_file():
+        if (
+            biome_dir.name not in ALWAYS_CACHED_DIRS
+            and not (biome_dir / "biome.json").is_file()
+        ):
             continue
         if not _BIOME_RE.fullmatch(biome_dir.name):
             raise BundleError(f"unsafe biome directory name {biome_dir.name!r}")

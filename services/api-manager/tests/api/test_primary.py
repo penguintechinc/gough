@@ -113,7 +113,9 @@ def fake_etcdctl(monkeypatch):
 
     def _fake_run(args: Any, *a: Any, **kw: Any) -> subprocess.CompletedProcess:
         if args and args[0] == "etcdctl":
-            return subprocess.CompletedProcess(args=args, returncode=0, stdout=b"", stderr=b"")
+            return subprocess.CompletedProcess(
+                args=args, returncode=0, stdout=b"", stderr=b""
+            )
         return real_run(args, *a, **kw)
 
     monkeypatch.setattr(subprocess, "run", _fake_run)

@@ -1,21 +1,19 @@
 """Extended coverage tests for app/clients/spire.py missed lines."""
 
 import json
-import re
 from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from app.clients.spire import (
     SpireClient,
     SpireError,
     SpireJoinTokenFailed,
-    SpireWorkloadApiUnavailable,
-    SpireSvidUnavailable,
+    SpireRegistrationEntry,
     SpireRegistrationFailed,
     SpireSvid,
-    SpireRegistrationEntry,
+    SpireSvidUnavailable,
+    SpireWorkloadApiUnavailable,
 )
 
 
@@ -103,7 +101,9 @@ class TestSpireClientFetchX509Svid:
         mock_svid = MagicMock()
         mock_svid.spiffe_id = "spiffe://example.com/service"
         mock_svid.cert.public_bytes_pem.return_value = "-----BEGIN CERTIFICATE-----"
-        mock_svid.private_key.private_bytes_pem.return_value = "-----BEGIN PRIVATE KEY-----"
+        mock_svid.private_key.private_bytes_pem.return_value = (
+            "-----BEGIN PRIVATE KEY-----"
+        )
         mock_svid.cert.expires_at = datetime(2025, 12, 31, tzinfo=timezone.utc)
         mock_context.svid_list = [mock_svid]
         mock_client.fetch_x509_context.return_value = mock_context
@@ -121,7 +121,9 @@ class TestSpireClientFetchX509Svid:
 
         client = SpireClient()
         with patch.object(client, "_get_workload_api_client", return_value=mock_client):
-            with pytest.raises(SpireWorkloadApiUnavailable, match="Failed to fetch X.509"):
+            with pytest.raises(
+                SpireWorkloadApiUnavailable, match="Failed to fetch X.509"
+            ):
                 client.fetch_x509_svid()
 
     def test_fetch_x509_svid_no_svids(self):
@@ -169,7 +171,9 @@ class TestSpireClientFetchJwtSvid:
 
         client = SpireClient()
         with patch.object(client, "_get_workload_api_client", return_value=mock_client):
-            with pytest.raises(SpireWorkloadApiUnavailable, match="Failed to fetch JWT"):
+            with pytest.raises(
+                SpireWorkloadApiUnavailable, match="Failed to fetch JWT"
+            ):
                 client.fetch_jwt_svid(["audience1"])
 
     def test_fetch_jwt_svid_no_token(self):
@@ -234,7 +238,9 @@ class TestSpireClientRegisterWorkload:
 
         client = SpireClient()
         with patch("subprocess.run", return_value=mock_result):
-            with pytest.raises(SpireRegistrationFailed, match="Could not parse entry ID"):
+            with pytest.raises(
+                SpireRegistrationFailed, match="Could not parse entry ID"
+            ):
                 entry = SpireRegistrationEntry(
                     spiffe_id="spiffe://example.com/service",
                     parent_id="spiffe://example.com/agent",
@@ -254,7 +260,9 @@ class TestSpireClientGenerateJoinToken:
 
         client = SpireClient(server_address="spire:8081")
         with patch("subprocess.run", return_value=mock_result) as mock_run:
-            token = client.generate_join_token("spiffe://example.com/node/helper/1", 3600)
+            token = client.generate_join_token(
+                "spiffe://example.com/node/helper/1", 3600
+            )
 
         assert token == "abc-123-join-token"
         call_args = mock_run.call_args[0][0]
@@ -310,16 +318,18 @@ class TestSpireClientListRegistrations:
         """list_registrations returns list of entries."""
         mock_result = MagicMock()
         mock_result.returncode = 0
-        mock_result.stdout = json.dumps({
-            "entries": [
-                {
-                    "spiffeID": "spiffe://example.com/service1",
-                    "parentID": "spiffe://example.com/agent",
-                    "selectors": [{"type": "unix", "value": "user:app"}],
-                    "ttl": 3600,
-                }
-            ]
-        })
+        mock_result.stdout = json.dumps(
+            {
+                "entries": [
+                    {
+                        "spiffeID": "spiffe://example.com/service1",
+                        "parentID": "spiffe://example.com/agent",
+                        "selectors": [{"type": "unix", "value": "user:app"}],
+                        "ttl": 3600,
+                    }
+                ]
+            }
+        )
 
         client = SpireClient()
         with patch("subprocess.run", return_value=mock_result):
@@ -400,9 +410,15 @@ class TestSpireClientWaitForWorkloadApi:
         """wait_for_workload_api raises after timeout."""
         client = SpireClient()
 
-        with patch.object(client, "fetch_x509_svid", side_effect=SpireWorkloadApiUnavailable("Not ready")):
+        with patch.object(
+            client,
+            "fetch_x509_svid",
+            side_effect=SpireWorkloadApiUnavailable("Not ready"),
+        ):
             with patch("time.sleep"):  # Fast-path sleep
-                with pytest.raises(SpireWorkloadApiUnavailable, match="not ready after"):
+                with pytest.raises(
+                    SpireWorkloadApiUnavailable, match="not ready after"
+                ):
                     client.wait_for_workload_api(timeout=1)
 
     def test_wait_for_workload_api_retries(self):

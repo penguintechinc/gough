@@ -12,9 +12,9 @@ from typing import Any
 
 import httpx
 import pytest
-
 from agent.config import AgentConfig
 from agent.enrollment import AgentEnrollment, EnrollmentError, parse_retry_after
+
 from tests.test_enrollment import enroll_ok_body, make_enrollment
 
 
@@ -48,7 +48,9 @@ def ok() -> httpx.Response:
 @pytest.mark.parametrize("status", [500, 502, 503, 504, 429])
 def test_transient_status_is_retried_then_succeeds(tmp_path: Path, status: int) -> None:
     """Retryable statuses are retried with exponential (jitter-ceiling) delays."""
-    enr, sleeps, calls = _enr(tmp_path, [httpx.Response(status), httpx.Response(status), ok()])
+    enr, sleeps, calls = _enr(
+        tmp_path, [httpx.Response(status), httpx.Response(status), ok()]
+    )
     enr.enroll()
     assert len(calls) == 3
     assert sleeps == [1.0, 2.0]
@@ -56,7 +58,9 @@ def test_transient_status_is_retried_then_succeeds(tmp_path: Path, status: int) 
 
 def test_network_errors_are_retried(tmp_path: Path) -> None:
     """Transport failures are retried and eventually succeed."""
-    enr, sleeps, calls = _enr(tmp_path, [httpx.ConnectError("refused"), httpx.ReadTimeout("slow"), ok()])
+    enr, sleeps, calls = _enr(
+        tmp_path, [httpx.ConnectError("refused"), httpx.ReadTimeout("slow"), ok()]
+    )
     enr.enroll()
     assert len(calls) == 3 and len(sleeps) == 2
 
@@ -129,7 +133,9 @@ def test_retry_after_seconds_is_honoured_on_429_and_503(tmp_path: Path) -> None:
 
 def test_retry_after_ignored_on_other_statuses(tmp_path: Path) -> None:
     """Retry-After on a 500 does not override the computed backoff."""
-    enr, sleeps, _ = _enr(tmp_path, [httpx.Response(500, headers={"Retry-After": "50"}), ok()])
+    enr, sleeps, _ = _enr(
+        tmp_path, [httpx.Response(500, headers={"Retry-After": "50"}), ok()]
+    )
     enr.enroll()
     assert sleeps == [1.0]
 
@@ -148,7 +154,9 @@ def test_total_time_budget_stops_retrying(tmp_path: Path) -> None:
 
 def test_total_time_budget_with_network_errors(tmp_path: Path) -> None:
     """Budget exhaustion during transport failures raises the wrapped network error."""
-    enr, sleeps, calls = _enr(tmp_path, [httpx.ConnectError("x")], enroll_max_total_s=0.5)
+    enr, sleeps, calls = _enr(
+        tmp_path, [httpx.ConnectError("x")], enroll_max_total_s=0.5
+    )
     with pytest.raises(EnrollmentError, match="Network error during enrollment"):
         enr.enroll()
     assert len(calls) == 1 and sleeps == []
@@ -200,7 +208,11 @@ def test_token_save_is_atomic_and_leaves_no_temp_files(
 ) -> None:
     """Tokens land via rename (0600, no stray temp); a failed write keeps the old file."""
     enr = make_enrollment(tmp_path, lambda r: ok())
-    enr.config.agent_id, enr.config.access_token, enr.config.refresh_token = "a", "t", "r"
+    enr.config.agent_id, enr.config.access_token, enr.config.refresh_token = (
+        "a",
+        "t",
+        "r",
+    )
     enr.save_tokens()
     path = Path(enr.config.token_file)
     assert sorted(p.name for p in path.parent.iterdir()) == ["tokens.json"]

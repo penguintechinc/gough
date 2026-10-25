@@ -54,7 +54,9 @@ def pg_url() -> Iterator[str]:
         yield existing.replace("postgresql+psycopg2://", "postgresql://")
         return
 
-    from testcontainers.postgres import PostgresContainer  # type: ignore[import-untyped]
+    from testcontainers.postgres import (
+        PostgresContainer,  # type: ignore[import-untyped]
+    )
 
     with PostgresContainer("postgres:16-bookworm") as pg:
         yield pg.get_connection_url().replace("postgresql+psycopg2://", "postgresql://")

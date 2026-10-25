@@ -9,27 +9,25 @@ Tests for missed coverage lines focusing on:
 
 from __future__ import annotations
 
-import pytest
-from unittest.mock import MagicMock, patch
 from datetime import datetime, timezone
 
+import pytest
 from app.clouds import (
-    register_cloud,
-    get_cloud_provider,
-    list_available_providers,
     CLOUD_REGISTRY,
     CloudError,
+    get_cloud_provider,
+    list_available_providers,
+    register_cloud,
 )
 from app.clouds.base import (
     BaseCloud,
-    Machine,
-    MachineSpec,
-    MachineState,
     CloudAuthError,
     CloudNotFoundError,
     CloudQuotaError,
+    Machine,
+    MachineSpec,
+    MachineState,
 )
-
 
 # ============================================================================
 # Cloud Provider Registration Tests (lines 32-76)
@@ -41,9 +39,11 @@ class TestRegisterCloud:
 
     def test_register_cloud_decorator(self):
         """Register a cloud provider using decorator."""
+
         @register_cloud("test_provider")
         class TestCloud(BaseCloud):
             """Test cloud provider."""
+
             pass
 
         assert "test_provider" in CLOUD_REGISTRY
@@ -51,21 +51,29 @@ class TestRegisterCloud:
 
     def test_register_cloud_returns_class(self):
         """Decorator returns the class unmodified."""
+
         @register_cloud("test_provider2")
         class TestCloud2(BaseCloud):
             """Test cloud provider."""
+
             def authenticate(self):
                 return True
+
             def list_machines(self, filters=None):
                 return []
+
             def get_machine(self, machine_id):
                 return None
+
             def create_machine(self, spec):
                 return None
+
             def destroy_machine(self, machine_id):
                 pass
+
             def start_machine(self, machine_id):
                 pass
+
             def stop_machine(self, machine_id):
                 pass
 
@@ -89,6 +97,7 @@ class TestGetCloudProvider:
 
     def test_get_cloud_provider_case_insensitive(self):
         """Provider type lookup is case-insensitive - line 91."""
+
         # Register a test provider
         @register_cloud("lowercase_test")
         class LowercaseTestCloud(BaseCloud):
@@ -121,6 +130,7 @@ class TestGetCloudProvider:
 
     def test_get_cloud_provider_initialization_error(self):
         """Raise CloudError when provider initialization fails - line 102-103."""
+
         @register_cloud("failing_provider")
         class FailingCloud(BaseCloud):
             provider_type = "failing_provider"
@@ -139,6 +149,7 @@ class TestGetCloudProvider:
 
     def test_get_cloud_provider_success(self):
         """Successfully create cloud provider instance - line 100-101."""
+
         @register_cloud("working_provider")
         class WorkingCloud(BaseCloud):
             provider_type = "working_provider"
@@ -189,6 +200,7 @@ class TestListAvailableProviders:
             @register_cloud("provider1")
             class Provider1(BaseCloud):
                 """First provider description."""
+
                 supports_cloud_init = True
 
                 def authenticate(self):
@@ -215,6 +227,7 @@ class TestListAvailableProviders:
             @register_cloud("provider2")
             class Provider2(BaseCloud):
                 """Second provider description."""
+
                 supports_cloud_init = False
 
                 def authenticate(self):
@@ -318,7 +331,7 @@ class TestMachineDataclass:
             name="test-machine",
             state=MachineState.RUNNING,
             provider="aws",
-            provider_id="provider-123"
+            provider_id="provider-123",
         )
 
         assert machine.id == "i-123456"
@@ -344,7 +357,7 @@ class TestMachineDataclass:
             created_at=now,
             updated_at=now,
             tags={"env": "prod"},
-            extra={"key": "value"}
+            extra={"key": "value"},
         )
 
         assert machine.region == "us-east-1"
@@ -374,7 +387,7 @@ class TestMachineDataclass:
             created_at=now,
             updated_at=now,
             tags={"env": "prod"},
-            extra={"key": "value"}
+            extra={"key": "value"},
         )
 
         result = machine.to_dict()
@@ -398,7 +411,7 @@ class TestMachineDataclass:
             provider="aws",
             provider_id="provider-123",
             created_at=None,
-            updated_at=None
+            updated_at=None,
         )
 
         result = machine.to_dict()
@@ -417,11 +430,7 @@ class TestMachineSpecDataclass:
 
     def test_machine_spec_creation_basic(self):
         """Create MachineSpec with required fields."""
-        spec = MachineSpec(
-            name="new-machine",
-            image="ubuntu-22.04",
-            size="t3.medium"
-        )
+        spec = MachineSpec(name="new-machine", image="ubuntu-22.04", size="t3.medium")
 
         assert spec.name == "new-machine"
         assert spec.image == "ubuntu-22.04"
@@ -446,7 +455,7 @@ class TestMachineSpecDataclass:
             networks=["vpc-123"],
             storage_gb=100,
             tags={"env": "test"},
-            extra={"monitoring": True}
+            extra={"monitoring": True},
         )
 
         assert spec.region == "us-east-1"
@@ -469,8 +478,16 @@ class TestMachineStateEnum:
     def test_machine_state_values(self):
         """Verify all machine states are defined."""
         expected_states = [
-            "pending", "running", "stopped", "terminated", "error", "unknown",
-            "commissioning", "deploying", "ready", "allocated"
+            "pending",
+            "running",
+            "stopped",
+            "terminated",
+            "error",
+            "unknown",
+            "commissioning",
+            "deploying",
+            "ready",
+            "allocated",
         ]
 
         for state_name in expected_states:
@@ -528,6 +545,7 @@ class TestBaseCloud:
 
     def test_base_cloud_initialization(self):
         """BaseCloud stores config and initializes authenticated flag."""
+
         @register_cloud("abstract_test")
         class TestCloud(BaseCloud):
             def authenticate(self):
@@ -558,6 +576,7 @@ class TestBaseCloud:
 
     def test_base_cloud_class_attributes(self):
         """BaseCloud has class-level attributes."""
+
         @register_cloud("attr_test")
         class TestCloud(BaseCloud):
             def authenticate(self):

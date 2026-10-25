@@ -28,13 +28,10 @@ from typing import Any, Optional
 
 from quart import Blueprint, current_app, request
 
-from ..clients.waddleai import (
-    WaddleAIDegradedResponse,
-    WaddleAIUnavailableResponse,
-)
+from ..clients.waddleai import WaddleAIDegradedResponse, WaddleAIUnavailableResponse
 from ..middleware import auth_required
 from ..security.scope_enforcement import require_scopes
-from ._helpers import envelope_error, envelope_success, err_bad_request, err_validation
+from ._helpers import envelope_success, err_bad_request
 
 log = logging.getLogger(__name__)
 
@@ -79,9 +76,7 @@ def _get_predictor():
     """
     predictor = getattr(current_app, "capacity_predictor", None)
     if predictor is None:
-        raise RuntimeError(
-            "capacity_predictor is not initialized on the Quart app"
-        )
+        raise RuntimeError("capacity_predictor is not initialized on the Quart app")
     return predictor
 
 
@@ -162,9 +157,7 @@ async def get_capacity_risks():
 
     data = {
         "items": [item.model_dump(mode="json") for item in items],
-        "generated_at": datetime.now(timezone.utc)
-        .isoformat()
-        .replace("+00:00", "Z"),
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     return envelope_success(data, extra_meta=extra_meta)
 

@@ -22,7 +22,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -334,9 +333,7 @@ def _discover_payload(**overrides) -> dict:
         "dmi_uuid": str(uuid.uuid4()),
         "primary_nic_mac": "de:ad:be:ef:00:01",
         "firmware_type": "uefi",
-        "nics": [
-            {"mac": "de:ad:be:ef:00:01", "is_primary": True}
-        ],
+        "nics": [{"mac": "de:ad:be:ef:00:01", "is_primary": True}],
         "hardware_tags": ["cpu:cores:4", "mem:total-gb:16"],
     }
     base.update(overrides)
@@ -370,7 +367,9 @@ class TestDiscover:
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
             return_value=mock_principal,
-        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="entry-123"):
+        ), mpatch(
+            "app.clients.spire.SpireClient.register_workload", return_value="entry-123"
+        ):
             async with nodes_app.test_client() as client:
                 resp = await _post_discover(client, _discover_payload())
 
@@ -400,9 +399,7 @@ class TestDiscover:
         """
         import app.api.nodes as nodes_mod
 
-        monkeypatch.setattr(
-            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
-        )
+        monkeypatch.setattr(nodes_mod, "feature_enabled", AsyncMock(return_value=True))
         mock_principal = MagicMock()
         mock_principal.sub = "bootstrap:de:ad:be:ef:00:01"
 
@@ -433,9 +430,7 @@ class TestDiscover:
         import app.api.nodes as nodes_mod
         from app.clients.spire import SpireJoinTokenFailed
 
-        monkeypatch.setattr(
-            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
-        )
+        monkeypatch.setattr(nodes_mod, "feature_enabled", AsyncMock(return_value=True))
         mock_principal = MagicMock()
         mock_principal.sub = "bootstrap:de:ad:be:ef:00:01"
 
@@ -537,7 +532,9 @@ class TestDiscover:
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
             return_value=mock_principal,
-        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="e-456"):
+        ), mpatch(
+            "app.clients.spire.SpireClient.register_workload", return_value="e-456"
+        ):
             async with nodes_app.test_client() as client:
                 resp = await _post_discover(
                     client,
@@ -590,8 +587,11 @@ class TestListNodes:
         """Only probed nodes returned when state=probed."""
         now = datetime.now(timezone.utc)
         dal.nodes.insert(
-            tenant_id="acme", name="ready-node", state="ready",
-            created_at=now, updated_at=now
+            tenant_id="acme",
+            name="ready-node",
+            state="ready",
+            created_at=now,
+            updated_at=now,
         )
         dal.commit()
 
@@ -618,14 +618,18 @@ class TestListNodes:
         assert all("test-node" in n["name"] for n in nodes)
 
     @pytest.mark.asyncio
-    async def test_list_cross_tenant_forbidden_for_normal_user(self, nodes_app, seed_node):
+    async def test_list_cross_tenant_forbidden_for_normal_user(
+        self, nodes_app, seed_node
+    ):
         """Requesting tenant_id filter without cross_tenant scope → 403."""
         async with nodes_app.test_client() as client:
             resp = await client.get("/api/v1/nodes/?tenant_id=other_tenant")
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_list_cross_tenant_allowed_for_superadmin(self, super_admin_app, dal, seed_node):
+    async def test_list_cross_tenant_allowed_for_superadmin(
+        self, super_admin_app, dal, seed_node
+    ):
         """Super-admin can filter by tenant_id."""
         async with super_admin_app.test_client() as client:
             resp = await client.get("/api/v1/nodes/?tenant_id=acme")
@@ -649,8 +653,11 @@ class TestListNodes:
         now = datetime.now(timezone.utc)
         for i in range(3):
             dal.nodes.insert(
-                tenant_id="acme", name=f"paged-node-{i}", state="probed",
-                created_at=now, updated_at=now
+                tenant_id="acme",
+                name=f"paged-node-{i}",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         dal.commit()
 
@@ -703,8 +710,11 @@ class TestGetNode:
         now = datetime.now(timezone.utc)
         other_node_id = int(
             dal.nodes.insert(
-                tenant_id="other-tenant", name="other-node", state="probed",
-                created_at=now, updated_at=now
+                tenant_id="other-tenant",
+                name="other-node",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         )
         dal.commit()
@@ -756,8 +766,11 @@ class TestPatchNode:
         """409 when the new name is already taken by another node."""
         now = datetime.now(timezone.utc)
         dal.nodes.insert(
-            tenant_id="acme", name="collision-name", state="new",
-            created_at=now, updated_at=now
+            tenant_id="acme",
+            name="collision-name",
+            state="new",
+            created_at=now,
+            updated_at=now,
         )
         dal.commit()
 
@@ -779,7 +792,9 @@ class TestPatchNode:
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
-    async def test_patch_tenant_id_allowed_for_superadmin(self, super_admin_app, dal, seed_node):
+    async def test_patch_tenant_id_allowed_for_superadmin(
+        self, super_admin_app, dal, seed_node
+    ):
         async with super_admin_app.test_client() as client:
             resp = await client.patch(
                 f"/api/v1/nodes/{seed_node}",
@@ -960,9 +975,7 @@ class TestDeployNodePlanCompilerWiring:
         """Default (flag OFF): compiler is never invoked; prior M1 note/flags."""
         import app.api.nodes as nodes_mod
 
-        monkeypatch.setattr(
-            nodes_mod, "feature_enabled", AsyncMock(return_value=False)
-        )
+        monkeypatch.setattr(nodes_mod, "feature_enabled", AsyncMock(return_value=False))
         async with nodes_app.test_client() as client:
             resp = await client.post(
                 f"/api/v1/nodes/{seed_node}/deploy",
@@ -973,7 +986,9 @@ class TestDeployNodePlanCompilerWiring:
         data = (await _json(resp))["data"]
         assert data["compiler_invoked"] is False
         assert data["plan_id"] is None
-        assert data["note"] == "Plan compile queued; worker will process asynchronously."
+        assert (
+            data["note"] == "Plan compile queued; worker will process asynchronously."
+        )
 
     @pytest.mark.asyncio
     async def test_deploy_flag_on_compiles_plan_successfully(
@@ -983,9 +998,7 @@ class TestDeployNodePlanCompilerWiring:
         import app.api.nodes as nodes_mod
         from app.workers.plan_compiler import CompiledPlan
 
-        monkeypatch.setattr(
-            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
-        )
+        monkeypatch.setattr(nodes_mod, "feature_enabled", AsyncMock(return_value=True))
         fake_plan = CompiledPlan(
             plan_id="0199-fake-plan-uuid",
             biome_order=[seed_egg],
@@ -1024,9 +1037,7 @@ class TestDeployNodePlanCompilerWiring:
         import app.api.nodes as nodes_mod
         from app.workers.plan_compiler import PlanCompilationError, PlanValidationError
 
-        monkeypatch.setattr(
-            nodes_mod, "feature_enabled", AsyncMock(return_value=True)
-        )
+        monkeypatch.setattr(nodes_mod, "feature_enabled", AsyncMock(return_value=True))
         error = PlanValidationError(code="node_not_found", message="boom")
         with patch(
             "app.workers.plan_compiler.PlanCompiler.compile",
@@ -1337,7 +1348,10 @@ class TestPatchNodeTags:
         async with nodes_app.test_client() as client:
             resp = await client.patch(
                 f"/api/v1/nodes/{seed_node}/tags",
-                json={"add": [{"tag_key": "region", "tag_value": "us-east"}], "remove": []},
+                json={
+                    "add": [{"tag_key": "region", "tag_value": "us-east"}],
+                    "remove": [],
+                },
             )
         assert resp.status_code == 200
         rows = dal(dal.node_tags_operator.node_id == seed_node).select()
@@ -1347,16 +1361,23 @@ class TestPatchNodeTags:
     async def test_remove_operator_tag(self, nodes_app, dal, seed_node):
         now = datetime.now(timezone.utc)
         dal.node_tags_operator.insert(
-            node_id=seed_node, tenant_id="acme",
-            tag_key="remove-me", tag_value="yes",
-            provenance="operator", set_by_actor_sub="tester", set_at=now,
+            node_id=seed_node,
+            tenant_id="acme",
+            tag_key="remove-me",
+            tag_value="yes",
+            provenance="operator",
+            set_by_actor_sub="tester",
+            set_at=now,
         )
         dal.commit()
 
         async with nodes_app.test_client() as client:
             resp = await client.patch(
                 f"/api/v1/nodes/{seed_node}/tags",
-                json={"add": [], "remove": [{"tag_key": "remove-me", "tag_value": "yes"}]},
+                json={
+                    "add": [],
+                    "remove": [{"tag_key": "remove-me", "tag_value": "yes"}],
+                },
             )
         assert resp.status_code == 200
         rows = dal(
@@ -1429,8 +1450,12 @@ class TestLegacyEggAssignment:
         """409 when the biome is already assigned and active."""
         now = datetime.now(timezone.utc)
         dal.node_egg_assignments.insert(
-            node_id=seed_node, egg_id=seed_egg, tenant_id="acme",
-            phase="post_deploy", status="pending", assigned_at=now,
+            node_id=seed_node,
+            egg_id=seed_egg,
+            tenant_id="acme",
+            phase="post_deploy",
+            status="pending",
+            assigned_at=now,
         )
         dal.commit()
 
@@ -1445,8 +1470,12 @@ class TestLegacyEggAssignment:
     async def test_list_eggs_for_node(self, nodes_app, seed_node, seed_egg, dal):
         now = datetime.now(timezone.utc)
         dal.node_egg_assignments.insert(
-            node_id=seed_node, egg_id=seed_egg, tenant_id="acme",
-            phase="post_deploy", status="pending", assigned_at=now,
+            node_id=seed_node,
+            egg_id=seed_egg,
+            tenant_id="acme",
+            phase="post_deploy",
+            status="pending",
+            assigned_at=now,
         )
         dal.commit()
 
@@ -1465,18 +1494,26 @@ class TestLegacyEggAssignment:
     async def test_unassign_egg(self, nodes_app, seed_node, seed_egg, dal):
         now = datetime.now(timezone.utc)
         dal.node_egg_assignments.insert(
-            node_id=seed_node, egg_id=seed_egg, tenant_id="acme",
-            phase="post_deploy", status="ready", assigned_at=now,
+            node_id=seed_node,
+            egg_id=seed_egg,
+            tenant_id="acme",
+            phase="post_deploy",
+            status="ready",
+            assigned_at=now,
         )
         dal.commit()
 
         async with nodes_app.test_client() as client:
             resp = await client.delete(f"/api/v1/nodes/{seed_node}/biomes/{seed_egg}")
         assert resp.status_code == 202
-        row = dal(
-            (dal.node_egg_assignments.node_id == seed_node)
-            & (dal.node_egg_assignments.egg_id == seed_egg)
-        ).select().first()
+        row = (
+            dal(
+                (dal.node_egg_assignments.node_id == seed_node)
+                & (dal.node_egg_assignments.egg_id == seed_egg)
+            )
+            .select()
+            .first()
+        )
         assert row.status == "draining"
 
     @pytest.mark.asyncio
@@ -1529,7 +1566,9 @@ class TestDiscoverEdgeCases:
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
             return_value=mock_principal,
-        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="e-789"):
+        ), mpatch(
+            "app.clients.spire.SpireClient.register_workload", return_value="e-789"
+        ):
             async with nodes_app.test_client() as client:
                 resp = await _post_discover(
                     client,
@@ -1549,7 +1588,9 @@ class TestDiscoverIdentityBinding:
     """The discover report must match the identity the bootstrap token was minted for."""
 
     @staticmethod
-    def _principal(sub: str = "bootstrap:de:ad:be:ef:00:01", claims: dict | None = None) -> Any:
+    def _principal(
+        sub: str = "bootstrap:de:ad:be:ef:00:01", claims: dict | None = None
+    ) -> Any:
         from types import SimpleNamespace
 
         return SimpleNamespace(sub=sub, claims=claims if claims is not None else {})
@@ -1560,19 +1601,27 @@ class TestDiscoverIdentityBinding:
         with mpatch(
             "app.security.credentials.validate_one_time_bootstrap_token",
             return_value=principal,
-        ), mpatch("app.clients.spire.SpireClient.register_workload", return_value="e-1"):
+        ), mpatch(
+            "app.clients.spire.SpireClient.register_workload", return_value="e-1"
+        ):
             async with nodes_app.test_client() as client:
                 return await _post_discover(client, _discover_payload(**overrides))
 
     @pytest.mark.asyncio
-    async def test_other_machines_mac_is_forbidden_and_writes_nothing(self, nodes_app, dal):
-        resp = await self._post(nodes_app, self._principal(), primary_nic_mac="aa:bb:cc:dd:ee:99")
+    async def test_other_machines_mac_is_forbidden_and_writes_nothing(
+        self, nodes_app, dal
+    ):
+        resp = await self._post(
+            nodes_app, self._principal(), primary_nic_mac="aa:bb:cc:dd:ee:99"
+        )
         assert resp.status_code == 403
         assert len(dal(dal.nodes.id > 0).select()) == 0
 
     @pytest.mark.asyncio
     async def test_mac_claim_takes_precedence_and_is_normalized(self, nodes_app, dal):
-        principal = self._principal(sub="bootstrap:ignored", claims={"mac": "DE-AD-BE-EF-00-01"})
+        principal = self._principal(
+            sub="bootstrap:ignored", claims={"mac": "DE-AD-BE-EF-00-01"}
+        )
         resp = await self._post(nodes_app, principal)
         assert resp.status_code == 201
 
@@ -1596,7 +1645,9 @@ class TestDiscoverIdentityBinding:
 
     @pytest.mark.asyncio
     async def test_absent_dmi_hint_is_not_enforced(self, nodes_app, dal):
-        resp = await self._post(nodes_app, self._principal(claims={"dmi_uuid_hint": None}))
+        resp = await self._post(
+            nodes_app, self._principal(claims={"dmi_uuid_hint": None})
+        )
         assert resp.status_code == 201
 
     @pytest.mark.asyncio
@@ -1612,13 +1663,15 @@ class TestListNodesCursorPagination:
     @pytest.mark.asyncio
     async def test_list_with_valid_cursor_filters_results(self, nodes_app, dal):
         """Valid cursor is accepted and applied."""
-        import base64
 
         now = datetime.now(timezone.utc)
         for i in range(5):
             dal.nodes.insert(
-                tenant_id="acme", name=f"cursor-node-{i}", state="probed",
-                created_at=now, updated_at=now,
+                tenant_id="acme",
+                name=f"cursor-node-{i}",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         dal.commit()
 
@@ -1632,7 +1685,9 @@ class TestListNodesCursorPagination:
 
         # Use cursor for next page
         async with nodes_app.test_client() as client:
-            second_resp = await client.get(f"/api/v1/nodes/?page_size=2&cursor={cursor}")
+            second_resp = await client.get(
+                f"/api/v1/nodes/?page_size=2&cursor={cursor}"
+            )
         assert second_resp.status_code == 200
 
 
@@ -1698,7 +1753,9 @@ class TestNodeEventsTimestamp:
         assert resp.status_code == 201
 
     @pytest.mark.asyncio
-    async def test_post_event_with_invalid_timestamp_uses_now(self, nodes_app, seed_node, dal):
+    async def test_post_event_with_invalid_timestamp_uses_now(
+        self, nodes_app, seed_node, dal
+    ):
         """Invalid timestamp string falls back to current time."""
         with (
             patch("app.api.nodes._nats_publish_safe", new_callable=AsyncMock),
@@ -1751,8 +1808,11 @@ class TestDecommissionEdgeCases:
         now = datetime.now(timezone.utc)
         other_id = int(
             dal.nodes.insert(
-                tenant_id="other-tenant", name="other-node", state="probed",
-                created_at=now, updated_at=now,
+                tenant_id="other-tenant",
+                name="other-node",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         )
         dal.commit()
@@ -1774,8 +1834,11 @@ class TestGetNodeTagsEdgeCases:
         now = datetime.now(timezone.utc)
         other_id = int(
             dal.nodes.insert(
-                tenant_id="wrong-tenant", name="other-tags-node", state="probed",
-                created_at=now, updated_at=now,
+                tenant_id="wrong-tenant",
+                name="other-tags-node",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         )
         dal.commit()
@@ -1794,8 +1857,11 @@ class TestPatchNodeTagsEdgeCases:
         now = datetime.now(timezone.utc)
         other_id = int(
             dal.nodes.insert(
-                tenant_id="wrong-tenant", name="other-patch-node", state="probed",
-                created_at=now, updated_at=now,
+                tenant_id="wrong-tenant",
+                name="other-patch-node",
+                state="probed",
+                created_at=now,
+                updated_at=now,
             )
         )
         dal.commit()
@@ -1828,6 +1894,7 @@ class TestCloudInit:
         """App with cloud_init_templates table and a default template."""
         # Extend dal with cloud_init_templates table
         from penguin_dal import Field
+
         dal.define_table(
             "cloud_init_templates",
             Field("is_default", "boolean", default=False),
@@ -1851,8 +1918,9 @@ class TestCloudInit:
         nodes_mod = importlib.reload(nodes_mod)
         monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
 
-        from quart import Quart, g
         from types import SimpleNamespace
+
+        from quart import Quart, g
 
         application = Quart(__name__)
         application.register_blueprint(nodes_mod.nodes_bp)
@@ -1877,13 +1945,15 @@ class TestCloudInit:
         async with cloud_init_app.test_client() as client:
             resp = await client.get(f"/api/v1/nodes/{seed_node}/cloud-init")
         assert resp.status_code == 200
-        body = (await resp.get_data(as_text=True))
+        body = await resp.get_data(as_text=True)
         assert "hostname" in body
 
     @pytest.mark.asyncio
     async def test_cloud_init_invalid_baseline(self, cloud_init_app, seed_node):
         async with cloud_init_app.test_client() as client:
-            resp = await client.get(f"/api/v1/nodes/{seed_node}/cloud-init?baseline=invalid")
+            resp = await client.get(
+                f"/api/v1/nodes/{seed_node}/cloud-init?baseline=invalid"
+            )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -1903,7 +1973,9 @@ class TestCloudInit:
     @pytest.mark.asyncio
     async def test_cloud_init_hybrid_baseline(self, cloud_init_app, seed_node):
         async with cloud_init_app.test_client() as client:
-            resp = await client.get(f"/api/v1/nodes/{seed_node}/cloud-init?baseline=hybrid")
+            resp = await client.get(
+                f"/api/v1/nodes/{seed_node}/cloud-init?baseline=hybrid"
+            )
         assert resp.status_code == 200
 
 
@@ -1923,7 +1995,9 @@ class TestLxdJoin:
 
         dal(dal.nodes.id == seed_node).update(ipv4="10.0.0.5")
         dal.define_table(
-            "clusters", Field("tenant_id", "string"), migrate=True,
+            "clusters",
+            Field("tenant_id", "string"),
+            migrate=True,
         )
         dal.clusters.insert(tenant_id="acme")  # id 1
         dal.clusters.insert(tenant_id="globex")  # id 2
@@ -1934,7 +2008,8 @@ class TestLxdJoin:
     async def test_lxd_join_missing_cluster_id(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{join_node}/lxd/join", json={"member_name": "node1"},
+                f"/api/v1/nodes/{join_node}/lxd/join",
+                json={"member_name": "node1"},
             )
         assert resp.status_code == 400
         assert "cluster_id" in (await _json(resp))["error"]["message"]
@@ -1943,7 +2018,8 @@ class TestLxdJoin:
     async def test_lxd_join_missing_member_name(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{join_node}/lxd/join", json={"cluster_id": "1"},
+                f"/api/v1/nodes/{join_node}/lxd/join",
+                json={"cluster_id": "1"},
             )
         assert resp.status_code == 400
         assert "member_name" in (await _json(resp))["error"]["message"]
@@ -1952,7 +2028,8 @@ class TestLxdJoin:
     async def test_lxd_join_invalid_member_name(self, nodes_app, join_node):
         async with nodes_app.test_client() as client:
             resp = await client.post(
-                f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(member_name="bad name;rm"),
+                f"/api/v1/nodes/{join_node}/lxd/join",
+                json=self._body(member_name="bad name;rm"),
             )
         assert resp.status_code == 422
 
@@ -1986,10 +2063,12 @@ class TestLxdJoin:
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             async with nodes_app.test_client() as client:
                 resp = await client.post(
-                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="2"),
+                    f"/api/v1/nodes/{join_node}/lxd/join",
+                    json=self._body(cluster_id="2"),
                 )
                 missing = await client.post(
-                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="999"),
+                    f"/api/v1/nodes/{join_node}/lxd/join",
+                    json=self._body(cluster_id="999"),
                 )
         assert resp.status_code == 404
         assert missing.status_code == 404
@@ -2000,7 +2079,9 @@ class TestLxdJoin:
         dal(dal.nodes.id == join_node).update(tenant_id="globex")
         dal.commit()
         async with nodes_app.test_client() as client:
-            resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+            resp = await client.post(
+                f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+            )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -2008,18 +2089,26 @@ class TestLxdJoin:
         dal(dal.nodes.id == join_node).update(ipv4=None)
         dal.commit()
         async with nodes_app.test_client() as client:
-            resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+            resp = await client.post(
+                f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+            )
         assert resp.status_code == 409
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("addr", ["127.0.0.1", "169.254.169.254", "169.254.10.1", "0.0.0.0", "224.0.0.1"])
-    async def test_lxd_join_blocked_registered_address_409(self, nodes_app, dal, join_node, addr):
+    @pytest.mark.parametrize(
+        "addr", ["127.0.0.1", "169.254.169.254", "169.254.10.1", "0.0.0.0", "224.0.0.1"]
+    )
+    async def test_lxd_join_blocked_registered_address_409(
+        self, nodes_app, dal, join_node, addr
+    ):
         """regression: operator-editable ipv4_static must not steer the join token to blocked hosts."""
         dal(dal.nodes.id == join_node).update(ipv4_static=addr)
         dal.commit()
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             async with nodes_app.test_client() as client:
-                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
         assert resp.status_code == 409
         mock_mint.assert_not_called()
 
@@ -2028,66 +2117,95 @@ class TestLxdJoin:
         from penguin_dal import Field
 
         dal.define_table(
-            "access_agents", Field("node_id", "integer"), Field("status", "string"),
-            Field("tenant_id", "string"), Field("ip_address", "string"), migrate=True,
+            "access_agents",
+            Field("node_id", "integer"),
+            Field("status", "string"),
+            Field("tenant_id", "string"),
+            Field("ip_address", "string"),
+            migrate=True,
         )
 
         def _add(ip, tenant="acme"):
-            dal.access_agents.insert(node_id=join_node, status="active", tenant_id=tenant, ip_address=ip)
+            dal.access_agents.insert(
+                node_id=join_node, status="active", tenant_id=tenant, ip_address=ip
+            )
             dal.commit()
 
         return _add
 
     @pytest.mark.asyncio
-    async def test_lxd_join_agent_address_mismatch_409(self, nodes_app, join_node, linked_agent):
+    async def test_lxd_join_agent_address_mismatch_409(
+        self, nodes_app, join_node, linked_agent
+    ):
         """The agent-reported address and the registered one must agree."""
         linked_agent("10.0.0.99")  # registered is 10.0.0.5
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             async with nodes_app.test_client() as client:
-                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
         assert resp.status_code == 409
         mock_mint.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_lxd_join_agent_reporting_blocked_address_409(self, nodes_app, dal, join_node, linked_agent):
+    async def test_lxd_join_agent_reporting_blocked_address_409(
+        self, nodes_app, dal, join_node, linked_agent
+    ):
         dal(dal.nodes.id == join_node).update(ipv4=None)
         dal.commit()
         linked_agent("169.254.169.254")
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             async with nodes_app.test_client() as client:
-                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
         assert resp.status_code == 409
         mock_mint.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_lxd_join_other_tenants_agent_is_ignored(self, nodes_app, join_node, linked_agent):
+    async def test_lxd_join_other_tenants_agent_is_ignored(
+        self, nodes_app, join_node, linked_agent
+    ):
         """An agent stamped with another tenant is not a trusted source for this node's address."""
         linked_agent("10.9.9.9", tenant="globex")
         mock_token = MagicMock()
         mock_token.token = "t"
-        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
-             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+        with patch(
+            "app.clients.lxd_extra.mint_join_token", return_value=mock_token
+        ), patch("app.clients.lxd_extra.cluster_join") as mock_join:
             async with nodes_app.test_client() as client:
-                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
-        assert resp.status_code in (201, 500)  # membership table absent in fixture may 500 after the join
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
+        assert resp.status_code in (
+            201,
+            500,
+        )  # membership table absent in fixture may 500 after the join
         assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
 
     @pytest.mark.asyncio
-    async def test_lxd_join_agent_address_used_when_it_agrees(self, nodes_app, join_node, linked_agent):
+    async def test_lxd_join_agent_address_used_when_it_agrees(
+        self, nodes_app, join_node, linked_agent
+    ):
         linked_agent("10.0.0.5")
         mock_token = MagicMock()
         mock_token.token = "t"
-        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
-             patch("app.clients.lxd_extra.cluster_join") as mock_join:
+        with patch(
+            "app.clients.lxd_extra.mint_join_token", return_value=mock_token
+        ), patch("app.clients.lxd_extra.cluster_join") as mock_join:
             async with nodes_app.test_client() as client:
-                await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+                await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
         assert mock_join.call_args.kwargs["node_address"] == "10.0.0.5:8443"
 
     @pytest.mark.asyncio
     async def test_lxd_join_no_cluster_registry_503(self, nodes_app, seed_node):
         """No clusters table: fail closed rather than skipping the ownership check."""
         async with nodes_app.test_client() as client:
-            resp = await client.post(f"/api/v1/nodes/{seed_node}/lxd/join", json=self._body())
+            resp = await client.post(
+                f"/api/v1/nodes/{seed_node}/lxd/join", json=self._body()
+            )
         assert resp.status_code == 503
 
     @pytest.mark.asyncio
@@ -2095,13 +2213,18 @@ class TestLxdJoin:
         """LXD client errors -> 502."""
         with patch("app.clients.lxd_extra.mint_join_token") as mock_mint:
             from app.clients import lxd_extra
+
             mock_mint.side_effect = lxd_extra.LXDError("LXD not reachable")
             async with nodes_app.test_client() as client:
-                resp = await client.post(f"/api/v1/nodes/{join_node}/lxd/join", json=self._body())
+                resp = await client.post(
+                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body()
+                )
         assert resp.status_code == 502
 
     @pytest.mark.asyncio
-    async def test_lxd_join_success_uses_registered_address(self, nodes_app, join_node, dal):
+    async def test_lxd_join_success_uses_registered_address(
+        self, nodes_app, join_node, dal
+    ):
         """Join targets the node's registered ipv4, never request input; node goes ready."""
         mock_token = MagicMock()
         mock_token.token = "lxd-join-token-abc"
@@ -2112,12 +2235,15 @@ class TestLxdJoin:
                 return False  # optional table absent in the fixture schema
             return original_hasattr(obj, name)
 
-        with patch("app.clients.lxd_extra.mint_join_token", return_value=mock_token), \
-             patch("app.clients.lxd_extra.cluster_join") as mock_join, \
-             patch("builtins.hasattr", side_effect=_patched_hasattr):
+        with patch(
+            "app.clients.lxd_extra.mint_join_token", return_value=mock_token
+        ), patch("app.clients.lxd_extra.cluster_join") as mock_join, patch(
+            "builtins.hasattr", side_effect=_patched_hasattr
+        ):
             async with nodes_app.test_client() as client:
                 resp = await client.post(
-                    f"/api/v1/nodes/{join_node}/lxd/join", json=self._body(cluster_id="1"),
+                    f"/api/v1/nodes/{join_node}/lxd/join",
+                    json=self._body(cluster_id="1"),
                 )
         assert resp.status_code == 201
         data = (await _json(resp))["data"]
@@ -2147,11 +2273,17 @@ class TestListNodesBiomesFiltered:
     """List biomes with status filter."""
 
     @pytest.mark.asyncio
-    async def test_list_biomes_with_status_filter(self, nodes_app, seed_node, seed_egg, dal):
+    async def test_list_biomes_with_status_filter(
+        self, nodes_app, seed_node, seed_egg, dal
+    ):
         now = datetime.now(timezone.utc)
         dal.node_egg_assignments.insert(
-            node_id=seed_node, egg_id=seed_egg, tenant_id="acme",
-            phase="post_deploy", status="ready", assigned_at=now,
+            node_id=seed_node,
+            egg_id=seed_egg,
+            tenant_id="acme",
+            phase="post_deploy",
+            status="ready",
+            assigned_at=now,
         )
         dal.commit()
 
@@ -2163,11 +2295,17 @@ class TestListNodesBiomesFiltered:
         assert data["assignments"][0]["status"] == "ready"
 
     @pytest.mark.asyncio
-    async def test_list_biomes_status_filter_excludes_others(self, nodes_app, seed_node, seed_egg, dal):
+    async def test_list_biomes_status_filter_excludes_others(
+        self, nodes_app, seed_node, seed_egg, dal
+    ):
         now = datetime.now(timezone.utc)
         dal.node_egg_assignments.insert(
-            node_id=seed_node, egg_id=seed_egg, tenant_id="acme",
-            phase="post_deploy", status="pending", assigned_at=now,
+            node_id=seed_node,
+            egg_id=seed_egg,
+            tenant_id="acme",
+            phase="post_deploy",
+            status="pending",
+            assigned_at=now,
         )
         dal.commit()
 
@@ -2221,9 +2359,9 @@ class TestRegressionGH31FirmwareType:
         node = next((n for n in nodes if n["id"] == node_id), None)
         assert node is not None, f"Node {node_id} not found in list response"
         # firmware_type must be non-null and equal to the hardware_json value
-        assert node["firmware_type"] == "uefi", (
-            f"firmware_type should be 'uefi' from hardware_json, got {node['firmware_type']}"
-        )
+        assert (
+            node["firmware_type"] == "uefi"
+        ), f"firmware_type should be 'uefi' from hardware_json, got {node['firmware_type']}"
 
     @pytest.mark.asyncio
     async def test_firmware_type_serialized_from_hardware_json_in_detail_response(
@@ -2257,9 +2395,9 @@ class TestRegressionGH31FirmwareType:
         node = data.get("data", {}).get("node", {})
         assert node.get("id") == node_id
         # firmware_type must be non-null and equal to the hardware_json value
-        assert node["firmware_type"] == "legacy", (
-            f"firmware_type should be 'legacy' from hardware_json, got {node['firmware_type']}"
-        )
+        assert (
+            node["firmware_type"] == "legacy"
+        ), f"firmware_type should be 'legacy' from hardware_json, got {node['firmware_type']}"
         # hardware_json should be included in detail response
         assert "hardware_json" in node
         assert node["hardware_json"]["firmware_type"] == "legacy"
@@ -2286,6 +2424,6 @@ class TestRegressionGH31FirmwareType:
         assert resp.status_code == 200
         data = await _json(resp)
         node = data.get("data", {}).get("node", {})
-        assert node.get("firmware_type") is None, (
-            "firmware_type should be null when hardware_json is not set"
-        )
+        assert (
+            node.get("firmware_type") is None
+        ), "firmware_type should be null when hardware_json is not set"

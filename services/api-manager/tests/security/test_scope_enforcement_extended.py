@@ -5,18 +5,18 @@ Coverage targets:
 - Error handling for missing/insufficient scopes
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from types import SimpleNamespace
 
+import pytest
 
 # Note: The actual scope_enforcement module implementation is needed
 # to write proper tests. This template shows the testing patterns.
 
+
 @pytest.fixture
 def scope_enforcement_app(monkeypatch, app):
     """Setup app with scope enforcement."""
-    import importlib
+
     import app.middleware as mw_mod
 
     def _passthrough(*dargs, **dkwargs):
@@ -29,6 +29,7 @@ def scope_enforcement_app(monkeypatch, app):
     @app.before_request
     async def _inject_context():
         from quart import g
+
         g.current_user = {
             "id": 1,
             "username": "admin",
@@ -43,11 +44,13 @@ def scope_enforcement_app(monkeypatch, app):
         g.tenant_context = SimpleNamespace(tenant_id="default")
         g.principal = SimpleNamespace(
             sub="admin",
-            scopes=frozenset([
-                "gough.read",
-                "gough.write",
-                "gough.admin",
-            ]),
+            scopes=frozenset(
+                [
+                    "gough.read",
+                    "gough.write",
+                    "gough.admin",
+                ]
+            ),
             tenant_id="default",
         )
 
@@ -73,22 +76,24 @@ class TestScopeEnforcement:
     async def test_single_scope_requirement(self, scope_enforcement_app):
         """Test endpoint with single scope requirement."""
         # Would test: @require_scopes("gough.read")
-        client = scope_enforcement_app.test_client()
+        scope_enforcement_app.test_client()
         # Expected: 200 if principal has scope, 403 if not
 
     @pytest.mark.asyncio
     async def test_multiple_scope_requirement(self, scope_enforcement_app):
         """Test endpoint with multiple scope requirements."""
         # Would test: @require_scopes("gough.read", "gough.write")
-        client = scope_enforcement_app.test_client()
+        scope_enforcement_app.test_client()
         # Expected: 200 if principal has ALL scopes, 403 if any missing
 
     @pytest.mark.asyncio
     async def test_scope_missing_returns_403(self, scope_enforcement_app):
         """Test endpoint returns 403 when scope missing."""
+
         @scope_enforcement_app.before_request
         async def _limited_scopes():
             from quart import g
+
             g.current_user = {
                 "id": 2,
                 "username": "viewer",
@@ -102,20 +107,20 @@ class TestScopeEnforcement:
                 tenant_id="default",
             )
 
-        client = scope_enforcement_app.test_client()
+        scope_enforcement_app.test_client()
         # Would expect 403 when accessing endpoint requiring write scope
 
     @pytest.mark.asyncio
     async def test_scope_case_sensitivity(self, scope_enforcement_app):
         """Test scope matching is case-sensitive."""
         # Scopes like "gough.READ" should NOT match "gough.read"
-        client = scope_enforcement_app.test_client()
+        scope_enforcement_app.test_client()
 
     @pytest.mark.asyncio
     async def test_scope_prefix_not_wildcard(self, scope_enforcement_app):
         """Test scope matching doesn't treat prefixes as wildcards."""
         # "gough.read" should NOT satisfy "gough.read.extended"
-        client = scope_enforcement_app.test_client()
+        scope_enforcement_app.test_client()
 
 
 class TestScopeEnforcementDecorator:
@@ -149,23 +154,14 @@ class TestScopeMapping:
 
     def test_admin_role_has_all_scopes(self):
         """Test admin role grants all scopes."""
-        admin_scopes = {
-            "gough.capacity.read",
-            "gough.disks.read",
-            "gough.disks.plan",
-            "gough.migration.trigger",
-            "gough.migration.policy",
-        }
         # Admin should have all of these
 
     def test_maintainer_role_scopes(self):
         """Test maintainer role grants appropriate scopes."""
-        maintainer_scopes = {"gough.capacity.read", "gough.disks.read"}
         # Maintainer typically has read access
 
     def test_viewer_role_scopes(self):
         """Test viewer role grants read-only scopes."""
-        viewer_scopes = {"gough.capacity.read"}
         # Viewer has minimal read-only access
 
 
@@ -174,21 +170,17 @@ class TestScopeFormats:
 
     def test_scope_format_dot_separated(self):
         """Test scopes use dot notation."""
-        scopes = [
-            "gough.read",
-            "gough.write",
-            "gough.admin",
-            "gough.migration.trigger",
-        ]
         # All should follow service.resource or service.resource.action pattern
 
     def test_scope_uniqueness(self):
         """Test scopes in a set are unique."""
-        scopes = frozenset([
-            "gough.read",
-            "gough.write",
-            "gough.read",  # Duplicate
-        ])
+        scopes = frozenset(
+            [
+                "gough.read",
+                "gough.write",
+                "gough.read",  # Duplicate
+            ]
+        )
         assert len(scopes) == 2  # Should deduplicate
 
     def test_scope_string_immutability(self):

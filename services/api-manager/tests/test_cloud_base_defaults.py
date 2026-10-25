@@ -11,7 +11,6 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
-
 from app.clouds.base import BaseCloud, CloudError, Machine, MachineState
 
 
@@ -34,7 +33,9 @@ class _FakeCloud(BaseCloud):
     def get_machine(self, machine_id: str) -> Machine:
         self.calls.append(machine_id)
         state = self._states.pop(0) if len(self._states) > 1 else self._states[0]
-        return Machine(id=machine_id, name="m", state=state, provider="fake", provider_id="1")
+        return Machine(
+            id=machine_id, name="m", state=state, provider="fake", provider_id="1"
+        )
 
     def create_machine(self, spec: Any) -> Machine:
         raise NotImplementedError
@@ -105,7 +106,9 @@ def test_regions_and_console_default_empty() -> None:
 
 def test_wait_for_state_returns_once_target_reached(no_sleep: list[float]) -> None:
     """Polling returns the machine as soon as it reaches the target, sleeping between polls."""
-    cloud = _FakeCloud([MachineState.PENDING, MachineState.PENDING, MachineState.RUNNING])
+    cloud = _FakeCloud(
+        [MachineState.PENDING, MachineState.PENDING, MachineState.RUNNING]
+    )
 
     machine = cloud.wait_for_state("vm-1", MachineState.RUNNING, timeout=60, interval=5)
 
@@ -124,11 +127,15 @@ def test_wait_for_state_fails_fast_on_error_state(no_sleep: list[float]) -> None
     assert len(cloud.calls) == 2
 
 
-def test_wait_for_state_times_out(monkeypatch: pytest.MonkeyPatch, no_sleep: list[float]) -> None:
+def test_wait_for_state_times_out(
+    monkeypatch: pytest.MonkeyPatch, no_sleep: list[float]
+) -> None:
     """A machine that never reaches the target raises a timeout CloudError naming the target state."""
     clock = iter([0.0, 1.0, 2.0, 400.0])
     monkeypatch.setattr("time.time", lambda: next(clock))
     cloud = _FakeCloud([MachineState.PENDING])
 
-    with pytest.raises(CloudError, match="Timeout waiting for machine vm-2 to reach stopped"):
+    with pytest.raises(
+        CloudError, match="Timeout waiting for machine vm-2 to reach stopped"
+    ):
         cloud.wait_for_state("vm-2", MachineState.STOPPED, timeout=300, interval=10)

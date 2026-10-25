@@ -5,7 +5,6 @@ Tests for exception handling paths and audit logging in SSH CA endpoints.
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import MagicMock
 
 # Direct function tests for audit logger presence checks

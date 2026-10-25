@@ -9,15 +9,15 @@ Tests the complete workflow for shell access including:
 - Permission enforcement
 """
 
-import json
 import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
-from typing import Dict
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch
 
 import pytest
 from werkzeug.security import generate_password_hash
+
+# DAL expression operand: `== None` builds an IS NULL query (not an identity check).
+_NULL = None
 
 
 class TestShellAccessIntegration:
@@ -27,74 +27,73 @@ class TestShellAccessIntegration:
     def team_data(self):
         """Sample team data."""
         return {
-            'name': f'test-team-{uuid.uuid4().hex[:8]}',
-            'description': 'Test team for shell access',
+            "name": f"test-team-{uuid.uuid4().hex[:8]}",
+            "description": "Test team for shell access",
         }
 
     @pytest.fixture
     def user_data(self):
         """Sample user data."""
         return {
-            'email': f'user-{uuid.uuid4().hex[:8]}@example.com',
-            'password': 'SecurePassword123!@',
-            'full_name': 'Test User',
-            'fs_uniquifier': str(uuid.uuid4()),
+            "email": f"user-{uuid.uuid4().hex[:8]}@example.com",
+            "password": "SecurePassword123!@",
+            "full_name": "Test User",
+            "fs_uniquifier": str(uuid.uuid4()),
         }
 
     @pytest.fixture
     def resource_data(self):
         """Sample resource data."""
         return {
-            'resource_type': 'vm',
-            'resource_id': f'vm-{uuid.uuid4().hex[:8]}',
-            'name': 'test-server-01',
-            'ip_address': '192.168.1.100',
+            "resource_type": "vm",
+            "resource_id": f"vm-{uuid.uuid4().hex[:8]}",
+            "name": "test-server-01",
+            "ip_address": "192.168.1.100",
         }
 
     @pytest.fixture
     def agent_data(self):
         """Sample access agent data."""
         return {
-            'agent_id': f'agent-{uuid.uuid4().hex[:8]}',
-            'agent_name': 'Test Access Agent',
-            'status': 'active',
-            'last_heartbeat': datetime.utcnow(),
-            'version': '1.0.0',
+            "agent_id": f"agent-{uuid.uuid4().hex[:8]}",
+            "agent_name": "Test Access Agent",
+            "status": "active",
+            "last_heartbeat": datetime.utcnow(),
+            "version": "1.0.0",
         }
 
     @pytest.fixture
     def auth_headers(self, mock_database, user_data):
         """Generate auth headers with valid JWT token."""
         # Create user in database
-        hashed_password = generate_password_hash(user_data['password'])
+        hashed_password = generate_password_hash(user_data["password"])
         user_id = mock_database.auth_user.insert(
-            email=user_data['email'],
+            email=user_data["email"],
             password=hashed_password,
-            full_name=user_data['full_name'],
-            fs_uniquifier=user_data['fs_uniquifier'],
+            full_name=user_data["full_name"],
+            fs_uniquifier=user_data["fs_uniquifier"],
             active=True,
         )
         mock_database.commit()
 
         # Create JWT token
         import jwt
+
         payload = {
-            'user_id': user_id,
-            'email': user_data['email'],
-            'role': 'user',
-            'exp': datetime.utcnow() + timedelta(hours=1),
-            'iat': datetime.utcnow(),
+            "user_id": user_id,
+            "email": user_data["email"],
+            "role": "user",
+            "exp": datetime.utcnow() + timedelta(hours=1),
+            "iat": datetime.utcnow(),
         }
         token = jwt.encode(
-            payload,
-            'test_jwt_secret_not_for_production',
-            algorithm='HS256'
+            payload, "test_jwt_secret_not_for_production", algorithm="HS256"
         )
 
         return {
-            'Authorization': f'Bearer {token}',
-            'Content-Type': 'application/json',
-            'X-User-Id': str(user_id),
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "X-User-Id": str(user_id),
         }
 
     # =========================================================================
@@ -122,11 +121,15 @@ class TestShellAccessIntegration:
         6. Terminate session
         """
         # Extract user_id from auth headers
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db, \
-             patch('gough.containers.management_server.py4web_app.api.shell.get_db') as mock_get_db_shell, \
-             patch('gough.containers.management_server.py4web_app.api.shell.check_shell_access') as mock_check_shell:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db, patch(
+            "gough.containers.management_server.py4web_app.api.shell.get_db"
+        ) as mock_get_db_shell, patch(
+            "gough.containers.management_server.py4web_app.api.shell.check_shell_access"
+        ) as mock_check_shell:
 
             mock_get_db.return_value = mock_database
             mock_get_db_shell.return_value = mock_database
@@ -141,7 +144,7 @@ class TestShellAccessIntegration:
             membership_id = mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='member',
+                role="member",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
@@ -149,11 +152,12 @@ class TestShellAccessIntegration:
 
             # Step 3: Assign resource to team with shell permission
             import json as json_module
-            permissions = json_module.dumps(['shell', 'read', 'write'])
+
+            permissions = json_module.dumps(["shell", "read", "write"])
             assignment_id = mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
@@ -169,38 +173,42 @@ class TestShellAccessIntegration:
             shell_session_id = mock_database.shell_sessions.insert(
                 session_id=session_id,
                 user_id=user_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 agent_id=agent_id,
-                session_type='ssh',
-                client_ip='192.168.1.50',
+                session_type="ssh",
+                client_ip="192.168.1.50",
                 started_at=datetime.utcnow(),
             )
             mock_database.commit()
             assert shell_session_id is not None
 
             # Step 5: Verify session in database
-            session = mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).select().first()
+            session = (
+                mock_database(mock_database.shell_sessions.session_id == session_id)
+                .select()
+                .first()
+            )
             assert session is not None
             assert session.user_id == user_id
-            assert session.resource_type == resource_data['resource_type']
-            assert session.resource_id == resource_data['resource_id']
-            assert session.session_type == 'ssh'
+            assert session.resource_type == resource_data["resource_type"]
+            assert session.resource_id == resource_data["resource_id"]
+            assert session.session_type == "ssh"
             assert session.ended_at is None
 
             # Step 6: Terminate session
             end_time = datetime.utcnow()
-            mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).update(ended_at=end_time)
+            mock_database(mock_database.shell_sessions.session_id == session_id).update(
+                ended_at=end_time
+            )
             mock_database.commit()
 
             # Verify termination
-            terminated_session = mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).select().first()
+            terminated_session = (
+                mock_database(mock_database.shell_sessions.session_id == session_id)
+                .select()
+                .first()
+            )
             assert terminated_session.ended_at is not None
             duration = (
                 terminated_session.ended_at - terminated_session.started_at
@@ -221,59 +229,59 @@ class TestShellAccessIntegration:
         """
         from app.ssh_ca import SSHCertificateAuthority, generate_key_id
 
-        with patch('app.ssh_ca.current_app') as mock_app, \
-             patch('app.ssh_ca.subprocess.run') as mock_subprocess, \
-             patch('pathlib.Path.write_bytes') as mock_write, \
-             patch('pathlib.Path.write_text') as mock_write_text, \
-             patch('pathlib.Path.read_text') as mock_read_text, \
-             patch('os.chmod') as mock_chmod:
+        with patch("app.ssh_ca.current_app") as mock_app, patch(
+            "app.ssh_ca.subprocess.run"
+        ) as mock_subprocess, patch("pathlib.Path.write_bytes"), patch(
+            "pathlib.Path.write_text"
+        ), patch(
+            "pathlib.Path.read_text"
+        ) as mock_read_text, patch(
+            "os.chmod"
+        ):
 
             mock_app.logger.info = Mock()
             mock_app.logger.debug = Mock()
             mock_app.logger.error = Mock()
 
             # Mock CA initialization
-            ssh_ca = SSHCertificateAuthority()
+            SSHCertificateAuthority()
 
             # Mock subprocess for ssh-keygen
             mock_subprocess.return_value = Mock(
                 returncode=0,
-                stdout='Certificate signed',
-                stderr='',
+                stdout="Certificate signed",
+                stderr="",
             )
 
             # Mock file operations
             mock_read_text.return_value = (
-                'ssh-rsa-cert-v01@openssh.com AAAAvlq5Cc5A9L... user@host-1234567890'
+                "ssh-rsa-cert-v01@openssh.com AAAAvlq5Cc5A9L... user@host-1234567890"
             )
 
             # Step 1: Initialize SSH CA
             ca_config_id = mock_database.ssh_ca_config.insert(
-                public_key='ssh-rsa AAAAB3NzaC1yc2E... ca@gough',
-                private_key_path='/var/lib/gough/ssh_ca/ca_key',
+                public_key="ssh-rsa AAAAB3NzaC1yc2E... ca@gough",
+                private_key_path="/var/lib/gough/ssh_ca/ca_key",
                 created_at=datetime.utcnow(),
             )
             mock_database.commit()
             assert ca_config_id is not None
 
             # Step 2: Request certificate signing
-            user_email = 'test@example.com'
-            resource_id = 'vm-001'
-            principals = ['ubuntu', 'admin']
-            validity_seconds = 3600
+            user_email = "test@example.com"
+            resource_id = "vm-001"
             key_id = generate_key_id(user_email, resource_id)
 
             # Mock public key
-            user_public_key = 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQ... user@laptop'
 
             # Mock signing
-            with patch('pathlib.Path.exists') as mock_exists:
+            with patch("pathlib.Path.exists") as mock_exists:
                 mock_exists.return_value = True
                 cert = mock_read_text.return_value
 
                 # Step 3: Verify certificate returned
                 assert cert is not None
-                assert 'cert-v01@openssh.com' in cert
+                assert "cert-v01@openssh.com" in cert
                 assert user_email in key_id
 
     # =========================================================================
@@ -296,10 +304,13 @@ class TestShellAccessIntegration:
         User without shell permission attempts to create session
         Verify 403 Forbidden response
         """
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db, \
-             patch('gough.containers.management_server.py4web_app.api.shell.get_db') as mock_get_db_shell:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db, patch(
+            "gough.containers.management_server.py4web_app.api.shell.get_db"
+        ) as mock_get_db_shell:
 
             mock_get_db.return_value = mock_database
             mock_get_db_shell.return_value = mock_database
@@ -309,28 +320,29 @@ class TestShellAccessIntegration:
             mock_database.commit()
 
             # Add user to team WITHOUT shell permission
-            membership_id = mock_database.team_members.insert(
+            mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='viewer',
+                role="viewer",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             # Assign resource with read-only permission (no shell)
             import json as json_module
-            permissions = json_module.dumps(['read'])
-            assignment_id = mock_database.resource_assignments.insert(
+
+            permissions = json_module.dumps(["read"])
+            mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             # Create access agent
-            agent_id = mock_database.access_agents.insert(**agent_data)
+            mock_database.access_agents.insert(**agent_data)
             mock_database.commit()
 
             # Attempt to create shell session
@@ -340,14 +352,14 @@ class TestShellAccessIntegration:
 
             has_access, error_msg = check_shell_access(
                 user_id,
-                resource_data['resource_type'],
-                resource_data['resource_id'],
+                resource_data["resource_type"],
+                resource_data["resource_id"],
             )
 
             # Verify access denied
             assert not has_access
             assert error_msg is not None
-            assert 'shell' in error_msg.lower() or 'permission' in error_msg.lower()
+            assert "shell" in error_msg.lower() or "permission" in error_msg.lower()
 
     # =========================================================================
     # Test 4: Multiple Sessions Management
@@ -370,29 +382,32 @@ class TestShellAccessIntegration:
         3. Terminate one session
         4. Verify remaining sessions still active
         """
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Create team and assign resource with shell permission
             team_id = mock_database.teams.insert(**team_data)
             mock_database.commit()
 
-            membership_id = mock_database.team_members.insert(
+            mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='member',
+                role="member",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             import json as json_module
-            permissions = json_module.dumps(['shell'])
-            assignment_id = mock_database.resource_assignments.insert(
+
+            permissions = json_module.dumps(["shell"])
+            mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
@@ -405,14 +420,14 @@ class TestShellAccessIntegration:
             session_ids = []
             for i in range(3):
                 session_id = str(uuid.uuid4())
-                shell_session_id = mock_database.shell_sessions.insert(
+                mock_database.shell_sessions.insert(
                     session_id=session_id,
                     user_id=user_id,
-                    resource_type=resource_data['resource_type'],
-                    resource_id=resource_data['resource_id'],
+                    resource_type=resource_data["resource_type"],
+                    resource_id=resource_data["resource_id"],
                     agent_id=agent_id,
-                    session_type='ssh',
-                    client_ip=f'192.168.1.{50+i}',
+                    session_type="ssh",
+                    client_ip=f"192.168.1.{50 + i}",
                     started_at=datetime.utcnow(),
                 )
                 mock_database.commit()
@@ -420,8 +435,8 @@ class TestShellAccessIntegration:
 
             # Step 2: List all active sessions
             active_sessions = mock_database(
-                (mock_database.shell_sessions.user_id == user_id) &
-                (mock_database.shell_sessions.ended_at == None)
+                (mock_database.shell_sessions.user_id == user_id)
+                & (mock_database.shell_sessions.ended_at == _NULL)
             ).select()
             assert len(active_sessions) == 3
 
@@ -434,8 +449,8 @@ class TestShellAccessIntegration:
 
             # Step 4: Verify remaining sessions still active
             remaining_sessions = mock_database(
-                (mock_database.shell_sessions.user_id == user_id) &
-                (mock_database.shell_sessions.ended_at == None)
+                (mock_database.shell_sessions.user_id == user_id)
+                & (mock_database.shell_sessions.ended_at == _NULL)
             ).select()
             assert len(remaining_sessions) == 2
 
@@ -464,30 +479,33 @@ class TestShellAccessIntegration:
         2. Verify session is identified as expired
         3. Cleanup expired sessions
         """
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
         max_session_duration = 28800  # 8 hours in seconds
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Setup
             team_id = mock_database.teams.insert(**team_data)
             mock_database.commit()
 
-            membership_id = mock_database.team_members.insert(
+            mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='member',
+                role="member",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             import json as json_module
-            permissions = json_module.dumps(['shell'])
-            assignment_id = mock_database.resource_assignments.insert(
+
+            permissions = json_module.dumps(["shell"])
+            mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
@@ -499,38 +517,44 @@ class TestShellAccessIntegration:
             # Step 1: Create session with old timestamp (9 hours ago)
             old_start_time = datetime.utcnow() - timedelta(hours=9)
             session_id = str(uuid.uuid4())
-            shell_session_id = mock_database.shell_sessions.insert(
+            mock_database.shell_sessions.insert(
                 session_id=session_id,
                 user_id=user_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 agent_id=agent_id,
-                session_type='ssh',
-                client_ip='192.168.1.50',
+                session_type="ssh",
+                client_ip="192.168.1.50",
                 started_at=old_start_time,
             )
             mock_database.commit()
 
             # Step 2: Verify session is identified as expired
-            session = mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).select().first()
+            session = (
+                mock_database(mock_database.shell_sessions.session_id == session_id)
+                .select()
+                .first()
+            )
             time_elapsed = (datetime.utcnow() - session.started_at).total_seconds()
             is_expired = time_elapsed > max_session_duration
             assert is_expired
 
             # Step 3: Cleanup expired sessions
             mock_database(
-                (mock_database.shell_sessions.started_at <
-                 datetime.utcnow() - timedelta(seconds=max_session_duration)) &
-                (mock_database.shell_sessions.ended_at == None)
+                (
+                    mock_database.shell_sessions.started_at
+                    < datetime.utcnow() - timedelta(seconds=max_session_duration)
+                )
+                & (mock_database.shell_sessions.ended_at == _NULL)
             ).update(ended_at=datetime.utcnow())
             mock_database.commit()
 
             # Verify cleanup
-            cleaned_session = mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).select().first()
+            cleaned_session = (
+                mock_database(mock_database.shell_sessions.session_id == session_id)
+                .select()
+                .first()
+            )
             assert cleaned_session.ended_at is not None
 
     # =========================================================================
@@ -550,20 +574,21 @@ class TestShellAccessIntegration:
         Test session type validation:
         Valid types: ssh, kubectl, docker, cloud_cli
         """
-        user_id = int(auth_headers['X-User-Id'])
-        valid_session_types = ['ssh', 'kubectl', 'docker', 'cloud_cli']
-        invalid_session_types = ['telnet', 'rsh', 'invalid']
+        valid_session_types = ["ssh", "kubectl", "docker", "cloud_cli"]
+        invalid_session_types = ["telnet", "rsh", "invalid"]
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Verify valid types
             for session_type in valid_session_types:
-                assert session_type in ['ssh', 'kubectl', 'docker', 'cloud_cli']
+                assert session_type in ["ssh", "kubectl", "docker", "cloud_cli"]
 
             # Verify invalid types are rejected
             for invalid_type in invalid_session_types:
-                assert invalid_type not in ['ssh', 'kubectl', 'docker', 'cloud_cli']
+                assert invalid_type not in ["ssh", "kubectl", "docker", "cloud_cli"]
 
     # =========================================================================
     # Test 7: Team Role Hierarchy
@@ -585,11 +610,10 @@ class TestShellAccessIntegration:
         - Member: Has shell permission
         - Viewer: No shell access
         """
-        from gough.containers.management_server.py4web_app.permissions import (
-            check_shell_access,
-        )
 
-        with patch('gough.containers.management_server.py4web_app.permissions.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.permissions.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Create team
@@ -598,17 +622,17 @@ class TestShellAccessIntegration:
 
             # Create test users for each role
             roles_to_test = [
-                ('owner', True),
-                ('admin', True),
-                ('member', True),
-                ('viewer', False),
+                ("owner", True),
+                ("admin", True),
+                ("member", True),
+                ("viewer", False),
             ]
 
             for role, should_have_access in roles_to_test:
                 # Create user
                 user_id = mock_database.auth_user.insert(
-                    email=f'{role}-{uuid.uuid4().hex[:8]}@example.com',
-                    password=generate_password_hash('TestPass123!@'),
+                    email=f"{role}-{uuid.uuid4().hex[:8]}@example.com",
+                    password=generate_password_hash("TestPass123!@"),
                     fs_uniquifier=str(uuid.uuid4()),
                     active=True,
                 )
@@ -625,15 +649,16 @@ class TestShellAccessIntegration:
 
                 # Assign resource with shell permission
                 import json as json_module
-                if role in ['owner', 'admin']:
-                    permissions = json_module.dumps(['shell', 'read', 'write', 'admin'])
+
+                if role in ["owner", "admin"]:
+                    permissions = json_module.dumps(["shell", "read", "write", "admin"])
                 else:
-                    permissions = json_module.dumps(['shell', 'read'])
+                    permissions = json_module.dumps(["shell", "read"])
 
                 mock_database.resource_assignments.insert(
                     team_id=team_id,
-                    resource_type=resource_data['resource_type'],
-                    resource_id=resource_data['resource_id'],
+                    resource_type=resource_data["resource_type"],
+                    resource_id=resource_data["resource_id"],
                     permissions=permissions,
                     assigned_at=datetime.utcnow(),
                 )
@@ -659,10 +684,13 @@ class TestShellAccessIntegration:
         2. Log session termination
         3. Verify audit records
         """
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db, \
-             patch('gough.containers.management_server.py4web_app.api.shell.get_audit_logger') as mock_audit_logger:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db, patch(
+            "gough.containers.management_server.py4web_app.api.shell.get_audit_logger"
+        ) as mock_audit_logger:
 
             mock_get_db.return_value = mock_database
             mock_audit = Mock()
@@ -672,20 +700,21 @@ class TestShellAccessIntegration:
             team_id = mock_database.teams.insert(**team_data)
             mock_database.commit()
 
-            membership_id = mock_database.team_members.insert(
+            mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='member',
+                role="member",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             import json as json_module
-            permissions = json_module.dumps(['shell'])
-            assignment_id = mock_database.resource_assignments.insert(
+
+            permissions = json_module.dumps(["shell"])
+            mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
@@ -696,29 +725,29 @@ class TestShellAccessIntegration:
 
             # Create session
             session_id = str(uuid.uuid4())
-            shell_session_id = mock_database.shell_sessions.insert(
+            mock_database.shell_sessions.insert(
                 session_id=session_id,
                 user_id=user_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 agent_id=agent_id,
-                session_type='ssh',
-                client_ip='192.168.1.50',
+                session_type="ssh",
+                client_ip="192.168.1.50",
                 started_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             # Verify audit log methods were callable
-            assert hasattr(mock_audit, 'log_shell_session_create') or True
+            assert hasattr(mock_audit, "log_shell_session_create") or True
 
             # Terminate session
-            mock_database(
-                mock_database.shell_sessions.session_id == session_id
-            ).update(ended_at=datetime.utcnow())
+            mock_database(mock_database.shell_sessions.session_id == session_id).update(
+                ended_at=datetime.utcnow()
+            )
             mock_database.commit()
 
             # Verify audit log methods were callable
-            assert hasattr(mock_audit, 'log_shell_session_terminate') or True
+            assert hasattr(mock_audit, "log_shell_session_terminate") or True
 
 
 class TestSSHCertificateIntegration:
@@ -755,8 +784,8 @@ class TestSSHCertificateIntegration:
         from app.ssh_ca import validate_principals
 
         # Valid case
-        principals = ['ubuntu', 'admin']
-        allowed_principals = ['ubuntu', 'admin', 'root']
+        principals = ["ubuntu", "admin"]
+        allowed_principals = ["ubuntu", "admin", "root"]
         assert validate_principals(principals, allowed_principals)
 
         # Empty principals rejected
@@ -764,7 +793,7 @@ class TestSSHCertificateIntegration:
         assert not validate_principals(empty_principals, allowed_principals)
 
         # Disallowed principals rejected
-        disallowed = ['restricted_user']
+        disallowed = ["restricted_user"]
         assert not validate_principals([disallowed[0]], allowed_principals)
 
     @pytest.mark.integration
@@ -772,15 +801,15 @@ class TestSSHCertificateIntegration:
         """Test SSH certificate key ID generation."""
         from app.ssh_ca import generate_key_id
 
-        user_email = 'user@example.com'
-        resource_id = 'vm-001'
+        user_email = "user@example.com"
+        resource_id = "vm-001"
 
         key_id = generate_key_id(user_email, resource_id)
 
         # Verify format
         assert user_email in key_id
         assert resource_id in key_id
-        assert '-' in key_id
+        assert "-" in key_id
         assert len(key_id) > len(user_email) + len(resource_id)
 
 
@@ -798,16 +827,18 @@ class TestShellAccessErrorHandling:
             check_shell_access,
         )
 
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.api.shell.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.api.shell.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Check access to non-existent resource
             has_access, error_msg = check_shell_access(
                 user_id,
-                'vm',
-                'nonexistent-resource-id',
+                "vm",
+                "nonexistent-resource-id",
             )
 
             # Should be denied
@@ -821,14 +852,16 @@ class TestShellAccessErrorHandling:
             check_shell_access,
         )
 
-        with patch('gough.containers.management_server.py4web_app.api.shell.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.api.shell.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Check access with invalid user ID
             has_access, error_msg = check_shell_access(
                 user_id=9999,
-                resource_type='vm',
-                resource_id='resource-001',
+                resource_type="vm",
+                resource_id="resource-001",
             )
 
             # Should be denied
@@ -843,29 +876,32 @@ class TestShellAccessErrorHandling:
         resource_data,
     ):
         """Test handling when no access agents are available."""
-        user_id = int(auth_headers['X-User-Id'])
+        user_id = int(auth_headers["X-User-Id"])
 
-        with patch('gough.containers.management_server.py4web_app.models.get_db') as mock_get_db:
+        with patch(
+            "gough.containers.management_server.py4web_app.models.get_db"
+        ) as mock_get_db:
             mock_get_db.return_value = mock_database
 
             # Setup team and resource
             team_id = mock_database.teams.insert(**team_data)
             mock_database.commit()
 
-            membership_id = mock_database.team_members.insert(
+            mock_database.team_members.insert(
                 user_id=user_id,
                 team_id=team_id,
-                role='member',
+                role="member",
                 joined_at=datetime.utcnow(),
             )
             mock_database.commit()
 
             import json as json_module
-            permissions = json_module.dumps(['shell'])
-            assignment_id = mock_database.resource_assignments.insert(
+
+            permissions = json_module.dumps(["shell"])
+            mock_database.resource_assignments.insert(
                 team_id=team_id,
-                resource_type=resource_data['resource_type'],
-                resource_id=resource_data['resource_id'],
+                resource_type=resource_data["resource_type"],
+                resource_id=resource_data["resource_id"],
                 permissions=permissions,
                 assigned_at=datetime.utcnow(),
             )
@@ -873,7 +909,7 @@ class TestShellAccessErrorHandling:
 
             # No agents available - should return None
             agents = mock_database(
-                mock_database.access_agents.status == 'active'
+                mock_database.access_agents.status == "active"
             ).select()
             assert len(agents) == 0
 

@@ -30,11 +30,6 @@ from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING, Any
 
 import grpc
-from cryptography import x509
-from cryptography.hazmat.backends import default_backend
-from cryptography.x509.oid import ExtensionOID
-from grpc import aio
-
 from app.metrics import grpc_auth_rejected_total
 from app.security.credentials import (
     CredentialError,
@@ -43,6 +38,10 @@ from app.security.credentials import (
     Principal,
     validate_service_svid,
 )
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
+from cryptography.x509.oid import ExtensionOID
+from grpc import aio
 
 if TYPE_CHECKING:
     from app.security.oidc import AsyncStaticKeyVerifier
@@ -69,13 +68,17 @@ def _extract_spiffe_id(cert_pem: str) -> str | None:
     """
     try:
         cert = x509.load_pem_x509_certificate(cert_pem.encode(), default_backend())
-        san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_ext = cert.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         for san in san_ext.value:  # type: ignore[attr-defined]
             if isinstance(san, x509.UniformResourceIdentifier) and san.value.startswith(
                 "spiffe://"
             ):
                 return san.value
-    except Exception as exc:  # noqa: BLE001 - any parse failure just means "no SVID here"
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 - any parse failure just means "no SVID here"
         log.debug("gRPC peer cert SPIFFE SAN extraction failed: %s", exc)
     return None
 
@@ -113,9 +116,11 @@ class GrpcAuthInterceptor(aio.ServerInterceptor):
                 return validate_service_svid(
                     peer_cert_pem=peer_cert_pem,
                     trust_bundle_pem=self._trust_bundle_pem,
-                    allowed_spiffe_ids=frozenset({claimed_spiffe_id})
-                    if claimed_spiffe_id
-                    else frozenset(),
+                    allowed_spiffe_ids=(
+                        frozenset({claimed_spiffe_id})
+                        if claimed_spiffe_id
+                        else frozenset()
+                    ),
                 )
             except CredentialError as exc:
                 # A presented-but-invalid cert doesn't short-circuit rejection --
@@ -130,7 +135,9 @@ class GrpcAuthInterceptor(aio.ServerInterceptor):
             try:
                 claims = await self._oidc_verifier.verify_token(token)
             except Exception as exc:
-                raise MissingCredentialError(f"machine JWT verification failed: {exc}") from exc
+                raise MissingCredentialError(
+                    f"machine JWT verification failed: {exc}"
+                ) from exc
 
             sub = claims.get("sub", "")
             if not isinstance(sub, str) or not sub.startswith("machine:"):
@@ -151,7 +158,9 @@ class GrpcAuthInterceptor(aio.ServerInterceptor):
 
     async def intercept_service(
         self,
-        continuation: Callable[[grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler]],
+        continuation: Callable[
+            [grpc.HandlerCallDetails], Awaitable[grpc.RpcMethodHandler]
+        ],
         handler_call_details: grpc.HandlerCallDetails,
     ) -> grpc.RpcMethodHandler | None:
         """Wrap the resolved handler so auth runs before any servicer code."""
@@ -161,7 +170,9 @@ class GrpcAuthInterceptor(aio.ServerInterceptor):
 
         method = handler_call_details.method
 
-        async def _reject(context: aio.ServicerContext[Any, Any], exc: CredentialError) -> None:
+        async def _reject(
+            context: aio.ServicerContext[Any, Any], exc: CredentialError
+        ) -> None:
             grpc_auth_rejected_total.labels(
                 method=method, reason=type(exc).__name__
             ).inc()

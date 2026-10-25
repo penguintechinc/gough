@@ -14,7 +14,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.clients.cluster_discovery import (
     ClusterDiscoveryUnavailable,
     DiscoveredMember,
@@ -28,7 +27,8 @@ async def test_rejects_cloud_metadata_ip() -> None:
     fetch -- the classic SSRF pivot to steal node cloud credentials."""
     with pytest.raises(ClusterDiscoveryUnavailable, match="blocked address"):
         await discover_inventory(
-            kind="lxd", endpoint="http://169.254.169.254/latest/meta-data/",
+            kind="lxd",
+            endpoint="http://169.254.169.254/latest/meta-data/",
         )
 
 
@@ -69,9 +69,18 @@ async def test_allows_private_network_endpoint() -> None:
     not the SSRF vector this guard targets."""
     mock_response = MagicMock()
     mock_response.raise_for_status = MagicMock()
-    mock_response.json = MagicMock(return_value={
-        "metadata": [{"server_name": "node-a", "url": "10.0.0.5", "status": "Online", "roles": []}],
-    })
+    mock_response.json = MagicMock(
+        return_value={
+            "metadata": [
+                {
+                    "server_name": "node-a",
+                    "url": "10.0.0.5",
+                    "status": "Online",
+                    "roles": [],
+                }
+            ],
+        }
+    )
 
     mock_client = AsyncMock()
     mock_client.get = AsyncMock(return_value=mock_response)
@@ -81,10 +90,14 @@ async def test_allows_private_network_endpoint() -> None:
     # on the mock so discover_inventory's explicit assertion holds.
     mock_client.follow_redirects = False
 
-    with patch("app.clients.cluster_discovery.httpx.AsyncClient", return_value=mock_client):
+    with patch(
+        "app.clients.cluster_discovery.httpx.AsyncClient", return_value=mock_client
+    ):
         members = await discover_inventory(kind="lxd", endpoint="https://10.0.0.5:8443")
 
-    assert members == [DiscoveredMember(name="node-a", address="10.0.0.5", role=None, status="Online")]
+    assert members == [
+        DiscoveredMember(name="node-a", address="10.0.0.5", role=None, status="Online")
+    ]
     mock_client.get.assert_awaited_once()
 
 

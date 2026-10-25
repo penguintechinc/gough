@@ -12,11 +12,12 @@ from unittest.mock import MagicMock
 
 import paramiko
 import pytest
-
 from agent import rssh_server as rssh
 from agent.cert_validator import CertificateInfo, CertificateValidator
 from agent.config import AgentConfig
-from tests.test_rssh_server import (  # noqa: F401  (ssh_env is a fixture)
+
+from tests import test_rssh_server as _rssh_suite
+from tests.test_rssh_server import (
     CURRENT_USER,
     HOST_PRINCIPAL,
     SSHEnv,
@@ -25,8 +26,10 @@ from tests.test_rssh_server import (  # noqa: F401  (ssh_env is a fixture)
     cert_key,
     connect,
     read_until,
-    ssh_env,
 )
+
+# Re-export the shared fixture so pytest collects it in this module.
+ssh_env = _rssh_suite.ssh_env
 
 
 def _auth_fails(env: SSHEnv, username: str, pkey: paramiko.PKey) -> None:
@@ -38,7 +41,9 @@ def _auth_fails(env: SSHEnv, username: str, pkey: paramiko.PKey) -> None:
 
 def test_cert_without_host_principal_is_rejected(ssh_env: SSHEnv) -> None:
     """A valid CA-signed user cert that names no host is not honoured here (fail closed)."""
-    _auth_fails(ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], host_scope=False))
+    _auth_fails(
+        ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], host_scope=False)
+    )
 
 
 def test_cert_for_another_host_is_rejected(ssh_env: SSHEnv) -> None:
@@ -49,7 +54,9 @@ def test_cert_for_another_host_is_rejected(ssh_env: SSHEnv) -> None:
 
 def test_host_certificate_is_rejected(ssh_env: SSHEnv) -> None:
     """A host-type (-h) certificate never authenticates a login."""
-    _auth_fails(ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], extra_args=["-h"]))
+    _auth_fails(
+        ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER], extra_args=["-h"])
+    )
 
 
 def test_unknown_unix_account_is_rejected(ssh_env: SSHEnv) -> None:
@@ -59,13 +66,17 @@ def test_unknown_unix_account_is_rejected(ssh_env: SSHEnv) -> None:
 
 def test_source_address_mismatch_is_rejected(ssh_env: SSHEnv) -> None:
     """source-address that excludes the peer refuses the login."""
-    pkey = cert_key(ssh_env, [CURRENT_USER], extra_args=["-O", "source-address=10.9.9.9/32"])
+    pkey = cert_key(
+        ssh_env, [CURRENT_USER], extra_args=["-O", "source-address=10.9.9.9/32"]
+    )
     _auth_fails(ssh_env, CURRENT_USER, pkey)
 
 
 def test_source_address_match_is_accepted(ssh_env: SSHEnv) -> None:
     """source-address that includes the peer allows the login."""
-    pkey = cert_key(ssh_env, [CURRENT_USER], extra_args=["-O", "source-address=127.0.0.0/8"])
+    pkey = cert_key(
+        ssh_env, [CURRENT_USER], extra_args=["-O", "source-address=127.0.0.0/8"]
+    )
     client = connect(ssh_env, CURRENT_USER, pkey)
     transport = client.get_transport()
     assert transport is not None and transport.is_active()
@@ -73,13 +84,17 @@ def test_source_address_match_is_accepted(ssh_env: SSHEnv) -> None:
 
 def test_unsupported_critical_option_is_rejected(ssh_env: SSHEnv) -> None:
     """Any critical option other than force-command/source-address is refused."""
-    pkey = cert_key(ssh_env, [CURRENT_USER], extra_args=["-O", "critical:unknown-opt=1"])
+    pkey = cert_key(
+        ssh_env, [CURRENT_USER], extra_args=["-O", "critical:unknown-opt=1"]
+    )
     _auth_fails(ssh_env, CURRENT_USER, pkey)
 
 
 def test_force_command_runs_instead_of_login_shell(ssh_env: SSHEnv) -> None:
     """force-command from the cert replaces the interactive login shell."""
-    pkey = cert_key(ssh_env, [CURRENT_USER], extra_args=["-O", "force-command=echo FORCED_OK"])
+    pkey = cert_key(
+        ssh_env, [CURRENT_USER], extra_args=["-O", "force-command=echo FORCED_OK"]
+    )
     chan = connect(ssh_env, CURRENT_USER, pkey).invoke_shell()
     assert "FORCED_OK" in read_until(chan, "FORCED_OK")
     shell = pwd.getpwuid(os.getuid()).pw_shell
@@ -89,7 +104,9 @@ def test_force_command_runs_instead_of_login_shell(ssh_env: SSHEnv) -> None:
 
 def test_agent_secrets_are_not_inherited_by_shell(ssh_env: SSHEnv) -> None:
     """The child gets a minimal env: the agent's own env (tokens) is not visible."""
-    chan = connect(ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER])).invoke_shell()
+    chan = connect(
+        ssh_env, CURRENT_USER, cert_key(ssh_env, [CURRENT_USER])
+    ).invoke_shell()
     time.sleep(0.5)
     chan.send("echo SEC=[${GOUGH_AGENT_SECRET:-unset}] HOME_IS=$HOME; echo DONE\n")
     out = read_until(chan, "DONE")
@@ -97,7 +114,11 @@ def test_agent_secrets_are_not_inherited_by_shell(ssh_env: SSHEnv) -> None:
     assert f"HOME_IS={pwd.getpwuid(os.getuid()).pw_dir}" in out
 
 
-def _iface(info: CertificateInfo, allowed: list[str] | None = None, addr: Any = ("127.0.0.1", 1)):
+def _iface(
+    info: CertificateInfo,
+    allowed: list[str] | None = None,
+    addr: Any = ("127.0.0.1", 1),
+):
     """Build an interface whose validator returns ``info`` plus a stand-in cert key."""
     validator = MagicMock(spec=CertificateValidator)
     validator.validate_certificate.return_value = info
@@ -107,7 +128,9 @@ def _iface(info: CertificateInfo, allowed: list[str] | None = None, addr: Any = 
         client_addr=addr,
     )
     key = SimpleNamespace(
-        public_blob=SimpleNamespace(key_blob=b"x", key_type="ssh-ed25519-cert-v01@openssh.com")
+        public_blob=SimpleNamespace(
+            key_blob=b"x", key_type="ssh-ed25519-cert-v01@openssh.com"
+        )
     )
     return iface, key
 
@@ -152,7 +175,9 @@ def test_reserved_principal_names_cannot_be_login_names(name: str) -> None:
 
 def test_source_address_without_peer_fails_closed() -> None:
     """source-address with an unknown peer is refused."""
-    iface, key = _iface(_info(critical_options={"source-address": "127.0.0.1/32"}), addr=None)
+    iface, key = _iface(
+        _info(critical_options={"source-address": "127.0.0.1/32"}), addr=None
+    )
     assert iface.check_auth_publickey(CURRENT_USER, key) == paramiko.AUTH_FAILED
 
 
@@ -202,7 +227,9 @@ def test_shell_problem_cases(tmp_path: Any) -> None:
     assert "not executable" in (rssh.shell_problem(str(noexec), f) or "")
     shells.write_text("/other\n")
     assert "not in /etc/shells" in (rssh.shell_problem(str(ok_shell), f) or "")
-    assert "cannot read" in (rssh.shell_problem(str(ok_shell), str(tmp_path / "absent")) or "")
+    assert "cannot read" in (
+        rssh.shell_problem(str(ok_shell), str(tmp_path / "absent")) or ""
+    )
 
 
 class _FakePam:
@@ -238,9 +265,17 @@ class _FakePam:
 
 @pytest.mark.parametrize(
     ("rc", "ok"),
-    [(0, True), (13, False), (12, False), (7, False), (10, False)],  # ok/expired/newtok/denied/acct
+    [
+        (0, True),
+        (13, False),
+        (12, False),
+        (7, False),
+        (10, False),
+    ],  # ok/expired/newtok/denied/acct
 )
-def test_account_permitted_maps_pam_codes(monkeypatch: pytest.MonkeyPatch, rc: int, ok: bool) -> None:
+def test_account_permitted_maps_pam_codes(
+    monkeypatch: pytest.MonkeyPatch, rc: int, ok: bool
+) -> None:
     """Only PAM_SUCCESS permits; expired / authtok-required / denied reject; handle is ended."""
     fake = _FakePam(acct_rc=rc)
     monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
@@ -248,7 +283,9 @@ def test_account_permitted_maps_pam_codes(monkeypatch: pytest.MonkeyPatch, rc: i
     assert fake.user == b"alice" and fake.ended == 1
 
 
-def test_account_permitted_fails_closed_when_libpam_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_account_permitted_fails_closed_when_libpam_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unloadable libpam rejects (never skips)."""
 
     def boom() -> None:
@@ -258,7 +295,9 @@ def test_account_permitted_fails_closed_when_libpam_missing(monkeypatch: pytest.
     assert rssh.account_permitted("alice", "10.1.2.3") is False
 
 
-def test_account_permitted_fails_closed_on_pam_start_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_account_permitted_fails_closed_on_pam_start_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """pam_start failure rejects."""
     monkeypatch.setattr(rssh, "_load_libpam", lambda: _FakePam(start_rc=4))
     assert rssh.account_permitted("alice", "10.1.2.3") is False
@@ -308,14 +347,18 @@ def test_authorize_rejects_bad_shell_or_locked(
 def test_empty_pw_shell_falls_back_to_bin_sh(monkeypatch: pytest.MonkeyPatch) -> None:
     """Only an empty pw_shell yields /bin/sh, and force-command uses the account shell."""
     real = pwd.getpwnam(CURRENT_USER)
-    fake = pwd.struct_passwd((real.pw_name, "x", real.pw_uid, real.pw_gid, "", real.pw_dir, ""))
+    fake = pwd.struct_passwd(
+        (real.pw_name, "x", real.pw_uid, real.pw_gid, "", real.pw_dir, "")
+    )
     monkeypatch.setattr(rssh.pwd, "getpwnam", lambda n: fake)
     calls: list[list[str]] = []
 
     class _P:
         pid = 1
 
-    monkeypatch.setattr(rssh.subprocess, "Popen", lambda argv, **k: calls.append(argv) or _P())
+    monkeypatch.setattr(
+        rssh.subprocess, "Popen", lambda argv, **k: calls.append(argv) or _P()
+    )
     srv = rssh.RSSHServer(AgentConfig(), MagicMock(spec=CertificateValidator))
     session = _session(_FakeChannel(payloads=[]), master_fd=None)
     session.force_command = "id"
@@ -325,19 +368,27 @@ def test_empty_pw_shell_falls_back_to_bin_sh(monkeypatch: pytest.MonkeyPatch) ->
     assert calls == [["/bin/sh", "-c", "id"]]
 
 
-def test_pam_context_items_are_set_before_acct_mgmt(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pam_context_items_are_set_before_acct_mgmt(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """PAM_RHOST, PAM_TTY (and PAM_RUSER) are set so host-based PAM rules can apply."""
     fake = _FakePam()
     monkeypatch.setattr(rssh, "_load_libpam", lambda: fake)
     assert rssh.account_permitted("alice", "10.1.2.3", "key-1") is True
-    assert fake.items == {rssh.PAM_RHOST: b"10.1.2.3", rssh.PAM_TTY: b"ssh", rssh.PAM_RUSER: b"key-1"}
+    assert fake.items == {
+        rssh.PAM_RHOST: b"10.1.2.3",
+        rssh.PAM_TTY: b"ssh",
+        rssh.PAM_RUSER: b"key-1",
+    }
     fake2 = _FakePam()
     monkeypatch.setattr(rssh, "_load_libpam", lambda: fake2)
     rssh.account_permitted("alice", "10.1.2.3")
     assert rssh.PAM_RUSER not in fake2.items
 
 
-def test_pam_set_item_failure_fails_closed_and_ends(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_pam_set_item_failure_fails_closed_and_ends(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A failing pam_set_item rejects and still calls pam_end."""
     fake = _FakePam()
     fake.set_rc = 7
@@ -347,7 +398,9 @@ def test_pam_set_item_failure_fails_closed_and_ends(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.parametrize("peer", [None, ""])
-def test_pam_unknown_peer_fails_closed(monkeypatch: pytest.MonkeyPatch, peer: str | None) -> None:
+def test_pam_unknown_peer_fails_closed(
+    monkeypatch: pytest.MonkeyPatch, peer: str | None
+) -> None:
     """No peer address means no PAM context: reject without calling PAM."""
     monkeypatch.setattr(rssh, "_load_libpam", lambda: pytest.fail("must not load"))
     assert rssh.account_permitted("alice", peer) is False

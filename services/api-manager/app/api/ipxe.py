@@ -24,10 +24,10 @@ from typing import Any, Callable, Literal, Optional
 import jwt
 from quart import Blueprint, Response, current_app, g, jsonify, request
 
-from ..db.run_db import run_db
-from ..middleware import auth_required, admin_required, maintainer_or_admin_required
-from ..models import get_db
 from .. import metrics as _metrics
+from ..db.run_db import run_db
+from ..middleware import admin_required, auth_required, maintainer_or_admin_required
+from ..models import get_db
 from ._dto import serialize_elder_config
 
 log = logging.getLogger(__name__)
@@ -153,7 +153,7 @@ def _create_deployment_job(
     image_id: int,
     boot_config_id: Optional[int],
     biomes_to_deploy: list[int],
-    user_id: int
+    user_id: int,
 ) -> str:
     """Create a new deployment job.
 
@@ -179,7 +179,7 @@ def _create_deployment_job(
         status="pending",
         progress_percent=0,
         created_by=user_id,
-        started_at=datetime.utcnow()
+        started_at=datetime.utcnow(),
     )
     db.commit()
 
@@ -192,7 +192,7 @@ def _log_boot_event(
     event_type: str,
     details: Optional[dict] = None,
     status: Optional[str] = None,
-    ip_address: Optional[str] = None
+    ip_address: Optional[str] = None,
 ) -> None:
     """Log a boot/deployment event.
 
@@ -211,7 +211,7 @@ def _log_boot_event(
         ip_address=ip_address,
         event_type=event_type,
         details=details or {},
-        status=status
+        status=status,
     )
     db.commit()
 
@@ -219,6 +219,7 @@ def _log_boot_event(
 # =============================================================================
 # iPXE Configuration Endpoints
 # =============================================================================
+
 
 @ipxe_bp.route("/config", methods=["GET"])
 @auth_required
@@ -301,7 +302,7 @@ async def update_ipxe_config():
         "default_boot_script": data.get("default_boot_script"),
         "chain_url": data.get("chain_url"),
         "is_active": data.get("is_active", True),
-        "updated_at": datetime.utcnow()
+        "updated_at": datetime.utcnow(),
     }
 
     if existing:
@@ -330,6 +331,7 @@ async def update_ipxe_config():
 # =============================================================================
 # Machine Management Endpoints
 # =============================================================================
+
 
 @ipxe_bp.route("/machines", methods=["GET"])
 @auth_required
@@ -372,11 +374,11 @@ async def list_machines():
     # this raised went unnoticed).
     args = request.args
     if args.get("status"):
-        query &= (db.ipxe_machines.status == args["status"])
+        query &= db.ipxe_machines.status == args["status"]
     if args.get("zone"):
-        query &= (db.ipxe_machines.zone == args["zone"])
+        query &= db.ipxe_machines.zone == args["zone"]
     if args.get("pool"):
-        query &= (db.ipxe_machines.pool == args["pool"])
+        query &= db.ipxe_machines.pool == args["pool"]
 
     try:
         page_size = min(int(args.get("page_size", _DEFAULT_PAGE_SIZE)), _MAX_PAGE_SIZE)
@@ -422,11 +424,16 @@ async def list_machines():
         last = out_machines[-1]
         next_cursor = _encode_ipxe_cursor(last.id, last.last_seen_at)
 
-    return jsonify({
-        "machines": [m.as_dict() for m in out_machines],
-        "count": len(out_machines),
-        "next_cursor": next_cursor,
-    }), 200
+    return (
+        jsonify(
+            {
+                "machines": [m.as_dict() for m in out_machines],
+                "count": len(out_machines),
+                "next_cursor": next_cursor,
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>", methods=["GET"])
@@ -476,39 +483,50 @@ async def commission_machine(machine_id: str):
 
     # Verify machine is in discoverable state
     if machine["status"] not in ["unknown", "discovered", "failed"]:
-        return jsonify({
-            "error": f"Cannot commission machine in '{machine['status']}' state",
-            "allowed_states": ["unknown", "discovered", "failed"]
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot commission machine in '{machine['status']}' state",
+                    "allowed_states": ["unknown", "discovered", "failed"],
+                }
+            ),
+            400,
+        )
 
     db = get_db()
 
     # Update machine status
     def _update_status() -> None:
         db(db.ipxe_machines.id == machine["id"]).update(
-            status="commissioning",
-            updated_at=datetime.utcnow()
+            status="commissioning", updated_at=datetime.utcnow()
         )
         db.commit()
 
     await run_db(_update_status)
 
     # Log event
-    await run_db(lambda: _log_boot_event(
-        machine_id=machine["id"],
-        mac_address=machine["mac_address"],
-        event_type="boot_start",
-        details={"action": "commission"},
-        status="started"
-    ))
+    await run_db(
+        lambda: _log_boot_event(
+            machine_id=machine["id"],
+            mac_address=machine["mac_address"],
+            event_type="boot_start",
+            details={"action": "commission"},
+            status="started",
+        )
+    )
 
     log.info(f"Machine {machine['system_id']} commissioning started")
 
-    return jsonify({
-        "message": "Commissioning started",
-        "machine_id": machine["system_id"],
-        "status": "commissioning"
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Commissioning started",
+                "machine_id": machine["system_id"],
+                "status": "commissioning",
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>/deploy", methods=["POST"])
@@ -539,10 +557,15 @@ async def deploy_machine(machine_id: str):
 
     # Verify machine is ready for deployment
     if machine["status"] not in ["ready", "deployed", "failed"]:
-        return jsonify({
-            "error": f"Cannot deploy machine in '{machine['status']}' state",
-            "allowed_states": ["ready", "deployed", "failed"]
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot deploy machine in '{machine['status']}' state",
+                    "allowed_states": ["ready", "deployed", "failed"],
+                }
+            ),
+            400,
+        )
 
     data = await request.get_json()
 
@@ -576,17 +599,20 @@ async def deploy_machine(machine_id: str):
 
     # Get current user from context
     from quart import g
+
     user = getattr(g, "current_user", None)
     user_id = user["id"] if user else None
 
     # Create deployment job
-    job_id = await run_db(lambda: _create_deployment_job(
-        machine_id=machine["id"],
-        image_id=image_id,
-        boot_config_id=boot_config_id,
-        biomes_to_deploy=biomes,
-        user_id=user_id
-    ))
+    job_id = await run_db(
+        lambda: _create_deployment_job(
+            machine_id=machine["id"],
+            image_id=image_id,
+            boot_config_id=boot_config_id,
+            biomes_to_deploy=biomes,
+            user_id=user_id,
+        )
+    )
 
     # Update machine status and biomes
     def _update_status() -> None:
@@ -594,34 +620,41 @@ async def deploy_machine(machine_id: str):
             status="deploying",
             boot_config_id=boot_config_id,
             assigned_biomes=biomes,
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         db.commit()
 
     await run_db(_update_status)
 
     # Log event
-    await run_db(lambda: _log_boot_event(
-        machine_id=machine["id"],
-        mac_address=machine["mac_address"],
-        event_type="boot_start",
-        details={
-            "action": "deploy",
-            "job_id": job_id,
-            "image_id": image_id,
-            "biomes": biomes
-        },
-        status="started"
-    ))
+    await run_db(
+        lambda: _log_boot_event(
+            machine_id=machine["id"],
+            mac_address=machine["mac_address"],
+            event_type="boot_start",
+            details={
+                "action": "deploy",
+                "job_id": job_id,
+                "image_id": image_id,
+                "biomes": biomes,
+            },
+            status="started",
+        )
+    )
 
     log.info(f"Machine {machine['system_id']} deployment started (job: {job_id})")
 
-    return jsonify({
-        "message": "Deployment started",
-        "machine_id": machine["system_id"],
-        "job_id": job_id,
-        "status": "deploying"
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Deployment started",
+                "machine_id": machine["system_id"],
+                "job_id": job_id,
+                "status": "deploying",
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>/release", methods=["POST"])
@@ -647,10 +680,15 @@ async def release_machine(machine_id: str):
 
     # Verify machine is deployed
     if machine["status"] not in ["deployed", "failed"]:
-        return jsonify({
-            "error": f"Cannot release machine in '{machine['status']}' state",
-            "allowed_states": ["deployed", "failed"]
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Cannot release machine in '{machine['status']}' state",
+                    "allowed_states": ["deployed", "failed"],
+                }
+            ),
+            400,
+        )
 
     db = get_db()
 
@@ -660,28 +698,35 @@ async def release_machine(machine_id: str):
             status="ready",
             assigned_biomes=[],
             deployed_at=None,
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
         db.commit()
 
     await run_db(_update_status)
 
     # Log event
-    await run_db(lambda: _log_boot_event(
-        machine_id=machine["id"],
-        mac_address=machine["mac_address"],
-        event_type="deployment_complete",
-        details={"action": "release"},
-        status="released"
-    ))
+    await run_db(
+        lambda: _log_boot_event(
+            machine_id=machine["id"],
+            mac_address=machine["mac_address"],
+            event_type="deployment_complete",
+            details={"action": "release"},
+            status="released",
+        )
+    )
 
     log.info(f"Machine {machine['system_id']} released to ready pool")
 
-    return jsonify({
-        "message": "Machine released",
-        "machine_id": machine["system_id"],
-        "status": "ready"
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Machine released",
+                "machine_id": machine["system_id"],
+                "status": "ready",
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>/power/<string:action>", methods=["POST"])
@@ -709,48 +754,72 @@ async def power_control(machine_id: str, action: str):
     # Validate action
     valid_actions = ["on", "off", "cycle", "reset"]
     if action not in valid_actions:
-        return jsonify({
-            "error": f"Invalid power action: {action}",
-            "valid_actions": valid_actions
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Invalid power action: {action}",
+                    "valid_actions": valid_actions,
+                }
+            ),
+            400,
+        )
 
     # Check if power control is available
     power_type = machine.get("power_type", "manual")
     if power_type == "manual":
-        return jsonify({
-            "error": "Manual power control - no automated power management available",
-            "machine_id": machine["system_id"]
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": "Manual power control - no automated power management available",
+                    "machine_id": machine["system_id"],
+                }
+            ),
+            400,
+        )
 
     # No BMC/power driver is wired in: reporting "initiated" for an action that never ran is a
     # lie, so fail loudly instead of faking success.
-    return jsonify({
-        "error": "power_control_not_implemented",
-        "message": "No power-management driver is configured for this machine type",
-        "machine_id": machine["system_id"],
-    }), 501
+    return (
+        jsonify(
+            {
+                "error": "power_control_not_implemented",
+                "message": "No power-management driver is configured for this machine type",
+                "machine_id": machine["system_id"],
+            }
+        ),
+        501,
+    )
 
     # Log the power action
-    await run_db(lambda: _log_boot_event(
-        machine_id=machine["id"],
-        mac_address=machine["mac_address"],
-        event_type="boot_start",
-        details={
-            "action": f"power_{action}",
-            "power_type": power_type,
-            "bmc_address": machine.get("bmc_address")
-        },
-        status="initiated"
-    ))
+    await run_db(
+        lambda: _log_boot_event(
+            machine_id=machine["id"],
+            mac_address=machine["mac_address"],
+            event_type="boot_start",
+            details={
+                "action": f"power_{action}",
+                "power_type": power_type,
+                "bmc_address": machine.get("bmc_address"),
+            },
+            status="initiated",
+        )
+    )
 
-    log.info(f"Power {action} initiated for machine {machine['system_id']} via {power_type}")
+    log.info(
+        f"Power {action} initiated for machine {machine['system_id']} via {power_type}"
+    )
 
-    return jsonify({
-        "message": f"Power {action} initiated",
-        "machine_id": machine["system_id"],
-        "power_type": power_type,
-        "action": action
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": f"Power {action} initiated",
+                "machine_id": machine["system_id"],
+                "power_type": power_type,
+                "action": action,
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>/biomes", methods=["PUT"])
@@ -792,8 +861,7 @@ async def update_machine_biomes(machine_id: str):
     # Update assigned biomes
     def _update_biomes() -> None:
         db(db.ipxe_machines.id == machine["id"]).update(
-            assigned_biomes=biomes,
-            updated_at=datetime.utcnow()
+            assigned_biomes=biomes, updated_at=datetime.utcnow()
         )
         db.commit()
 
@@ -801,11 +869,16 @@ async def update_machine_biomes(machine_id: str):
 
     log.info(f"Machine {machine['system_id']} biomes updated: {biomes}")
 
-    return jsonify({
-        "message": "Biomes updated",
-        "machine_id": machine["system_id"],
-        "biomes": biomes
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Biomes updated",
+                "machine_id": machine["system_id"],
+                "biomes": biomes,
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/machines/<string:machine_id>", methods=["DELETE"])
@@ -831,10 +904,15 @@ async def delete_machine(machine_id: str):
 
     # Prevent deletion of deployed machines
     if machine["status"] == "deployed":
-        return jsonify({
-            "error": "Cannot delete deployed machine - release it first",
-            "machine_id": machine["system_id"]
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": "Cannot delete deployed machine - release it first",
+                    "machine_id": machine["system_id"],
+                }
+            ),
+            400,
+        )
 
     db = get_db()
 
@@ -847,15 +925,16 @@ async def delete_machine(machine_id: str):
 
     log.info(f"Machine {machine['system_id']} deleted from inventory")
 
-    return jsonify({
-        "message": "Machine deleted",
-        "machine_id": machine["system_id"]
-    }), 200
+    return (
+        jsonify({"message": "Machine deleted", "machine_id": machine["system_id"]}),
+        200,
+    )
 
 
 # =============================================================================
 # Boot Images Endpoints
 # =============================================================================
+
 
 @ipxe_bp.route("/images", methods=["GET"])
 @auth_required
@@ -891,9 +970,9 @@ async def list_images():
     # this raised went unnoticed).
     args = request.args
     if args.get("architecture"):
-        query &= (db.ipxe_images.architecture == args["architecture"])
+        query &= db.ipxe_images.architecture == args["architecture"]
     if args.get("os_version"):
-        query &= (db.ipxe_images.os_version == args["os_version"])
+        query &= db.ipxe_images.os_version == args["os_version"]
 
     try:
         page_size = min(int(args.get("page_size", _DEFAULT_PAGE_SIZE)), _MAX_PAGE_SIZE)
@@ -939,11 +1018,16 @@ async def list_images():
         last = out_images[-1]
         next_cursor = _encode_ipxe_cursor(last.id, last.created_at)
 
-    return jsonify({
-        "images": [img.as_dict() for img in out_images],
-        "count": len(out_images),
-        "next_cursor": next_cursor,
-    }), 200
+    return (
+        jsonify(
+            {
+                "images": [img.as_dict() for img in out_images],
+                "count": len(out_images),
+                "next_cursor": next_cursor,
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/images", methods=["POST"])
@@ -979,7 +1063,14 @@ async def create_image():
 
     validation_error = _validate_required_fields(
         data,
-        ["name", "display_name", "os_version", "architecture", "kernel_path", "initrd_path"]
+        [
+            "name",
+            "display_name",
+            "os_version",
+            "architecture",
+            "kernel_path",
+            "initrd_path",
+        ],
     )
     if validation_error:
         return validation_error
@@ -1012,7 +1103,7 @@ async def create_image():
             is_default=data.get("is_default", False),
             is_active=data.get("is_active", True),
             checksum=data.get("checksum"),
-            size_bytes=data.get("size_bytes", 0)
+            size_bytes=data.get("size_bytes", 0),
         )
         db.commit()
         return db(db.ipxe_images.id == image_id).select().first()
@@ -1089,9 +1180,18 @@ async def update_image(image_id: int):
     update_fields = {"updated_at": datetime.utcnow()}
 
     allowed_updates = [
-        "display_name", "os_version", "kernel_path", "initrd_path",
-        "squashfs_path", "kernel_params", "image_type", "minio_bucket",
-        "is_default", "is_active", "checksum", "size_bytes"
+        "display_name",
+        "os_version",
+        "kernel_path",
+        "initrd_path",
+        "squashfs_path",
+        "kernel_params",
+        "image_type",
+        "minio_bucket",
+        "is_default",
+        "is_active",
+        "checksum",
+        "size_bytes",
     ]
 
     for field in allowed_updates:
@@ -1140,20 +1240,30 @@ async def delete_image(image_id: int):
     def _check_in_use() -> bool:
         machines_using = db(db.ipxe_machines.status == "deploying").select()
         for machine in machines_using:
-            job = db(
-                (db.deployment_jobs.machine_id == machine.id) &
-                (db.deployment_jobs.image_id == image_id) &
-                (db.deployment_jobs.status.belongs(["pending", "power_on", "pxe_boot", "os_install"]))
-            ).select().first()
+            job = (
+                db(
+                    (db.deployment_jobs.machine_id == machine.id)
+                    & (db.deployment_jobs.image_id == image_id)
+                    & (
+                        db.deployment_jobs.status.belongs(
+                            ["pending", "power_on", "pxe_boot", "os_install"]
+                        )
+                    )
+                )
+                .select()
+                .first()
+            )
             if job:
                 return True
         return False
 
     if await run_db(_check_in_use):
-        return jsonify({
-            "error": "Image is in use by active deployments",
-            "image_id": image_id
-        }), 400
+        return (
+            jsonify(
+                {"error": "Image is in use by active deployments", "image_id": image_id}
+            ),
+            400,
+        )
 
     # Delete image
     def _delete_image() -> None:
@@ -1164,15 +1274,13 @@ async def delete_image(image_id: int):
 
     log.info(f"Boot image deleted: {image['name']}")
 
-    return jsonify({
-        "message": "Boot image deleted",
-        "image_id": image_id
-    }), 200
+    return jsonify({"message": "Boot image deleted", "image_id": image_id}), 200
 
 
 # =============================================================================
 # Boot Configurations Endpoints
 # =============================================================================
+
 
 @ipxe_bp.route("/boot-configs", methods=["GET"])
 @auth_required
@@ -1191,10 +1299,12 @@ async def list_boot_configs():
 
     configs = await run_db(_fetch)
 
-    return jsonify({
-        "boot_configs": [cfg.as_dict() for cfg in configs],
-        "count": len(configs)
-    }), 200
+    return (
+        jsonify(
+            {"boot_configs": [cfg.as_dict() for cfg in configs], "count": len(configs)}
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/boot-configs", methods=["POST"])
@@ -1236,7 +1346,10 @@ async def create_boot_config():
 
     existing = await run_db(_check_name_exists)
     if existing:
-        return jsonify({"error": f"Boot config name already exists: {data['name']}"}), 409
+        return (
+            jsonify({"error": f"Boot config name already exists: {data['name']}"}),
+            409,
+        )
 
     # Create boot config. Regression: gh-22. insert + commit + refetch is
     # one unit of work -- one run_db() closure per the house rule.
@@ -1250,7 +1363,7 @@ async def create_boot_config():
             timeout_seconds=data.get("timeout_seconds", 30),
             default_image_id=data.get("default_image_id"),
             assigned_biome_group_id=data.get("assigned_biome_group_id"),
-            is_default=data.get("is_default", False)
+            is_default=data.get("is_default", False),
         )
         db.commit()
         return db(db.ipxe_boot_configs.id == config_id).select().first()
@@ -1326,8 +1439,14 @@ async def update_boot_config(config_id: int):
     update_fields = {"updated_at": datetime.utcnow()}
 
     allowed_updates = [
-        "description", "ipxe_script", "kernel_params", "boot_order",
-        "timeout_seconds", "default_image_id", "assigned_biome_group_id", "is_default"
+        "description",
+        "ipxe_script",
+        "kernel_params",
+        "boot_order",
+        "timeout_seconds",
+        "default_image_id",
+        "assigned_biome_group_id",
+        "is_default",
     ]
 
     for field in allowed_updates:
@@ -1377,10 +1496,15 @@ async def delete_boot_config(config_id: int):
 
     machines_using = await run_db(_count_in_use)
     if machines_using > 0:
-        return jsonify({
-            "error": f"Boot config is in use by {machines_using} machines",
-            "config_id": config_id
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": f"Boot config is in use by {machines_using} machines",
+                    "config_id": config_id,
+                }
+            ),
+            400,
+        )
 
     # Delete boot config
     def _delete_config() -> None:
@@ -1391,10 +1515,7 @@ async def delete_boot_config(config_id: int):
 
     log.info(f"Boot config deleted: {config['name']}")
 
-    return jsonify({
-        "message": "Boot config deleted",
-        "config_id": config_id
-    }), 200
+    return jsonify({"message": "Boot config deleted", "config_id": config_id}), 200
 
 
 @ipxe_bp.route("/boot-configs/<int:config_id>/preview", methods=["GET"])
@@ -1409,6 +1530,7 @@ async def preview_boot_config(config_id: int):
         200: Rendered iPXE script
         404: Config not found
     """
+
     # Regression: gh-22. Config fetch + default-image fetch is a sequence
     # of reads feeding the response -- one run_db() closure.
     def _fetch_config_and_image() -> tuple[Any, Any]:
@@ -1433,32 +1555,40 @@ async def preview_boot_config(config_id: int):
         script_lines.append(config["ipxe_script"])
     elif image:
         # Generate default script from image
-        script_lines.extend([
-            f"# Boot configuration: {config['name']}",
-            f"# Image: {image['display_name']} ({image['os_name']} {image['os_version']})",
-            "",
-            f"set timeout {config.get('timeout_seconds', 30)}",
-            "",
-            f"kernel {image['kernel_path']} {image.get('kernel_params', '')} {config.get('kernel_params', '')}",
-            f"initrd {image['initrd_path']}",
-            "boot"
-        ])
+        script_lines.extend(
+            [
+                f"# Boot configuration: {config['name']}",
+                f"# Image: {image['display_name']} ({image['os_name']} {image['os_version']})",
+                "",
+                f"set timeout {config.get('timeout_seconds', 30)}",
+                "",
+                f"kernel {image['kernel_path']} {image.get('kernel_params', '')} {config.get('kernel_params', '')}",
+                f"initrd {image['initrd_path']}",
+                "boot",
+            ]
+        )
     else:
         script_lines.append("# No custom script or default image configured")
 
     preview_script = "\n".join(script_lines)
 
-    return jsonify({
-        "config_id": config_id,
-        "config_name": config["name"],
-        "preview": preview_script,
-        "image": image["name"] if image else None
-    }), 200
+    return (
+        jsonify(
+            {
+                "config_id": config_id,
+                "config_name": config["name"],
+                "preview": preview_script,
+                "image": image["name"] if image else None,
+            }
+        ),
+        200,
+    )
 
 
 # =============================================================================
 # Elder Integration Endpoints
 # =============================================================================
+
 
 @ipxe_bp.route("/machines/<string:machine_id>/sync-elder", methods=["POST"])
 @maintainer_or_admin_required
@@ -1494,10 +1624,15 @@ async def sync_machine_to_elder(machine_id: str):
         elder_client = await get_elder_client(db)
 
         if not elder_client:
-            return jsonify({
-                "error": "Elder service not configured",
-                "message": "Elder integration is not configured"
-            }), 503
+            return (
+                jsonify(
+                    {
+                        "error": "Elder service not configured",
+                        "message": "Elder integration is not configured",
+                    }
+                ),
+                503,
+            )
 
         # Sync machine
         async with elder_client:
@@ -1506,8 +1641,7 @@ async def sync_machine_to_elder(machine_id: str):
         # Update last sync timestamp
         def _update_sync_timestamp() -> None:
             db(db.ipxe_machines.id == machine["id"]).update(
-                elder_synced_at=datetime.utcnow(),
-                updated_at=datetime.utcnow()
+                elder_synced_at=datetime.utcnow(), updated_at=datetime.utcnow()
             )
             db.commit()
 
@@ -1515,11 +1649,16 @@ async def sync_machine_to_elder(machine_id: str):
 
         log.info(f"Machine synced to Elder: {machine['system_id']}")
 
-        return jsonify({
-            "message": "Machine synced to Elder",
-            "machine_id": machine["system_id"],
-            "elder_status": result
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Machine synced to Elder",
+                    "machine_id": machine["system_id"],
+                    "elder_status": result,
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         # Upstream error text is never echoed: with a caller-influenced URL it is a read-back channel.
@@ -1536,7 +1675,7 @@ async def get_elder_status():
         200: Elder status information
         503: Elder service unavailable or not configured
     """
-    from ..integrations import get_elder_client, ElderConnectionError
+    from ..integrations import ElderConnectionError, get_elder_client
 
     db = get_db()
 
@@ -1545,37 +1684,46 @@ async def get_elder_status():
         elder_client = await get_elder_client(db)
 
         if not elder_client:
-            return jsonify({
-                "configured": False,
-                "message": "Elder service not configured"
-            }), 503
+            return (
+                jsonify(
+                    {"configured": False, "message": "Elder service not configured"}
+                ),
+                503,
+            )
 
         # Check health
         async with elder_client:
             is_healthy = await elder_client.health_check()
 
-        return jsonify({
-            "configured": True,
-            "healthy": is_healthy,
-            "url": elder_client.elder_url,
-            "status": "healthy" if is_healthy else "unhealthy"
-        }), 200
+        return (
+            jsonify(
+                {
+                    "configured": True,
+                    "healthy": is_healthy,
+                    "url": elder_client.elder_url,
+                    "status": "healthy" if is_healthy else "unhealthy",
+                }
+            ),
+            200,
+        )
 
     except ElderConnectionError as e:
         log.warning(f"Elder health check failed: {str(e)}")
-        return jsonify({
-            "configured": True,
-            "healthy": False,
-            "error": str(e),
-            "status": "unreachable"
-        }), 503
+        return (
+            jsonify(
+                {
+                    "configured": True,
+                    "healthy": False,
+                    "error": str(e),
+                    "status": "unreachable",
+                }
+            ),
+            503,
+        )
 
     except Exception as e:
         log.error(f"Elder status check failed: {str(e)}")
-        return jsonify({
-            "error": "Status check failed",
-            "details": str(e)
-        }), 400
+        return jsonify({"error": "Status check failed", "details": str(e)}), 400
 
 
 # =============================================================================
@@ -1599,6 +1747,7 @@ _BOOTSTRAP_NONCE_REDIS_PREFIX = "bootstrap:nonce:"
 # -----------------------------------------------------------------------------
 # In-memory IP-based rate limiter (no external dep). Thread-safe.
 # -----------------------------------------------------------------------------
+
 
 class _RateLimiter:
     """Thread-safe sliding-window per-key rate limiter (in-memory).
@@ -1649,6 +1798,7 @@ def _client_source_ip() -> str:
 
 def _rate_limit_ipxe_script(f: Callable) -> Callable:
     """Decorator: 100 req/min/IP rate limit for anonymous iPXE script endpoints."""
+
     @wraps(f)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         ip = _client_source_ip()
@@ -1656,12 +1806,14 @@ def _rate_limit_ipxe_script(f: Callable) -> Callable:
             log.warning(f"iPXE script rate limit exceeded for source_ip={ip}")
             return jsonify({"error": "Rate limit exceeded"}), 429
         return await f(*args, **kwargs)
+
     return wrapper
 
 
 # -----------------------------------------------------------------------------
 # Node lookup by MAC
 # -----------------------------------------------------------------------------
+
 
 def _normalize_mac(mac: str) -> str:
     """Normalize MAC to lowercase colon-separated form (aa:bb:cc:dd:ee:ff).
@@ -1672,9 +1824,11 @@ def _normalize_mac(mac: str) -> str:
         return ""
     cleaned = mac.strip().lower().replace("-", ":").replace(".", "")
     if ":" not in cleaned and len(cleaned) == 12:
-        cleaned = ":".join(cleaned[i:i + 2] for i in range(0, 12, 2))
+        cleaned = ":".join(cleaned[i : i + 2] for i in range(0, 12, 2))
     parts = cleaned.split(":")
-    if len(parts) != 6 or not all(len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts):
+    if len(parts) != 6 or not all(
+        len(p) == 2 and all(c in "0123456789abcdef" for c in p) for p in parts
+    ):
         return ""
     return cleaned
 
@@ -1724,7 +1878,10 @@ def _find_node_or_machine_by_mac(mac: str) -> Optional[dict]:
 # Nonce registration (Redis preferred, DB fallback)
 # -----------------------------------------------------------------------------
 
-def _register_bootstrap_nonce(nonce: str, mac: str, phase: str, ttl_seconds: int) -> None:
+
+def _register_bootstrap_nonce(
+    nonce: str, mac: str, phase: str, ttl_seconds: int
+) -> None:
     """Register a freshly-minted bootstrap nonce so it can be one-time-validated.
 
     Tries Redis (current_app.redis_client) first; falls back to DB
@@ -1768,6 +1925,7 @@ def _register_bootstrap_nonce(nonce: str, mac: str, phase: str, ttl_seconds: int
 # JWT minting
 # -----------------------------------------------------------------------------
 
+
 def _mint_bootstrap_jwt(
     mac: str,
     *,
@@ -1805,18 +1963,29 @@ def _mint_bootstrap_jwt(
             # call Vault transit_verify_signature to validate.
             import base64
             import json as _json
+
             header = {"alg": "vault-transit", "typ": "JWT", "kid": _BOOTSTRAP_VAULT_KEY}
-            h_b64 = base64.urlsafe_b64encode(
-                _json.dumps(header, separators=(",", ":")).encode()
-            ).rstrip(b"=").decode()
-            p_b64 = base64.urlsafe_b64encode(
-                _json.dumps(payload, separators=(",", ":")).encode()
-            ).rstrip(b"=").decode()
+            h_b64 = (
+                base64.urlsafe_b64encode(
+                    _json.dumps(header, separators=(",", ":")).encode()
+                )
+                .rstrip(b"=")
+                .decode()
+            )
+            p_b64 = (
+                base64.urlsafe_b64encode(
+                    _json.dumps(payload, separators=(",", ":")).encode()
+                )
+                .rstrip(b"=")
+                .decode()
+            )
             signing_input = f"{h_b64}.{p_b64}".encode()
             signature = vault_client.transit_sign(_BOOTSTRAP_VAULT_KEY, signing_input)
             sig_b64 = base64.urlsafe_b64encode(signature.encode()).rstrip(b"=").decode()
             token = f"{h_b64}.{p_b64}.{sig_b64}"
-            log.info(f"Bootstrap JWT minted via Vault transit for mac={mac} phase={phase}")
+            log.info(
+                f"Bootstrap JWT minted via Vault transit for mac={mac} phase={phase}"
+            )
         except Exception as e:  # noqa: BLE001 - intentional fallback
             log.warning(
                 f"Vault transit_sign unavailable ({e}); falling back to HS256 for mac={mac}"
@@ -1854,6 +2023,7 @@ _BOOT_TOKEN_CMDLINE = "gough_boot_token=${boot_token} gough_worker=${worker_url}
 # -----------------------------------------------------------------------------
 # Script renderers
 # -----------------------------------------------------------------------------
+
 
 def _render_helper_ipxe_script(
     mac: str,
@@ -1965,6 +2135,7 @@ def _render_deploy_ipxe_script(mac: str, jwt_token: str, primary_url: str) -> st
 # Anonymous (MAC+nonce) script endpoints
 # -----------------------------------------------------------------------------
 
+
 def _detect_firmware_from_query() -> Literal["bios", "uefi"]:
     """Best-effort firmware detection.
 
@@ -2016,11 +2187,13 @@ async def get_helper_ipxe_script(mac: str):
     firmware = _detect_firmware_from_query()
     primary_url = _primary_base_url()
 
-    token, nonce = await run_db(lambda: _mint_bootstrap_jwt(
-        normalized,
-        phase="helper",
-        dmi_uuid_hint=record.get("dmi_uuid"),
-    ))
+    token, nonce = await run_db(
+        lambda: _mint_bootstrap_jwt(
+            normalized,
+            phase="helper",
+            dmi_uuid_hint=record.get("dmi_uuid"),
+        )
+    )
 
     script = _render_helper_ipxe_script(
         normalized, token, primary_url, firmware=firmware
@@ -2059,11 +2232,13 @@ async def get_deploy_ipxe_script(mac: str):
         return jsonify({"error": f"MAC not found: {normalized}"}), 404
 
     primary_url = _primary_base_url()
-    token, nonce = await run_db(lambda: _mint_bootstrap_jwt(
-        normalized,
-        phase="deploy",
-        dmi_uuid_hint=record.get("dmi_uuid"),
-    ))
+    token, nonce = await run_db(
+        lambda: _mint_bootstrap_jwt(
+            normalized,
+            phase="deploy",
+            dmi_uuid_hint=record.get("dmi_uuid"),
+        )
+    )
 
     script = _render_deploy_ipxe_script(normalized, token, primary_url)
 
@@ -2078,6 +2253,7 @@ async def get_deploy_ipxe_script(mac: str):
 # -----------------------------------------------------------------------------
 # Authenticated control endpoints (gough.nodes.provision)
 # -----------------------------------------------------------------------------
+
 
 def _scope_required(*required_scopes: str) -> Callable:
     """Decorator enforcing OIDC scope membership on the request principal.
@@ -2095,16 +2271,22 @@ def _scope_required(*required_scopes: str) -> Callable:
             if principal is not None:
                 granted = getattr(principal, "scopes", frozenset())
                 if not required.issubset(granted):
-                    return jsonify({
-                        "error": "Insufficient scope",
-                        "required": sorted(required),
-                    }), 403
+                    return (
+                        jsonify(
+                            {
+                                "error": "Insufficient scope",
+                                "required": sorted(required),
+                            }
+                        ),
+                        403,
+                    )
                 return await f(*args, **kwargs)
 
             # Authorization is scope-only: read scopes from the validated JWT.
             user = getattr(g, "current_user", None)
             if user is not None:
                 from ..security.scope_enforcement import extract_scopes_from_jwt
+
                 granted = extract_scopes_from_jwt(user.get("_jwt_payload") or {})
                 if required.issubset(granted):
                     return await f(*args, **kwargs)
@@ -2164,6 +2346,7 @@ async def bind_mac():
             return jsonify({"error": f"Node not found: {requested_node_id}"}), 404
 
         if node:
+
             def _update_node() -> None:
                 db(db.nodes.id == node.id).update(
                     primary_nic_mac=normalized,
@@ -2173,13 +2356,20 @@ async def bind_mac():
                 db.commit()
 
             await run_db(_update_node)
-            log.info(f"MAC bound to existing node id={node.id} mac={normalized} dmi={dmi_uuid}")
-            return jsonify({
-                "node_id": node.id,
-                "mac": normalized,
-                "dmi_uuid": dmi_uuid,
-                "status": "updated",
-            }), 200
+            log.info(
+                f"MAC bound to existing node id={node.id} mac={normalized} dmi={dmi_uuid}"
+            )
+            return (
+                jsonify(
+                    {
+                        "node_id": node.id,
+                        "mac": normalized,
+                        "dmi_uuid": dmi_uuid,
+                        "status": "updated",
+                    }
+                ),
+                200,
+            )
 
         # Create a new node row in 'new' state for the binding.
         def _create_node() -> Any:
@@ -2195,12 +2385,17 @@ async def bind_mac():
 
         new_id = await run_db(_create_node)
         log.info(f"MAC bound; new node id={new_id} mac={normalized} dmi={dmi_uuid}")
-        return jsonify({
-            "node_id": new_id,
-            "mac": normalized,
-            "dmi_uuid": dmi_uuid,
-            "status": "created",
-        }), 201
+        return (
+            jsonify(
+                {
+                    "node_id": new_id,
+                    "mac": normalized,
+                    "dmi_uuid": dmi_uuid,
+                    "status": "created",
+                }
+            ),
+            201,
+        )
 
     return jsonify({"error": "nodes table not available"}), 500
 
@@ -2242,21 +2437,28 @@ async def mint_bootstrap_token():
     if not record:
         return jsonify({"error": f"MAC not found: {normalized}"}), 404
 
-    token, nonce = await run_db(lambda: _mint_bootstrap_jwt(
-        normalized,
-        phase=phase,
-        dmi_uuid_hint=record.get("dmi_uuid"),
-    ))
+    token, nonce = await run_db(
+        lambda: _mint_bootstrap_jwt(
+            normalized,
+            phase=phase,
+            dmi_uuid_hint=record.get("dmi_uuid"),
+        )
+    )
 
     log.info(f"Operator minted bootstrap token mac={normalized} phase={phase}")
 
-    return jsonify({
-        "mac": normalized,
-        "phase": phase,
-        "token": token,
-        "nonce": nonce,
-        "ttl_seconds": _BOOTSTRAP_JWT_TTL_SECONDS,
-    }), 200
+    return (
+        jsonify(
+            {
+                "mac": normalized,
+                "phase": phase,
+                "token": token,
+                "nonce": nonce,
+                "ttl_seconds": _BOOTSTRAP_JWT_TTL_SECONDS,
+            }
+        ),
+        200,
+    )
 
 
 @ipxe_bp.route("/elder/config", methods=["PUT"])
@@ -2282,15 +2484,15 @@ async def update_elder_config():
     if not data:
         return jsonify({"error": "Request body required"}), 400
 
-    validation_error = _validate_required_fields(
-        data,
-        ["elder_url", "api_key"]
-    )
+    validation_error = _validate_required_fields(data, ["elder_url", "api_key"])
     if validation_error:
         return validation_error
 
     # SSRF guard (write-time): reject a non-http(s) / loopback / link-local / metadata URL up front.
-    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+    from ..clients.cluster_discovery import (
+        ClusterDiscoveryUnavailable,
+        _validate_discovery_endpoint,
+    )
 
     if not isinstance(data["elder_url"], str):
         return jsonify({"error": "elder_url must be a string"}), 400
@@ -2304,10 +2506,15 @@ async def update_elder_config():
     # Create elder_config table if it doesn't exist
     if "elder_config" not in db.tables:
         log.error("elder_config table does not exist")
-        return jsonify({
-            "error": "Elder configuration table not available",
-            "message": "Database schema may not be properly initialized"
-        }), 400
+        return (
+            jsonify(
+                {
+                    "error": "Elder configuration table not available",
+                    "message": "Database schema may not be properly initialized",
+                }
+            ),
+            400,
+        )
 
     # Get or create default configuration
     def _fetch_existing() -> Any:
@@ -2321,7 +2528,7 @@ async def update_elder_config():
         "timeout": data.get("timeout", 10),
         "max_retries": data.get("max_retries", 3),
         "is_active": data.get("is_active", True),
-        "updated_at": datetime.utcnow()
+        "updated_at": datetime.utcnow(),
     }
 
     if existing:
@@ -2340,10 +2547,15 @@ async def update_elder_config():
         # ``api_key`` straight back via ``.as_dict()``, the same raw-row-echo
         # shape as the fixed clouds.py provider leak. See
         # ``app.api._dto.ELDER_CONFIG_PUBLIC_FIELDS``.
-        return jsonify({
-            "message": "Configuration updated",
-            "config": serialize_elder_config(updated),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Configuration updated",
+                    "config": serialize_elder_config(updated),
+                }
+            ),
+            200,
+        )
 
     else:
         # Create new configuration. Regression: gh-22. insert + commit +
@@ -2360,7 +2572,12 @@ async def update_elder_config():
 
         # Explicit allow-list projection -- never the raw row. See the
         # matching comment in the update branch above.
-        return jsonify({
-            "message": "Configuration created",
-            "config": serialize_elder_config(created),
-        }), 201
+        return (
+            jsonify(
+                {
+                    "message": "Configuration created",
+                    "config": serialize_elder_config(created),
+                }
+            ),
+            201,
+        )

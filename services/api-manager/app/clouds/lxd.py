@@ -75,28 +75,22 @@ class LXDCloud(BaseCloud):
 
         # Extract configuration with environment variable fallbacks
         self._api_url = config.get(
-            "LXD_API_URL",
-            os.environ.get("LXD_API_URL", "https://localhost:8443")
+            "LXD_API_URL", os.environ.get("LXD_API_URL", "https://localhost:8443")
         )
         self._client_cert = config.get(
-            "LXD_CLIENT_CERT",
-            os.environ.get("LXD_CLIENT_CERT", "")
+            "LXD_CLIENT_CERT", os.environ.get("LXD_CLIENT_CERT", "")
         )
         self._client_key = config.get(
-            "LXD_CLIENT_KEY",
-            os.environ.get("LXD_CLIENT_KEY", "")
+            "LXD_CLIENT_KEY", os.environ.get("LXD_CLIENT_KEY", "")
         )
         self._trust_password = config.get(
-            "LXD_TRUST_PASSWORD",
-            os.environ.get("LXD_TRUST_PASSWORD", "")
+            "LXD_TRUST_PASSWORD", os.environ.get("LXD_TRUST_PASSWORD", "")
         )
         self._verify_ssl = config.get(
-            "LXD_VERIFY_SSL",
-            os.environ.get("LXD_VERIFY_SSL", "true").lower() == "true"
+            "LXD_VERIFY_SSL", os.environ.get("LXD_VERIFY_SSL", "true").lower() == "true"
         )
         self._project = config.get(
-            "LXD_PROJECT",
-            os.environ.get("LXD_PROJECT", "default")
+            "LXD_PROJECT", os.environ.get("LXD_PROJECT", "default")
         )
 
     def authenticate(self) -> bool:
@@ -122,9 +116,7 @@ class LXDCloud(BaseCloud):
                     f"Client certificate not found: {self._client_cert}"
                 )
             if self._client_key and not os.path.isfile(self._client_key):
-                raise CloudAuthError(
-                    f"Client key not found: {self._client_key}"
-                )
+                raise CloudAuthError(f"Client key not found: {self._client_key}")
 
             # Build certificate tuple if provided
             cert: tuple[str, str] | None = None
@@ -432,16 +424,16 @@ class LXDCloud(BaseCloud):
             if not spec.extra.get("capacity_guarded"):
                 # Defence in depth: only the clouds API's guarded placement may create
                 # LXD instances, so no code path can place one around the capacity guard.
-                raise CloudError("LXD instance creation requires capacity-guarded placement")
+                raise CloudError(
+                    "LXD instance creation requires capacity-guarded placement"
+                )
             config["limits.cpu"] = cpu_limit
             config["limits.memory"] = mem_limit
             config["limits.memory.enforce"] = "hard"
 
             # Add SSH keys via cloud-init if no cloud-init provided
             if spec.ssh_keys and not spec.cloud_init:
-                ssh_keys_yaml = "\n".join(
-                    f"  - {key}" for key in spec.ssh_keys
-                )
+                ssh_keys_yaml = "\n".join(f"  - {key}" for key in spec.ssh_keys)
                 config["user.user-data"] = f"""#cloud-config
 ssh_authorized_keys:
 {ssh_keys_yaml}
@@ -521,8 +513,12 @@ ssh_authorized_keys:
                 name = env.get("server_name", "")
                 return ([name] if name else []), False
             members = self._client.cluster.members.all()
-            return [m.server_name for m in members if getattr(m, "status", "") == "Online"], True
-        except Exception as e:  # noqa: BLE001 -- any LXD/transport failure must refuse placement
+            return [
+                m.server_name for m in members if getattr(m, "status", "") == "Online"
+            ], True
+        except (
+            Exception
+        ) as e:  # noqa: BLE001 -- any LXD/transport failure must refuse placement
             raise CloudError(f"Failed to list LXD cluster members: {e}") from e
 
     def _parse_image_source(self, image: str) -> dict[str, Any]:
@@ -719,9 +715,7 @@ ssh_authorized_keys:
 
         try:
             if instance.status != "Running":
-                raise CloudError(
-                    f"Cannot freeze instance {machine_id}: not running"
-                )
+                raise CloudError(f"Cannot freeze instance {machine_id}: not running")
 
             instance.freeze(wait=True)
             log.info(f"Frozen LXD instance: {machine_id}")
@@ -750,9 +744,7 @@ ssh_authorized_keys:
 
         try:
             if instance.status != "Frozen":
-                raise CloudError(
-                    f"Cannot unfreeze instance {machine_id}: not frozen"
-                )
+                raise CloudError(f"Cannot unfreeze instance {machine_id}: not frozen")
 
             instance.unfreeze(wait=True)
             log.info(f"Unfrozen LXD instance: {machine_id}")
@@ -787,20 +779,22 @@ ssh_authorized_keys:
                         continue
 
                 properties = getattr(image, "properties", {}) or {}
-                result.append({
-                    "id": image.fingerprint,
-                    "fingerprint": image.fingerprint,
-                    "aliases": [
-                        a.get("name", "") for a in getattr(image, "aliases", [])
-                    ],
-                    "architecture": image.architecture,
-                    "description": properties.get("description", ""),
-                    "os": properties.get("os", ""),
-                    "release": properties.get("release", ""),
-                    "size": getattr(image, "size", 0),
-                    "created_at": getattr(image, "created_at", ""),
-                    "public": getattr(image, "public", False),
-                })
+                result.append(
+                    {
+                        "id": image.fingerprint,
+                        "fingerprint": image.fingerprint,
+                        "aliases": [
+                            a.get("name", "") for a in getattr(image, "aliases", [])
+                        ],
+                        "architecture": image.architecture,
+                        "description": properties.get("description", ""),
+                        "os": properties.get("os", ""),
+                        "release": properties.get("release", ""),
+                        "size": getattr(image, "size", 0),
+                        "created_at": getattr(image, "created_at", ""),
+                        "public": getattr(image, "public", False),
+                    }
+                )
 
             return result
 
@@ -823,12 +817,14 @@ ssh_authorized_keys:
 
             result: list[dict] = []
             for profile in profiles:
-                result.append({
-                    "name": profile.name,
-                    "description": getattr(profile, "description", ""),
-                    "config": dict(getattr(profile, "config", {}) or {}),
-                    "devices": dict(getattr(profile, "devices", {}) or {}),
-                })
+                result.append(
+                    {
+                        "name": profile.name,
+                        "description": getattr(profile, "description", ""),
+                        "config": dict(getattr(profile, "config", {}) or {}),
+                        "devices": dict(getattr(profile, "devices", {}) or {}),
+                    }
+                )
 
             return result
 
@@ -851,13 +847,15 @@ ssh_authorized_keys:
 
             result: list[dict] = []
             for network in networks:
-                result.append({
-                    "name": network.name,
-                    "description": getattr(network, "description", ""),
-                    "type": getattr(network, "type", ""),
-                    "managed": getattr(network, "managed", False),
-                    "config": dict(getattr(network, "config", {}) or {}),
-                })
+                result.append(
+                    {
+                        "name": network.name,
+                        "description": getattr(network, "description", ""),
+                        "type": getattr(network, "type", ""),
+                        "managed": getattr(network, "managed", False),
+                        "config": dict(getattr(network, "config", {}) or {}),
+                    }
+                )
 
             return result
 
@@ -880,12 +878,14 @@ ssh_authorized_keys:
 
             result: list[dict] = []
             for pool in pools:
-                result.append({
-                    "name": pool.name,
-                    "driver": getattr(pool, "driver", ""),
-                    "description": getattr(pool, "description", ""),
-                    "config": dict(getattr(pool, "config", {}) or {}),
-                })
+                result.append(
+                    {
+                        "name": pool.name,
+                        "driver": getattr(pool, "driver", ""),
+                        "description": getattr(pool, "description", ""),
+                        "config": dict(getattr(pool, "config", {}) or {}),
+                    }
+                )
 
             return result
 
@@ -909,11 +909,13 @@ ssh_authorized_keys:
 
             result: list[dict] = []
             for project in projects:
-                result.append({
-                    "id": project.name,
-                    "name": project.name,
-                    "description": getattr(project, "description", ""),
-                })
+                result.append(
+                    {
+                        "id": project.name,
+                        "name": project.name,
+                        "description": getattr(project, "description", ""),
+                    }
+                )
 
             return result
 
@@ -1044,11 +1046,13 @@ ssh_authorized_keys:
 
             result: list[dict] = []
             for snap in snapshots:
-                result.append({
-                    "name": snap.name,
-                    "stateful": getattr(snap, "stateful", False),
-                    "created_at": getattr(snap, "created_at", ""),
-                })
+                result.append(
+                    {
+                        "name": snap.name,
+                        "stateful": getattr(snap, "stateful", False),
+                        "created_at": getattr(snap, "created_at", ""),
+                    }
+                )
 
             return result
 

@@ -13,7 +13,6 @@ Additive only, guarded by reflection.
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20261022_1500_node_resource_snapshots"
@@ -48,8 +47,15 @@ def upgrade() -> None:
             sa.Column("memory_available_bytes", sa.BigInteger(), nullable=False),
             sa.Column("committed_cpu_cores", sa.Float(), nullable=False),
             sa.Column("committed_memory_bytes", sa.BigInteger(), nullable=False),
-            sa.Column("instances_without_limits", sa.Integer(), nullable=False, server_default="0"),
-            sa.Column("psi_available", sa.Boolean(), nullable=False, server_default=sa.false()),
+            sa.Column(
+                "instances_without_limits",
+                sa.Integer(),
+                nullable=False,
+                server_default="0",
+            ),
+            sa.Column(
+                "psi_available", sa.Boolean(), nullable=False, server_default=sa.false()
+            ),
         )
         op.create_index(
             "ix_node_resource_snapshots_received_at",
@@ -86,7 +92,11 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """Drop the capacity guard tables."""
-    op.drop_index("ix_capacity_reservations_node_status", table_name="capacity_reservations")
+    op.drop_index(
+        "ix_capacity_reservations_node_status", table_name="capacity_reservations"
+    )
     op.drop_table("capacity_reservations")
-    op.drop_index("ix_node_resource_snapshots_received_at", table_name="node_resource_snapshots")
+    op.drop_index(
+        "ix_node_resource_snapshots_received_at", table_name="node_resource_snapshots"
+    )
     op.drop_table("node_resource_snapshots")

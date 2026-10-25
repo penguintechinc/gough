@@ -12,11 +12,7 @@ from typing import Any
 
 from quart import current_app
 
-from .base import (
-    BaseSecretsManager,
-    SecretNotFoundError,
-    SecretsManagerError,
-)
+from .base import BaseSecretsManager, SecretNotFoundError, SecretsManagerError
 
 log = logging.getLogger(__name__)
 
@@ -39,8 +35,11 @@ class AzureKeyVaultSecretsManager(BaseSecretsManager):
         """Get Azure Key Vault client."""
         if self._client is None:
             try:
+                from azure.identity import (
+                    ClientSecretCredential,
+                    DefaultAzureCredential,
+                )
                 from azure.keyvault.secrets import SecretClient
-                from azure.identity import ClientSecretCredential, DefaultAzureCredential
 
                 vault_url = current_app.config.get("AZURE_VAULT_URL", "")
                 if not vault_url:
@@ -54,16 +53,13 @@ class AzureKeyVaultSecretsManager(BaseSecretsManager):
                     credential = ClientSecretCredential(
                         tenant_id=tenant_id,
                         client_id=client_id,
-                        client_secret=client_secret
+                        client_secret=client_secret,
                     )
                 else:
                     # Use default credentials (managed identity, environment, etc.)
                     credential = DefaultAzureCredential()
 
-                self._client = SecretClient(
-                    vault_url=vault_url,
-                    credential=credential
-                )
+                self._client = SecretClient(vault_url=vault_url, credential=credential)
 
                 log.info(f"Connected to Azure Key Vault at {vault_url}")
 
@@ -88,10 +84,7 @@ class AzureKeyVaultSecretsManager(BaseSecretsManager):
             from azure.core.exceptions import ResourceNotFoundError
 
             name = self._normalize_name(path)
-            secret = await asyncio.to_thread(
-                self.client.get_secret,
-                name
-            )
+            secret = await asyncio.to_thread(self.client.get_secret, name)
 
             value = secret.value
 
@@ -111,11 +104,7 @@ class AzureKeyVaultSecretsManager(BaseSecretsManager):
             name = self._normalize_name(path)
             value = json.dumps(data)
 
-            await asyncio.to_thread(
-                self.client.set_secret,
-                name,
-                value
-            )
+            await asyncio.to_thread(self.client.set_secret, name, value)
 
             log.info(f"Secret stored in Azure Key Vault at path: {path}")
             return True
@@ -131,18 +120,12 @@ class AzureKeyVaultSecretsManager(BaseSecretsManager):
             name = self._normalize_name(path)
 
             # Start deletion
-            poller = await asyncio.to_thread(
-                self.client.begin_delete_secret,
-                name
-            )
+            poller = await asyncio.to_thread(self.client.begin_delete_secret, name)
             await asyncio.to_thread(poller.wait)
 
             # Purge if soft-delete is enabled
             try:
-                await asyncio.to_thread(
-                    self.client.purge_deleted_secret,
-                    name
-                )
+                await asyncio.to_thread(self.client.purge_deleted_secret, name)
             except Exception:
                 pass  # Purge may not be allowed or soft-delete disabled
 

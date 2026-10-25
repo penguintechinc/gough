@@ -14,10 +14,6 @@ full factory.
 
 from __future__ import annotations
 
-import sys
-import types
-from unittest.mock import MagicMock
-
 # Registers the pg_url / pg_db / pg_db_scoped real-Postgres fixtures
 # (tests/pg_fixtures.py) for tests under tests/workers/ specifically.
 # tests/conftest.py (one level up) already declares `pytest_plugins =
@@ -55,6 +51,14 @@ from unittest.mock import MagicMock
 # Testcontainers Postgres + full Alembic migration run purely for tests
 # collected under tests/workers/, alongside the one tests/conftest.py's
 # plugin registration already provides for the rest of the session.
+import os
+import sys
+import threading
+import types
+from unittest.mock import MagicMock
+
+import pytest
+
 if "tests.pg_fixtures" not in sys.modules:
     from tests.pg_fixtures import (  # noqa: F401
         _pg_schema,
@@ -162,12 +166,6 @@ _install_stubs()
 # Pytest fixtures
 # ---------------------------------------------------------------------------
 
-import os
-import threading
-from types import SimpleNamespace
-
-import pytest
-
 
 @pytest.fixture()
 def db_url(tmp_path) -> str:
@@ -218,8 +216,10 @@ def dal(db_url, monkeypatch):
     )
 
     from app.db import database as db_mod
+
     monkeypatch.setattr(db_mod, "get_db", lambda: db)
     import app.workers.smart_sweeper as sweeper_mod
+
     monkeypatch.setattr(sweeper_mod, "get_db", lambda: db)
 
     yield db
@@ -276,6 +276,7 @@ def clear_prometheus_registry() -> None:
     """
     try:
         from prometheus_client import REGISTRY
+
         # Clear all collectors from the registry
         for collector in list(REGISTRY._collector_to_names.keys()):
             try:
@@ -288,6 +289,7 @@ def clear_prometheus_registry() -> None:
     # Also clear after the test
     try:
         from prometheus_client import REGISTRY
+
         for collector in list(REGISTRY._collector_to_names.keys()):
             try:
                 REGISTRY.unregister(collector)
@@ -295,5 +297,3 @@ def clear_prometheus_registry() -> None:
                 pass
     except ImportError:
         pass
-
-

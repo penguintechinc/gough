@@ -131,10 +131,12 @@ class MaaSCloud(BaseCloud):
 
         # Session for connection pooling
         self._session = requests.Session()
-        self._session.headers.update({
-            "Accept": "application/json",
-            "Content-Type": "application/x-www-form-urlencoded",
-        })
+        self._session.headers.update(
+            {
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+            }
+        )
 
         # Request timeout in seconds
         self.timeout = config.get("timeout", 30)
@@ -219,9 +221,7 @@ class MaaSCloud(BaseCloud):
             if response.status_code == 401:
                 raise CloudAuthError("MaaS authentication failed: invalid credentials")
             elif response.status_code == 403:
-                raise CloudAuthError(
-                    f"MaaS authorization denied: {response.text}"
-                )
+                raise CloudAuthError(f"MaaS authorization denied: {response.text}")
             elif response.status_code == 404:
                 raise CloudNotFoundError(f"Resource not found: {endpoint}")
             elif response.status_code == 409:
@@ -248,7 +248,9 @@ class MaaSCloud(BaseCloud):
         except requests.exceptions.RequestException as e:
             raise CloudError(f"MaaS request failed: {e}") from e
 
-    def _map_state(self, maas_status: str, power_state: str | None = None) -> MachineState:
+    def _map_state(
+        self, maas_status: str, power_state: str | None = None
+    ) -> MachineState:
         """Map MaaS status and power state to unified MachineState.
 
         Args:
@@ -429,7 +431,7 @@ class MaaSCloud(BaseCloud):
         for device in data.get("physicalblockdevice_set", []):
             total_bytes += device.get("size", 0)
 
-        return total_bytes // (1024 ** 3)
+        return total_bytes // (1024**3)
 
     def authenticate(self) -> bool:
         """Authenticate with MaaS by testing API access.
@@ -571,7 +573,9 @@ class MaaSCloud(BaseCloud):
             allocate_data["interfaces"] = ",".join(spec.networks)
 
         try:
-            allocated = self._request("POST", "machines/", data={"op": "allocate", **allocate_data})
+            allocated = self._request(
+                "POST", "machines/", data={"op": "allocate", **allocate_data}
+            )
         except CloudError as e:
             if "No matching machine" in str(e) or "409" in str(e):
                 raise CloudQuotaError(
@@ -913,15 +917,25 @@ class MaaSCloud(BaseCloud):
             images = []
 
             for resource in data or []:
-                images.append({
-                    "id": resource.get("id"),
-                    "name": f"{resource.get('name')}/{resource.get('architecture')}",
-                    "osystem": resource.get("name", "").split("/")[0] if "/" in resource.get("name", "") else resource.get("name"),
-                    "release": resource.get("name", "").split("/")[1] if "/" in resource.get("name", "") else "",
-                    "architecture": resource.get("architecture", ""),
-                    "type": resource.get("type", ""),
-                    "subarches": resource.get("subarches", ""),
-                })
+                images.append(
+                    {
+                        "id": resource.get("id"),
+                        "name": f"{resource.get('name')}/{resource.get('architecture')}",
+                        "osystem": (
+                            resource.get("name", "").split("/")[0]
+                            if "/" in resource.get("name", "")
+                            else resource.get("name")
+                        ),
+                        "release": (
+                            resource.get("name", "").split("/")[1]
+                            if "/" in resource.get("name", "")
+                            else ""
+                        ),
+                        "architecture": resource.get("architecture", ""),
+                        "type": resource.get("type", ""),
+                        "subarches": resource.get("subarches", ""),
+                    }
+                )
 
             return images
         except CloudError:
@@ -974,11 +988,13 @@ class MaaSCloud(BaseCloud):
             zones = []
 
             for zone in data or []:
-                zones.append({
-                    "id": zone.get("id"),
-                    "name": zone.get("name", ""),
-                    "description": zone.get("description", ""),
-                })
+                zones.append(
+                    {
+                        "id": zone.get("id"),
+                        "name": zone.get("name", ""),
+                        "description": zone.get("description", ""),
+                    }
+                )
 
             return zones
         except CloudError:
@@ -995,11 +1011,13 @@ class MaaSCloud(BaseCloud):
             pools = []
 
             for pool in data or []:
-                pools.append({
-                    "id": pool.get("id"),
-                    "name": pool.get("name", ""),
-                    "description": pool.get("description", ""),
-                })
+                pools.append(
+                    {
+                        "id": pool.get("id"),
+                        "name": pool.get("name", ""),
+                        "description": pool.get("description", ""),
+                    }
+                )
 
             return pools
         except CloudError:
@@ -1016,12 +1034,14 @@ class MaaSCloud(BaseCloud):
             tags = []
 
             for tag in data or []:
-                tags.append({
-                    "name": tag.get("name", ""),
-                    "definition": tag.get("definition", ""),
-                    "comment": tag.get("comment", ""),
-                    "kernel_opts": tag.get("kernel_opts", ""),
-                })
+                tags.append(
+                    {
+                        "name": tag.get("name", ""),
+                        "definition": tag.get("definition", ""),
+                        "comment": tag.get("comment", ""),
+                        "kernel_opts": tag.get("kernel_opts", ""),
+                    }
+                )
 
             return tags
         except CloudError:
@@ -1070,14 +1090,16 @@ class MaaSCloud(BaseCloud):
 
             events = []
             for event in data.get("events", []):
-                events.append({
-                    "id": event.get("id"),
-                    "type": event.get("type", ""),
-                    "description": event.get("description", ""),
-                    "created": event.get("created", ""),
-                    "node": event.get("node", ""),
-                    "hostname": event.get("hostname", ""),
-                })
+                events.append(
+                    {
+                        "id": event.get("id"),
+                        "type": event.get("type", ""),
+                        "description": event.get("description", ""),
+                        "created": event.get("created", ""),
+                        "node": event.get("node", ""),
+                        "hostname": event.get("hostname", ""),
+                    }
+                )
 
             return events
         except CloudError:

@@ -30,8 +30,6 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from quart import Quart, g
-
 from app.api._dto import (
     ELDER_CONFIG_PUBLIC_FIELDS,
     STORAGE_CONFIG_PUBLIC_FIELDS,
@@ -39,6 +37,7 @@ from app.api._dto import (
     serialize_elder_config,
     serialize_storage_config,
 )
+from quart import Quart, g
 
 
 def _passthrough(*dargs, **dkwargs):
@@ -149,7 +148,9 @@ class TestSerializeElderConfig:
         assert "api_key" not in out
 
     def test_omits_last_error(self):
-        out = serialize_elder_config(self._row(last_error="connection refused to 10.0.0.5"))
+        out = serialize_elder_config(
+            self._row(last_error="connection refused to 10.0.0.5")
+        )
         assert "last_error" not in out
 
     def test_exact_field_set(self):
@@ -191,7 +192,9 @@ def _make_storage_db(config_row=None):
     db = MagicMock()
     select_result = MagicMock()
     select_result.first = MagicMock(return_value=config_row)
-    select_result.__iter__ = MagicMock(return_value=iter([config_row] if config_row else []))
+    select_result.__iter__ = MagicMock(
+        return_value=iter([config_row] if config_row else [])
+    )
     db.storage_config = MagicMock()
     db.return_value = MagicMock()
     db.return_value.select = MagicMock(return_value=select_result)
@@ -201,9 +204,11 @@ def _make_storage_db(config_row=None):
 
 @pytest.fixture()
 def storage_app():
-    with patch("app.auth.require_auth", _passthrough), \
-         patch("app.auth.require_role", _passthrough):
+    with patch("app.auth.require_auth", _passthrough), patch(
+        "app.auth.require_role", _passthrough
+    ):
         import app.api.storage as _storage_mod
+
         importlib.reload(_storage_mod)
         from app.api.storage import storage_bp
 
@@ -213,6 +218,7 @@ def storage_app():
     @qapp.before_request
     async def _set_request_user():
         from quart import request as _req
+
         _req.user = SimpleNamespace(id=1, email="admin@example.com")
 
     yield qapp
@@ -248,7 +254,9 @@ class TestStorageConfigNeverLeaksCredentials:
         leaked = [k for k in self.SECRETS if k in body]
         assert not leaked, f"credential fields returned: {leaked}"
         assert "wJalrXUtnFEMI" not in await resp.get_data(as_text=True)
-        assert "/vault/secret/storage/test-config" not in await resp.get_data(as_text=True)
+        assert "/vault/secret/storage/test-config" not in await resp.get_data(
+            as_text=True
+        )
         # The route still has to be useful.
         assert body["name"] == "test-config"
         assert body["provider_type"] == "s3"
@@ -346,7 +354,8 @@ class TestElderConfigNeverLeaksApiKey:
         )
         db = _make_elder_db(existing_row=None, created_or_updated_row=created_row)
         with patch("app.api.ipxe.get_db", return_value=db), patch(
-            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+            "app.clients.cluster_discovery._validate_discovery_endpoint",
+            new=AsyncMock(),
         ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",
@@ -376,9 +385,12 @@ class TestElderConfigNeverLeaksApiKey:
             created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
             updated_at=datetime(2026, 1, 2, tzinfo=timezone.utc),
         )
-        db = _make_elder_db(existing_row=existing_row, created_or_updated_row=updated_row)
+        db = _make_elder_db(
+            existing_row=existing_row, created_or_updated_row=updated_row
+        )
         with patch("app.api.ipxe.get_db", return_value=db), patch(
-            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+            "app.clients.cluster_discovery._validate_discovery_endpoint",
+            new=AsyncMock(),
         ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",
@@ -411,7 +423,8 @@ class TestElderConfigNeverLeaksApiKey:
         )
         db = _make_elder_db(existing_row=None, created_or_updated_row=created_row)
         with patch("app.api.ipxe.get_db", return_value=db), patch(
-            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+            "app.clients.cluster_discovery._validate_discovery_endpoint",
+            new=AsyncMock(),
         ):
             resp = await ipxe_client.put(
                 "/api/v1/ipxe/elder/config",

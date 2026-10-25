@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from app.integrations.elder import (
     AppEndpoint,
     ElderAuthError,
@@ -18,7 +16,6 @@ from app.integrations.elder import (
     HostRegistration,
     get_elder_client,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,7 +98,9 @@ class TestElderClientInit:
         c = _make_client(api_key="secret")
         await c._ensure_client()
         headers = c._client.headers
-        assert "Bearer secret" in headers.get("authorization", headers.get("Authorization", ""))
+        assert "Bearer secret" in headers.get(
+            "authorization", headers.get("Authorization", "")
+        )
         await c.close()
 
 
@@ -142,7 +141,9 @@ class TestRequestErrors:
     async def test_422_raises_elder_error(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(422, {"error": "bad field"}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(422, {"error": "bad field"})
+        )
         with pytest.raises(ElderError, match="bad field"):
             await c._request("POST", "/api/v1/hosts")
         await c.close()
@@ -268,7 +269,9 @@ class TestHealthCheck:
     async def test_health_check_healthy(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"status": "healthy"}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"status": "healthy"})
+        )
         assert await c.health_check() is True
         await c.close()
 
@@ -276,7 +279,9 @@ class TestHealthCheck:
     async def test_health_check_not_healthy(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"status": "degraded"}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"status": "degraded"})
+        )
         assert await c.health_check() is False
         await c.close()
 
@@ -338,7 +343,9 @@ class TestRegisterHost:
             mock_update.return_value = {"updated": True}
             c._ensure_client = AsyncMock()
             c._request = AsyncMock(side_effect=ElderConflictError("conflict"))
-            result = await c.register_host(hostname="h1", ip="10.0.0.1", fqdn="h1.local")
+            result = await c.register_host(
+                hostname="h1", ip="10.0.0.1", fqdn="h1.local"
+            )
         assert result == {"updated": True}
         mock_update.assert_called_once()
 
@@ -353,7 +360,9 @@ class TestUpdateHost:
     async def test_update_host_success(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"updated": True}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"updated": True})
+        )
         result = await c.update_host("h1", ip="10.0.0.99")
         assert result == {"updated": True}
         await c.close()
@@ -394,7 +403,9 @@ class TestDeregisterHost:
     async def test_deregister_success(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"deleted": True}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"deleted": True})
+        )
         result = await c.deregister_host("h1")
         assert result == {"deleted": True}
         await c.close()
@@ -420,7 +431,9 @@ class TestRegisterApp:
     async def test_register_app_success(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(201, {"app": "myapp"}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(201, {"app": "myapp"})
+        )
         result = await c.register_app("myapp", ["h1"], 8080)
         assert result == {"app": "myapp"}
         await c.close()
@@ -445,7 +458,9 @@ class TestRegisterApp:
         await c._ensure_client()
         c._client.request = AsyncMock(return_value=_make_response(201, {}))
         await c.register_app(
-            "myapp", ["h1", "h2"], 9090,
+            "myapp",
+            ["h1", "h2"],
+            9090,
             protocol="grpc",
             path="/grpc",
             health_check_url="http://h1:9090/health",
@@ -468,7 +483,9 @@ class TestSyncMachine:
     async def test_sync_machine_success(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"synced": True}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"synced": True})
+        )
         machine = {
             "system_id": "abc-123",
             "hostname": "node1",
@@ -483,7 +500,9 @@ class TestSyncMachine:
     async def test_sync_machine_uses_external_id_fallback(self):
         c = _make_client()
         await c._ensure_client()
-        c._client.request = AsyncMock(return_value=_make_response(200, {"synced": True}))
+        c._client.request = AsyncMock(
+            return_value=_make_response(200, {"synced": True})
+        )
         machine = {"external_id": "ext-456", "ip_address": "10.0.0.2"}
         result = await c.sync_machine(machine)
         assert result == {"synced": True}
@@ -575,7 +594,8 @@ class TestGetElderClient:
         config.max_retries = "5"
         db.return_value.select.return_value.first.return_value = config
         with patch(
-            "app.clients.cluster_discovery._validate_discovery_endpoint", new=AsyncMock()
+            "app.clients.cluster_discovery._validate_discovery_endpoint",
+            new=AsyncMock(),
         ):
             client = await get_elder_client(db)
         assert client is not None
@@ -590,7 +610,9 @@ class TestGetElderClientSsrf:
     """regression: the stored Elder URL is re-vetted at use time (SSRF guard)."""
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("url", ["http://127.0.0.1:8000", "http://169.254.169.254/latest", "ftp://elder"])
+    @pytest.mark.parametrize(
+        "url", ["http://127.0.0.1:8000", "http://169.254.169.254/latest", "ftp://elder"]
+    )
     async def test_blocked_endpoint_raises(self, url):
         db = MagicMock()
         db.tables = ["elder_config"]

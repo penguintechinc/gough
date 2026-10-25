@@ -9,9 +9,7 @@ import asyncio
 from unittest.mock import Mock
 
 import httpx
-
 import pytest
-
 from worker.config import WorkerConfig
 from worker.services import http_server
 from worker.services.http_server import (
@@ -20,8 +18,8 @@ from worker.services.http_server import (
     STORAGE_READ_TIMEOUT_S,
     HTTPBootServer,
     _LazyImageBody,
-    _StorageStream,
     _outbound_image_headers,
+    _StorageStream,
     _total_length,
 )
 
@@ -63,13 +61,20 @@ def _make_handler(
         if request.headers.get("range"):
             if storage_status != 200:
                 return httpx.Response(storage_status)
-            return httpx.Response(206, headers={"content-range": extra_headers.get("content-range", "bytes 0-0/*")})
+            return httpx.Response(
+                206,
+                headers={
+                    "content-range": extra_headers.get("content-range", "bytes 0-0/*")
+                },
+            )
         return httpx.Response(storage_status, stream=body, headers=extra_headers)
 
     return handler
 
 
-def _patch_clients(monkeypatch: pytest.MonkeyPatch, handler, captured: list[dict]) -> None:
+def _patch_clients(
+    monkeypatch: pytest.MonkeyPatch, handler, captured: list[dict]
+) -> None:
     """Route every httpx.AsyncClient in http_server through the mock transport."""
 
     def factory(*args, **kwargs):
@@ -80,16 +85,26 @@ def _patch_clients(monkeypatch: pytest.MonkeyPatch, handler, captured: list[dict
     monkeypatch.setattr(http_server.httpx, "AsyncClient", factory)
 
 
-async def _asgi_start_headers(app: object, method: str, path: str) -> dict[bytes, bytes]:
+async def _asgi_start_headers(
+    app: object, method: str, path: str
+) -> dict[bytes, bytes]:
     """Drive the raw ASGI app and return response-start headers as sent to hypercorn.
 
     Quart's test client recomputes Content-Length from the body, so header assertions
     on Content-Length must go through the ASGI layer the server actually uses.
     """
     scope = {
-        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
-        "scheme": "http", "path": path, "raw_path": path.encode(), "query_string": b"",
-        "root_path": "", "headers": [(b"host", b"test")], "client": ("127.0.0.1", 1),
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": path,
+        "raw_path": path.encode(),
+        "query_string": b"",
+        "root_path": "",
+        "headers": [(b"host", b"test")],
+        "client": ("127.0.0.1", 1),
         "server": ("test", 80),
     }
     messages: list[dict] = []
@@ -111,12 +126,15 @@ async def _asgi_start_headers(app: object, method: str, path: str) -> dict[bytes
     return dict(start["headers"])
 
 
-def _make_server(monkeypatch: pytest.MonkeyPatch, chunk_size: int = 1024) -> HTTPBootServer:
+def _make_server(
+    monkeypatch: pytest.MonkeyPatch, chunk_size: int = 1024
+) -> HTTPBootServer:
     """Create an HTTPBootServer with a mocked enrollment manager and a small chunk size."""
     monkeypatch.setenv("IMAGE_STREAM_CHUNK_SIZE", str(chunk_size))
     cfg = WorkerConfig(
         api_manager_url=f"http://{API_HOST}",
-        worker_api_key="k", redis_url="redis://test:6379/0",
+        worker_api_key="k",
+        redis_url="redis://test:6379/0",
         worker_id="w",
         dhcp_mode="disabled",
         dhcp_interface="eth0",
@@ -149,15 +167,21 @@ async def test_image_route_streams_full_body(monkeypatch: pytest.MonkeyPatch) ->
 
 def _stream_for(upstream: CountingUpstream) -> _StorageStream:
     """Wrap a CountingUpstream in a real httpx client and a _StorageStream owner."""
-    client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    client = REAL_ASYNC_CLIENT(
+        transport=httpx.MockTransport(lambda r: httpx.Response(200))
+    )
     return _StorageStream(client=client, upstream=httpx.Response(200, stream=upstream))
 
 
-def _spy_open(monkeypatch: pytest.MonkeyPatch, upstream: CountingUpstream) -> list[_StorageStream]:
+def _spy_open(
+    monkeypatch: pytest.MonkeyPatch, upstream: CountingUpstream
+) -> list[_StorageStream]:
     """Replace the lazy GET opener with one that records each opened stream."""
     opened: list[_StorageStream] = []
 
-    async def fake_open(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
+    async def fake_open(
+        presigned_url: str, storage_host: str | None = None
+    ) -> _StorageStream:
         """Return a stream over the given upstream and record it."""
         stream = _stream_for(upstream)
         opened.append(stream)
@@ -168,7 +192,9 @@ def _spy_open(monkeypatch: pytest.MonkeyPatch, upstream: CountingUpstream) -> li
 
 
 @pytest.mark.asyncio
-async def test_no_get_opened_before_body_iterated(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_no_get_opened_before_body_iterated(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unstarted body opens no storage GET, so it holds no connection.
 
     Regression for the residual Quart gap: a body entered and exited without iteration
@@ -206,7 +232,9 @@ async def test_lazy_body_opens_on_iteration_and_closes_on_completion(
 
 
 @pytest.mark.asyncio
-async def test_lazy_body_disconnect_mid_stream_closes(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_lazy_body_disconnect_mid_stream_closes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Closing the chunk iterator early closes upstream and client."""
     upstream = CountingUpstream(total_chunks=50, chunk=b"y" * 16)
     opened = _spy_open(monkeypatch, upstream)
@@ -225,10 +253,16 @@ async def test_lazy_body_non_2xx_get_aborts(monkeypatch: pytest.MonkeyPatch) -> 
     """A storage GET failing after the 200 was committed aborts the body and closes."""
     upstream = CountingUpstream(total_chunks=3, chunk=b"e")
 
-    async def fake_open(presigned_url: str, storage_host: str | None = None) -> _StorageStream:
+    async def fake_open(
+        presigned_url: str, storage_host: str | None = None
+    ) -> _StorageStream:
         """Return a stream whose GET status is 500."""
-        client = REAL_ASYNC_CLIENT(transport=httpx.MockTransport(lambda r: httpx.Response(500)))
-        return _StorageStream(client=client, upstream=httpx.Response(500, stream=upstream))
+        client = REAL_ASYNC_CLIENT(
+            transport=httpx.MockTransport(lambda r: httpx.Response(500))
+        )
+        return _StorageStream(
+            client=client, upstream=httpx.Response(500, stream=upstream)
+        )
 
     monkeypatch.setattr(http_server, "_open_storage_stream", fake_open)
     body = _LazyImageBody(STORAGE_URL, chunk_size=1)
@@ -272,7 +306,9 @@ async def test_body_exit_then_iterator_close_is_double_close_safe(
 
 
 @pytest.mark.asyncio
-async def test_response_construction_failure_returns_500(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_response_construction_failure_returns_500(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """If building the streamed body fails, the request returns 500 and no GET is opened."""
     upstream = CountingUpstream(total_chunks=10, chunk=b"c" * 1024)
     captured: list[dict] = []
@@ -341,6 +377,7 @@ async def test_preflight_200_ignoring_range_closes_without_body_read(
 @pytest.mark.asyncio
 async def test_preflight_403_maps_to_502(monkeypatch: pytest.MonkeyPatch) -> None:
     """Storage 403 on the ranged pre-flight surfaces as 502, never 200."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         """Return 403 for the ranged pre-flight."""
         if request.url.host == API_HOST:
@@ -358,6 +395,7 @@ async def test_preflight_403_maps_to_502(monkeypatch: pytest.MonkeyPatch) -> Non
 @pytest.mark.asyncio
 async def test_star_total_omits_content_length(monkeypatch: pytest.MonkeyPatch) -> None:
     """Content-Range total '*' means unknown size, so Content-Length is not forwarded."""
+
     def handler(request: httpx.Request) -> httpx.Response:
         """Return a 206 whose total size is unknown."""
         if request.url.host == API_HOST:
@@ -372,9 +410,10 @@ async def test_star_total_omits_content_length(monkeypatch: pytest.MonkeyPatch) 
     assert b"content-length" not in headers
 
 
-
 @pytest.mark.asyncio
-async def test_get_preflights_with_ranged_get_then_streams(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_get_preflights_with_ranged_get_then_streams(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """GET does one ranged pre-flight; the full GET happens only during body streaming."""
     upstream = CountingUpstream(total_chunks=3, chunk=b"g" * 1024)
     seen: list[tuple[str, str | None]] = []
@@ -421,10 +460,14 @@ async def test_upstream_error_status_propagates(
 
 def test_total_length_parsing_rules() -> None:
     """Total size comes from Content-Range on 206, Content-Length on 200; unknown yields None."""
-    ranged = httpx.Response(206, headers={"content-range": "bytes 0-0/3072", "content-length": "1"})
+    ranged = httpx.Response(
+        206, headers={"content-range": "bytes 0-0/3072", "content-length": "1"}
+    )
     star = httpx.Response(206, headers={"content-range": "bytes 0-0/*"})
     plain = httpx.Response(200, headers={"content-length": "3072"})
-    encoded = httpx.Response(200, headers={"content-length": "3072", "content-encoding": "gzip"})
+    encoded = httpx.Response(
+        200, headers={"content-length": "3072", "content-encoding": "gzip"}
+    )
     absent = httpx.Response(200)
 
     assert _total_length(ranged) == 3072
@@ -442,7 +485,9 @@ def test_outbound_headers_omit_content_length_when_unknown() -> None:
 
 
 @pytest.mark.asyncio
-async def test_storage_client_receives_split_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_storage_client_receives_split_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The storage AsyncClient is constructed with connect=10s and read=300s."""
     captured: list[dict] = []
     upstream = CountingUpstream(total_chunks=1, chunk=b"a")
@@ -452,9 +497,13 @@ async def test_storage_client_receives_split_timeout(monkeypatch: pytest.MonkeyP
     resp = await server.app.test_client().get("/images/boot/small.iso")
     assert resp.status_code == 200
 
-    timeouts = [kw["timeout"] for kw in captured if isinstance(kw.get("timeout"), httpx.Timeout)]
+    timeouts = [
+        kw["timeout"] for kw in captured if isinstance(kw.get("timeout"), httpx.Timeout)
+    ]
     storage = [t for t in timeouts if t.read == STORAGE_READ_TIMEOUT_S]
-    assert len(storage) >= 1  # HEAD pre-flight and lazy GET both use the storage timeout
+    assert (
+        len(storage) >= 1
+    )  # HEAD pre-flight and lazy GET both use the storage timeout
     assert all(t.connect == STORAGE_CONNECT_TIMEOUT_S for t in storage)
 
 
@@ -462,8 +511,12 @@ def test_chunk_size_default_and_env_override(monkeypatch: pytest.MonkeyPatch) ->
     """IMAGE_STREAM_CHUNK_SIZE defaults to 1 MiB and honours an env override."""
     monkeypatch.delenv("IMAGE_STREAM_CHUNK_SIZE", raising=False)
     cfg = WorkerConfig(
-        api_manager_url="http://x", worker_api_key="k", redis_url="redis://test:6379/0", worker_id="w",
-        dhcp_mode="disabled", dhcp_interface="eth0",
+        api_manager_url="http://x",
+        worker_api_key="k",
+        redis_url="redis://test:6379/0",
+        worker_id="w",
+        dhcp_mode="disabled",
+        dhcp_interface="eth0",
     )
     assert HTTPBootServer(cfg, Mock()).image_chunk_size == DEFAULT_IMAGE_CHUNK_SIZE
 
@@ -475,8 +528,12 @@ def test_chunk_size_rejects_non_positive(monkeypatch: pytest.MonkeyPatch) -> Non
     """A chunk size below 1 fails loudly at construction time."""
     monkeypatch.setenv("IMAGE_STREAM_CHUNK_SIZE", "0")
     cfg = WorkerConfig(
-        api_manager_url="http://x", worker_api_key="k", redis_url="redis://test:6379/0", worker_id="w",
-        dhcp_mode="disabled", dhcp_interface="eth0",
+        api_manager_url="http://x",
+        worker_api_key="k",
+        redis_url="redis://test:6379/0",
+        worker_id="w",
+        dhcp_mode="disabled",
+        dhcp_interface="eth0",
     )
     with pytest.raises(ValueError, match="IMAGE_STREAM_CHUNK_SIZE"):
         HTTPBootServer(cfg, Mock())

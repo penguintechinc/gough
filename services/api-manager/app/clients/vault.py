@@ -80,7 +80,10 @@ class VaultClient:
     """Client for HashiCorp Vault transit encryption and KV v2 storage."""
 
     def __init__(
-        self, addr: str | None = None, token: str | None = None, namespace: str | None = None
+        self,
+        addr: str | None = None,
+        token: str | None = None,
+        namespace: str | None = None,
     ) -> None:
         """Initialize Vault client.
 
@@ -102,7 +105,7 @@ class VaultClient:
         # Validate URL
         parsed = urlparse(self.addr)
         if parsed.scheme not in ("http", "https"):
-            raise ValueError(f"Invalid VAULT_ADDR: must start with http:// or https://")
+            raise ValueError("Invalid VAULT_ADDR: must start with http:// or https://")
 
         # Check for TLS skip
         skip_verify = os.getenv("VAULT_SKIP_VERIFY") == "1"
@@ -116,7 +119,9 @@ class VaultClient:
     def _hvac_client(self) -> hvac.Client:
         """Lazy-initialize hvac client."""
         if self._client is None:
-            self._client = hvac.Client(url=self.addr, token=self.token, verify=self._verify)
+            self._client = hvac.Client(
+                url=self.addr, token=self.token, verify=self._verify
+            )
             if self.namespace:
                 self._client.adapter.namespace = self.namespace
         return self._client
@@ -177,7 +182,9 @@ class VaultClient:
             logger.error("Vault is sealed or unreachable")
             raise VaultSealedError(str(e)) from e
 
-    def transit_decrypt(self, key_name: str, ciphertext: str) -> VaultTransitDecryptResponse:
+    def transit_decrypt(
+        self, key_name: str, ciphertext: str
+    ) -> VaultTransitDecryptResponse:
         """Decrypt data using Vault transit engine.
 
         Args:
@@ -210,7 +217,9 @@ class VaultClient:
             logger.error("Vault is sealed or unreachable")
             raise VaultSealedError(str(e)) from e
 
-    def transit_sign(self, key_name: str, message: bytes, hash_algorithm: str = "sha2-256") -> str:
+    def transit_sign(
+        self, key_name: str, message: bytes, hash_algorithm: str = "sha2-256"
+    ) -> str:
         """Sign data using Vault transit engine.
 
         Args:
@@ -229,7 +238,11 @@ class VaultClient:
         return resp["data"]["signature"]
 
     def transit_verify_signature(
-        self, key_name: str, message: bytes, signature: str, hash_algorithm: str = "sha2-256"
+        self,
+        key_name: str,
+        message: bytes,
+        signature: str,
+        hash_algorithm: str = "sha2-256",
     ) -> bool:
         """Verify a signature using Vault transit engine.
 
@@ -244,7 +257,10 @@ class VaultClient:
         """
         b64_message = base64.b64encode(message).decode()
         resp = self._hvac_client.secrets.transit.verify_signed_data(
-            name=key_name, hash_input=b64_message, signature=signature, hash_algorithm=hash_algorithm
+            name=key_name,
+            hash_input=b64_message,
+            signature=signature,
+            hash_algorithm=hash_algorithm,
         )
         result = resp["data"]["valid"]
         logger.info(f"Transit verify result={result} for key={key_name}")

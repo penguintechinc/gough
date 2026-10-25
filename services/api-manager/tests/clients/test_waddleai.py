@@ -14,7 +14,6 @@ Coverage:
 
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 from datetime import datetime, timezone
@@ -23,10 +22,13 @@ from unittest.mock import MagicMock
 
 import httpx
 import pytest
-
-from app.clients import waddleai as waddleai_module
+from app.clients.vault import (
+    VaultError,
+    VaultKvReadResponse,
+    VaultPermissionDenied,
+    VaultSealedError,
+)
 from app.clients.waddleai import (
-    ALLOWED_HORIZON_DAYS,
     ClusterAggregate,
     ForecastBundle,
     MetricSample,
@@ -35,16 +37,8 @@ from app.clients.waddleai import (
     WaddleAIClient,
     WaddleAIConfigError,
     WaddleAIDegradedResponse,
-    WaddleAISigningError,
     WaddleAIUnavailableResponse,
 )
-from app.clients.vault import (
-    VaultError,
-    VaultKvReadResponse,
-    VaultPermissionDenied,
-    VaultSealedError,
-)
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -69,7 +63,11 @@ def vault_stub() -> MagicMock:
         data={
             "sub": "spiffe://penguintech.io/dal2/api-manager",
             "audience": "spiffe://penguintech.io/dal2/waddleai",
-            "scopes": ["waddleai.forecast.read", "waddleai.risks.read", "waddleai.ingest"],
+            "scopes": [
+                "waddleai.forecast.read",
+                "waddleai.risks.read",
+                "waddleai.ingest",
+            ],
             "transit_key_name": "gough-waddleai-machine",
             "issuer": "gough.api-manager.dal2",
         },
@@ -296,7 +294,7 @@ class TestJwtMinting:
         assert captured["auth"].startswith("Bearer ")
         assert captured["cluster"] == "dal2"
 
-        token = captured["auth"][len("Bearer "):]
+        token = captured["auth"][len("Bearer ") :]
         parts = token.split(".")
         assert len(parts) == 3
         header_json = json.loads(_b64url_decode(parts[0]))
@@ -335,7 +333,7 @@ class TestJwtMinting:
 
         c = make_client(handler)
         await c.forecast()
-        token = captured["auth"][len("Bearer "):]
+        token = captured["auth"][len("Bearer ") :]
         sig = token.split(".")[2]
         # Original Vault output: vault:v1:c2lnX2Jhc2U2NA → strip prefix.
         assert sig == "c2lnX2Jhc2U2NA"
@@ -490,7 +488,9 @@ class TestForecast:
     @pytest.mark.asyncio
     async def test_invalid_json_body(self, make_client) -> None:
         def handler(request: httpx.Request) -> httpx.Response:
-            return httpx.Response(200, content=b"not-json", headers={"content-type": "application/json"})
+            return httpx.Response(
+                200, content=b"not-json", headers={"content-type": "application/json"}
+            )
 
         c = make_client(handler)
         result = await c.forecast()
@@ -620,9 +620,7 @@ class TestAclose:
         assert c._http is None
 
     @pytest.mark.asyncio
-    async def test_aclose_no_op_when_not_owned(
-        self, vault_stub: MagicMock
-    ) -> None:
+    async def test_aclose_no_op_when_not_owned(self, vault_stub: MagicMock) -> None:
         http = httpx.AsyncClient()
         c = WaddleAIClient(
             endpoint="https://x",

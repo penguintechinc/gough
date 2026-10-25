@@ -14,12 +14,9 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
-
-from app.api.capacity import capacity_bp
 from app.clients.waddleai import (
     ClusterAggregate,
     ForecastBundle,
@@ -28,12 +25,7 @@ from app.clients.waddleai import (
     WaddleAIDegradedResponse,
     WaddleAIUnavailableResponse,
 )
-from app.workers.capacity_predictor import (
-    CapacityPredictor,
-    ClusterUsageSnapshot,
-    NodeUsageSnapshot,
-)
-
+from app.workers.capacity_predictor import CapacityPredictor, ClusterUsageSnapshot
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -220,8 +212,12 @@ class TestCapacityForecast:
             horizon_days=7,
             generated_at=datetime.now(timezone.utc),
             cluster=ClusterAggregate(
-                cpu_used_pct=0, cpu_predicted_pct=0, ram_used_pct=0,
-                ram_predicted_pct=0, disk_used_pct=0, disk_predicted_pct=0,
+                cpu_used_pct=0,
+                cpu_predicted_pct=0,
+                ram_used_pct=0,
+                ram_predicted_pct=0,
+                disk_used_pct=0,
+                disk_predicted_pct=0,
             ),
         )
         mock_waddleai.forecast.return_value = bundle
@@ -253,8 +249,12 @@ class TestCapacityForecast:
             horizon_days=7,
             generated_at=datetime.now(timezone.utc),
             cluster=ClusterAggregate(
-                cpu_used_pct=0, cpu_predicted_pct=0, ram_used_pct=0,
-                ram_predicted_pct=0, disk_used_pct=0, disk_predicted_pct=0,
+                cpu_used_pct=0,
+                cpu_predicted_pct=0,
+                ram_used_pct=0,
+                ram_predicted_pct=0,
+                disk_used_pct=0,
+                disk_predicted_pct=0,
             ),
         )
         mock_waddleai.forecast.return_value = bundle

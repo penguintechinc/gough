@@ -18,14 +18,13 @@ from unittest.mock import AsyncMock
 
 import grpc
 import pytest
+from app.grpc_auth import GrpcAuthInterceptor
+from app.security.credentials import MissingCredentialError, Principal
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
-
-from app.grpc_auth import GrpcAuthInterceptor
-from app.security.credentials import MissingCredentialError, Principal
 
 pytestmark = pytest.mark.asyncio
 
@@ -43,7 +42,9 @@ def x509_cert_and_ca() -> tuple[str, str]:
     name -- ``validate_service_svid``'s chain validation requires a genuine
     two-party CA->leaf chain, not a single self-signed cert.
     """
-    ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    ca_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
     ca_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-ca")])
     ca_cert = (
         x509.CertificateBuilder()
@@ -57,7 +58,9 @@ def x509_cert_and_ca() -> tuple[str, str]:
         .sign(ca_key, hashes.SHA256(), default_backend())
     )
 
-    leaf_key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    leaf_key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
     leaf_subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "test-service")])
     leaf_cert = (
         x509.CertificateBuilder()
@@ -137,7 +140,9 @@ def _make_handler(behavior: Any) -> grpc.RpcMethodHandler:
 # =============================================================================
 
 
-async def test_authenticate_accepts_valid_svid(x509_cert_and_ca: tuple[str, str]) -> None:
+async def test_authenticate_accepts_valid_svid(
+    x509_cert_and_ca: tuple[str, str],
+) -> None:
     """A peer cert chain-validated against the configured trust bundle is accepted."""
     cert_pem, ca_pem = x509_cert_and_ca
     interceptor = GrpcAuthInterceptor(trust_bundle_pem=ca_pem, oidc_verifier=None)
@@ -158,7 +163,9 @@ async def test_authenticate_svid_wrong_ca_falls_back_and_rejects(
     _, real_ca_pem = x509_cert_and_ca
 
     # Self-signed cert from an unrelated CA -- issuer won't match real_ca_pem's subject.
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048, backend=default_backend())
+    key = rsa.generate_private_key(
+        public_exponent=65537, key_size=2048, backend=default_backend()
+    )
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "untrusted")])
     bogus_cert = (
         x509.CertificateBuilder()
@@ -280,6 +287,7 @@ async def test_intercept_service_rejects_unauthenticated_rpc() -> None:
 
 async def test_intercept_service_accepts_valid_machine_jwt() -> None:
     """An RPC with a valid machine JWT reaches the handler and returns normally."""
+
     async def behavior(request: Any, context: Any) -> Any:
         return f"handled:{request}"
 
@@ -287,7 +295,10 @@ async def test_intercept_service_accepts_valid_machine_jwt() -> None:
         return _make_handler(behavior)
 
     verifier = AsyncMock()
-    verifier.verify_token.return_value = {"sub": "machine:discovery-agent", "tenant": "__default__"}
+    verifier.verify_token.return_value = {
+        "sub": "machine:discovery-agent",
+        "tenant": "__default__",
+    }
     interceptor = GrpcAuthInterceptor(trust_bundle_pem=None, oidc_verifier=verifier)
     handler = await interceptor.intercept_service(
         continuation, _HandlerCallDetails("/gough.Identity/IssueSVID")
@@ -301,7 +312,9 @@ async def test_intercept_service_accepts_valid_machine_jwt() -> None:
     assert context.aborted is None
 
 
-async def test_intercept_service_accepts_valid_svid(x509_cert_and_ca: tuple[str, str]) -> None:
+async def test_intercept_service_accepts_valid_svid(
+    x509_cert_and_ca: tuple[str, str],
+) -> None:
     """An RPC with a valid peer SVID reaches the handler and returns normally."""
     cert_pem, ca_pem = x509_cert_and_ca
 

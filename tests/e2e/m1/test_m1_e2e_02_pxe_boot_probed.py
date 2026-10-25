@@ -1,8 +1,9 @@
 """M1 E2E Test 02: Sim node PXE-boots, hits `probed` state."""
 
-import pytest
 import time
 import uuid
+
+import pytest
 
 
 def test_m1_e2e_02_pxe_boot_to_probed(primary_cluster, sim_node_factory, api_client):
@@ -19,9 +20,7 @@ def test_m1_e2e_02_pxe_boot_to_probed(primary_cluster, sim_node_factory, api_cli
     # Launch sim node with default BIOS, healthy SMART
     dmi_uuid = str(uuid.uuid4())
     sim_node = sim_node_factory(
-        firmware="bios",
-        smart_pattern="healthy",
-        dmi_uuid=dmi_uuid
+        firmware="bios", smart_pattern="healthy", dmi_uuid=dmi_uuid
     )
 
     print(f"[m1-e2e-02] Launched sim node PID {sim_node['pid']}, DMI UUID {dmi_uuid}")
@@ -46,7 +45,9 @@ def test_m1_e2e_02_pxe_boot_to_probed(primary_cluster, sim_node_factory, api_cli
                     break
 
             if probed_node and probed_node.get("state") == "probed":
-                print(f"[m1-e2e-02] Node reached 'probed' state after {time.time() - start_time:.1f}s")
+                print(
+                    f"[m1-e2e-02] Node reached 'probed' state after {time.time() - start_time:.1f}s"
+                )
 
                 # Validate full inventory
                 assert probed_node.get("inventory"), "No inventory captured"
@@ -54,21 +55,31 @@ def test_m1_e2e_02_pxe_boot_to_probed(primary_cluster, sim_node_factory, api_cli
 
                 assert inv.get("cpu_count", 0) > 0, "CPU count not captured"
                 assert inv.get("memory_gb", 0) > 0, "Memory not captured"
-                assert len(inv.get("disks", [])) >= 3, "Expected 3+ disks (2 dark + 1 system)"
+                assert (
+                    len(inv.get("disks", [])) >= 3
+                ), "Expected 3+ disks (2 dark + 1 system)"
 
                 # Validate SMART data
                 disks = inv.get("disks", [])
                 for disk in disks:
-                    assert disk.get("smart_status"), f"Disk {disk.get('name')} has no SMART status"
-                    assert disk["smart_status"] in ["healthy", "warning", "failing"], \
-                        f"Invalid SMART status: {disk['smart_status']}"
+                    assert disk.get(
+                        "smart_status"
+                    ), f"Disk {disk.get('name')} has no SMART status"
+                    assert disk["smart_status"] in [
+                        "healthy",
+                        "warning",
+                        "failing",
+                    ], f"Invalid SMART status: {disk['smart_status']}"
 
                 # Validate SPIRE SVID issued
-                assert probed_node.get("spire_svid_issued"), \
-                    "SPIRE has not issued SVID to discovery agent"
+                assert probed_node.get(
+                    "spire_svid_issued"
+                ), "SPIRE has not issued SVID to discovery agent"
 
-                print(f"[m1-e2e-02] Inventory: CPUs={inv.get('cpu_count')}, " \
-                      f"RAM={inv.get('memory_gb')}GB, Disks={len(disks)}")
+                print(
+                    f"[m1-e2e-02] Inventory: CPUs={inv.get('cpu_count')}, "
+                    f"RAM={inv.get('memory_gb')}GB, Disks={len(disks)}"
+                )
                 return  # Test passed
 
         except Exception as e:

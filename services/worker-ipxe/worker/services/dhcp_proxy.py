@@ -8,11 +8,11 @@ Works alongside existing DHCP server.
 import asyncio
 import struct
 import time
+from typing import Optional
+
 import structlog
 from decouple import config as env_config
 from prometheus_client import Counter, Histogram
-from typing import Optional
-
 from worker.config import WorkerConfig
 from worker.observations import ObservedClients
 
@@ -117,10 +117,6 @@ class DHCPProxyServer:
             op, htype, hlen, hops = struct.unpack("!BBBB", data[0:4])
             xid = struct.unpack("!I", data[4:8])[0]
             flags = struct.unpack("!H", data[10:12])[0]
-            ciaddr = data[12:16]
-            yiaddr = data[16:20]
-            siaddr = data[20:24]
-            giaddr = data[24:28]
             chaddr = data[28:44]
 
             # Extract MAC address
@@ -145,7 +141,9 @@ class DHCPProxyServer:
                 opt_len = data[i + 1]
                 if i + 2 + opt_len > len(data):
                     # Declared option length overruns the datagram: malformed, do not guess
-                    logger.warning("dhcp_option_truncated", option=opt_code, declared_len=opt_len)
+                    logger.warning(
+                        "dhcp_option_truncated", option=opt_code, declared_len=opt_len
+                    )
                     return None
                 opt_data = data[i + 2 : i + 2 + opt_len]
                 options[opt_code] = opt_data
@@ -170,8 +168,6 @@ class DHCPProxyServer:
 
     def _build_proxydhcp_offer(self, request: dict) -> bytes:
         """Build ProxyDHCP OFFER response."""
-        boot_url = self.config.get_boot_url()
-
         # Determine boot file based on architecture
         # TODO: Parse architecture from DHCP option 93
         boot_file = "ipxe.efi"  # Default to UEFI
@@ -189,7 +185,7 @@ class DHCPProxyServer:
 
         # Addresses (all zero for ProxyDHCP)
         # Client hardware address
-        packet[28:28 + len(request["chaddr"])] = request["chaddr"]
+        packet[28 : 28 + len(request["chaddr"])] = request["chaddr"]
 
         # Magic cookie
         struct.pack_into("!I", packet, 236, 0x63825363)
@@ -219,9 +215,9 @@ class DHCPProxyServer:
         opts.append(self.DHCP_END)
 
         # Copy options to packet
-        packet[240:240 + len(opts)] = opts
+        packet[240 : 240 + len(opts)] = opts
 
-        return bytes(packet[:240 + len(opts)])
+        return bytes(packet[: 240 + len(opts)])
 
     class DHCPProxyProtocol(asyncio.DatagramProtocol):
         """Asyncio protocol for ProxyDHCP server."""

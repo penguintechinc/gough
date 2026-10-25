@@ -4,14 +4,12 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from app.clients.vault import VaultTransitDecryptResponse, VaultTransitEncryptResponse
 from app.security.joiner_envelope import (
-    AuthTagMismatchError,
     DEK_BYTES,
     IV_BYTES,
     TAG_BYTES,
+    AuthTagMismatchError,
     EnvelopeCiphertext,
     decrypt_envelope,
     encrypt_envelope,
@@ -19,6 +17,7 @@ from app.security.joiner_envelope import (
     generate_iv,
     zero_bytes,
 )
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 
 @pytest.fixture
@@ -64,8 +63,11 @@ def test_zero_bytes_handles_bytearray() -> None:
 def test_envelope_ciphertext_pydantic_model_round_trip() -> None:
     """Model dump/load preserves all fields."""
     original = EnvelopeCiphertext(
-        ciphertext=b"ct", iv=b"0" * 12, auth_tag=b"t" * 16,
-        dek_wrapped=b"wd", vault_kek_name="kek"
+        ciphertext=b"ct",
+        iv=b"0" * 12,
+        auth_tag=b"t" * 16,
+        dek_wrapped=b"wd",
+        vault_kek_name="kek",
     )
     restored = EnvelopeCiphertext.model_validate(original.model_dump())
     assert restored.ciphertext == original.ciphertext
@@ -98,8 +100,7 @@ def test_envelope_round_trip(mock_vault: MagicMock) -> None:
     ct, tag = ct_tag[:-TAG_BYTES], ct_tag[-TAG_BYTES:]
 
     envelope = EnvelopeCiphertext(
-        ciphertext=ct, iv=iv, auth_tag=tag,
-        dek_wrapped=b"w", vault_kek_name="k"
+        ciphertext=ct, iv=iv, auth_tag=tag, dek_wrapped=b"w", vault_kek_name="k"
     )
     mock_vault.transit_decrypt.return_value = VaultTransitDecryptResponse(plaintext=dek)
     assert decrypt_envelope(envelope, mock_vault) == plaintext
@@ -114,8 +115,11 @@ def test_decrypt_envelope_authtag_mismatch(mock_vault: MagicMock) -> None:
     bad_tag[0] ^= 0xFF
 
     envelope = EnvelopeCiphertext(
-        ciphertext=ct_tag[:-TAG_BYTES], iv=iv, auth_tag=bytes(bad_tag),
-        dek_wrapped=b"w", vault_kek_name="k"
+        ciphertext=ct_tag[:-TAG_BYTES],
+        iv=iv,
+        auth_tag=bytes(bad_tag),
+        dek_wrapped=b"w",
+        vault_kek_name="k",
     )
     mock_vault.transit_decrypt.return_value = VaultTransitDecryptResponse(plaintext=dek)
 
@@ -134,8 +138,11 @@ def test_decrypt_envelope_ciphertext_tamper(mock_vault: MagicMock) -> None:
     bad_ct[0] ^= 0xFF
 
     envelope = EnvelopeCiphertext(
-        ciphertext=bytes(bad_ct), iv=iv, auth_tag=ct_tag[-TAG_BYTES:],
-        dek_wrapped=b"w", vault_kek_name="k"
+        ciphertext=bytes(bad_ct),
+        iv=iv,
+        auth_tag=ct_tag[-TAG_BYTES:],
+        dek_wrapped=b"w",
+        vault_kek_name="k",
     )
     mock_vault.transit_decrypt.return_value = VaultTransitDecryptResponse(plaintext=dek)
     with pytest.raises(AuthTagMismatchError):
@@ -151,8 +158,11 @@ def test_decrypt_envelope_iv_tamper(mock_vault: MagicMock) -> None:
     bad_iv[0] ^= 0xFF
 
     envelope = EnvelopeCiphertext(
-        ciphertext=ct_tag[:-TAG_BYTES], iv=bytes(bad_iv), auth_tag=ct_tag[-TAG_BYTES:],
-        dek_wrapped=b"w", vault_kek_name="k"
+        ciphertext=ct_tag[:-TAG_BYTES],
+        iv=bytes(bad_iv),
+        auth_tag=ct_tag[-TAG_BYTES:],
+        dek_wrapped=b"w",
+        vault_kek_name="k",
     )
     mock_vault.transit_decrypt.return_value = VaultTransitDecryptResponse(plaintext=dek)
     with pytest.raises(AuthTagMismatchError):
@@ -162,8 +172,11 @@ def test_decrypt_envelope_iv_tamper(mock_vault: MagicMock) -> None:
 def test_decrypt_envelope_propagates_vault_errors(mock_vault: MagicMock) -> None:
     """Vault errors propagate unchanged."""
     envelope = EnvelopeCiphertext(
-        ciphertext=b"c", iv=generate_iv(), auth_tag=b"t" * 16,
-        dek_wrapped=b"w", vault_kek_name="k"
+        ciphertext=b"c",
+        iv=generate_iv(),
+        auth_tag=b"t" * 16,
+        dek_wrapped=b"w",
+        vault_kek_name="k",
     )
     mock_vault.transit_decrypt.side_effect = ConnectionError("Vault down")
     with pytest.raises(ConnectionError, match="Vault down"):

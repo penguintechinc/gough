@@ -1,10 +1,10 @@
 """Behaviour tests for worker.enrollment: request shape, auth headers, retry/backoff and errors."""
 
+from types import SimpleNamespace
+
 import httpx
 import pytest
 import respx
-from types import SimpleNamespace
-
 from worker import enrollment as enrollment_mod
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
@@ -49,7 +49,9 @@ async def test_enroll_success_posts_expected_body_and_headers() -> None:
     mgr = EnrollmentManager(_cfg())
     with respx.mock(assert_all_called=True) as router:
         route = router.post(ENROLL_URL).mock(
-            return_value=httpx.Response(200, json={"session_token": "tok-abcdefghijklmnopqrstuv"})
+            return_value=httpx.Response(
+                200, json={"session_token": "tok-abcdefghijklmnopqrstuv"}
+            )
         )
         ok = await mgr.enroll()
 
@@ -138,7 +140,9 @@ async def test_enroll_unexpected_exception_returns_false() -> None:
 
 
 @pytest.mark.asyncio
-async def test_retry_succeeds_after_transient_failures(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retry_succeeds_after_transient_failures(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Two failures then a success returns True and backs off 10s then 20s between attempts."""
     waits = _record_sleeps(monkeypatch)
     mgr = EnrollmentManager(_cfg())
@@ -175,10 +179,14 @@ async def test_retry_gives_up_without_sleeping_after_final_attempt(
 
 
 @pytest.mark.asyncio
-async def test_retry_backoff_is_capped_at_sixty_seconds(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retry_backoff_is_capped_at_sixty_seconds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Backoff doubles per attempt, the exponent saturates at 5, and each wait is capped at 60s."""
     waits = _record_sleeps(monkeypatch)
-    mgr = EnrollmentManager(_cfg(enrollment_retry_interval=10, max_enrollment_retries=9))
+    mgr = EnrollmentManager(
+        _cfg(enrollment_retry_interval=10, max_enrollment_retries=9)
+    )
     with respx.mock:
         respx.post(ENROLL_URL).mock(return_value=httpx.Response(500))
         ok = await mgr.enroll_with_retry()
@@ -189,7 +197,9 @@ async def test_retry_backoff_is_capped_at_sixty_seconds(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_retry_zero_attempts_makes_no_request(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_retry_zero_attempts_makes_no_request(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """max_enrollment_retries=0 never contacts api-manager and reports failure."""
     waits = _record_sleeps(monkeypatch)
     mgr = EnrollmentManager(_cfg(max_enrollment_retries=0))
@@ -205,7 +215,13 @@ async def test_retry_zero_attempts_makes_no_request(monkeypatch: pytest.MonkeyPa
 def test_auth_headers_before_and_after_enrollment() -> None:
     """Auth headers carry the API key always, and the session token once one exists."""
     mgr = EnrollmentManager(_cfg())
-    assert mgr.get_auth_headers() == {"X-Worker-API-Key": "api-key-123", "X-Worker-Session-Token": ""}
+    assert mgr.get_auth_headers() == {
+        "X-Worker-API-Key": "api-key-123",
+        "X-Worker-Session-Token": "",
+    }
 
     mgr.session_token = "sess-9"
-    assert mgr.get_auth_headers() == {"X-Worker-API-Key": "api-key-123", "X-Worker-Session-Token": "sess-9"}
+    assert mgr.get_auth_headers() == {
+        "X-Worker-API-Key": "api-key-123",
+        "X-Worker-Session-Token": "sess-9",
+    }

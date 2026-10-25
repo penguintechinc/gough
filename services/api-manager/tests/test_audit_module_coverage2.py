@@ -4,15 +4,13 @@ Tests for audit logger initialization, database storage, NATS publishing failure
 and decorator error handling.
 """
 
-import pytest
-import json
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
-from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import pytest
 from app.audit import (
-    AuditLogger,
     AuditEvent,
     AuditEventType,
+    AuditLogger,
     AuditSeverity,
     audit_action,
     get_audit_logger,
@@ -86,6 +84,7 @@ class TestNATSPublishingEdgeCases:
     def test_nats_asyncio_create_task_runtime_error(self):
         """Test RuntimeError when no event loop (288-293)."""
         import asyncio as _asyncio
+
         from quart import Quart
 
         logger = AuditLogger()
@@ -210,7 +209,7 @@ class TestAuditDecorator:
             return {"id": resource_id}
 
         with patch("app.audit.get_audit_logger", return_value=mock_logger):
-            result = create_resource(resource_id="123")
+            create_resource(resource_id="123")
             call_kwargs = mock_logger.log.call_args[1]
             assert call_kwargs["details"]["status"] == "success"
 

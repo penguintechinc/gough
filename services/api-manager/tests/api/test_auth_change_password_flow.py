@@ -33,7 +33,9 @@ async def _change(env: Any, body: dict[str, Any]) -> Any:
 
 
 @pytest.mark.asyncio
-async def test_wrong_current_password_is_401_and_hash_untouched(real_auth_env: Any) -> None:
+async def test_wrong_current_password_is_401_and_hash_untouched(
+    real_auth_env: Any,
+) -> None:
     """A wrong current password is refused with 401 and the stored hash is unchanged."""
     before = _stored_hash(real_auth_env, real_auth_env.user_id)
 
@@ -52,7 +54,9 @@ async def test_successful_change_persists_new_bcrypt_hash(real_auth_env: Any) ->
     """Correct current password + valid new password -> 200 and the stored hash verifies the new one."""
     new_pw = "brand-new-pass-2"
 
-    resp = await _change(real_auth_env, {"current_password": CURRENT_PW, "new_password": new_pw})
+    resp = await _change(
+        real_auth_env, {"current_password": CURRENT_PW, "new_password": new_pw}
+    )
 
     assert resp.status_code == 200
     assert (await resp.get_json()) == {"message": "Password changed successfully"}
@@ -66,17 +70,23 @@ async def test_new_password_equal_to_current_is_rejected(real_auth_env: Any) -> 
     """Policy: the new password must differ from the current one; reuse -> 400, hash unchanged."""
     before = _stored_hash(real_auth_env, real_auth_env.user_id)
 
-    resp = await _change(real_auth_env, {"current_password": CURRENT_PW, "new_password": CURRENT_PW})
+    resp = await _change(
+        real_auth_env, {"current_password": CURRENT_PW, "new_password": CURRENT_PW}
+    )
 
     assert resp.status_code == 400
-    assert (await resp.get_json()) == {"error": "New password must differ from current password"}
+    assert (await resp.get_json()) == {
+        "error": "New password must differ from current password"
+    }
     assert _stored_hash(real_auth_env, real_auth_env.user_id) == before
 
 
 @pytest.mark.asyncio
 async def test_empty_current_password_rejected(real_auth_env: Any) -> None:
     """Empty current password is refused with 400 before any DB work."""
-    resp = await _change(real_auth_env, {"current_password": "", "new_password": "x" * 12})
+    resp = await _change(
+        real_auth_env, {"current_password": "", "new_password": "x" * 12}
+    )
 
     assert resp.status_code == 400
     assert (await resp.get_json()) == {"error": "Current and new passwords required"}

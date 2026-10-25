@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 import pytest
+from app.security.credentials import (
+    CredentialType,
+    InvalidCredentialError,
+    validate_service_svid,
+)
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID, ExtensionOID
-from datetime import datetime, timedelta
-
-from app.security.credentials import (
-    validate_service_svid,
-    InvalidCredentialError,
-    CredentialType,
-)
+from cryptography.x509.oid import NameOID
 
 
 def create_self_signed_cert(common_name: str, spiffe_id: str) -> tuple[str, str]:
@@ -27,32 +27,35 @@ def create_self_signed_cert(common_name: str, spiffe_id: str) -> tuple[str, str]
     )
 
     # Build certificate
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, common_name),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, common_name),
+        ]
+    )
 
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        private_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.utcnow()
-    ).not_valid_after(
-        datetime.utcnow() + timedelta(days=1)
-    ).add_extension(
-        x509.SubjectAlternativeName([
-            x509.UniformResourceIdentifier(spiffe_id),
-        ]),
-        critical=False,
-    ).add_extension(
-        # Real SPIRE trust-anchor certs are CAs; the hardened validator requires it.
-        x509.BasicConstraints(ca=True, path_length=None),
-        critical=True,
-    ).sign(private_key, hashes.SHA256(), default_backend())
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.utcnow())
+        .not_valid_after(datetime.utcnow() + timedelta(days=1))
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [
+                    x509.UniformResourceIdentifier(spiffe_id),
+                ]
+            ),
+            critical=False,
+        )
+        .add_extension(
+            # Real SPIRE trust-anchor certs are CAs; the hardened validator requires it.
+            x509.BasicConstraints(ca=True, path_length=None),
+            critical=True,
+        )
+        .sign(private_key, hashes.SHA256(), default_backend())
+    )
 
     # Serialize to PEM
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
@@ -92,23 +95,22 @@ def test_validate_service_svid_no_san():
         backend=default_backend(),
     )
 
-    subject = issuer = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, "test"),
-    ])
+    subject = issuer = x509.Name(
+        [
+            x509.NameAttribute(NameOID.COMMON_NAME, "test"),
+        ]
+    )
 
-    cert = x509.CertificateBuilder().subject_name(
-        subject
-    ).issuer_name(
-        issuer
-    ).public_key(
-        private_key.public_key()
-    ).serial_number(
-        x509.random_serial_number()
-    ).not_valid_before(
-        datetime.utcnow()
-    ).not_valid_after(
-        datetime.utcnow() + timedelta(days=1)
-    ).sign(private_key, hashes.SHA256(), default_backend())
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(issuer)
+        .public_key(private_key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.utcnow())
+        .not_valid_after(datetime.utcnow() + timedelta(days=1))
+        .sign(private_key, hashes.SHA256(), default_backend())
+    )
 
     cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
 
@@ -143,7 +145,9 @@ def test_validate_service_svid_chain_failure():
     # Create different self-signed cert as "trust bundle" (issuer mismatch)
     other_pem, _ = create_self_signed_cert("other-ca", "spiffe://other")
 
-    with pytest.raises(InvalidCredentialError, match="issuer does not match|Certificate chain"):
+    with pytest.raises(
+        InvalidCredentialError, match="issuer does not match|Certificate chain"
+    ):
         validate_service_svid(
             cert_pem,
             other_pem,

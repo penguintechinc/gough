@@ -78,7 +78,8 @@ def dal(tmp_path: Any) -> Any:
     from app.models_sqlalchemy import Base
 
     Base.metadata.create_all(
-        db.engine, tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__]
+        db.engine,
+        tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__],
     )
     db.define_table(
         "biomes",
@@ -136,7 +137,12 @@ def wired(dal: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
 
 
 def _seed_biome_instance(
-    dal: Any, *, node_id: int, node_name: str, dst_id: int, dst_name: str,
+    dal: Any,
+    *,
+    node_id: int,
+    node_name: str,
+    dst_id: int,
+    dst_name: str,
 ) -> tuple[int, int]:
     """Seed src + dst nodes and one active biome assignment on ``node_id``.
 
@@ -145,16 +151,24 @@ def _seed_biome_instance(
     now = datetime.now(timezone.utc)
     dal.nodes.insert(id=node_id, tenant_id="default", name=node_name, state="ready")
     dal.nodes.insert(id=dst_id, tenant_id="default", name=dst_name, state="ready")
-    biome_id = dal.biomes.insert(name="test-biome", biome_kind="custom", lock_to_host=False)
+    biome_id = dal.biomes.insert(
+        name="test-biome", biome_kind="custom", lock_to_host=False
+    )
     instance_id = dal.node_egg_assignments.insert(
-        node_id=node_id, egg_id=int(biome_id), tenant_id="default",
-        status="ready", created_at=now, updated_at=now,
+        node_id=node_id,
+        egg_id=int(biome_id),
+        tenant_id="default",
+        status="ready",
+        created_at=now,
+        updated_at=now,
     )
     dal.commit()
     return int(instance_id), int(biome_id)
 
 
-def _seed_migration_event(dal: Any, *, biome_instance_id: int, src: int, dst: int) -> str:
+def _seed_migration_event(
+    dal: Any, *, biome_instance_id: int, src: int, dst: int
+) -> str:
     event_id = str(uuid.uuid4())
     dal.migration_events.insert(
         id=event_id,
@@ -175,8 +189,11 @@ class TestFeatureFlagGate:
         from app.workers.migration_engine import execute_migration
 
         result = await execute_migration(
-            biome_instance_id=1, src_node_id=1, dst_node_id=2,
-            live=True, reason="rebalance",
+            biome_instance_id=1,
+            src_node_id=1,
+            dst_node_id=2,
+            live=True,
+            reason="rebalance",
         )
         assert result == {
             "status": "disabled",
@@ -187,7 +204,9 @@ class TestFeatureFlagGate:
 
 class TestExecuteMigrationFullLifecycle:
     async def test_executed_success_updates_rows_and_calls_lxd(
-        self, wired: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        wired: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Flag ON + LXD move + verify all succeed -> executed, rows updated."""
         import app.clients.lxd_extra as lxd_extra_mod
@@ -196,23 +215,40 @@ class TestExecuteMigrationFullLifecycle:
 
         dal = wired
         instance_id, _ = _seed_biome_instance(
-            dal, node_id=1, node_name="node-1", dst_id=2, dst_name="node-2",
+            dal,
+            node_id=1,
+            node_name="node-1",
+            dst_id=2,
+            dst_name="node-2",
         )
-        event_id = _seed_migration_event(dal, biome_instance_id=instance_id, src=1, dst=2)
+        event_id = _seed_migration_event(
+            dal, biome_instance_id=instance_id, src=1, dst=2
+        )
 
-        monkeypatch.setattr(licensing_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            licensing_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
         live_migrate_mock = MagicMock(return_value=MagicMock(status="Success"))
         monkeypatch.setattr(lxd_extra_mod, "live_migrate", live_migrate_mock)
         monkeypatch.setattr(
-            lxd_extra_mod, "get_cluster_status",
-            MagicMock(return_value=SimpleNamespace(members=[
-                SimpleNamespace(name="node-2", status="Online"),
-            ])),
+            lxd_extra_mod,
+            "get_cluster_status",
+            MagicMock(
+                return_value=SimpleNamespace(
+                    members=[
+                        SimpleNamespace(name="node-2", status="Online"),
+                    ]
+                )
+            ),
         )
 
         result = await execute_migration(
-            biome_instance_id=instance_id, src_node_id=1, dst_node_id=2,
-            live=True, reason="rebalance", migration_event_id=event_id,
+            biome_instance_id=instance_id,
+            src_node_id=1,
+            dst_node_id=2,
+            live=True,
+            reason="rebalance",
+            migration_event_id=event_id,
         )
 
         assert result["status"] == "executed"
@@ -236,7 +272,9 @@ class TestExecuteMigrationFullLifecycle:
         assert event.duration_seconds is not None
 
     async def test_lxd_move_failure_marks_failed_no_rollback_attempted(
-        self, wired: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        wired: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """LXD move itself raises -> failed, instance stays on src, no rollback call."""
         import app.clients.lxd_extra as lxd_extra_mod
@@ -245,19 +283,31 @@ class TestExecuteMigrationFullLifecycle:
 
         dal = wired
         instance_id, _ = _seed_biome_instance(
-            dal, node_id=1, node_name="node-1", dst_id=2, dst_name="node-2",
+            dal,
+            node_id=1,
+            node_name="node-1",
+            dst_id=2,
+            dst_name="node-2",
         )
-        event_id = _seed_migration_event(dal, biome_instance_id=instance_id, src=1, dst=2)
+        event_id = _seed_migration_event(
+            dal, biome_instance_id=instance_id, src=1, dst=2
+        )
 
-        monkeypatch.setattr(licensing_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            licensing_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
         live_migrate_mock = MagicMock(
             side_effect=lxd_extra_mod.LXDMigrationError("operation failed: timeout")
         )
         monkeypatch.setattr(lxd_extra_mod, "live_migrate", live_migrate_mock)
 
         result = await execute_migration(
-            biome_instance_id=instance_id, src_node_id=1, dst_node_id=2,
-            live=True, reason="rebalance", migration_event_id=event_id,
+            biome_instance_id=instance_id,
+            src_node_id=1,
+            dst_node_id=2,
+            live=True,
+            reason="rebalance",
+            migration_event_id=event_id,
         )
 
         assert result["status"] == "failed"
@@ -275,7 +325,9 @@ class TestExecuteMigrationFullLifecycle:
         assert "operation failed" in (event.rejection_reason or "")
 
     async def test_destination_verify_failure_triggers_rollback(
-        self, wired: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        wired: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """LXD move succeeds but dst never comes Online -> rollback attempted
         and succeeds (default policy: rollback_on_destination_failure=True).
@@ -286,24 +338,41 @@ class TestExecuteMigrationFullLifecycle:
 
         dal = wired
         instance_id, _ = _seed_biome_instance(
-            dal, node_id=1, node_name="node-1", dst_id=2, dst_name="node-2",
+            dal,
+            node_id=1,
+            node_name="node-1",
+            dst_id=2,
+            dst_name="node-2",
         )
-        event_id = _seed_migration_event(dal, biome_instance_id=instance_id, src=1, dst=2)
+        event_id = _seed_migration_event(
+            dal, biome_instance_id=instance_id, src=1, dst=2
+        )
 
-        monkeypatch.setattr(licensing_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            licensing_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
         live_migrate_mock = MagicMock(return_value=MagicMock(status="Success"))
         monkeypatch.setattr(lxd_extra_mod, "live_migrate", live_migrate_mock)
         # Destination never reports Online -> verify fails every time.
         monkeypatch.setattr(
-            lxd_extra_mod, "get_cluster_status",
-            MagicMock(return_value=SimpleNamespace(members=[
-                SimpleNamespace(name="node-2", status="Offline"),
-            ])),
+            lxd_extra_mod,
+            "get_cluster_status",
+            MagicMock(
+                return_value=SimpleNamespace(
+                    members=[
+                        SimpleNamespace(name="node-2", status="Offline"),
+                    ]
+                )
+            ),
         )
 
         result = await execute_migration(
-            biome_instance_id=instance_id, src_node_id=1, dst_node_id=2,
-            live=True, reason="rebalance", migration_event_id=event_id,
+            biome_instance_id=instance_id,
+            src_node_id=1,
+            dst_node_id=2,
+            live=True,
+            reason="rebalance",
+            migration_event_id=event_id,
         )
 
         assert result["status"] == "rolled_back"
@@ -316,31 +385,41 @@ class TestExecuteMigrationFullLifecycle:
         assert second_call.args == ("test-biome-1", "node-1")
 
         assignment = dal(dal.node_egg_assignments.id == instance_id).select().first()
-        assert assignment.node_id == 1  # rollback never updates node_id (only set on confirmed success)
+        assert (
+            assignment.node_id == 1
+        )  # rollback never updates node_id (only set on confirmed success)
         assert assignment.status == "ready"
 
         event = dal(dal.migration_events.id == event_id).select().first()
         assert event.result == "rolled_back"
 
     async def test_rollback_disabled_by_policy_marks_failed(
-        self, wired: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        wired: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Destination verify fails but rollback_on_destination_failure=False
         in the policy row -> failed, no rollback attempted."""
-        from penguin_dal import Field
-
         import app.clients.lxd_extra as lxd_extra_mod
         import app.licensing as licensing_mod
         from app.workers.migration_engine import execute_migration
+        from penguin_dal import Field
 
         dal = wired
         instance_id, _ = _seed_biome_instance(
-            dal, node_id=1, node_name="node-1", dst_id=2, dst_name="node-2",
+            dal,
+            node_id=1,
+            node_name="node-1",
+            dst_id=2,
+            dst_name="node-2",
         )
-        event_id = _seed_migration_event(dal, biome_instance_id=instance_id, src=1, dst=2)
+        event_id = _seed_migration_event(
+            dal, biome_instance_id=instance_id, src=1, dst=2
+        )
 
         _define_table_with_string_id(
-            dal, "migration_policy",
+            dal,
+            "migration_policy",
             Field("cluster_id", "string", notnull=True),
             Field("enabled", "boolean", default=False),
             Field("evaluation_interval_seconds", "integer", default=300),
@@ -359,33 +438,50 @@ class TestExecuteMigrationFullLifecycle:
             Field("updated_at", "datetime"),
         )
         dal.migration_policy.insert(
-            id=str(uuid.uuid4()), cluster_id="default", enabled=False,
-            evaluation_interval_seconds=300, min_healthy_nodes=1,
+            id=str(uuid.uuid4()),
+            cluster_id="default",
+            enabled=False,
+            evaluation_interval_seconds=300,
+            min_healthy_nodes=1,
             max_concurrent_migrations=1,
             require_target_capacity_headroom_cpu_pct=20,
             require_target_capacity_headroom_mem_pct=20,
             require_target_capacity_headroom_disk_pct=15,
-            rollback_on_destination_failure=False, rollback_window_seconds=300,
+            rollback_on_destination_failure=False,
+            rollback_window_seconds=300,
             forbid_migration_during_partition=True,
             forbid_migration_during_maintenance=True,
-            waddleai_risk_threshold=0.75, capacity_forecast_horizon_days=7,
-            created_at=datetime.now(timezone.utc), updated_at=datetime.now(timezone.utc),
+            waddleai_risk_threshold=0.75,
+            capacity_forecast_horizon_days=7,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         dal.commit()
 
-        monkeypatch.setattr(licensing_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            licensing_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
         live_migrate_mock = MagicMock(return_value=MagicMock(status="Success"))
         monkeypatch.setattr(lxd_extra_mod, "live_migrate", live_migrate_mock)
         monkeypatch.setattr(
-            lxd_extra_mod, "get_cluster_status",
-            MagicMock(return_value=SimpleNamespace(members=[
-                SimpleNamespace(name="node-2", status="Offline"),
-            ])),
+            lxd_extra_mod,
+            "get_cluster_status",
+            MagicMock(
+                return_value=SimpleNamespace(
+                    members=[
+                        SimpleNamespace(name="node-2", status="Offline"),
+                    ]
+                )
+            ),
         )
 
         result = await execute_migration(
-            biome_instance_id=instance_id, src_node_id=1, dst_node_id=2,
-            live=True, reason="rebalance", migration_event_id=event_id,
+            biome_instance_id=instance_id,
+            src_node_id=1,
+            dst_node_id=2,
+            live=True,
+            reason="rebalance",
+            migration_event_id=event_id,
         )
 
         assert result["status"] == "failed"
@@ -396,7 +492,9 @@ class TestExecuteMigrationFullLifecycle:
 
 
 class TestEvaluateSafetyReal:
-    async def test_load_failure_fails_closed(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_load_failure_fails_closed(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """A state-load error (DB down, etc.) fails closed, never crashes.
 
         Raises directly from ``app.api.migration.get_db`` rather than
@@ -431,17 +529,25 @@ class TestEvaluateSafetyReal:
         assert result["safe"] is True
         assert "nothing to evacuate" in result["note"]
 
-    async def test_unsafe_single_node_cluster_with_active_biome(self, wired: Any) -> None:
+    async def test_unsafe_single_node_cluster_with_active_biome(
+        self, wired: Any
+    ) -> None:
         """One active biome + no other ready node -> envelope rejects."""
         from app.workers.migration_engine import evaluate_safety
 
         dal = wired
         now = datetime.now(timezone.utc)
         dal.nodes.insert(id=1, tenant_id="default", name="node-1", state="ready")
-        biome_id = dal.biomes.insert(name="pinned", biome_kind="custom", lock_to_host=False)
+        biome_id = dal.biomes.insert(
+            name="pinned", biome_kind="custom", lock_to_host=False
+        )
         dal.node_egg_assignments.insert(
-            node_id=1, egg_id=int(biome_id), tenant_id="default",
-            status="ready", created_at=now, updated_at=now,
+            node_id=1,
+            egg_id=int(biome_id),
+            tenant_id="default",
+            status="ready",
+            created_at=now,
+            updated_at=now,
         )
         dal.commit()
 

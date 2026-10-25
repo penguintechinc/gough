@@ -16,12 +16,14 @@ from pathlib import Path
 from unittest.mock import create_autospec
 
 import pytest
-from prometheus_client import REGISTRY
-from quart import Quart
-
+from app.audit import (
+    AuditEvent,
+    AuditEventType,
+    AuditLogger,
+    AuditSeverity,
+    drain_audit_publish_tasks,
+)
 from app.db.rls import set_current_tenant
-
-from app.audit import AuditEvent, AuditEventType, AuditLogger, AuditSeverity, drain_audit_publish_tasks
 from app.lifecycle import (
     build_hypercorn_config,
     install_shutdown_signals,
@@ -29,6 +31,8 @@ from app.lifecycle import (
     serve_app,
 )
 from app.rate_limit import RateLimiterBackendUnavailable
+from prometheus_client import REGISTRY
+from quart import Quart
 
 CLOSED_REDIS = "redis://127.0.0.1:1/0"
 
@@ -190,7 +194,9 @@ def _startup_config(tmp_path: Path, **overrides: object) -> type:
     return type("StartupTestConfig", (Config,), attrs)
 
 
-def test_create_app_startup_fails_on_unreachable_redis_without_fallback(tmp_path: Path) -> None:
+def test_create_app_startup_fails_on_unreachable_redis_without_fallback(
+    tmp_path: Path,
+) -> None:
     """Configured Redis down + no fallback flag: startup raises instead of degrading silently."""
     from app import create_app
 

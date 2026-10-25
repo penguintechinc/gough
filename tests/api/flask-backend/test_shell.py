@@ -8,29 +8,25 @@ Tests cover:
 - Permission validation and access control
 """
 
-import json
-from datetime import datetime
-from unittest.mock import MagicMock, Mock, patch
-
 import pytest
-
-from gough.services.flask_backend.app.models import get_db
 
 
 class TestCreateShellSession:
     """Test shell session creation endpoints."""
 
-    def test_create_shell_session_success(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_create_shell_session_success(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test successful shell session creation."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 201
@@ -41,17 +37,19 @@ class TestCreateShellSession:
         assert "agent_id" in data
         assert data["message"] == "Shell session created successfully"
 
-    def test_create_shell_session_kubectl(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_create_shell_session_kubectl(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test creating a kubectl shell session."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "cluster",
                 "resource_id": "test-cluster-01",
-                "session_type": "kubectl"
+                "session_type": "kubectl",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -59,17 +57,19 @@ class TestCreateShellSession:
             data = response.get_json()
             assert data["session_type"] == "kubectl"
 
-    def test_create_shell_session_docker(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_create_shell_session_docker(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test creating a docker shell session."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "container",
                 "resource_id": "test-container-01",
-                "session_type": "docker"
+                "session_type": "docker",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -77,17 +77,19 @@ class TestCreateShellSession:
             data = response.get_json()
             assert data["session_type"] == "docker"
 
-    def test_create_shell_session_cloud_cli(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_create_shell_session_cloud_cli(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test creating a cloud_cli shell session."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "cloud",
                 "resource_id": "aws-account-001",
-                "session_type": "cloud_cli"
+                "session_type": "cloud_cli",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -102,26 +104,25 @@ class TestCreateShellSession:
             json={
                 "resource_type": "vm",
                 "resource_id": "unauthorized-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 403
         data = response.get_json()
         assert "error" in data
 
-    def test_create_shell_session_invalid_resource_type(self, client, auth_headers, mock_agent):
+    def test_create_shell_session_invalid_resource_type(
+        self, client, auth_headers, mock_agent
+    ):
         """Test shell session creation with missing resource_type."""
         response = client.post(
             "/api/v1/shell/sessions",
-            json={
-                "resource_id": "test-vm-001",
-                "session_type": "ssh"
-            },
+            json={"resource_id": "test-vm-001", "session_type": "ssh"},
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 400
@@ -129,16 +130,15 @@ class TestCreateShellSession:
         assert "error" in data
         assert "resource_type" in data["error"].lower()
 
-    def test_create_shell_session_invalid_resource_id(self, client, auth_headers, mock_agent):
+    def test_create_shell_session_invalid_resource_id(
+        self, client, auth_headers, mock_agent
+    ):
         """Test shell session creation with missing resource_id."""
         response = client.post(
             "/api/v1/shell/sessions",
-            json={
-                "resource_type": "vm",
-                "session_type": "ssh"
-            },
+            json={"resource_type": "vm", "session_type": "ssh"},
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 400
@@ -146,17 +146,19 @@ class TestCreateShellSession:
         assert "error" in data
         assert "resource_id" in data["error"].lower()
 
-    def test_create_shell_session_invalid_session_type(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_create_shell_session_invalid_session_type(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test shell session creation with invalid session_type."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "invalid_type"
+                "session_type": "invalid_type",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 400
@@ -169,24 +171,26 @@ class TestCreateShellSession:
         response = client.post(
             "/api/v1/shell/sessions",
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 400
         data = response.get_json()
         assert "error" in data
 
-    def test_create_shell_session_no_agent_available(self, client, auth_headers, team_with_shell_access):
+    def test_create_shell_session_no_agent_available(
+        self, client, auth_headers, team_with_shell_access
+    ):
         """Test shell session creation when no agent is available."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 404]
@@ -198,9 +202,9 @@ class TestCreateShellSession:
             json={
                 "resource_type": "vm",
                 "resource_id": "test-vm-001",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 401
@@ -211,10 +215,7 @@ class TestListShellSessions:
 
     def test_list_user_sessions_empty(self, client, auth_headers):
         """Test listing sessions for user with no active sessions."""
-        response = client.get(
-            "/api/v1/shell/sessions",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/shell/sessions", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -223,7 +224,9 @@ class TestListShellSessions:
         assert data["count"] == 0
         assert isinstance(data["sessions"], list)
 
-    def test_list_user_sessions_with_active(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_list_user_sessions_with_active(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test listing sessions includes active sessions."""
         # Create a session
         create_response = client.post(
@@ -231,18 +234,15 @@ class TestListShellSessions:
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if create_response.status_code == 201:
             # List sessions
-            list_response = client.get(
-                "/api/v1/shell/sessions",
-                headers=auth_headers
-            )
+            list_response = client.get("/api/v1/shell/sessions", headers=auth_headers)
 
             assert list_response.status_code == 200
             data = list_response.get_json()
@@ -252,10 +252,7 @@ class TestListShellSessions:
 
     def test_list_user_sessions_field_validation(self, client, auth_headers):
         """Test that session list contains required fields."""
-        response = client.get(
-            "/api/v1/shell/sessions",
-            headers=auth_headers
-        )
+        response = client.get("/api/v1/shell/sessions", headers=auth_headers)
 
         assert response.status_code == 200
         data = response.get_json()
@@ -274,7 +271,9 @@ class TestListShellSessions:
 class TestTerminateShellSession:
     """Test shell session termination endpoints."""
 
-    def test_terminate_session_by_owner(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_terminate_session_by_owner(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test session termination by session owner."""
         # Create a session
         create_response = client.post(
@@ -282,10 +281,10 @@ class TestTerminateShellSession:
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if create_response.status_code == 201:
@@ -293,8 +292,7 @@ class TestTerminateShellSession:
 
             # Terminate the session
             terminate_response = client.delete(
-                f"/api/v1/shell/sessions/{session_id}",
-                headers=auth_headers
+                f"/api/v1/shell/sessions/{session_id}", headers=auth_headers
             )
 
             assert terminate_response.status_code == 200
@@ -305,25 +303,27 @@ class TestTerminateShellSession:
     def test_terminate_session_not_found(self, client, auth_headers):
         """Test termination of non-existent session."""
         response = client.delete(
-            "/api/v1/shell/sessions/nonexistent-session-id",
-            headers=auth_headers
+            "/api/v1/shell/sessions/nonexistent-session-id", headers=auth_headers
         )
 
         assert response.status_code == 404
         data = response.get_json()
         assert "error" in data
 
-    def test_terminate_session_not_owner(self, client, auth_headers, admin_user, mock_agent, team_with_shell_access):
+    def test_terminate_session_not_owner(
+        self, client, auth_headers, admin_user, mock_agent, team_with_shell_access
+    ):
         """Test that non-owner cannot terminate another user's session."""
         # Create a session with admin user (needs separate auth headers)
         response = client.delete(
-            "/api/v1/shell/sessions/session-owned-by-other-user",
-            headers=auth_headers
+            "/api/v1/shell/sessions/session-owned-by-other-user", headers=auth_headers
         )
 
         assert response.status_code in [403, 404]
 
-    def test_terminate_already_terminated_session(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_terminate_already_terminated_session(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test terminating an already terminated session."""
         # Create and terminate a session
         create_response = client.post(
@@ -331,10 +331,10 @@ class TestTerminateShellSession:
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if create_response.status_code == 201:
@@ -342,15 +342,13 @@ class TestTerminateShellSession:
 
             # First termination
             first_terminate = client.delete(
-                f"/api/v1/shell/sessions/{session_id}",
-                headers=auth_headers
+                f"/api/v1/shell/sessions/{session_id}", headers=auth_headers
             )
             assert first_terminate.status_code == 200
 
             # Second termination attempt
             second_terminate = client.delete(
-                f"/api/v1/shell/sessions/{session_id}",
-                headers=auth_headers
+                f"/api/v1/shell/sessions/{session_id}", headers=auth_headers
             )
             assert second_terminate.status_code in [400, 404]
 
@@ -365,17 +363,19 @@ class TestSessionTypes:
     """Test different shell session types."""
 
     @pytest.mark.parametrize("session_type", ["ssh", "kubectl", "docker", "cloud_cli"])
-    def test_session_type_support(self, client, auth_headers, mock_agent, team_with_shell_access, session_type):
+    def test_session_type_support(
+        self, client, auth_headers, mock_agent, team_with_shell_access, session_type
+    ):
         """Test that all session types are supported."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": session_type
+                "session_type": session_type,
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -383,17 +383,19 @@ class TestSessionTypes:
             data = response.get_json()
             assert data["session_type"] == session_type
 
-    def test_ssh_session_type(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_ssh_session_type(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test SSH session type specifically."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if response.status_code == 201:
@@ -406,10 +408,10 @@ class TestSessionTypes:
             json={
                 "resource_type": "cluster",
                 "resource_id": "test-cluster",
-                "session_type": "kubectl"
+                "session_type": "kubectl",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -421,10 +423,10 @@ class TestSessionTypes:
             json={
                 "resource_type": "container",
                 "resource_id": "test-container",
-                "session_type": "docker"
+                "session_type": "docker",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -436,10 +438,10 @@ class TestSessionTypes:
             json={
                 "resource_type": "cloud_account",
                 "resource_id": "aws-prod",
-                "session_type": "cloud_cli"
+                "session_type": "cloud_cli",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 403, 404]
@@ -451,10 +453,10 @@ class TestSessionTypes:
             json={
                 "resource_type": "vm",
                 "resource_id": "test-vm",
-                "session_type": "invalid"
+                "session_type": "invalid",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code == 400
@@ -471,26 +473,28 @@ class TestShellPermissions:
             json={
                 "resource_type": "vm",
                 "resource_id": "any-resource",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         # Admin in auth_headers, should have access
         assert response.status_code in [201, 404]
 
-    def test_team_member_shell_access(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_team_member_shell_access(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test that team members with shell permission can access resources."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [201, 404]
@@ -502,10 +506,10 @@ class TestShellPermissions:
             json={
                 "resource_type": "restricted_resource",
                 "resource_id": "secret-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         assert response.status_code in [403, 404]
@@ -514,17 +518,19 @@ class TestShellPermissions:
 class TestWebSocketURL:
     """Test WebSocket URL generation for sessions."""
 
-    def test_websocket_url_format(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_websocket_url_format(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test that WebSocket URL is properly formatted."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if response.status_code == 201:
@@ -536,17 +542,19 @@ class TestWebSocketURL:
             assert "/ws/shell/" in websocket_url
             assert data["session_id"] in websocket_url
 
-    def test_websocket_url_includes_session_id(self, client, auth_headers, mock_agent, team_with_shell_access):
+    def test_websocket_url_includes_session_id(
+        self, client, auth_headers, mock_agent, team_with_shell_access
+    ):
         """Test that WebSocket URL includes the session ID."""
         response = client.post(
             "/api/v1/shell/sessions",
             json={
                 "resource_type": "vm",
                 "resource_id": "shell-test-vm",
-                "session_type": "ssh"
+                "session_type": "ssh",
             },
             headers=auth_headers,
-            content_type="application/json"
+            content_type="application/json",
         )
 
         if response.status_code == 201:

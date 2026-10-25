@@ -12,11 +12,7 @@ from typing import Any
 
 from quart import current_app
 
-from .base import (
-    BaseSecretsManager,
-    SecretNotFoundError,
-    SecretsManagerError,
-)
+from .base import BaseSecretsManager, SecretNotFoundError, SecretsManagerError
 
 log = logging.getLogger(__name__)
 
@@ -38,8 +34,9 @@ class GCPSecretsManager(BaseSecretsManager):
         """Get GCP Secret Manager client."""
         if self._client is None:
             try:
-                from google.cloud import secretmanager
                 import os
+
+                from google.cloud import secretmanager
 
                 # Set credentials file if specified
                 creds_file = current_app.config.get("GCP_CREDENTIALS_FILE", "")
@@ -86,8 +83,7 @@ class GCPSecretsManager(BaseSecretsManager):
 
             version_path = self._version_path(path)
             response = await asyncio.to_thread(
-                self.client.access_secret_version,
-                name=version_path
+                self.client.access_secret_version, name=version_path
             )
 
             payload = response.payload.data.decode("UTF-8")
@@ -117,7 +113,7 @@ class GCPSecretsManager(BaseSecretsManager):
                 await asyncio.to_thread(
                     self.client.add_secret_version,
                     parent=secret_path,
-                    payload={"data": payload}
+                    payload={"data": payload},
                 )
             except exceptions.NotFound:
                 # Create new secret
@@ -128,14 +124,14 @@ class GCPSecretsManager(BaseSecretsManager):
                     self.client.create_secret,
                     parent=parent,
                     secret_id=secret_id,
-                    secret={"replication": {"automatic": {}}}
+                    secret={"replication": {"automatic": {}}},
                 )
 
                 # Add the first version
                 await asyncio.to_thread(
                     self.client.add_secret_version,
                     parent=secret_path,
-                    payload={"data": payload}
+                    payload={"data": payload},
                 )
 
             log.info(f"Secret stored in GCP at path: {path}")
@@ -150,10 +146,7 @@ class GCPSecretsManager(BaseSecretsManager):
             from google.api_core import exceptions
 
             secret_path = self._secret_path(path)
-            await asyncio.to_thread(
-                self.client.delete_secret,
-                name=secret_path
-            )
+            await asyncio.to_thread(self.client.delete_secret, name=secret_path)
 
             log.info(f"Secret deleted from GCP at path: {path}")
             return True
@@ -172,8 +165,7 @@ class GCPSecretsManager(BaseSecretsManager):
             prefix = self._normalize_name(path) if path else ""
 
             secrets_list = await asyncio.to_thread(
-                self.client.list_secrets,
-                parent=parent
+                self.client.list_secrets, parent=parent
             )
 
             for secret in secrets_list:

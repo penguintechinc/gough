@@ -10,10 +10,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
+import app.models as models
 import pytest
 from penguin_dal import DB, Field
-
-import app.models as models
 
 
 @pytest.fixture()
@@ -31,7 +30,12 @@ def auth_db(tmp_path, monkeypatch: pytest.MonkeyPatch) -> DB:
         Field("updated_at", "datetime"),
         migrate=True,
     )
-    db.define_table("auth_role", Field("name", "string"), Field("description", "string"), migrate=True)
+    db.define_table(
+        "auth_role",
+        Field("name", "string"),
+        Field("description", "string"),
+        migrate=True,
+    )
     db.define_table(
         "auth_user_roles",
         Field("user_id", "integer"),
@@ -60,7 +64,9 @@ def test_create_user_lowercases_email_and_assigns_existing_role(auth_db: DB) -> 
     """create_user stores a lowercased email, a uuid uniquifier, and the requested role."""
     _role(auth_db, "admin")
 
-    user = models.create_user("Alice@Example.COM", "hash-1", full_name="Alice", role="admin")
+    user = models.create_user(
+        "Alice@Example.COM", "hash-1", full_name="Alice", role="admin"
+    )
 
     assert user is not None
     assert user["email"] == "alice@example.com"
@@ -135,7 +141,9 @@ def test_delete_user_removes_tokens_roles_and_row(auth_db: DB) -> None:
     """Deleting a user cascades to role, refresh-token and reset rows, and reports success."""
     _role(auth_db, "viewer")
     user = models.create_user("gus@example.com", "h", role="viewer")
-    models.store_refresh_token(user["id"], "tok-gus", datetime.utcnow() + timedelta(hours=1))
+    models.store_refresh_token(
+        user["id"], "tok-gus", datetime.utcnow() + timedelta(hours=1)
+    )
     auth_db.auth_password_resets.insert(user_id=user["id"])
 
     assert models.delete_user(user["id"]) is True
@@ -143,7 +151,9 @@ def test_delete_user_removes_tokens_roles_and_row(auth_db: DB) -> None:
     assert models.get_user_by_id(user["id"]) is None
     assert len(auth_db(auth_db.auth_user_roles.user_id == user["id"]).select()) == 0
     assert len(auth_db(auth_db.auth_refresh_tokens.user_id == user["id"]).select()) == 0
-    assert len(auth_db(auth_db.auth_password_resets.user_id == user["id"]).select()) == 0
+    assert (
+        len(auth_db(auth_db.auth_password_resets.user_id == user["id"]).select()) == 0
+    )
 
 
 def test_delete_missing_user_reports_false(auth_db: DB) -> None:
@@ -179,20 +189,26 @@ def test_list_users_past_last_page_is_empty_with_total(auth_db: DB) -> None:
 def test_refresh_token_validity_lifecycle(auth_db: DB) -> None:
     """A stored unexpired token is valid; revoking it makes it invalid; revoking again reports no change."""
     user = models.create_user("hank@example.com", "h", role="viewer")
-    token_id = models.store_refresh_token(user["id"], "hash-hank", datetime.utcnow() + timedelta(hours=1))
+    token_id = models.store_refresh_token(
+        user["id"], "hash-hank", datetime.utcnow() + timedelta(hours=1)
+    )
 
     assert token_id > 0
     assert models.is_refresh_token_valid("hash-hank") is True
     assert models.revoke_refresh_token("hash-hank") is True
     assert models.is_refresh_token_valid("hash-hank") is False
-    assert models.revoke_refresh_token("hash-hank") is True  # row still matches; idempotent update
+    assert (
+        models.revoke_refresh_token("hash-hank") is True
+    )  # row still matches; idempotent update
     assert models.revoke_refresh_token("never-stored") is False
 
 
 def test_expired_refresh_token_is_invalid(auth_db: DB) -> None:
     """A token past its expiry is not valid even if never revoked."""
     user = models.create_user("ivy@example.com", "h", role="viewer")
-    models.store_refresh_token(user["id"], "hash-ivy", datetime.utcnow() - timedelta(minutes=1))
+    models.store_refresh_token(
+        user["id"], "hash-ivy", datetime.utcnow() - timedelta(minutes=1)
+    )
 
     assert models.is_refresh_token_valid("hash-ivy") is False
 
@@ -227,7 +243,9 @@ def test_dangling_role_assignment_falls_back_to_viewer(auth_db: DB) -> None:
     assert models.get_user_by_id(user["id"])["role"] == "viewer"
 
 
-def test_role_lookup_degrades_to_viewer_on_db_error(auth_db: DB, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_role_lookup_degrades_to_viewer_on_db_error(
+    auth_db: DB, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A DB failure while resolving the role is swallowed and reported as the default viewer role."""
 
     class _Boom:

@@ -11,7 +11,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from quart import Blueprint, g, jsonify, request
+from quart import Blueprint, jsonify, request
 
 from ..db.run_db import run_db
 from ..middleware import auth_required, get_current_user, roles_required, user_has_role
@@ -54,9 +54,7 @@ async def create_team():
         return jsonify({"error": "Team name required"}), 400
 
     if len(name) > 255:
-        return jsonify({
-            "error": "Team name must be 255 characters or less"
-        }), 400
+        return jsonify({"error": "Team name must be 255 characters or less"}), 400
 
     db = get_db()
 
@@ -96,20 +94,24 @@ async def create_team():
         return jsonify({"error": str(result)}), 500
 
     team = result
-    return jsonify({
-        "message": "Team created successfully",
-        "team": {
-            "id": team.id,
-            "name": team.name,
-            "description": team.description,
-            "created_by": team.created_by,
-            "is_active": team.is_active,
-            "created_at": (
-                team.created_at.isoformat()
-                if team.created_at else None
-            ),
-        },
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Team created successfully",
+                "team": {
+                    "id": team.id,
+                    "name": team.name,
+                    "description": team.description,
+                    "created_by": team.created_by,
+                    "is_active": team.is_active,
+                    "created_at": (
+                        team.created_at.isoformat() if team.created_at else None
+                    ),
+                },
+            }
+        ),
+        201,
+    )
 
 
 @teams_bp.route("/", methods=["GET"])
@@ -132,7 +134,9 @@ async def list_user_teams():
         lambda: db(
             (db.team_members.user_id == current_user["id"])
             & (db.resource_teams.id == db.team_members.team_id)
-        ).select(db.resource_teams.ALL, orderby=db.resource_teams.name).as_list()
+        )
+        .select(db.resource_teams.ALL, orderby=db.resource_teams.name)
+        .as_list()
     )
 
     teams = []
@@ -143,15 +147,23 @@ async def list_user_teams():
             "description": team_row["resource_teams"]["description"],
             "created_by": team_row["resource_teams"]["created_by"],
             "is_active": team_row["resource_teams"]["is_active"],
-            "created_at": team_row["resource_teams"]["created_at"].isoformat()
-            if team_row["resource_teams"]["created_at"] else None,
+            "created_at": (
+                team_row["resource_teams"]["created_at"].isoformat()
+                if team_row["resource_teams"]["created_at"]
+                else None
+            ),
         }
         teams.append(team_dict)
 
-    return jsonify({
-        "teams": teams,
-        "count": len(teams),
-    }), 200
+    return (
+        jsonify(
+            {
+                "teams": teams,
+                "count": len(teams),
+            }
+        ),
+        200,
+    )
 
 
 @teams_bp.route("/<int:team_id>", methods=["GET"])
@@ -181,7 +193,9 @@ async def get_team(team_id: int):
         lambda: db(
             (db.team_members.team_id == team_id)
             & (db.team_members.user_id == current_user["id"])
-        ).select().first()
+        )
+        .select()
+        .first()
     )
 
     if not member and user_has_role("admin"):
@@ -192,24 +206,27 @@ async def get_team(team_id: int):
     # Count members
     member_count = await run_db(lambda: db(db.team_members.team_id == team_id).count())
 
-    return jsonify({
-        "team": {
-            "id": team.id,
-            "name": team.name,
-            "description": team.description,
-            "created_by": team.created_by,
-            "is_active": team.is_active,
-            "member_count": member_count,
-            "created_at": (
-                team.created_at.isoformat()
-                if team.created_at else None
-            ),
-            "updated_at": (
-                team.updated_at.isoformat()
-                if team.updated_at else None
-            ),
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "team": {
+                    "id": team.id,
+                    "name": team.name,
+                    "description": team.description,
+                    "created_by": team.created_by,
+                    "is_active": team.is_active,
+                    "member_count": member_count,
+                    "created_at": (
+                        team.created_at.isoformat() if team.created_at else None
+                    ),
+                    "updated_at": (
+                        team.updated_at.isoformat() if team.updated_at else None
+                    ),
+                },
+            }
+        ),
+        200,
+    )
 
 
 @teams_bp.route("/<int:team_id>", methods=["PATCH"])
@@ -248,7 +265,9 @@ async def update_team(team_id: int):
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
                 & (db.team_members.role == "owner")
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not owner:
@@ -264,22 +283,22 @@ async def update_team(team_id: int):
         if "name" in data:
             name = data["name"].strip()
             if not name:
-                return jsonify({
-                    "error": "Team name cannot be empty"
-                }), 400
+                return jsonify({"error": "Team name cannot be empty"}), 400
             if len(name) > 255:
-                return jsonify({
-                    "error": "Team name must be 255 characters or less"
-                }), 400
+                return (
+                    jsonify({"error": "Team name must be 255 characters or less"}),
+                    400,
+                )
 
             # Check uniqueness excluding current team. Regression: gh-22.
             # Off the event loop via run_db() instead of blocking the
             # request coroutine inline.
             existing = await run_db(
                 lambda: db(
-                    (db.resource_teams.name == name)
-                    & (db.resource_teams.id != team_id)
-                ).select().first()
+                    (db.resource_teams.name == name) & (db.resource_teams.id != team_id)
+                )
+                .select()
+                .first()
             )
             if existing:
                 return jsonify({"error": "Team name already exists"}), 409
@@ -314,19 +333,23 @@ async def update_team(team_id: int):
             log.exception(f"Error updating team {team_id}: {team}")
             return jsonify({"error": str(team)}), 500
 
-        return jsonify({
-            "message": "Team updated successfully",
-            "team": {
-                "id": team.id,
-                "name": team.name,
-                "description": team.description,
-                "is_active": team.is_active,
-                "updated_at": (
-                    team.updated_at.isoformat()
-                    if team.updated_at else None
-                ),
-            },
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Team updated successfully",
+                    "team": {
+                        "id": team.id,
+                        "name": team.name,
+                        "description": team.description,
+                        "is_active": team.is_active,
+                        "updated_at": (
+                            team.updated_at.isoformat() if team.updated_at else None
+                        ),
+                    },
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         log.exception(f"Error updating team {team_id}: {e}")
@@ -417,7 +440,9 @@ async def add_member(team_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not member_role or member_role.role not in ["owner", "admin"]:
@@ -437,10 +462,14 @@ async def add_member(team_id: int):
         user = db.auth_user(user_id)
         if not user:
             return None, None
-        existing = db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == user_id)
-        ).select().first()
+        existing = (
+            db(
+                (db.team_members.team_id == team_id)
+                & (db.team_members.user_id == user_id)
+            )
+            .select()
+            .first()
+        )
         return user, existing
 
     user, existing = await run_db(_check_preconditions)
@@ -453,9 +482,12 @@ async def add_member(team_id: int):
     role = data.get("role", "member").lower()
     valid_roles = ["owner", "admin", "member", "viewer"]
     if role not in valid_roles:
-        return jsonify({
-            "error": f"Invalid role. Must be one of: {', '.join(valid_roles)}"
-        }), 400
+        return (
+            jsonify(
+                {"error": f"Invalid role. Must be one of: {', '.join(valid_roles)}"}
+            ),
+            400,
+        )
 
     try:
         expires_at = None
@@ -463,9 +495,7 @@ async def add_member(team_id: int):
             try:
                 expires_at = datetime.fromisoformat(data["expires_at"])
             except ValueError:
-                return jsonify({
-                    "error": "Invalid expires_at datetime format"
-                }), 400
+                return jsonify({"error": "Invalid expires_at datetime format"}), 400
 
         # Regression: gh-22. Insert + commit + the post-commit refetch is
         # one unit of work -- stays in one run_db() closure per the house
@@ -492,24 +522,27 @@ async def add_member(team_id: int):
             log.exception(f"Error adding member to team {team_id}: {member}")
             return jsonify({"error": str(member)}), 500
 
-        return jsonify({
-            "message": "Member added successfully",
-            "member": {
-                "id": member.id,
-                "team_id": member.team_id,
-                "user_id": member.user_id,
-                "role": member.role,
-                "added_by": member.added_by,
-                "added_at": (
-                    member.added_at.isoformat()
-                    if member.added_at else None
-                ),
-                "expires_at": (
-                    member.expires_at.isoformat()
-                    if member.expires_at else None
-                ),
-            },
-        }), 201
+        return (
+            jsonify(
+                {
+                    "message": "Member added successfully",
+                    "member": {
+                        "id": member.id,
+                        "team_id": member.team_id,
+                        "user_id": member.user_id,
+                        "role": member.role,
+                        "added_by": member.added_by,
+                        "added_at": (
+                            member.added_at.isoformat() if member.added_at else None
+                        ),
+                        "expires_at": (
+                            member.expires_at.isoformat() if member.expires_at else None
+                        ),
+                    },
+                }
+            ),
+            201,
+        )
 
     except Exception as e:
         log.exception(f"Error adding member to team {team_id}: {e}")
@@ -545,7 +578,9 @@ async def list_members(team_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not member:
@@ -553,30 +588,37 @@ async def list_members(team_id: int):
 
     # Regression: gh-22 -- now off the event loop via run_db() instead of
     # blocking the request coroutine inline.
-    members = await run_db(lambda: db(db.team_members.team_id == team_id).select().as_list())
+    members = await run_db(
+        lambda: db(db.team_members.team_id == team_id).select().as_list()
+    )
 
     members_data = []
     for member in members:
-        members_data.append({
-            "id": member["id"],
-            "user_id": member["user_id"],
-            "role": member["role"],
-            "added_by": member["added_by"],
-            "added_at": (
-                member["added_at"].isoformat()
-                if member["added_at"] else None
-            ),
-            "expires_at": (
-                member["expires_at"].isoformat()
-                if member["expires_at"] else None
-            ),
-        })
+        members_data.append(
+            {
+                "id": member["id"],
+                "user_id": member["user_id"],
+                "role": member["role"],
+                "added_by": member["added_by"],
+                "added_at": (
+                    member["added_at"].isoformat() if member["added_at"] else None
+                ),
+                "expires_at": (
+                    member["expires_at"].isoformat() if member["expires_at"] else None
+                ),
+            }
+        )
 
-    return jsonify({
-        "team_id": team_id,
-        "members": members_data,
-        "count": len(members_data),
-    }), 200
+    return (
+        jsonify(
+            {
+                "team_id": team_id,
+                "members": members_data,
+                "count": len(members_data),
+            }
+        ),
+        200,
+    )
 
 
 @teams_bp.route("/<int:team_id>/members/<int:user_id>", methods=["DELETE"])
@@ -609,7 +651,9 @@ async def remove_member(team_id: int, user_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not requester_role or requester_role.role not in ["owner", "admin"]:
@@ -617,9 +661,10 @@ async def remove_member(team_id: int, user_id: int):
 
     member = await run_db(
         lambda: db(
-            (db.team_members.team_id == team_id)
-            & (db.team_members.user_id == user_id)
-        ).select().first()
+            (db.team_members.team_id == team_id) & (db.team_members.user_id == user_id)
+        )
+        .select()
+        .first()
     )
 
     if not member:
@@ -688,7 +733,9 @@ async def assign_resource(team_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not member or member.role not in ["owner", "admin"]:
@@ -739,19 +786,27 @@ async def assign_resource(team_id: int):
         log.exception(f"Error assigning resource to team {team_id}: {assignment}")
         return jsonify({"error": str(assignment)}), 500
 
-    return jsonify({
-        "message": "Resource assigned successfully",
-        "assignment": {
-            "id": assignment.id,
-            "team_id": assignment.team_id,
-            "resource_type": assignment.resource_type,
-            "resource_id": assignment.resource_id,
-            "permissions": assignment.permissions,
-            "assigned_by": assignment.assigned_by,
-            "assigned_at": assignment.assigned_at.isoformat()
-            if assignment.assigned_at else None,
-        },
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Resource assigned successfully",
+                "assignment": {
+                    "id": assignment.id,
+                    "team_id": assignment.team_id,
+                    "resource_type": assignment.resource_type,
+                    "resource_id": assignment.resource_id,
+                    "permissions": assignment.permissions,
+                    "assigned_by": assignment.assigned_by,
+                    "assigned_at": (
+                        assignment.assigned_at.isoformat()
+                        if assignment.assigned_at
+                        else None
+                    ),
+                },
+            }
+        ),
+        201,
+    )
 
 
 @teams_bp.route("/<int:team_id>/resources", methods=["GET"])
@@ -783,7 +838,9 @@ async def list_resources(team_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not member:
@@ -795,28 +852,35 @@ async def list_resources(team_id: int):
 
     resources_data = []
     for resource in resources:
-        resources_data.append({
-            "id": resource["id"],
-            "team_id": resource["team_id"],
-            "resource_type": resource["resource_type"],
-            "resource_id": resource["resource_id"],
-            "permissions": resource["permissions"],
-            "assigned_by": resource["assigned_by"],
-            "assigned_at": resource["assigned_at"].isoformat()
-            if resource["assigned_at"] else None,
-        })
+        resources_data.append(
+            {
+                "id": resource["id"],
+                "team_id": resource["team_id"],
+                "resource_type": resource["resource_type"],
+                "resource_id": resource["resource_id"],
+                "permissions": resource["permissions"],
+                "assigned_by": resource["assigned_by"],
+                "assigned_at": (
+                    resource["assigned_at"].isoformat()
+                    if resource["assigned_at"]
+                    else None
+                ),
+            }
+        )
 
-    return jsonify({
-        "team_id": team_id,
-        "resources": resources_data,
-        "count": len(resources_data),
-    }), 200
+    return (
+        jsonify(
+            {
+                "team_id": team_id,
+                "resources": resources_data,
+                "count": len(resources_data),
+            }
+        ),
+        200,
+    )
 
 
-@teams_bp.route(
-    "/<int:team_id>/resources/<int:assignment_id>",
-    methods=["DELETE"]
-)
+@teams_bp.route("/<int:team_id>/resources/<int:assignment_id>", methods=["DELETE"])
 @auth_required
 async def unassign_resource(team_id: int, assignment_id: int):
     """Unassign a resource from the team.
@@ -854,7 +918,9 @@ async def unassign_resource(team_id: int, assignment_id: int):
             lambda: db(
                 (db.team_members.team_id == team_id)
                 & (db.team_members.user_id == current_user["id"])
-            ).select().first()
+            )
+            .select()
+            .first()
         )
 
         if not member or member.role not in ["owner", "admin"]:

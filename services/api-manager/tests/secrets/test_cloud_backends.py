@@ -1,15 +1,14 @@
 """Tests for cloud backend secrets managers."""
 
 import json
-import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock
 
+import pytest
 from app.secrets.aws_secrets import AWSSecretsManager
-from app.secrets.gcp_secrets import GCPSecretsManager
 from app.secrets.azure_keyvault import AzureKeyVaultSecretsManager
-from app.secrets.vault import VaultSecretsManager
+from app.secrets.gcp_secrets import GCPSecretsManager
 from app.secrets.infisical import InfisicalSecretsManager
-from app.secrets.base import SecretNotFoundError, SecretsManagerError
+from app.secrets.vault import VaultSecretsManager
 
 
 class TestAWSSecretsManager:
@@ -24,7 +23,9 @@ class TestAWSSecretsManager:
     async def test_get_json(self, mock_current_app, manager):
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
-        manager._client.get_secret_value.return_value = {"SecretString": json.dumps({"k": "v"})}
+        manager._client.get_secret_value.return_value = {
+            "SecretString": json.dumps({"k": "v"})
+        }
         result = await manager.get_secret("p")
         assert result == {"k": "v"}
 
@@ -158,7 +159,9 @@ class TestVaultSecretsManager:
         mock_current_app.config["VAULT_TOKEN"] = "token"
         manager._client = MagicMock()
         manager._client.is_authenticated = MagicMock(return_value=True)
-        manager._client.secrets.kv.v2.read_secret_version.return_value = {"data": {"data": {"k": "v"}}}
+        manager._client.secrets.kv.v2.read_secret_version.return_value = {
+            "data": {"data": {"k": "v"}}
+        }
         result = await manager.get_secret("p")
         assert result == {"k": "v"}
 
@@ -184,7 +187,9 @@ class TestVaultSecretsManager:
         mock_current_app.config["VAULT_TOKEN"] = "token"
         manager._client = MagicMock()
         manager._client.is_authenticated = MagicMock(return_value=True)
-        manager._client.secrets.kv.v2.list_secrets.return_value = {"data": {"keys": ["s1"]}}
+        manager._client.secrets.kv.v2.list_secrets.return_value = {
+            "data": {"keys": ["s1"]}
+        }
         result = await manager.list_secrets()
         assert "s1" in result
 

@@ -41,7 +41,7 @@ class AgentConfig:
 
     # Heartbeat settings
     heartbeat_interval: int = 30  # seconds
-    heartbeat_timeout: int = 10   # seconds
+    heartbeat_timeout: int = 10  # seconds
 
     # Host resource snapshot (attached to every heartbeat)
     snapshot_timeout_s: float = 5.0  # total collection budget
@@ -81,9 +81,7 @@ class AgentConfig:
             enroll_max_total_s=float(os.getenv("GOUGH_ENROLL_MAX_TOTAL_S", "120")),
             verify_ssl=os.getenv("GOUGH_VERIFY_SSL", "true").lower() == "true",
             log_level=os.getenv("GOUGH_LOG_LEVEL", "INFO"),
-            capabilities=os.getenv(
-                "GOUGH_CAPABILITIES", "ssh"
-            ).split(","),
+            capabilities=os.getenv("GOUGH_CAPABILITIES", "ssh").split(","),
             token_file=os.getenv(
                 "GOUGH_TOKEN_FILE", "/var/lib/gough-agent/tokens.json"
             ),
@@ -102,11 +100,10 @@ class AgentConfig:
         return cls(
             management_server_url=data.get(
                 "management_server_url",
-                os.getenv("GOUGH_MANAGEMENT_SERVER", "https://gough.local")
+                os.getenv("GOUGH_MANAGEMENT_SERVER", "https://gough.local"),
             ),
             enrollment_key=data.get(
-                "enrollment_key",
-                os.getenv("GOUGH_ENROLLMENT_KEY")
+                "enrollment_key", os.getenv("GOUGH_ENROLLMENT_KEY")
             ),
             hostname=data.get("hostname", os.uname().nodename),
             rssh_listen_host=data.get("rssh_listen_host", "0.0.0.0"),

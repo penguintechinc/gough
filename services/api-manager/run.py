@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Quart Backend Entry Point."""
 
+import asyncio
 import os
 import sys
 import time
-import asyncio
 
 from app import create_app
 from app.config import Config
@@ -16,7 +16,7 @@ def wait_for_database(max_retries: int = 30, retry_delay: int = 2) -> bool:
     from pydal import DAL
 
     db_uri = Config.get_db_uri()
-    print(f"Waiting for database connection...")
+    print("Waiting for database connection...")
 
     for attempt in range(1, max_retries + 1):
         try:
@@ -49,7 +49,9 @@ async def main():
     port = int(os.getenv("QUART_PORT", "5000"))
     server_config = build_hypercorn_config(f"{host}:{port}")
 
-    print(f"Starting Quart backend on {host}:{port} (graceful_timeout={server_config.graceful_timeout}s)")
+    print(
+        f"Starting Quart backend on {host}:{port} (graceful_timeout={server_config.graceful_timeout}s)"
+    )
 
     # serve_app handles SIGINT/SIGTERM -> lifespan shutdown -> after_serving teardown.
     await serve_app(app, server_config)

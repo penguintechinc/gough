@@ -90,7 +90,9 @@ def users_app(monkeypatch):
     # Add the missing functions to the models package so reload can import them
     monkeypatch.setattr(models_mod, "list_users", _list_users, raising=False)
     monkeypatch.setattr(models_mod, "get_user_by_id", _get_user_by_id)
-    monkeypatch.setattr(models_mod, "get_user_by_email", _get_user_by_email, raising=False)
+    monkeypatch.setattr(
+        models_mod, "get_user_by_email", _get_user_by_email, raising=False
+    )
     monkeypatch.setattr(models_mod, "create_user", _create_user, raising=False)
     monkeypatch.setattr(models_mod, "update_user", _update_user, raising=False)
     monkeypatch.setattr(models_mod, "delete_user", _delete_user, raising=False)
@@ -301,7 +303,11 @@ async def test_create_user_invalid_role(users_app):
     client = users_app.test_client()
     response = await client.post(
         "/api/v1/users",
-        json={"email": "new@test.com", "password": "securepass123", "role": "superadmin"},
+        json={
+            "email": "new@test.com",
+            "password": "securepass123",
+            "role": "superadmin",
+        },
     )
 
     assert response.status_code == 400

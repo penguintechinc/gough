@@ -48,7 +48,9 @@ import grpc
 
 #: How long a single stage waits for the orchestrator channel to become
 #: ready before giving up. Short because this gates a user-facing request.
-STAGE_TIMEOUT_SECONDS = float(os.environ.get("STORAGE_ORCHESTRATOR_TIMEOUT_SECONDS", "5"))
+STAGE_TIMEOUT_SECONDS = float(
+    os.environ.get("STORAGE_ORCHESTRATOR_TIMEOUT_SECONDS", "5")
+)
 
 #: The five cutover stages, in execution order. Mirrors the M1 preview plan
 #: in ``app.api.clusters._STAGES`` -- kept here too so this module's
@@ -80,7 +82,9 @@ class StageResult:
     detail: str = ""
 
 
-def _load_channel_credentials(trust_bundle_pem: str | None) -> grpc.ChannelCredentials | None:
+def _load_channel_credentials(
+    trust_bundle_pem: str | None,
+) -> grpc.ChannelCredentials | None:
     """Build mTLS client channel credentials from the SAME env-sourced PEM
     material ``app.grpc_runner._load_server_credentials`` uses server-side.
 

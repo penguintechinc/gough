@@ -36,7 +36,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # Static ELF has no PT_INTERP program header. `file` is not in golang:bookworm, so use readelf;
 # if readelf fails, the command substitution fails and the build fails (no false pass).
 RUN out="$(readelf -l /out/discovery-agent)" && \
-    { if printf '%s' "$out" | grep -q 'INTERP'; then echo "ERROR: binary is not statically linked" && exit 1; fi; }
+    case "$out" in *INTERP*) echo "ERROR: binary is not statically linked" && exit 1 ;; esac
 
 # ── Stage 2: runtime ──────────────────────────────────────────────────────────
 

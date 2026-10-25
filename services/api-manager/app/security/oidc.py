@@ -85,7 +85,9 @@ class AsyncStaticKeyVerifier:
         middleware turns that into 401.
         """
         loop = asyncio.get_running_loop()
-        claims = await loop.run_in_executor(None, self._verifier.verify_token, raw_token)
+        claims = await loop.run_in_executor(
+            None, self._verifier.verify_token, raw_token
+        )
         # raw_token is cryptographically verified on the line above
         # (StaticKeyVerifier.verify_token checks signature/iss/aud/exp and
         # required claims). penguin-aaa's strict Claims model drops the

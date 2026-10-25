@@ -6,12 +6,7 @@ import base64
 from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.clients.cloud_kms import (
-    CloudKMSClient,
-    CloudKMSEncryptResult,
-    CloudKMSError,
-)
+from app.clients.cloud_kms import CloudKMSClient, CloudKMSEncryptResult, CloudKMSError
 
 
 class TestCloudKMSClientInit:
@@ -67,7 +62,9 @@ class TestCloudKMSClientFromEnv:
         assert client.provider == "aws"
         assert client.region == "us-east-1"
 
-    def test_from_env_builds_azure_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_from_env_builds_azure_client(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setenv("GOUGH_CLOUD_KMS_PROVIDER", "azure")
         monkeypatch.setenv("GOUGH_CLOUD_KMS_KEY_ID", "my-key")
         monkeypatch.setenv("GOUGH_AZURE_KEY_VAULT_URL", "https://v.vault.azure.net")
@@ -105,23 +102,25 @@ class TestCloudKMSClientEncryptAWS:
         fake_boto3_client = MagicMock()
         fake_boto3_client.encrypt.return_value = {"CiphertextBlob": b"x"}
         with patch("boto3.client", return_value=fake_boto3_client) as mock_boto3:
-            client = CloudKMSClient(
-                provider="aws", key_id="k1", region="eu-west-1"
-            )
+            client = CloudKMSClient(provider="aws", key_id="k1", region="eu-west-1")
             client.encrypt(b"raw")
         mock_boto3.assert_called_once_with("kms", region_name="eu-west-1")
 
     def test_encrypt_aws_api_error_raises_cloud_kms_error(self) -> None:
         fake_boto3_client = MagicMock()
         fake_boto3_client.encrypt.side_effect = Exception("AccessDeniedException")
-        client = CloudKMSClient(provider="aws", key_id="k1", boto3_client=fake_boto3_client)
+        client = CloudKMSClient(
+            provider="aws", key_id="k1", boto3_client=fake_boto3_client
+        )
         with pytest.raises(CloudKMSError, match="AWS KMS encrypt failed"):
             client.encrypt(b"raw")
 
     def test_encrypt_aws_no_ciphertext_raises(self) -> None:
         fake_boto3_client = MagicMock()
         fake_boto3_client.encrypt.return_value = {}
-        client = CloudKMSClient(provider="aws", key_id="k1", boto3_client=fake_boto3_client)
+        client = CloudKMSClient(
+            provider="aws", key_id="k1", boto3_client=fake_boto3_client
+        )
         with pytest.raises(CloudKMSError, match="no CiphertextBlob"):
             client.encrypt(b"raw")
 
@@ -171,7 +170,9 @@ class TestCloudKMSClientEncryptAzure:
     def test_encrypt_azure_success(self) -> None:
         fake_session = MagicMock()
         fake_resp = MagicMock()
-        value_b64 = base64.urlsafe_b64encode(b"azure-ciphertext").decode("ascii").rstrip("=")
+        value_b64 = (
+            base64.urlsafe_b64encode(b"azure-ciphertext").decode("ascii").rstrip("=")
+        )
         fake_resp.json.return_value = {
             "value": value_b64,
             "kid": "https://v.vault.azure.net/keys/my-key/abc",

@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import importlib
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -29,6 +29,7 @@ def integrations_app(monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.integrations as integrations_mod
+
     integrations_mod = importlib.reload(integrations_mod)
 
     from quart import Quart, g
@@ -40,11 +41,7 @@ def integrations_app(monkeypatch):
 
     @app.before_request
     async def _inject_identity():
-        g.current_user = {
-            "id": 1,
-            "email": "admin@test.com",
-            "role": "admin"
-        }
+        g.current_user = {"id": 1, "email": "admin@test.com", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
     return app, integrations_mod
@@ -116,8 +113,6 @@ async def test_get_integration_unsupported_product(integrations_app):
     assert "error" in data
 
 
-
-
 # ============================================================================
 # Credential Masking Tests
 # ============================================================================
@@ -137,7 +132,7 @@ async def test_safe_credentials_view_masks_secret(integrations_app):
         client_secret="very-long-secret-key-that-should-be-masked",
         scopes=["read", "write"],
         issued_at="2025-01-01T00:00:00Z",
-        expires_at="2025-02-01T00:00:00Z"
+        expires_at="2025-02-01T00:00:00Z",
     )
 
     view = integrations_mod._safe_credentials_view(creds)
@@ -165,7 +160,7 @@ async def test_safe_credentials_view_short_secret(integrations_app):
         client_secret="short",
         scopes=["read"],
         issued_at="2025-01-01T00:00:00Z",
-        expires_at="2025-02-01T00:00:00Z"
+        expires_at="2025-02-01T00:00:00Z",
     )
 
     view = integrations_mod._safe_credentials_view(creds)
@@ -187,7 +182,7 @@ async def test_safe_credentials_view_structure(integrations_app):
         client_secret="secret123",
         scopes=["read", "write"],
         issued_at="2025-01-01T00:00:00Z",
-        expires_at="2025-02-01T00:00:00Z"
+        expires_at="2025-02-01T00:00:00Z",
     )
 
     view = integrations_mod._safe_credentials_view(creds)
@@ -226,7 +221,9 @@ async def test_validate_product_checks_all_known_products(integrations_app):
     # Test all supported products return None
     for product in SUPPORTED_PRODUCTS:
         result = integrations_mod._validate_product(product)
-        assert result is None, f"Product {product} should be valid but returned {result}"
+        assert (
+            result is None
+        ), f"Product {product} should be valid but returned {result}"
 
 
 # ============================================================================
@@ -245,7 +242,7 @@ async def test_integration_status_row_structure(integrations_app):
         status="configured",
         version="1.0.0",
         auth="SPIFFE",
-        action_needed="—"
+        action_needed="—",
     )
 
     row_dict = row.to_dict()
@@ -294,10 +291,7 @@ async def test_configure_unsupported_product(integrations_app):
     app, _ = integrations_app
 
     client = app.test_client()
-    response = await client.post(
-        "/unknown-product/configure",
-        json={"config": {}}
-    )
+    response = await client.post("/unknown-product/configure", json={"config": {}})
 
     assert response.status_code == 404
 
@@ -308,10 +302,7 @@ async def test_rotate_unsupported_product(integrations_app):
     app, _ = integrations_app
 
     client = app.test_client()
-    response = await client.post(
-        "/unknown-product/rotate-credentials",
-        json={}
-    )
+    response = await client.post("/unknown-product/rotate-credentials", json={})
 
     assert response.status_code == 404
 
@@ -323,8 +314,7 @@ async def test_validate_scope_unsupported_product(integrations_app):
 
     client = app.test_client()
     response = await client.post(
-        "/unknown-product/validate-scope",
-        json={"scope": "read"}
+        "/unknown-product/validate-scope", json={"scope": "read"}
     )
 
     assert response.status_code == 404
@@ -337,8 +327,7 @@ async def test_compromise_unsupported_product(integrations_app):
 
     client = app.test_client()
     response = await client.post(
-        "/unknown-product/compromise-response",
-        json={"reason": "Test"}
+        "/unknown-product/compromise-response", json={"reason": "Test"}
     )
 
     assert response.status_code == 404

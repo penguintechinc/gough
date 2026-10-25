@@ -6,11 +6,8 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Color codes
-RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
@@ -150,7 +147,7 @@ if ! check_container_running; then
 else
     check_tftp_files || true
     check_tftp_port || true
-    check_http_boot || true
+    test_http_boot || true
     check_api_connection || true
 fi
 

@@ -18,6 +18,7 @@ REFRESH_MARGIN_S = 300
 
 class AuthError(Exception):
     """Raised when authentication fails."""
+
     pass
 
 

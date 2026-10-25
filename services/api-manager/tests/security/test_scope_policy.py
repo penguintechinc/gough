@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.security.scope_policy import (
     ANONYMOUS_PATHS,
     KNOWN_SCOPES,
@@ -26,17 +25,33 @@ class TestKnownScopes:
     def test_all_required_scopes_present(self) -> None:
         """Catalog includes all scopes from spec."""
         required = {
-            "gough.cluster.read", "gough.nodes.read", "gough.disks.read",
-            "gough.biomes.read", "gough.capacity.read", "gough.storage.read",
-            "gough.audit.read", "gough.dr.read", "gough.bmc.read",
-            "gough.nodes.provision", "gough.nodes.rekey",
-            "gough.nodes.decommission", "gough.disks.plan",
-            "gough.biomes.author", "gough.biomes.deploy", "gough.biomes.sign",
-            "gough.storage.configure", "gough.migration.policy",
-            "gough.migration.trigger", "gough.dr.drill",
-            "gough.bmc.configure", "gough.joiner.read", "gough.joiner.rotate",
-            "gough.cluster.admin", "gough.cluster.superadmin",
-            "gough.dr.promote", "gough.biomes.unsafe-skip-signing",
+            "gough.cluster.read",
+            "gough.nodes.read",
+            "gough.disks.read",
+            "gough.biomes.read",
+            "gough.capacity.read",
+            "gough.storage.read",
+            "gough.audit.read",
+            "gough.dr.read",
+            "gough.bmc.read",
+            "gough.nodes.provision",
+            "gough.nodes.rekey",
+            "gough.nodes.decommission",
+            "gough.disks.plan",
+            "gough.biomes.author",
+            "gough.biomes.deploy",
+            "gough.biomes.sign",
+            "gough.storage.configure",
+            "gough.migration.policy",
+            "gough.migration.trigger",
+            "gough.dr.drill",
+            "gough.bmc.configure",
+            "gough.joiner.read",
+            "gough.joiner.rotate",
+            "gough.cluster.admin",
+            "gough.cluster.superadmin",
+            "gough.dr.promote",
+            "gough.biomes.unsafe-skip-signing",
             "gough.migration.override-lock",
         }
         assert required.issubset(KNOWN_SCOPES)
@@ -88,9 +103,13 @@ class TestScopePolicy:
         """Verify all TODO markers removed from scope_policy."""
         import inspect
         import re
+
         import app.security.scope_policy as sp_mod
+
         source = inspect.getsource(sp_mod)
-        assert not re.search(r'#\s*(TODO|FIXME)', source), "TODO/FIXME markers remain in scope_policy"
+        assert not re.search(
+            r"#\s*(TODO|FIXME)", source
+        ), "TODO/FIXME markers remain in scope_policy"
 
     def test_anonymous_paths_includes_ipxe(self) -> None:
         """Verify new anonymous iPXE paths are included."""
@@ -114,8 +133,7 @@ class TestAnonymousPaths:
 
     def test_required_anonymous_paths_present(self) -> None:
         """Required anonymous endpoints defined."""
-        required = {("GET", "/healthz"), ("GET", "/readyz"),
-                    ("GET", "/api/v1/version")}
+        required = {("GET", "/healthz"), ("GET", "/readyz"), ("GET", "/api/v1/version")}
         assert required.issubset(ANONYMOUS_PATHS)
 
     def test_anonymous_paths_disjoint_from_policy(self) -> None:
@@ -141,13 +159,17 @@ class TestComplianceLanes:
 
     def test_compliance_lane_admin_scopes_in_known_scopes(self) -> None:
         """Admin compliance lane scopes are registered."""
-        assert {"gough.cluster.admin",
-                "gough.cluster.superadmin"}.issubset(KNOWN_SCOPES)
+        assert {"gough.cluster.admin", "gough.cluster.superadmin"}.issubset(
+            KNOWN_SCOPES
+        )
 
     def test_dangerous_override_scopes_registered(self) -> None:
         """Dangerous override scopes are in catalog."""
-        assert {"gough.dr.promote", "gough.biomes.unsafe-skip-signing",
-                "gough.migration.override-lock"}.issubset(KNOWN_SCOPES)
+        assert {
+            "gough.dr.promote",
+            "gough.biomes.unsafe-skip-signing",
+            "gough.migration.override-lock",
+        }.issubset(KNOWN_SCOPES)
 
 
 def test_agent_node_link_route_declares_scope() -> None:

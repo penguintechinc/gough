@@ -7,10 +7,9 @@ Uses _passthrough decorator to bypass auth, mocks get_db.
 from __future__ import annotations
 
 import importlib
-import json
 from datetime import datetime
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from quart import Quart
@@ -25,6 +24,7 @@ def _passthrough(*dargs, **dkwargs):
 # ---------------------------------------------------------------------------
 # DB helpers
 # ---------------------------------------------------------------------------
+
 
 def _make_config_row(**kwargs):
     defaults = {
@@ -100,12 +100,15 @@ def _make_db(config_rows=None, quota_rows=None):
 # App fixture
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def app():
     """Quart app with storage blueprint, auth bypassed."""
-    with patch("app.auth.require_auth", _passthrough), \
-         patch("app.auth.require_role", _passthrough):
+    with patch("app.auth.require_auth", _passthrough), patch(
+        "app.auth.require_role", _passthrough
+    ):
         import app.api.storage as _storage_mod
+
         importlib.reload(_storage_mod)
         from app.api.storage import storage_bp
 
@@ -114,12 +117,18 @@ def app():
 
     # Set request.user so routes that access request.user.id don't 500.
     from types import SimpleNamespace as _SNS
-    from quart import request as _req, g as _g
+
+    from quart import g as _g
+    from quart import request as _req
 
     @qapp.before_request
     async def _set_request_user():
         _req.user = _SNS(id=1, email="test@example.com")
-        _g.current_user = {"id": 1, "role": "admin", "_jwt_payload": {"scope": "gough.cluster.admin"}}
+        _g.current_user = {
+            "id": 1,
+            "role": "admin",
+            "_jwt_payload": {"scope": "gough.cluster.admin"},
+        }
 
     return qapp
 
@@ -133,6 +142,7 @@ def client(app):
 # Helper: patch get_db inside the storage module
 # ---------------------------------------------------------------------------
 
+
 def _db_patch(db):
     return patch("app.api.storage.get_db", return_value=db)
 
@@ -140,6 +150,7 @@ def _db_patch(db):
 # ============================================================================
 # GET /api/v1/storage/configs
 # ============================================================================
+
 
 class TestListStorageConfigs:
     @pytest.mark.asyncio
@@ -178,6 +189,7 @@ class TestListStorageConfigs:
 # POST /api/v1/storage/configs
 # ============================================================================
 
+
 class TestCreateStorageConfig:
     def _valid_payload(self, **overrides):
         base = {
@@ -197,7 +209,9 @@ class TestCreateStorageConfig:
     async def test_missing_name_returns_400(self, client):
         db = _make_db()
         with _db_patch(db):
-            resp = await client.post("/api/v1/storage/configs", json={"provider_type": "s3"})
+            resp = await client.post(
+                "/api/v1/storage/configs", json={"provider_type": "s3"}
+            )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -281,6 +295,7 @@ class TestCreateStorageConfig:
 # GET /api/v1/storage/configs/<id>
 # ============================================================================
 
+
 class TestGetStorageConfig:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, client):
@@ -343,6 +358,7 @@ class TestGetStorageConfig:
 # PUT /api/v1/storage/configs/<id>
 # ============================================================================
 
+
 class TestUpdateStorageConfig:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, client):
@@ -370,7 +386,10 @@ class TestUpdateStorageConfig:
         current_row = _make_config_row(id=1, name="current")
         db = _make_db()
         # First call: find config to update; second: find name collision
-        db.return_value.select.return_value.first.side_effect = [current_row, existing_row]
+        db.return_value.select.return_value.first.side_effect = [
+            current_row,
+            existing_row,
+        ]
         with _db_patch(db):
             resp = await client.put(
                 "/api/v1/storage/configs/1",
@@ -410,6 +429,7 @@ class TestUpdateStorageConfig:
 # DELETE /api/v1/storage/configs/<id>
 # ============================================================================
 
+
 class TestDeleteStorageConfig:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, client):
@@ -442,18 +462,27 @@ class TestDeleteStorageConfig:
 # POST /api/v1/storage/configs/<id>/test
 # ============================================================================
 
+
 class TestTestStorageConfig:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError(1)):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(1),
+        ):
             resp = await client.post("/api/v1/storage/configs/1/test")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("conn refused")):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageError("conn refused"),
+        ):
             resp = await client.post("/api/v1/storage/configs/1/test")
         assert resp.status_code == 400
         data = await resp.get_json()
@@ -462,7 +491,9 @@ class TestTestStorageConfig:
     @pytest.mark.asyncio
     async def test_success_returns_200(self, client):
         svc = AsyncMock()
-        svc.test_connection = AsyncMock(return_value={"success": True, "latency_ms": 10})
+        svc.test_connection = AsyncMock(
+            return_value={"success": True, "latency_ms": 10}
+        )
         with patch("app.api.storage.get_storage_service", AsyncMock(return_value=svc)):
             resp = await client.post("/api/v1/storage/configs/1/test")
         assert resp.status_code == 200
@@ -473,6 +504,7 @@ class TestTestStorageConfig:
 # ============================================================================
 # POST /api/v1/storage/configs/<id>/set-default
 # ============================================================================
+
 
 class TestSetDefaultStorageConfig:
     @pytest.mark.asyncio
@@ -499,18 +531,27 @@ class TestSetDefaultStorageConfig:
 # GET /api/v1/storage/buckets
 # ============================================================================
 
+
 class TestListBuckets:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError()):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(),
+        ):
             resp = await client.get("/api/v1/storage/buckets")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("Access denied")):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageError("Access denied"),
+        ):
             resp = await client.get("/api/v1/storage/buckets")
         assert resp.status_code == 400
 
@@ -531,6 +572,7 @@ class TestListBuckets:
 # POST /api/v1/storage/buckets
 # ============================================================================
 
+
 class TestCreateBucket:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, client):
@@ -545,23 +587,39 @@ class TestCreateBucket:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError()):
-            resp = await client.post("/api/v1/storage/buckets", json={"bucket_name": "new-bkt"})
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(),
+        ):
+            resp = await client.post(
+                "/api/v1/storage/buckets", json={"bucket_name": "new-bkt"}
+            )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("Already exists")):
-            resp = await client.post("/api/v1/storage/buckets", json={"bucket_name": "new-bkt"})
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageError("Already exists"),
+        ):
+            resp = await client.post(
+                "/api/v1/storage/buckets", json={"bucket_name": "new-bkt"}
+            )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
     async def test_success_returns_201(self, client):
         svc = AsyncMock()
-        svc.create_bucket = AsyncMock(return_value={"bucket": "new-bkt", "created": True})
+        svc.create_bucket = AsyncMock(
+            return_value={"bucket": "new-bkt", "created": True}
+        )
         with patch("app.api.storage.get_storage_service", AsyncMock(return_value=svc)):
-            resp = await client.post("/api/v1/storage/buckets", json={"bucket_name": "new-bkt"})
+            resp = await client.post(
+                "/api/v1/storage/buckets", json={"bucket_name": "new-bkt"}
+            )
         assert resp.status_code == 201
 
 
@@ -569,18 +627,26 @@ class TestCreateBucket:
 # GET /api/v1/storage/objects
 # ============================================================================
 
+
 class TestListObjects:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError()):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(),
+        ):
             resp = await client.get("/api/v1/storage/objects")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("No bucket")):
+
+        with patch(
+            "app.api.storage.get_storage_service", side_effect=StorageError("No bucket")
+        ):
             resp = await client.get("/api/v1/storage/objects")
         assert resp.status_code == 400
 
@@ -590,7 +656,9 @@ class TestListObjects:
         svc.list_objects = AsyncMock(return_value=[{"key": "file.txt", "size": 100}])
         svc.config = SimpleNamespace(name="cfg", bucket_name="main-bkt")
         with patch("app.api.storage.get_storage_service", AsyncMock(return_value=svc)):
-            resp = await client.get("/api/v1/storage/objects?bucket=main-bkt&prefix=&max_keys=100")
+            resp = await client.get(
+                "/api/v1/storage/objects?bucket=main-bkt&prefix=&max_keys=100"
+            )
         assert resp.status_code == 200
         data = await resp.get_json()
         assert len(data["objects"]) == 1
@@ -600,18 +668,29 @@ class TestListObjects:
 # POST /api/v1/storage/objects/<key>/presigned-url
 # ============================================================================
 
+
 class TestGetPresignedUrl:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError()):
-            resp = await client.post("/api/v1/storage/objects/path/to/file.txt/presigned-url")
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(),
+        ):
+            resp = await client.post(
+                "/api/v1/storage/objects/path/to/file.txt/presigned-url"
+            )
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("Key not found")):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageError("Key not found"),
+        ):
             resp = await client.post(
                 "/api/v1/storage/objects/my-file.txt/presigned-url",
                 json={},
@@ -621,7 +700,9 @@ class TestGetPresignedUrl:
     @pytest.mark.asyncio
     async def test_success_returns_url(self, client):
         svc = AsyncMock()
-        svc.get_presigned_url = AsyncMock(return_value="https://s3.example.com/signed?X-token=abc")
+        svc.get_presigned_url = AsyncMock(
+            return_value="https://s3.example.com/signed?X-token=abc"
+        )
         svc.config = SimpleNamespace(bucket_name="bkt")
         with patch("app.api.storage.get_storage_service", AsyncMock(return_value=svc)):
             resp = await client.post(
@@ -639,18 +720,27 @@ class TestGetPresignedUrl:
 # DELETE /api/v1/storage/objects/<key>
 # ============================================================================
 
+
 class TestDeleteObject:
     @pytest.mark.asyncio
     async def test_config_not_found_returns_404(self, client):
         from app.services.storage import StorageConfigNotFoundError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageConfigNotFoundError()):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageConfigNotFoundError(),
+        ):
             resp = await client.delete("/api/v1/storage/objects/my-file.txt")
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
     async def test_storage_error_returns_400(self, client):
         from app.services.storage import StorageError
-        with patch("app.api.storage.get_storage_service", side_effect=StorageError("Delete failed")):
+
+        with patch(
+            "app.api.storage.get_storage_service",
+            side_effect=StorageError("Delete failed"),
+        ):
             resp = await client.delete("/api/v1/storage/objects/my-file.txt")
         assert resp.status_code == 400
 
@@ -666,6 +756,7 @@ class TestDeleteObject:
 # ============================================================================
 # GET /api/v1/storage/quotas
 # ============================================================================
+
 
 class TestListStorageQuotas:
     @pytest.mark.asyncio
@@ -734,6 +825,7 @@ class TestListStorageQuotas:
 # POST /api/v1/storage/quota-request
 # ============================================================================
 
+
 class TestRequestStorageQuota:
     def _valid_payload(self):
         return {
@@ -756,7 +848,9 @@ class TestRequestStorageQuota:
     @pytest.mark.asyncio
     async def test_missing_scope_returns_403(self, client):
         with patch("app.api.storage._user_has_scope", return_value=False):
-            resp = await client.post("/api/v1/storage/quota-request", json=self._valid_payload())
+            resp = await client.post(
+                "/api/v1/storage/quota-request", json=self._valid_payload()
+            )
         assert resp.status_code == 403
 
     @pytest.mark.asyncio
@@ -789,7 +883,9 @@ class TestRequestStorageQuota:
         db = _make_db()
         db.storage_quota_requests.insert = MagicMock()
         with _db_patch(db), patch("app.api.storage._user_has_scope", return_value=True):
-            resp = await client.post("/api/v1/storage/quota-request", json=self._valid_payload())
+            resp = await client.post(
+                "/api/v1/storage/quota-request", json=self._valid_payload()
+            )
         assert resp.status_code == 201
         data = await resp.get_json()
         assert data["status"] == "success"
@@ -801,7 +897,9 @@ class TestRequestStorageQuota:
         db = _make_db()
         db.storage_quota_requests.insert = MagicMock(side_effect=Exception("DB down"))
         with _db_patch(db), patch("app.api.storage._user_has_scope", return_value=True):
-            resp = await client.post("/api/v1/storage/quota-request", json=self._valid_payload())
+            resp = await client.post(
+                "/api/v1/storage/quota-request", json=self._valid_payload()
+            )
         assert resp.status_code == 500
 
     @pytest.mark.asyncio

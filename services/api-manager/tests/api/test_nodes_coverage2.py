@@ -12,18 +12,12 @@ Focuses on:
 
 from __future__ import annotations
 
-import asyncio
 import importlib
-import json
 import threading
 import uuid
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
-
 
 # ---------------------------------------------------------------------------
 # Base fixtures
@@ -103,9 +97,11 @@ def dal(tmp_path, monkeypatch):
     # No audit_events table - tests line 280: graceful return when missing
 
     from app.db import database as db_mod
+
     monkeypatch.setattr(db_mod, "get_db", lambda: db)
 
     import app.api.nodes as nodes_mod
+
     monkeypatch.setattr(nodes_mod, "get_db", lambda: db)
 
     yield db
@@ -124,14 +120,17 @@ def app_with_nodes(dal, monkeypatch):
     def _passthrough(*dargs, **dkwargs):
         if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
             return dargs[0]
+
         def _wrap(fn):
             return fn
+
         return _wrap
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough)
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.nodes as nodes_mod
+
     nodes_mod = importlib.reload(nodes_mod)
     monkeypatch.setattr(nodes_mod, "get_db", lambda: dal)
 
@@ -174,7 +173,7 @@ async def test_audit_log_missing_table(app_with_nodes, dal):
     from app.api.nodes import _audit_log
 
     # dal doesn't have audit_events table, should return gracefully
-    async with app_with_nodes.test_client() as client:
+    async with app_with_nodes.test_client():
         _audit_log("test_action", "test_resource_id")
         # If we get here without exception, test passes
 
@@ -184,7 +183,7 @@ async def test_nats_publish_safe_no_nats_client(app_with_nodes, dal):
     """Test _nats_publish_safe when NATS client is not wired (lines 250-258)."""
     from app.api.nodes import _nats_publish_safe
 
-    async with app_with_nodes.test_client() as client:
+    async with app_with_nodes.test_client():
         # Should not raise exception
         await _nats_publish_safe(
             subject="test.subject",
@@ -198,7 +197,7 @@ async def test_nats_publish_safe_exception_caught(app_with_nodes, dal):
     """Test _nats_publish_safe handles publish exceptions gracefully (lines 266-267)."""
     from app.api.nodes import _nats_publish_safe
 
-    async with app_with_nodes.test_client() as client:
+    async with app_with_nodes.test_client():
         # Should not raise exception even with no client
         await _nats_publish_safe(
             subject="test.subject",

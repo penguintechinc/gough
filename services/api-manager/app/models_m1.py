@@ -6,7 +6,9 @@ creates them on fresh databases.
 
 import uuid
 from datetime import datetime, timezone
+
 from sqlalchemy import (
+    JSON,
     BigInteger,
     Boolean,
     Column,
@@ -15,14 +17,12 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
-    JSON,
     LargeBinary,
     Numeric,
     String,
     Text,
     TypeDecorator,
     UniqueConstraint,
-    Uuid,
     func,
     text,
 )
@@ -34,6 +34,7 @@ from .models_sqlalchemy import Base
 
 class UUID(TypeDecorator):
     """Platform-agnostic UUID type that stores as STRING(36) and handles both UUID and string objects."""
+
     impl = String(36)
     cache_ok = True
 
@@ -72,10 +73,14 @@ class Node(Base):
     ipv6 = Column(String(45), nullable=True)
     boot_config_id = Column(Integer, nullable=True)
     hardware_json = Column(JSON, nullable=True)
-    hardware_tags = Column(JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True)
+    hardware_tags = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True
+    )
     posture = Column(String(32), nullable=False, server_default="compliant")
     preferred_addr_family = Column(String(16), nullable=False, server_default="auto")
-    attestation_method = Column(String(32), nullable=False, server_default="discovery_agent")
+    attestation_method = Column(
+        String(32), nullable=False, server_default="discovery_agent"
+    )
     discovered_at = Column(DateTime(timezone=True), nullable=True)
     deployed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(
@@ -105,9 +110,15 @@ class Node(Base):
     # Relationships
     disks = relationship("Disk", back_populates="node", cascade="all, delete-orphan")
     bmc = relationship("NodeBmc", back_populates="node", uselist=False)
-    firmware = relationship("HardwareFirmware", back_populates="node", cascade="all, delete-orphan")
-    tags_operator = relationship("NodeTagOperator", back_populates="node", cascade="all, delete-orphan")
-    biome_assignments = relationship("NodeBiomeAssignment", back_populates="node", cascade="all, delete-orphan")
+    firmware = relationship(
+        "HardwareFirmware", back_populates="node", cascade="all, delete-orphan"
+    )
+    tags_operator = relationship(
+        "NodeTagOperator", back_populates="node", cascade="all, delete-orphan"
+    )
+    biome_assignments = relationship(
+        "NodeBiomeAssignment", back_populates="node", cascade="all, delete-orphan"
+    )
 
 
 class Disk(Base):
@@ -116,15 +127,17 @@ class Disk(Base):
     __tablename__ = "disks"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     device_path = Column(String(255), nullable=False)
     serial = Column(String(64), nullable=True)
     capacity_bytes = Column(BigInteger, nullable=False)
-    rotational = Column(Boolean, nullable=False, server_default='false')
+    rotational = Column(Boolean, nullable=False, server_default="false")
     smart_status = Column(String(16), nullable=False, server_default="unknown")
     smart_attributes_json = Column(JSON, nullable=True)
-    reserved_for_storage = Column(Boolean, nullable=False, server_default='false')
+    reserved_for_storage = Column(Boolean, nullable=False, server_default="false")
     storage_backend = Column(String(32), nullable=True)
     tier = Column(String(16), nullable=False, server_default="bulk")
     created_at = Column(
@@ -149,7 +162,9 @@ class Disk(Base):
 
     # Relationships
     node = relationship("Node", back_populates="disks")
-    disk_plans = relationship("DiskPlan", back_populates="disk", cascade="all, delete-orphan")
+    disk_plans = relationship(
+        "DiskPlan", back_populates="disk", cascade="all, delete-orphan"
+    )
 
 
 class DiskPlan(Base):
@@ -158,8 +173,12 @@ class DiskPlan(Base):
     __tablename__ = "disk_plans"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
-    disk_id = Column(Integer, ForeignKey("disks.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    disk_id = Column(
+        Integer, ForeignKey("disks.id", ondelete="CASCADE"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     mount_point = Column(String(255), nullable=False)
     size_bytes = Column(BigInteger, nullable=False)
@@ -179,7 +198,9 @@ class DiskPlan(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("node_id", "mount_point", name="uq_disk_plans_node_mount_point"),
+        UniqueConstraint(
+            "node_id", "mount_point", name="uq_disk_plans_node_mount_point"
+        ),
         Index("ix_disk_plans_node_id", "node_id"),
         Index("ix_disk_plans_disk_id", "disk_id"),
         Index("ix_disk_plans_tenant_id", "tenant_id"),
@@ -200,7 +221,7 @@ class StorageBackend(Base):
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     kind = Column(String(16), nullable=False)
     name = Column(String(255), nullable=False)
-    is_default = Column(Boolean, nullable=False, server_default='false')
+    is_default = Column(Boolean, nullable=False, server_default="false")
     config_json = Column(JSON, nullable=True)
     credentials_ref = Column(String(255), nullable=True)
     status = Column(String(16), nullable=False, server_default="initializing")
@@ -248,7 +269,7 @@ class Biome(Base):
     egg_kind = Column(String(64), nullable=True)
     snap_name = Column(String(255), nullable=True)
     snap_channel = Column(String(64), nullable=True, server_default="stable")
-    snap_classic = Column(Boolean, nullable=False, server_default='false')
+    snap_classic = Column(Boolean, nullable=False, server_default="false")
     cloud_init_content = Column(Text, nullable=True)
     lxd_image_alias = Column(String(255), nullable=True)
     # Written by app/api/biomes.py:create_biome alongside lxd_image_alias --
@@ -260,13 +281,13 @@ class Biome(Base):
     # (which describe runtime shape). Also written by create_biome.
     biome_type = Column(String(64), nullable=True)
     lxd_profiles = Column(JSON, nullable=True)
-    is_hypervisor_config = Column(Boolean, nullable=False, server_default='false')
+    is_hypervisor_config = Column(Boolean, nullable=False, server_default="false")
     dependencies = Column(JSON, nullable=True)
     min_ram_mb = Column(Integer, nullable=True)
     min_disk_gb = Column(Integer, nullable=True)
     required_architecture = Column(String(32), nullable=True, server_default="any")
-    is_active = Column(Boolean, nullable=False, server_default='true')
-    is_default = Column(Boolean, nullable=False, server_default='false')
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    is_default = Column(Boolean, nullable=False, server_default="false")
     checksum = Column(String(255), nullable=True)
     size_bytes = Column(BigInteger, nullable=True)
     signing_status = Column(String(32), nullable=True, server_default="unsigned")
@@ -277,21 +298,21 @@ class Biome(Base):
     biome_kind = Column(String(32), nullable=False, server_default="custom")
     phase = Column(String(32), nullable=False, server_default="post_deploy")
     workload_type = Column(String(8), nullable=False, server_default="lxc")
-    lock_to_host = Column(Boolean, nullable=False, server_default='false')
-    auto_join_cluster = Column(Boolean, nullable=False, server_default='false')
+    lock_to_host = Column(Boolean, nullable=False, server_default="false")
+    auto_join_cluster = Column(Boolean, nullable=False, server_default="false")
     upgrade_strategy = Column(String(16), nullable=False, server_default="rolling")
     storage_requirements_json = Column(JSON, nullable=True)
     readiness_probe = Column(JSON, nullable=True)
     signing_key_id = Column(String(255), nullable=True)
     image_digest = Column(String(255), nullable=True)
-    signature_verified = Column(Boolean, nullable=False, server_default='false')
+    signature_verified = Column(Boolean, nullable=False, server_default="false")
     published_at = Column(DateTime(timezone=True), nullable=True)
     sbom_url = Column(String(1024), nullable=True)
     registry_url = Column(String(1024), nullable=True)
     requires_hardware_tags = Column(JSON, nullable=True)
     prefers_hardware_tags = Column(JSON, nullable=True)
     forbids_hardware_tags = Column(JSON, nullable=True)
-    emits_joiner_secrets = Column(Boolean, nullable=False, server_default='false')
+    emits_joiner_secrets = Column(Boolean, nullable=False, server_default="false")
     joiner_emit_spec = Column(JSON, nullable=True)
     consumes_joiner_secrets_from = Column(JSON, nullable=True)
     joiner_consume_spec = Column(JSON, nullable=True)
@@ -318,8 +339,12 @@ class NodeBiomeAssignment(Base):
     __tablename__ = "node_egg_assignments"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
-    egg_id = Column(Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
+    egg_id = Column(
+        Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     phase = Column(String(32), nullable=False)
     status = Column(String(32), nullable=False, server_default="pending")
@@ -328,7 +353,9 @@ class NodeBiomeAssignment(Base):
         ForeignKey("node_egg_assignments.id", ondelete="SET NULL"),
         nullable=True,
     )
-    readiness_probe_state = Column(String(32), nullable=False, server_default="not_started")
+    readiness_probe_state = Column(
+        String(32), nullable=False, server_default="not_started"
+    )
     last_event_at = Column(DateTime(timezone=True), nullable=True)
     assigned_at = Column(
         DateTime(timezone=True),
@@ -372,8 +399,12 @@ class Deployment(Base):
     __tablename__ = "deployments"
 
     id = Column(String(64), primary_key=True)
-    biome_id = Column(Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    biome_id = Column(
+        Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False
+    )
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     phase = Column(Integer, nullable=False, server_default="1")
     status = Column(String(32), nullable=False, server_default="pending")
     logs_url = Column(String(1024), nullable=True)
@@ -457,18 +488,20 @@ class NodeBmc(Base):
 
     __tablename__ = "node_bmc"
 
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     protocol = Column(String(16), nullable=False)
     endpoint = Column(String(255), nullable=False)
     username_ref = Column(String(255), nullable=False)
     password_ref = Column(String(255), nullable=False)
     cert_fingerprint = Column(String(95), nullable=True)
-    session_ttl_sec = Column(Integer, nullable=False, server_default='1800')
+    session_ttl_sec = Column(Integer, nullable=False, server_default="1800")
     last_used_at = Column(DateTime(timezone=True), nullable=True)
     capabilities = Column(JSON, nullable=True)
     firmware_summary = Column(JSON, nullable=True)
-    factory_creds_detected = Column(Boolean, nullable=False, server_default='false')
+    factory_creds_detected = Column(Boolean, nullable=False, server_default="false")
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -496,7 +529,9 @@ class HardwareFirmware(Base):
     __tablename__ = "hardware_firmware"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     component = Column(String(32), nullable=False)
     component_id = Column(String(255), nullable=False)
@@ -517,7 +552,9 @@ class HardwareFirmware(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("node_id", "component", "component_id", name="uq_hw_fw_node_comp_id"),
+        UniqueConstraint(
+            "node_id", "component", "component_id", name="uq_hw_fw_node_comp_id"
+        ),
         Index("ix_hardware_firmware_node_id", "node_id"),
         Index("ix_hardware_firmware_component", "component"),
         Index("ix_hardware_firmware_tenant_id", "tenant_id"),
@@ -534,7 +571,9 @@ class NodeTagOperator(Base):
     __tablename__ = "node_tags_operator"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     tag_key = Column(String(255), nullable=False)
     tag_value = Column(String(255), nullable=False)
@@ -547,7 +586,9 @@ class NodeTagOperator(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("node_id", "tag_key", "tag_value", name="uq_node_tags_op_node_key_val"),
+        UniqueConstraint(
+            "node_id", "tag_key", "tag_value", name="uq_node_tags_op_node_key_val"
+        ),
         Index("ix_node_tags_operator_node_id", "node_id"),
         Index("ix_node_tags_operator_tag_key", "tag_key"),
         Index("ix_node_tags_operator_tenant_id", "tenant_id"),
@@ -574,8 +615,8 @@ class SpiffeTrustEntry(Base):
     trust_domain = Column(String(255), nullable=False)
     parent_spiffe_id = Column(String(512), nullable=True)
     selectors = Column(JSON, nullable=True)
-    ttl_seconds = Column(Integer, nullable=False, server_default='3600')
-    active = Column(Boolean, nullable=False, server_default='true')
+    ttl_seconds = Column(Integer, nullable=False, server_default="3600")
+    active = Column(Boolean, nullable=False, server_default="true")
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -605,8 +646,12 @@ class JoinerSecret(Base):
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     biome_kind = Column(String(64), nullable=False)
     egg_kind = synonym("biome_kind")
-    emitter_biome_id = Column(Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False)
-    emitter_node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
+    emitter_biome_id = Column(
+        Integer, ForeignKey("biomes.id", ondelete="RESTRICT"), nullable=False
+    )
+    emitter_node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+    )
     extractor_name = Column(String(255), nullable=False)
     scope = Column(String(16), nullable=False)
     ciphertext = Column(LargeBinary, nullable=False)
@@ -624,7 +669,9 @@ class JoinerSecret(Base):
     )
     rotated_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
-    audit_event_id = Column(UUID(), ForeignKey("audit_events.id", ondelete="SET NULL"), nullable=True)
+    audit_event_id = Column(
+        UUID(), ForeignKey("audit_events.id", ondelete="SET NULL"), nullable=True
+    )
 
     __table_args__ = (
         # postgresql_where is honored (partial index) on Postgres and ignored
@@ -632,7 +679,9 @@ class JoinerSecret(Base):
         # migration this table was originally created by.
         Index(
             "ix_joiner_secrets_cluster_egg_extractor",
-            "cluster_id", "biome_kind", "extractor_name",
+            "cluster_id",
+            "biome_kind",
+            "extractor_name",
             postgresql_where=text("revoked_at IS NULL"),
         ),
         Index(
@@ -691,11 +740,19 @@ class MigrationEvent(Base):
 
     id = Column(UUID(), primary_key=True)
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
-    biome_instance_id = Column(Integer, ForeignKey("node_egg_assignments.id", ondelete="SET NULL"), nullable=True)
+    biome_instance_id = Column(
+        Integer,
+        ForeignKey("node_egg_assignments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     biome_id = Column(Integer, nullable=True)
     biome_kind = Column(String(64), nullable=True)
-    src_node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
-    dst_node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True)
+    src_node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+    )
+    dst_node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True
+    )
     reason = Column(String(512), nullable=True)
     result = Column(String(32), nullable=False)
     rejection_reason = Column(String(255), nullable=True)
@@ -726,19 +783,31 @@ class MigrationPolicy(Base):
 
     id = Column(UUID(), primary_key=True)
     cluster_id = Column(UUID(), nullable=False, unique=True)
-    enabled = Column(Boolean, nullable=False, server_default='false')
-    evaluation_interval_seconds = Column(Integer, nullable=False, server_default='300')
-    min_healthy_nodes = Column(Integer, nullable=False, server_default='3')
-    max_concurrent_migrations = Column(Integer, nullable=False, server_default='1')
-    require_target_capacity_headroom_cpu_pct = Column(Integer, nullable=False, server_default='20')
-    require_target_capacity_headroom_mem_pct = Column(Integer, nullable=False, server_default='20')
-    require_target_capacity_headroom_disk_pct = Column(Integer, nullable=False, server_default='15')
-    rollback_on_destination_failure = Column(Boolean, nullable=False, server_default='true')
-    rollback_window_seconds = Column(Integer, nullable=False, server_default='300')
-    forbid_migration_during_partition = Column(Boolean, nullable=False, server_default='true')
-    forbid_migration_during_maintenance = Column(Boolean, nullable=False, server_default='true')
-    waddleai_risk_threshold = Column(Float, nullable=False, server_default='0.75')
-    capacity_forecast_horizon_days = Column(Integer, nullable=False, server_default='7')
+    enabled = Column(Boolean, nullable=False, server_default="false")
+    evaluation_interval_seconds = Column(Integer, nullable=False, server_default="300")
+    min_healthy_nodes = Column(Integer, nullable=False, server_default="3")
+    max_concurrent_migrations = Column(Integer, nullable=False, server_default="1")
+    require_target_capacity_headroom_cpu_pct = Column(
+        Integer, nullable=False, server_default="20"
+    )
+    require_target_capacity_headroom_mem_pct = Column(
+        Integer, nullable=False, server_default="20"
+    )
+    require_target_capacity_headroom_disk_pct = Column(
+        Integer, nullable=False, server_default="15"
+    )
+    rollback_on_destination_failure = Column(
+        Boolean, nullable=False, server_default="true"
+    )
+    rollback_window_seconds = Column(Integer, nullable=False, server_default="300")
+    forbid_migration_during_partition = Column(
+        Boolean, nullable=False, server_default="true"
+    )
+    forbid_migration_during_maintenance = Column(
+        Boolean, nullable=False, server_default="true"
+    )
+    waddleai_risk_threshold = Column(Float, nullable=False, server_default="0.75")
+    capacity_forecast_horizon_days = Column(Integer, nullable=False, server_default="7")
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -765,7 +834,7 @@ class LeaderLease(Base):
     holder_id = Column(String(255), nullable=True)
     acquired_at = Column(DateTime(timezone=True), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=True)
-    version = Column(Integer, nullable=False, server_default='0')
+    version = Column(Integer, nullable=False, server_default="0")
 
     __table_args__ = (
         Index("ix_leader_leases_expires_at", "expires_at"),
@@ -792,7 +861,9 @@ class DrDrill(Base):
     rpo_observed_seconds = Column(Integer, nullable=True)
     rto_observed_seconds = Column(Integer, nullable=True)
     error_message = Column(String(2048), nullable=True)
-    audit_ref = Column(UUID(), ForeignKey("audit_events.id", ondelete="SET NULL"), nullable=True)
+    audit_ref = Column(
+        UUID(), ForeignKey("audit_events.id", ondelete="SET NULL"), nullable=True
+    )
     triggered_by = Column(String(255), nullable=True)
 
     __table_args__ = (
@@ -815,9 +886,9 @@ class SloDefinition(Base):
     domain = Column(String(32), nullable=False)
     target_value = Column(Float, nullable=False)
     target_unit = Column(String(16), nullable=False)
-    window_seconds = Column(Integer, nullable=False, server_default='2592000')
+    window_seconds = Column(Integer, nullable=False, server_default="2592000")
     error_budget_seconds = Column(Integer, nullable=True)
-    alert_threshold_burn_rate = Column(Float, nullable=False, server_default='2.0')
+    alert_threshold_burn_rate = Column(Float, nullable=False, server_default="2.0")
     runbook_url = Column(String(1024), nullable=True)
     created_at = Column(
         DateTime(timezone=True),
@@ -831,7 +902,9 @@ class SloDefinition(Base):
     )
 
     __table_args__ = (
-        UniqueConstraint("cluster_id", "tenant_id", "slo_name", name="uq_slo_cluster_tenant_name"),
+        UniqueConstraint(
+            "cluster_id", "tenant_id", "slo_name", name="uq_slo_cluster_tenant_name"
+        ),
         Index("ix_slo_cluster", "cluster_id"),
         Index("ix_slo_name", "slo_name"),
         {"extend_existing": True},
@@ -854,7 +927,9 @@ class NodeEvent(Base):
     __tablename__ = "node_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     tenant_id = Column(String(255), nullable=False, server_default="__default__")
     ts = Column(
         DateTime(timezone=True),
@@ -903,8 +978,12 @@ class WebhookEndpoint(Base):
     url = Column(String(2048), nullable=False)
     signing_mode = Column(String(32), nullable=False, server_default="ed25519")
     active = Column(Boolean, nullable=False, server_default="true")
-    event_filter = Column(JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True)
-    retry_policy = Column(JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True)
+    event_filter = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True
+    )
+    retry_policy = Column(
+        JSON().with_variant(postgresql.JSONB(), "postgresql"), nullable=True
+    )
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
@@ -971,8 +1050,12 @@ class Cluster(Base):
     name = Column(String(255), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     status = Column(String(32), nullable=False, server_default="ready")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_clusters_tenant_id", "tenant_id"),
@@ -993,11 +1076,17 @@ class ClusterConfig(Base):
     __tablename__ = "cluster_config"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    cluster_id = Column(String(255), ForeignKey("clusters.id", ondelete="CASCADE"), nullable=False)
+    cluster_id = Column(
+        String(255), ForeignKey("clusters.id", ondelete="CASCADE"), nullable=False
+    )
     key = Column(String(128), nullable=False)
     value_json = Column(JSON, nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         UniqueConstraint("cluster_id", "key", name="uq_cluster_config_cluster_key"),
@@ -1023,11 +1112,17 @@ class StorageQuota(Base):
     limit_value = Column(Numeric, nullable=True)
     used_value = Column(Numeric, nullable=True)
     unit = Column(String(16), nullable=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
-        UniqueConstraint("tenant_id", "resource_type", name="uq_storage_quotas_tenant_resource"),
+        UniqueConstraint(
+            "tenant_id", "resource_type", name="uq_storage_quotas_tenant_resource"
+        ),
         Index("ix_storage_quotas_tenant_id", "tenant_id"),
         Index("ix_storage_quotas_created_at", "created_at"),
         {"extend_existing": True},
@@ -1054,8 +1149,12 @@ class StorageQuotaRequest(Base):
     unit = Column(String(16), nullable=False)
     justification = Column(Text, nullable=False)
     status = Column(String(16), nullable=False, server_default="pending")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_storage_quota_requests_tenant_id", "tenant_id"),
@@ -1075,10 +1174,14 @@ class DeploymentLog(Base):
     __tablename__ = "deployment_logs"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    deployment_id = Column(String(64), ForeignKey("deployments.id", ondelete="CASCADE"), nullable=False)
+    deployment_id = Column(
+        String(64), ForeignKey("deployments.id", ondelete="CASCADE"), nullable=False
+    )
     message = Column(Text, nullable=False)
     level = Column(String(16), nullable=False, server_default="info")
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_deployment_logs_deployment_id", "deployment_id"),
@@ -1098,14 +1201,18 @@ class ResourcePermission(Base):
     __tablename__ = "resource_permissions"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    user_id = Column(Integer, ForeignKey("auth_user.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("auth_user.id", ondelete="CASCADE"), nullable=False
+    )
     resource_type = Column(String(64), nullable=False)
     resource_id = Column(Integer, nullable=False)
     permission = Column(String(255), nullable=False)
 
     __table_args__ = (
         UniqueConstraint(
-            "user_id", "resource_type", "resource_id",
+            "user_id",
+            "resource_type",
+            "resource_id",
             name="uq_resource_permissions_user_type_id",
         ),
         Index("ix_resource_permissions_user_id", "user_id"),
@@ -1132,9 +1239,13 @@ class BiomeGroup(Base):
     display_name = Column(String(255), nullable=False)
     description = Column(Text, nullable=True)
     biomes = Column(JSON, nullable=False)
-    is_default = Column(Boolean, nullable=False, server_default='false')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_default = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_biome_groups_tenant_id", "tenant_id"),
@@ -1161,14 +1272,20 @@ class IpxeMachine(Base):
     status = Column(String(32), nullable=False)
     zone = Column(String(255), nullable=True)
     pool = Column(String(255), nullable=True)
-    boot_config_id = Column(Integer, ForeignKey("ipxe_boot_configs.id", ondelete="SET NULL"), nullable=True)
+    boot_config_id = Column(
+        Integer, ForeignKey("ipxe_boot_configs.id", ondelete="SET NULL"), nullable=True
+    )
     assigned_biomes = Column(JSON, nullable=True)
     dmi_uuid = Column(String(64), nullable=True)
     last_seen_at = Column(DateTime(timezone=True), nullable=True)
     deployed_at = Column(DateTime(timezone=True), nullable=True)
     elder_synced_at = Column(DateTime(timezone=True), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_ipxe_machines_mac_address", "mac_address"),
@@ -1196,11 +1313,15 @@ class IpxeImage(Base):
     image_type = Column(String(32), nullable=False, server_default="minimal")
     minio_bucket = Column(String(255), nullable=True)
     checksum = Column(String(255), nullable=True)
-    is_default = Column(Boolean, nullable=False, server_default='false')
-    is_active = Column(Boolean, nullable=False, server_default='true')
-    size_bytes = Column(BigInteger, nullable=False, server_default='0')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_default = Column(Boolean, nullable=False, server_default="false")
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    size_bytes = Column(BigInteger, nullable=False, server_default="0")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_ipxe_images_architecture", "architecture"),
@@ -1219,18 +1340,26 @@ class IpxeBootConfig(Base):
     ipxe_script = Column(Text, nullable=True)
     kernel_params = Column(Text, nullable=True)
     boot_order = Column(JSON, nullable=False)
-    timeout_seconds = Column(Integer, nullable=False, server_default='30')
-    default_image_id = Column(Integer, ForeignKey("ipxe_images.id", ondelete="SET NULL"), nullable=True)
+    timeout_seconds = Column(Integer, nullable=False, server_default="30")
+    default_image_id = Column(
+        Integer, ForeignKey("ipxe_images.id", ondelete="SET NULL"), nullable=True
+    )
     assigned_biome_group_id = Column(
         Integer, ForeignKey("biome_groups.id", ondelete="SET NULL"), nullable=True
     )
-    is_default = Column(Boolean, nullable=False, server_default='false')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_default = Column(Boolean, nullable=False, server_default="false")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_ipxe_boot_configs_default_image_id", "default_image_id"),
-        Index("ix_ipxe_boot_configs_assigned_biome_group_id", "assigned_biome_group_id"),
+        Index(
+            "ix_ipxe_boot_configs_assigned_biome_group_id", "assigned_biome_group_id"
+        ),
         {"extend_existing": True},
     )
 
@@ -1249,14 +1378,18 @@ class IpxeConfig(Base):
     dhcp_range_end = Column(String(64), nullable=True)
     dhcp_gateway = Column(String(64), nullable=True)
     dns_servers = Column(JSON, nullable=True)
-    tftp_enabled = Column(Boolean, nullable=False, server_default='true')
+    tftp_enabled = Column(Boolean, nullable=False, server_default="true")
     http_boot_url = Column(String(1024), nullable=True)
     minio_bucket = Column(String(255), nullable=True)
     chain_url = Column(String(1024), nullable=True)
     default_boot_script = Column(Text, nullable=True)
-    is_active = Column(Boolean, nullable=False, server_default='true')
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    is_active = Column(Boolean, nullable=False, server_default="true")
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    updated_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_ipxe_config_is_active", "is_active"),
@@ -1274,13 +1407,17 @@ class BootEvent(Base):
     __tablename__ = "boot_events"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    machine_id = Column(Integer, ForeignKey("ipxe_machines.id", ondelete="SET NULL"), nullable=True)
+    machine_id = Column(
+        Integer, ForeignKey("ipxe_machines.id", ondelete="SET NULL"), nullable=True
+    )
     mac_address = Column(String(32), nullable=False)
     ip_address = Column(String(64), nullable=True)
     event_type = Column(String(32), nullable=False)
     details = Column(JSON, nullable=False)
     status = Column(String(64), nullable=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    created_at = Column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
 
     __table_args__ = (
         Index("ix_boot_events_machine_id", "machine_id"),
@@ -1315,7 +1452,9 @@ class NodeResourceSnapshot(Base):
     __tablename__ = "node_resource_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, unique=True)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
     received_at = Column(DateTime(timezone=True), nullable=False)
     collected_at = Column(DateTime(timezone=True), nullable=False)
     schema_version = Column(String(64), nullable=False)
@@ -1349,13 +1488,19 @@ class CapacityReservation(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     public_id = Column(String(36), nullable=False, unique=True)
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="CASCADE"), nullable=False
+    )
     cpu_cores = Column(Float, nullable=False)
     memory_bytes = Column(BigInteger, nullable=False)
     disk_bytes = Column(BigInteger, nullable=False)
     pool = Column(String(255), nullable=False)
     status = Column(Integer, nullable=False, server_default=str(RESERVATION_ACTIVE))
-    created_at = Column(DateTime(timezone=True), nullable=False, default=lambda: datetime.now(timezone.utc))
+    created_at = Column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=lambda: datetime.now(timezone.utc),
+    )
     expires_at = Column(DateTime(timezone=True), nullable=False)
     released_at = Column(DateTime(timezone=True), nullable=True)
     confirmed_at = Column(DateTime(timezone=True), nullable=True)

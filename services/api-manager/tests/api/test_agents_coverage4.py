@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-import hashlib
 import importlib
 from datetime import datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
@@ -34,11 +33,15 @@ def agents_app(monkeypatch):
 
     # Preserve module in sys.modules before reload
     import sys
+
     if "app.api.agents" in sys.modules:
-        monkeypatch.setitem(sys.modules, "app.api.agents", sys.modules["app.api.agents"])
+        monkeypatch.setitem(
+            sys.modules, "app.api.agents", sys.modules["app.api.agents"]
+        )
 
     # Reload to apply decorator bypasses
     import app.api.agents as agents_mod
+
     agents_mod = importlib.reload(agents_mod)
 
     # Create mock DB with proper integer IDs for Python 3.14 compatibility
@@ -161,7 +164,7 @@ async def test_list_enrollment_keys_with_include_used_true(agents_client):
         {
             "id": 1,
             "created_by": "user123",
-            "metadata": "{\"tenant_id\": \"default\"}",
+            "metadata": '{"tenant_id": "default"}',
             "expires_at": datetime(2025, 12, 1, 12, 0),
             "is_used": True,
             "used_by_agent": 42,
@@ -188,7 +191,7 @@ async def test_list_enrollment_keys_with_include_used_false(agents_client):
         {
             "id": 1,
             "created_by": "user123",
-            "metadata": "{\"tenant_id\": \"default\"}",
+            "metadata": '{"tenant_id": "default"}',
             "expires_at": datetime(2025, 12, 1, 12, 0),
             "is_used": False,
             "used_by_agent": None,
@@ -232,7 +235,7 @@ async def test_list_enrollment_keys_null_dates(agents_client):
         {
             "id": 1,
             "created_by": "user123",
-            "metadata": "{\"tenant_id\": \"default\"}",
+            "metadata": '{"tenant_id": "default"}',
             "expires_at": None,
             "is_used": False,
             "used_by_agent": None,
@@ -260,12 +263,14 @@ async def test_revoke_enrollment_key_exception_path(agents_client):
 
     # Setup: key exists but delete raises exception
     mock_key = MagicMock()
-    mock_key.__getitem__ = lambda _s, _k: "{\"tenant_id\": \"default\"}"
+    mock_key.__getitem__ = lambda _s, _k: '{"tenant_id": "default"}'
     mock_db.enrollment_keys.return_value = mock_key
 
     delete_query = MagicMock()
     mock_db.return_value = delete_query
-    delete_query.update.side_effect = RuntimeError("DB Delete failed")  # revoke is a soft-delete update
+    delete_query.update.side_effect = RuntimeError(
+        "DB Delete failed"
+    )  # revoke is a soft-delete update
 
     response = await client.delete("/api/v1/agents/enrollment-keys/1")
 
@@ -423,7 +428,10 @@ async def test_enroll_agent_success(agents_client):
 
     mock_query = MagicMock()
     mock_db.return_value = mock_query
-    mock_query.select.return_value.first.side_effect = [mock_key, None]  # key, then ca_config
+    mock_query.select.return_value.first.side_effect = [
+        mock_key,
+        None,
+    ]  # key, then ca_config
 
     mock_db.access_agents.insert.return_value = 42
     mock_db.commit = MagicMock()
@@ -434,7 +442,11 @@ async def test_enroll_agent_success(agents_client):
         response = await client.post(
             "/api/v1/agents/enroll",
             headers={"X-Enrollment-Key": "ENROLL-VALID-KEY-HERE"},
-            json={"hostname": "agent1", "ip_address": "192.168.1.1", "capabilities": ["ssh"]},
+            json={
+                "hostname": "agent1",
+                "ip_address": "192.168.1.1",
+                "capabilities": ["ssh"],
+            },
         )
 
     assert response.status_code == 201

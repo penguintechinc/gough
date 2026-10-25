@@ -10,14 +10,10 @@ Covers:
 
 from __future__ import annotations
 
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
-
-from app.workers.plan_compiler import (
-    _seal_luks_key,
-)
+from app.workers.plan_compiler import _seal_luks_key
 
 
 class LUKSValidationError(Exception):

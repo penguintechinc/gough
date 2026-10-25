@@ -138,7 +138,11 @@ class AWSCloud(BaseCloud):
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
-            if error_code in ("AuthFailure", "InvalidAccessKeyId", "SignatureDoesNotMatch"):
+            if error_code in (
+                "AuthFailure",
+                "InvalidAccessKeyId",
+                "SignatureDoesNotMatch",
+            ):
                 raise CloudAuthError(f"AWS authentication failed: {error_msg}") from e
             raise CloudError(f"AWS API error during authentication: {error_msg}") from e
         except BotoCoreError as e:
@@ -207,7 +211,9 @@ class AWSCloud(BaseCloud):
             "ami_id": instance.get("ImageId", ""),
             "vpc_id": instance.get("VpcId", ""),
             "subnet_id": instance.get("SubnetId", ""),
-            "availability_zone": instance.get("Placement", {}).get("AvailabilityZone", ""),
+            "availability_zone": instance.get("Placement", {}).get(
+                "AvailabilityZone", ""
+            ),
             "key_name": instance.get("KeyName", ""),
             "security_groups": [
                 {"id": sg.get("GroupId", ""), "name": sg.get("GroupName", "")}
@@ -344,7 +350,9 @@ class AWSCloud(BaseCloud):
             if error_code == "InvalidInstanceID.NotFound":
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
             if error_code == "InvalidInstanceID.Malformed":
-                raise CloudNotFoundError(f"Invalid instance ID format: {machine_id}") from e
+                raise CloudNotFoundError(
+                    f"Invalid instance ID format: {machine_id}"
+                ) from e
             raise CloudError(f"Failed to get instance {machine_id}: {error_msg}") from e
         except BotoCoreError as e:
             raise CloudError(f"AWS connection error: {e}") from e
@@ -521,16 +529,23 @@ class AWSCloud(BaseCloud):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}")
 
             current_state = terminating[0].get("CurrentState", {}).get("Name", "")
-            log.info(f"Instance {machine_id} termination initiated, state: {current_state}")
+            log.info(
+                f"Instance {machine_id} termination initiated, state: {current_state}"
+            )
             return True
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
-            if error_code in ("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed"):
+            if error_code in (
+                "InvalidInstanceID.NotFound",
+                "InvalidInstanceID.Malformed",
+            ):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
-            raise CloudError(f"Failed to terminate instance {machine_id}: {error_msg}") from e
+            raise CloudError(
+                f"Failed to terminate instance {machine_id}: {error_msg}"
+            ) from e
         except BotoCoreError as e:
             raise CloudError(f"AWS connection error: {e}") from e
 
@@ -565,13 +580,18 @@ class AWSCloud(BaseCloud):
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
-            if error_code in ("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed"):
+            if error_code in (
+                "InvalidInstanceID.NotFound",
+                "InvalidInstanceID.Malformed",
+            ):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
             if error_code == "IncorrectInstanceState":
                 raise CloudError(
                     f"Instance {machine_id} cannot be started in current state"
                 ) from e
-            raise CloudError(f"Failed to start instance {machine_id}: {error_msg}") from e
+            raise CloudError(
+                f"Failed to start instance {machine_id}: {error_msg}"
+            ) from e
         except BotoCoreError as e:
             raise CloudError(f"AWS connection error: {e}") from e
 
@@ -606,7 +626,10 @@ class AWSCloud(BaseCloud):
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
-            if error_code in ("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed"):
+            if error_code in (
+                "InvalidInstanceID.NotFound",
+                "InvalidInstanceID.Malformed",
+            ):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
             if error_code == "IncorrectInstanceState":
                 raise CloudError(
@@ -616,7 +639,9 @@ class AWSCloud(BaseCloud):
                 raise CloudError(
                     f"Instance {machine_id} is a spot instance and cannot be stopped"
                 ) from e
-            raise CloudError(f"Failed to stop instance {machine_id}: {error_msg}") from e
+            raise CloudError(
+                f"Failed to stop instance {machine_id}: {error_msg}"
+            ) from e
         except BotoCoreError as e:
             raise CloudError(f"AWS connection error: {e}") from e
 
@@ -647,9 +672,14 @@ class AWSCloud(BaseCloud):
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
             error_msg = e.response.get("Error", {}).get("Message", str(e))
 
-            if error_code in ("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed"):
+            if error_code in (
+                "InvalidInstanceID.NotFound",
+                "InvalidInstanceID.Malformed",
+            ):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
-            raise CloudError(f"Failed to reboot instance {machine_id}: {error_msg}") from e
+            raise CloudError(
+                f"Failed to reboot instance {machine_id}: {error_msg}"
+            ) from e
         except BotoCoreError as e:
             raise CloudError(f"AWS connection error: {e}") from e
 
@@ -675,7 +705,10 @@ class AWSCloud(BaseCloud):
 
         except ClientError as e:
             error_code = e.response.get("Error", {}).get("Code", "Unknown")
-            if error_code in ("InvalidInstanceID.NotFound", "InvalidInstanceID.Malformed"):
+            if error_code in (
+                "InvalidInstanceID.NotFound",
+                "InvalidInstanceID.Malformed",
+            ):
                 raise CloudNotFoundError(f"Instance not found: {machine_id}") from e
             log.warning(f"Failed to get console output for {machine_id}: {e}")
             return ""
@@ -734,18 +767,20 @@ class AWSCloud(BaseCloud):
 
             for page in paginator.paginate(**describe_kwargs):
                 for image in page.get("Images", []):
-                    images.append({
-                        "id": image.get("ImageId", ""),
-                        "name": image.get("Name", ""),
-                        "description": image.get("Description", ""),
-                        "architecture": image.get("Architecture", ""),
-                        "platform": image.get("PlatformDetails", ""),
-                        "owner_id": image.get("OwnerId", ""),
-                        "creation_date": image.get("CreationDate", ""),
-                        "state": image.get("State", ""),
-                        "root_device_type": image.get("RootDeviceType", ""),
-                        "virtualization_type": image.get("VirtualizationType", ""),
-                    })
+                    images.append(
+                        {
+                            "id": image.get("ImageId", ""),
+                            "name": image.get("Name", ""),
+                            "description": image.get("Description", ""),
+                            "architecture": image.get("Architecture", ""),
+                            "platform": image.get("PlatformDetails", ""),
+                            "owner_id": image.get("OwnerId", ""),
+                            "creation_date": image.get("CreationDate", ""),
+                            "state": image.get("State", ""),
+                            "root_device_type": image.get("RootDeviceType", ""),
+                            "virtualization_type": image.get("VirtualizationType", ""),
+                        }
+                    )
 
             return images
 
@@ -778,10 +813,12 @@ class AWSCloud(BaseCloud):
 
             architecture = filters.get("architecture")
             if architecture:
-                ec2_filters.append({
-                    "Name": "processor-info.supported-architecture",
-                    "Values": [architecture],
-                })
+                ec2_filters.append(
+                    {
+                        "Name": "processor-info.supported-architecture",
+                        "Values": [architecture],
+                    }
+                )
 
         if ec2_filters:
             describe_kwargs["Filters"] = ec2_filters
@@ -802,25 +839,28 @@ class AWSCloud(BaseCloud):
                         if vcpus < vcpus_min or memory_mib < memory_min:
                             continue
 
-                    sizes.append({
-                        "id": instance_type.get("InstanceType", ""),
-                        "name": instance_type.get("InstanceType", ""),
-                        "vcpus": vcpus,
-                        "memory_mib": memory_mib,
-                        "memory_gb": round(memory_mib / 1024, 2),
-                        "architectures": instance_type.get(
-                            "ProcessorInfo", {}
-                        ).get("SupportedArchitectures", []),
-                        "network_performance": instance_type.get(
-                            "NetworkInfo", {}
-                        ).get("NetworkPerformance", ""),
-                        "ebs_optimized": instance_type.get(
-                            "EbsInfo", {}
-                        ).get("EbsOptimizedSupport", "") == "default",
-                        "current_generation": instance_type.get(
-                            "CurrentGeneration", False
-                        ),
-                    })
+                    sizes.append(
+                        {
+                            "id": instance_type.get("InstanceType", ""),
+                            "name": instance_type.get("InstanceType", ""),
+                            "vcpus": vcpus,
+                            "memory_mib": memory_mib,
+                            "memory_gb": round(memory_mib / 1024, 2),
+                            "architectures": instance_type.get("ProcessorInfo", {}).get(
+                                "SupportedArchitectures", []
+                            ),
+                            "network_performance": instance_type.get(
+                                "NetworkInfo", {}
+                            ).get("NetworkPerformance", ""),
+                            "ebs_optimized": instance_type.get("EbsInfo", {}).get(
+                                "EbsOptimizedSupport", ""
+                            )
+                            == "default",
+                            "current_generation": instance_type.get(
+                                "CurrentGeneration", False
+                            ),
+                        }
+                    )
 
             return sizes
 
@@ -841,12 +881,14 @@ class AWSCloud(BaseCloud):
 
             regions: list[dict] = []
             for region in response.get("Regions", []):
-                regions.append({
-                    "id": region.get("RegionName", ""),
-                    "name": region.get("RegionName", ""),
-                    "endpoint": region.get("Endpoint", ""),
-                    "opt_in_status": region.get("OptInStatus", ""),
-                })
+                regions.append(
+                    {
+                        "id": region.get("RegionName", ""),
+                        "name": region.get("RegionName", ""),
+                        "endpoint": region.get("Endpoint", ""),
+                        "opt_in_status": region.get("OptInStatus", ""),
+                    }
+                )
 
             return regions
 
@@ -877,13 +919,15 @@ class AWSCloud(BaseCloud):
                         name = tag.get("Value", "")
                         break
 
-                vpcs.append({
-                    "id": vpc.get("VpcId", ""),
-                    "name": name,
-                    "cidr_block": vpc.get("CidrBlock", ""),
-                    "is_default": vpc.get("IsDefault", False),
-                    "state": vpc.get("State", ""),
-                })
+                vpcs.append(
+                    {
+                        "id": vpc.get("VpcId", ""),
+                        "name": name,
+                        "cidr_block": vpc.get("CidrBlock", ""),
+                        "is_default": vpc.get("IsDefault", False),
+                        "state": vpc.get("State", ""),
+                    }
+                )
 
             return vpcs
 
@@ -918,16 +962,20 @@ class AWSCloud(BaseCloud):
                         name = tag.get("Value", "")
                         break
 
-                subnets.append({
-                    "id": subnet.get("SubnetId", ""),
-                    "name": name,
-                    "vpc_id": subnet.get("VpcId", ""),
-                    "cidr_block": subnet.get("CidrBlock", ""),
-                    "availability_zone": subnet.get("AvailabilityZone", ""),
-                    "available_ip_count": subnet.get("AvailableIpAddressCount", 0),
-                    "default_for_az": subnet.get("DefaultForAz", False),
-                    "map_public_ip_on_launch": subnet.get("MapPublicIpOnLaunch", False),
-                })
+                subnets.append(
+                    {
+                        "id": subnet.get("SubnetId", ""),
+                        "name": name,
+                        "vpc_id": subnet.get("VpcId", ""),
+                        "cidr_block": subnet.get("CidrBlock", ""),
+                        "availability_zone": subnet.get("AvailabilityZone", ""),
+                        "available_ip_count": subnet.get("AvailableIpAddressCount", 0),
+                        "default_for_az": subnet.get("DefaultForAz", False),
+                        "map_public_ip_on_launch": subnet.get(
+                            "MapPublicIpOnLaunch", False
+                        ),
+                    }
+                )
 
             return subnets
 
@@ -955,14 +1003,16 @@ class AWSCloud(BaseCloud):
 
             security_groups: list[dict] = []
             for sg in response.get("SecurityGroups", []):
-                security_groups.append({
-                    "id": sg.get("GroupId", ""),
-                    "name": sg.get("GroupName", ""),
-                    "description": sg.get("Description", ""),
-                    "vpc_id": sg.get("VpcId", ""),
-                    "ingress_rules_count": len(sg.get("IpPermissions", [])),
-                    "egress_rules_count": len(sg.get("IpPermissionsEgress", [])),
-                })
+                security_groups.append(
+                    {
+                        "id": sg.get("GroupId", ""),
+                        "name": sg.get("GroupName", ""),
+                        "description": sg.get("Description", ""),
+                        "vpc_id": sg.get("VpcId", ""),
+                        "ingress_rules_count": len(sg.get("IpPermissions", [])),
+                        "egress_rules_count": len(sg.get("IpPermissionsEgress", [])),
+                    }
+                )
 
             return security_groups
 
@@ -983,12 +1033,14 @@ class AWSCloud(BaseCloud):
 
             key_pairs: list[dict] = []
             for kp in response.get("KeyPairs", []):
-                key_pairs.append({
-                    "name": kp.get("KeyName", ""),
-                    "fingerprint": kp.get("KeyFingerprint", ""),
-                    "key_type": kp.get("KeyType", ""),
-                    "created_at": kp.get("CreateTime"),
-                })
+                key_pairs.append(
+                    {
+                        "name": kp.get("KeyName", ""),
+                        "fingerprint": kp.get("KeyFingerprint", ""),
+                        "key_type": kp.get("KeyType", ""),
+                        "created_at": kp.get("CreateTime"),
+                    }
+                )
 
             return key_pairs
 

@@ -14,17 +14,17 @@ from typing import Any
 
 from quart import Blueprint, g, jsonify, request
 
-from ..middleware import auth_required, get_current_user, user_has_role
 from ..audit import get_audit_logger
 from ..db.run_db import run_db
+from ..middleware import auth_required, get_current_user, user_has_role
 from ..models import get_db
-from ._helpers import request_is_cross_tenant, request_tenant_id, tenant_owns
 from ..shell_tickets import (
     TICKET_TTL_SECONDS,
     TicketClaims,
     TicketStoreUnavailable,
     get_ticket_store,
 )
+from ._helpers import request_is_cross_tenant, request_tenant_id, tenant_owns
 
 log = logging.getLogger(__name__)
 
@@ -35,8 +35,8 @@ def user_is_admin(user_id: int) -> bool:
     """Return True if the user holds the ``admin`` role (blocking DB call)."""
     db = get_db()
     rows = db(
-        (db.auth_user_roles.user_id == user_id) & (
-            db.auth_role.id == db.auth_user_roles.role_id)
+        (db.auth_user_roles.user_id == user_id)
+        & (db.auth_role.id == db.auth_user_roles.role_id)
     ).select(db.auth_role.name)
     return any(r.name == "admin" for r in rows)
 
@@ -65,8 +65,8 @@ def check_shell_access(
 
     # Check user roles
     user_roles = db(
-        (db.auth_user_roles.user_id == user_id) & (
-            db.auth_role.id == db.auth_user_roles.role_id)
+        (db.auth_user_roles.user_id == user_id)
+        & (db.auth_role.id == db.auth_user_roles.role_id)
     ).select(db.auth_role.name)
 
     role_names = {r.name for r in user_roles}
@@ -76,28 +76,26 @@ def check_shell_access(
 
     # Check team-based access
     # Find teams user belongs to
-    team_memberships = db(
-        (db.team_members.user_id == user_id)
-    ).select(db.team_members.team_id)
+    team_memberships = db((db.team_members.user_id == user_id)).select(
+        db.team_members.team_id
+    )
 
     team_ids = [tm.team_id for tm in team_memberships]
 
     if not team_ids:
-        return (
-            False,
-            "User not member of any team with access to this resource"
-        )
+        return (False, "User not member of any team with access to this resource")
 
     # Check if any team has shell permission for this resource
     assignments = db(
-        (db.resource_assignments.team_id.belongs(team_ids)) & (
-            db.resource_assignments.resource_type == resource_type) & (
-            db.resource_assignments.resource_id == resource_id)
+        (db.resource_assignments.team_id.belongs(team_ids))
+        & (db.resource_assignments.resource_type == resource_type)
+        & (db.resource_assignments.resource_id == resource_id)
     ).select()
 
     for assignment in assignments:
         # Parse permissions JSON
         import json
+
         try:
             permissions = json.loads(assignment.permissions)
             if isinstance(permissions, list) and "shell" in permissions:
@@ -149,20 +147,19 @@ async def create_session():
     valid_session_types = ["ssh", "kubectl", "docker", "cloud_cli"]
     if session_type not in valid_session_types:
         valid_types_str = ", ".join(valid_session_types)
-        return jsonify({
-            "error": f"Invalid session_type. Must be one of: {valid_types_str}"
-        }), 400
+        return (
+            jsonify(
+                {"error": f"Invalid session_type. Must be one of: {valid_types_str}"}
+            ),
+            400,
+        )
 
     current_user = get_current_user()
 
     # Check permissions. Regression: gh-22. Off the event loop via
     # run_db() instead of blocking the request coroutine inline.
     def _check_access() -> tuple[bool, str | None]:
-        return check_shell_access(
-            current_user["id"],
-            resource_type,
-            resource_id
-        )
+        return check_shell_access(current_user["id"], resource_type, resource_id)
 
     has_access, error_msg = await run_db(_check_access)
 
@@ -189,9 +186,10 @@ async def create_session():
     agent = await run_db(_fetch_agent)
 
     if not agent:
-        return jsonify({
-            "error": "No active access agents available for this resource"
-        }), 404
+        return (
+            jsonify({"error": "No active access agents available for this resource"}),
+            404,
+        )
 
     # Generate unique session ID
     session_id = str(uuid.uuid4())
@@ -253,13 +251,18 @@ async def create_session():
     # the client as ``&ticket=``)
     websocket_url = f"wss://gough.local/ws/shell?session_id={session_id}"
 
-    return jsonify({
-        "message": "Shell session created successfully",
-        "session_id": session_id,
-        "websocket_url": websocket_url,
-        "session_type": session_type,
-        "agent_id": agent.agent_id,
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Shell session created successfully",
+                "session_id": session_id,
+                "websocket_url": websocket_url,
+                "session_type": session_type,
+                "agent_id": agent.agent_id,
+            }
+        ),
+        201,
+    )
 
 
 @shell_bp.route("/sessions", methods=["GET"])
@@ -278,10 +281,14 @@ async def list_sessions():
     # coroutine inline.
     def _fetch() -> Any:
         # ``== None`` is the DAL IS-NULL idiom; ``is None`` evaluated to a constant False.
-        return db(
-            (db.shell_sessions.user_id == current_user["id"]) & (
-                db.shell_sessions.ended_at == None)  # noqa: E711 -- DAL idiom
-        ).select(orderby=~db.shell_sessions.started_at).as_list()
+        return (
+            db(
+                (db.shell_sessions.user_id == current_user["id"])
+                & (db.shell_sessions.ended_at == None)  # noqa: E711 -- DAL idiom
+            )
+            .select(orderby=~db.shell_sessions.started_at)
+            .as_list()
+        )
 
     sessions = await run_db(_fetch)
 
@@ -293,29 +300,32 @@ async def list_sessions():
         if started:
             if isinstance(started, str):
                 started = datetime.fromisoformat(started)
-            duration_seconds = int(
-                (datetime.utcnow() - started).total_seconds()
-            )
+            duration_seconds = int((datetime.utcnow() - started).total_seconds())
 
         started_at_str = (
-            started.isoformat()
-            if isinstance(started, datetime)
-            else started
+            started.isoformat() if isinstance(started, datetime) else started
         )
-        sessions_data.append({
-            "session_id": session["session_id"],
-            "resource_type": session["resource_type"],
-            "resource_id": session["resource_id"],
-            "session_type": session["session_type"],
-            "started_at": started_at_str,
-            "duration_seconds": duration_seconds,
-            "client_ip": session.get("client_ip"),
-        })
+        sessions_data.append(
+            {
+                "session_id": session["session_id"],
+                "resource_type": session["resource_type"],
+                "resource_id": session["resource_id"],
+                "session_type": session["session_type"],
+                "started_at": started_at_str,
+                "duration_seconds": duration_seconds,
+                "client_ip": session.get("client_ip"),
+            }
+        )
 
-    return jsonify({
-        "sessions": sessions_data,
-        "count": len(sessions_data),
-    }), 200
+    return (
+        jsonify(
+            {
+                "sessions": sessions_data,
+                "count": len(sessions_data),
+            }
+        ),
+        200,
+    )
 
 
 @shell_bp.route("/sessions/<session_id>", methods=["DELETE"])
@@ -404,11 +414,16 @@ async def terminate_session(session_id: str):
     if not ok:
         return jsonify({"error": "Failed to terminate shell session"}), 500
 
-    return jsonify({
-        "message": "Session terminated successfully",
-        "session_id": session_id,
-        "duration_seconds": result,
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Session terminated successfully",
+                "session_id": session_id,
+                "duration_seconds": result,
+            }
+        ),
+        200,
+    )
 
 
 @dataclass(slots=True, frozen=True)

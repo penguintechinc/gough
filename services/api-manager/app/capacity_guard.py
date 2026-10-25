@@ -17,8 +17,8 @@ import os
 import threading
 import uuid
 from dataclasses import dataclass, field
-from enum import IntEnum
 from datetime import UTC, datetime, timedelta
+from enum import IntEnum
 from typing import Any, Literal
 
 from prometheus_client import Counter, Gauge
@@ -122,17 +122,27 @@ def policy_from_env() -> CapacityPolicy:
     """Build the guard policy from ``GOUGH_*`` env vars (non-secret tuning only)."""
     base = CapacityPolicy()
     return CapacityPolicy(
-        snapshot_max_age_s=_env_float("GOUGH_SNAPSHOT_MAX_AGE_S", base.snapshot_max_age_s),
-        reserve_cpu_cores_min=_env_float("GOUGH_RESERVE_CPU_CORES", base.reserve_cpu_cores_min),
+        snapshot_max_age_s=_env_float(
+            "GOUGH_SNAPSHOT_MAX_AGE_S", base.snapshot_max_age_s
+        ),
+        reserve_cpu_cores_min=_env_float(
+            "GOUGH_RESERVE_CPU_CORES", base.reserve_cpu_cores_min
+        ),
         reserve_cpu_pct=_env_float("GOUGH_RESERVE_CPU_PCT", base.reserve_cpu_pct),
         reserve_memory_min_bytes=int(
             _env_float("GOUGH_RESERVE_MEMORY_MIN_GIB", 4.0) * GIB
         ),
-        reserve_memory_pct=_env_float("GOUGH_RESERVE_MEMORY_PCT", base.reserve_memory_pct),
-        reserve_storage_pct=_env_float("GOUGH_RESERVE_STORAGE_PCT", base.reserve_storage_pct),
+        reserve_memory_pct=_env_float(
+            "GOUGH_RESERVE_MEMORY_PCT", base.reserve_memory_pct
+        ),
+        reserve_storage_pct=_env_float(
+            "GOUGH_RESERVE_STORAGE_PCT", base.reserve_storage_pct
+        ),
         cpu_overcommit=_env_float("GOUGH_CPU_OVERCOMMIT", base.cpu_overcommit),
         memory_overcommit=_env_float("GOUGH_MEMORY_OVERCOMMIT", base.memory_overcommit),
-        storage_overcommit=_env_float("GOUGH_STORAGE_OVERCOMMIT", base.storage_overcommit),
+        storage_overcommit=_env_float(
+            "GOUGH_STORAGE_OVERCOMMIT", base.storage_overcommit
+        ),
         pressure_memory_some_avg60_max=_env_float(
             "GOUGH_PRESSURE_MEMORY_SOME_AVG60", base.pressure_memory_some_avg60_max
         ),
@@ -305,10 +315,14 @@ def evaluate_fit(
     reasons: list[str] = list(section_failure_reasons(cap.section_errors))
     warnings: list[str] = []
 
-    cpu_reserve = max(policy.reserve_cpu_cores_min, policy.reserve_cpu_pct * cap.logical_cores)
+    cpu_reserve = max(
+        policy.reserve_cpu_cores_min, policy.reserve_cpu_pct * cap.logical_cores
+    )
     alloc_cpu = max(0.0, cap.logical_cores - cpu_reserve) * policy.cpu_overcommit
     mem_reserve = _reserve_for(policy, cap.memory_total_bytes)
-    alloc_mem = max(0.0, cap.memory_total_bytes - mem_reserve) * policy.memory_overcommit
+    alloc_mem = (
+        max(0.0, cap.memory_total_bytes - mem_reserve) * policy.memory_overcommit
+    )
     alloc: dict[str, float] = {"cpu_cores": alloc_cpu, "memory_bytes": alloc_mem}
 
     committed: dict[str, float] = {
@@ -322,7 +336,10 @@ def evaluate_fit(
 
     if cap.committed.cpu_cores + pending.cpu_cores + request.cpu_cores > alloc_cpu:
         reasons.append("insufficient_cpu")
-    if cap.committed.memory_bytes + pending.memory_bytes + request.memory_bytes > alloc_mem:
+    if (
+        cap.committed.memory_bytes + pending.memory_bytes + request.memory_bytes
+        > alloc_mem
+    ):
         reasons.append("insufficient_memory")
 
     total = cap.pools_total.get(request.pool)
@@ -379,7 +396,10 @@ def guard_disabled() -> bool:
     disabled = _feature_enabled_sync(KILL_SWITCH_FLAG, "")
     capacity_guard_disabled.set(1 if disabled else 0)
     if disabled:
-        log.warning("capacity guard DISABLED by %s; legacy fail-open behaviour active", KILL_SWITCH_FLAG)
+        log.warning(
+            "capacity guard DISABLED by %s; legacy fail-open behaviour active",
+            KILL_SWITCH_FLAG,
+        )
     return disabled
 
 
@@ -414,10 +434,14 @@ def _lock_node_row(conn: Connection, node_id: int) -> None:
     conn.execute(stmt).first()
 
 
-def _load_capacity(conn: Connection, node_id: int, now: datetime) -> HostCapacity | None:
+def _load_capacity(
+    conn: Connection, node_id: int, now: datetime
+) -> HostCapacity | None:
     """Load the node's latest snapshot as a HostCapacity, or None when absent."""
     table = NodeResourceSnapshot.__table__
-    row = conn.execute(select(table).where(table.c.node_id == node_id)).mappings().first()
+    row = (
+        conn.execute(select(table).where(table.c.node_id == node_id)).mappings().first()
+    )
     if row is None:
         return None
     payload: dict[str, Any] = row["payload"]
@@ -426,9 +450,13 @@ def _load_capacity(conn: Connection, node_id: int, now: datetime) -> HostCapacit
     psi_io = pressure.get("io") or {}
     psi_cpu = pressure.get("cpu") or {}
     pools = {p["name"]: int(p["total_bytes"]) for p in payload.get("storage_pools", [])}
-    pools_used = {p["name"]: int(p["used_bytes"]) for p in payload.get("storage_pools", [])}
+    pools_used = {
+        p["name"]: int(p["used_bytes"]) for p in payload.get("storage_pools", [])
+    }
     committed_raw = payload.get("committed", {})
-    disk_committed = {k: int(v) for k, v in (committed_raw.get("disk_bytes") or {}).items()}
+    disk_committed = {
+        k: int(v) for k, v in (committed_raw.get("disk_bytes") or {}).items()
+    }
     age = (now - _aware(row["received_at"])).total_seconds()
     return HostCapacity(
         age_s=age,
@@ -458,12 +486,16 @@ def _opt_float(value: Any) -> float | None:
 def _expire_and_load_pending(conn: Connection, node_id: int, now: datetime) -> Load:
     """Expire overdue reservations for the node, then total the active and confirmed ones."""
     table = CapacityReservation.__table__
-    rows = conn.execute(
-        select(table).where(
-            table.c.node_id == node_id,
-            table.c.status.in_((RESERVATION_ACTIVE, RESERVATION_CONFIRMED)),
+    rows = (
+        conn.execute(
+            select(table).where(
+                table.c.node_id == node_id,
+                table.c.status.in_((RESERVATION_ACTIVE, RESERVATION_CONFIRMED)),
+            )
         )
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     cpu = 0.0
     mem = 0
     disk: dict[str, int] = {}
@@ -528,7 +560,10 @@ def check_fit_for_db(db: Any, node_id: int, request: FitRequest) -> FitResult:
     """
     engine = getattr(db, "engine", None)
     if engine is None:
-        log.error("capacity guard: no database engine on DB handle; refusing node_id=%s", node_id)
+        log.error(
+            "capacity guard: no database engine on DB handle; refusing node_id=%s",
+            node_id,
+        )
         return _refused("no_database_engine")
     return check_fit_sync(engine, node_id, request)
 
@@ -586,18 +621,25 @@ def reserve(
                 )
     _publish_node_gauges(node_id, cap, pol)
     if not fit.ok:
-        log.info("capacity refusal node_id=%s reasons=%s", node_id, ",".join(fit.reasons))
+        log.info(
+            "capacity refusal node_id=%s reasons=%s", node_id, ",".join(fit.reasons)
+        )
     return ReserveResult(fit, reservation_id)
 
 
-def release(engine: Engine, reservation_id: str, *, now: datetime | None = None) -> bool:
+def release(
+    engine: Engine, reservation_id: str, *, now: datetime | None = None
+) -> bool:
     """Release a reservation after a failed placement. Returns True when a row changed."""
     current = now or datetime.now(UTC)
     table = CapacityReservation.__table__
     with engine.begin() as conn:
         result = conn.execute(
             update(table)
-            .where(table.c.public_id == reservation_id, table.c.status == RESERVATION_ACTIVE)
+            .where(
+                table.c.public_id == reservation_id,
+                table.c.status == RESERVATION_ACTIVE,
+            )
             .values(status=RESERVATION_RELEASED, released_at=current)
         )
     return bool(result.rowcount)
@@ -712,9 +754,20 @@ def parse_snapshot(raw: object) -> HostResourceSnapshot:
 
 
 _MEM_UNITS: dict[str, int] = {
-    "": 1, "b": 1,
-    "kb": 1000, "mb": 1000**2, "gb": 1000**3, "tb": 1000**4, "pb": 1000**5, "eb": 1000**6,
-    "kib": 1024, "mib": 1024**2, "gib": 1024**3, "tib": 1024**4, "pib": 1024**5, "eib": 1024**6,
+    "": 1,
+    "b": 1,
+    "kb": 1000,
+    "mb": 1000**2,
+    "gb": 1000**3,
+    "tb": 1000**4,
+    "pb": 1000**5,
+    "eb": 1000**6,
+    "kib": 1024,
+    "mib": 1024**2,
+    "gib": 1024**3,
+    "tib": 1024**4,
+    "pib": 1024**5,
+    "eib": 1024**6,
 }
 
 
@@ -796,7 +849,10 @@ def confirm(
     with engine.begin() as conn:
         result = conn.execute(
             update(table)
-            .where(table.c.public_id == reservation_id, table.c.status == RESERVATION_ACTIVE)
+            .where(
+                table.c.public_id == reservation_id,
+                table.c.status == RESERVATION_ACTIVE,
+            )
             .values(
                 status=RESERVATION_CONFIRMED,
                 confirmed_at=current,
@@ -835,17 +891,22 @@ def record_snapshot(
     if collected < received - timedelta(seconds=limit_age):
         return SnapshotOutcome.TOO_OLD
     table = NodeResourceSnapshot.__table__
-    existing = conn.execute(
-        select(
-            table.c.id,
-            table.c.collected_at,
-            table.c.received_at,
-            table.c.committed_cpu_cores,
-            table.c.committed_memory_bytes,
-        ).where(table.c.node_id == node_id)
-    ).mappings().first()
+    existing = (
+        conn.execute(
+            select(
+                table.c.id,
+                table.c.collected_at,
+                table.c.received_at,
+                table.c.committed_cpu_cores,
+                table.c.committed_memory_bytes,
+            ).where(table.c.node_id == node_id)
+        )
+        .mappings()
+        .first()
+    )
     if existing is not None and (
-        _aware(existing["collected_at"]) > collected or _aware(existing["received_at"]) > received
+        _aware(existing["collected_at"]) > collected
+        or _aware(existing["received_at"]) > received
     ):
         return SnapshotOutcome.OUT_OF_ORDER
 
@@ -899,16 +960,20 @@ def _release_absorbed(
     reservations stay pending until they expire: over-counting is the safe error.
     """
     res = CapacityReservation.__table__
-    rows = conn.execute(
-        select(res)
-        .where(
-            res.c.node_id == node_id,
-            res.c.status == RESERVATION_CONFIRMED,
-            res.c.created_at < cutoff,
-            res.c.confirmed_at < cutoff,
+    rows = (
+        conn.execute(
+            select(res)
+            .where(
+                res.c.node_id == node_id,
+                res.c.status == RESERVATION_CONFIRMED,
+                res.c.created_at < cutoff,
+                res.c.confirmed_at < cutoff,
+            )
+            .order_by(res.c.created_at, res.c.id)
         )
-        .order_by(res.c.created_at, res.c.id)
-    ).mappings().all()
+        .mappings()
+        .all()
+    )
     released = 0
     for row in rows:
         cpu = float(row["cpu_cores"])
@@ -992,7 +1057,9 @@ def link_agent_to_node(
     # legacy agents (NULL tenant) need a cross-tenant caller (expected_tenant None).
     if expected_tenant is not None and agent[1] != expected_tenant:
         return "tenant_mismatch"
-    node = conn.execute(select(nodes.c.id, nodes.c.tenant_id).where(nodes.c.id == node_id)).first()
+    node = conn.execute(
+        select(nodes.c.id, nodes.c.tenant_id).where(nodes.c.id == node_id)
+    ).first()
     if node is None:
         return "node_not_found"
     if expected_tenant is not None and node[1] != expected_tenant:
@@ -1006,11 +1073,15 @@ def link_agent_to_node(
     ).first()
     if clash is not None:
         return "node_already_linked"
-    conn.execute(update(agents).where(agents.c.agent_id == agent_id).values(node_id=node_id))
+    conn.execute(
+        update(agents).where(agents.c.agent_id == agent_id).values(node_id=node_id)
+    )
     return None
 
 
-def resolve_node_by_name(conn: Connection, name: str, tenant_id: str | None = None) -> int | None:
+def resolve_node_by_name(
+    conn: Connection, name: str, tenant_id: str | None = None
+) -> int | None:
     """Return the unique node id named ``name``, tenant-scoped when ``tenant_id`` is given.
 
     Security-relevant callers (agent enrollment/link) must always pass ``tenant_id``.
@@ -1069,12 +1140,16 @@ def place(
     if not candidates:
         return PlacementRefusal({"": ("no_candidate_nodes",)})
     ordered = sorted(
-        candidates.items(), key=lambda kv: _headroom_score(engine, kv[1], current), reverse=True
+        candidates.items(),
+        key=lambda kv: _headroom_score(engine, kv[1], current),
+        reverse=True,
     )
     reasons: dict[str, tuple[str, ...]] = {}
     for member, node_id in ordered:
         result = reserve(engine, node_id, request, now=current, policy=policy)
-        if result.fit.ok:  # reservation_id is None only under the kill switch (legacy pass-through)
+        if (
+            result.fit.ok
+        ):  # reservation_id is None only under the kill switch (legacy pass-through)
             return Placement(node_id, member, result.reservation_id)
         reasons[member] = result.fit.reasons
     return PlacementRefusal(reasons)
@@ -1129,11 +1204,21 @@ def get_capacity_view(
         conn.commit()
     if cap is None:
         return CapacityView(
-            node_id=node_id, has_snapshot=False, fresh=False, snapshot_age_s=None,
-            capacity={}, reserve={}, committed={}, pending={}, allocatable={},
-            pressure={}, warnings=("missing_snapshot",),
+            node_id=node_id,
+            has_snapshot=False,
+            fresh=False,
+            snapshot_age_s=None,
+            capacity={},
+            reserve={},
+            committed={},
+            pending={},
+            allocatable={},
+            pressure={},
+            warnings=("missing_snapshot",),
         )
-    cpu_reserve = max(pol.reserve_cpu_cores_min, pol.reserve_cpu_pct * cap.logical_cores)
+    cpu_reserve = max(
+        pol.reserve_cpu_cores_min, pol.reserve_cpu_pct * cap.logical_cores
+    )
     mem_reserve = _reserve_for(pol, cap.memory_total_bytes)
     fit = evaluate_fit(cap, FitRequest(0.0, 0, 0, pol.default_pool), pending, pol)
     _publish_node_gauges(node_id, cap, pol)
@@ -1214,24 +1299,32 @@ def free_percentages(
     current = now or datetime.now(UTC)
     table = NodeResourceSnapshot.__table__
     with engine.connect() as conn:
-        row = conn.execute(
-            select(
-                table.c.payload,
-                table.c.received_at,
-                table.c.memory_total_bytes,
-                table.c.memory_available_bytes,
-            ).where(table.c.node_id == node_id)
-        ).mappings().first()
+        row = (
+            conn.execute(
+                select(
+                    table.c.payload,
+                    table.c.received_at,
+                    table.c.memory_total_bytes,
+                    table.c.memory_available_bytes,
+                ).where(table.c.node_id == node_id)
+            )
+            .mappings()
+            .first()
+        )
     if row is None:
         return FreePercentages(0.0, 0.0, 0.0, False)
     payload: dict[str, Any] = row["payload"]
-    fresh = (current - _aware(row["received_at"])).total_seconds() <= pol.snapshot_max_age_s
+    fresh = (
+        current - _aware(row["received_at"])
+    ).total_seconds() <= pol.snapshot_max_age_s
     # A snapshot with any failed section is not trustworthy for headroom either.
     fresh = fresh and not payload.get("errors")
     usage = (payload.get("cpu") or {}).get("usage_pct")
     cpu_free = 0.0 if usage is None else max(0.0, 100.0 - float(usage))
     total_mem = int(row["memory_total_bytes"])
-    mem_free = (int(row["memory_available_bytes"]) / total_mem * 100.0) if total_mem else 0.0
+    mem_free = (
+        (int(row["memory_available_bytes"]) / total_mem * 100.0) if total_mem else 0.0
+    )
     ratios: list[float] = []
     for pool in payload.get("storage_pools", []):
         total = int(pool["total_bytes"])
@@ -1244,7 +1337,9 @@ def free_percentages(
     return FreePercentages(cpu_free, mem_free, disk_free, fresh)
 
 
-def _publish_node_gauges(node_id: int, cap: HostCapacity | None, policy: CapacityPolicy) -> None:
+def _publish_node_gauges(
+    node_id: int, cap: HostCapacity | None, policy: CapacityPolicy
+) -> None:
     """Refresh the per-node gauges from a snapshot view. No-op when no snapshot."""
     label = str(node_id)
     if cap is None:

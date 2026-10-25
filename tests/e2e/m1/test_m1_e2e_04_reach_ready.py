@@ -1,8 +1,9 @@
 """M1 E2E Test 04: Sim node reaches `ready` state."""
 
-import pytest
 import time
 import uuid
+
+import pytest
 
 
 def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
@@ -16,7 +17,7 @@ def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
     print("\n[m1-e2e-04] Starting reach-ready test")
 
     dmi_uuid = str(uuid.uuid4())
-    sim_node = sim_node_factory(firmware="bios", smart_pattern="healthy", dmi_uuid=dmi_uuid)
+    sim_node_factory(firmware="bios", smart_pattern="healthy", dmi_uuid=dmi_uuid)
 
     # Get node to probed state (reuse polling logic)
     max_retries = 300
@@ -25,7 +26,9 @@ def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
         resp = api_client.get("/api/v1/nodes", timeout=5)
         if resp.status_code == 200:
             nodes = resp.json().get("nodes", [])
-            probed_node = next((n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None)
+            probed_node = next(
+                (n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None
+            )
 
             if probed_node and probed_node.get("state") == "probed":
                 node_id = probed_node.get("id")
@@ -39,7 +42,7 @@ def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
     # Submit and approve disk plan
     disk_plan = {
         "node_id": node_id,
-        "disks": [{"serial": "DISK-SYSTEM-001", "action": "format_and_deploy"}]
+        "disks": [{"serial": "DISK-SYSTEM-001", "action": "format_and_deploy"}],
     }
 
     resp = api_client.post("/api/v1/plans", data=disk_plan, timeout=10)
@@ -47,7 +50,9 @@ def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
 
     plan_id = resp.json().get("id")
 
-    resp = api_client.post(f"/api/v1/plans/{plan_id}/approve", data={"force": False}, timeout=10)
+    resp = api_client.post(
+        f"/api/v1/plans/{plan_id}/approve", data={"force": False}, timeout=10
+    )
     assert resp.status_code == 200
 
     print(f"[m1-e2e-04] Plan {plan_id} approved, waiting for 'ready' state...")
@@ -69,11 +74,13 @@ def test_m1_e2e_04_reach_ready(primary_cluster, sim_node_factory, api_client):
                 print(f"[m1-e2e-04] Node reached 'ready' state after {ready_time:.1f}s")
 
                 # Validate biome readiness probe passed
-                assert node.get("readiness_probe_passed"), "Biome readiness probe did not pass"
+                assert node.get(
+                    "readiness_probe_passed"
+                ), "Biome readiness probe did not pass"
 
                 # Check kubectl integration (mock in test env)
                 # In real environment, this would run: kubectl get nodes <node_name>
-                print(f"[m1-e2e-04] Node is kubectl-ready")
+                print("[m1-e2e-04] Node is kubectl-ready")
                 return  # Test passed
 
             elif state in ["failed", "error"]:

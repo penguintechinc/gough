@@ -9,14 +9,12 @@ to clients. Assertions are on the returned values, not on call execution.
 from __future__ import annotations
 
 from types import SimpleNamespace
-from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from app.api import _helpers as h
 from pydantic import BaseModel
 from quart import Quart
-
-from app.api import _helpers as h
 
 
 @pytest.mark.parametrize(
@@ -29,12 +27,16 @@ from app.api import _helpers as h
         ("gpu:vendor:nvidia:count:4", ("gpu:vendor:nvidia:count", 4.0)),
     ],
 )
-def test_numeric_tags_split_into_prefix_and_normalised_value(tag: str, expected: tuple) -> None:
+def test_numeric_tags_split_into_prefix_and_normalised_value(
+    tag: str, expected: tuple
+) -> None:
     """Numeric-bucketed tags yield their kind prefix and a value in comparable units."""
     assert h._split_numeric_tag(tag) == expected
 
 
-@pytest.mark.parametrize("tag", ["rack:a1", "mem:total-gb:lots", "unknown:kind:4", "nope"])
+@pytest.mark.parametrize(
+    "tag", ["rack:a1", "mem:total-gb:lots", "unknown:kind:4", "nope"]
+)
 def test_non_numeric_or_unknown_kind_tags_are_categorical(tag: str) -> None:
     """Tags without a numeric kind or with a non-numeric value are not bucketed."""
     assert h._split_numeric_tag(tag) is None
@@ -42,7 +44,15 @@ def test_non_numeric_or_unknown_kind_tags_are_categorical(tag: str) -> None:
 
 def test_normalize_tags_handles_strings_dicts_and_junk() -> None:
     """Strings are trimmed, key/value dicts become k:v, and None or non-mapping junk is dropped."""
-    tags = [" rack:a1 ", "", None, {"tag_key": "site", "tag_value": "dc1"}, {"key": "x", "value": "y"}, 42, {"tag_key": "", "value": "z"}]
+    tags = [
+        " rack:a1 ",
+        "",
+        None,
+        {"tag_key": "site", "tag_value": "dc1"},
+        {"key": "x", "value": "y"},
+        42,
+        {"tag_key": "", "value": "z"},
+    ]
 
     assert h._normalize_tags(tags) == ["rack:a1", "site:dc1", "x:y"]
 
@@ -88,7 +98,9 @@ def test_missing_categorical_and_undersized_numeric_reported() -> None:
 
 def test_absent_numeric_kind_is_missing() -> None:
     """A numeric requirement for a kind the node never declares is missing."""
-    result = h.check_tag_eligibility(requires=["psu:rated-watts:800"], forbids=None, node_tags=[])
+    result = h.check_tag_eligibility(
+        requires=["psu:rated-watts:800"], forbids=None, node_tags=[]
+    )
 
     assert result.eligible is False
     assert result.missing_tags == ["psu:rated-watts:800"]

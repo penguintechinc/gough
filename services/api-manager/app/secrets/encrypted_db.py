@@ -16,11 +16,7 @@ from cryptography.fernet import Fernet, InvalidToken
 from quart import current_app
 
 from ..models import get_db
-from .base import (
-    BaseSecretsManager,
-    SecretNotFoundError,
-    SecretsManagerError,
-)
+from .base import BaseSecretsManager, SecretNotFoundError, SecretsManagerError
 
 log = logging.getLogger(__name__)
 
@@ -98,6 +94,7 @@ class EncryptedDBSecretsManager(BaseSecretsManager):
 
     async def get_secret(self, path: str) -> dict[str, Any]:
         """Retrieve a secret from the database."""
+
         def _get():
             db = get_db()
             row = db(db.encrypted_secrets.path == path).select().first()
@@ -122,10 +119,7 @@ class EncryptedDBSecretsManager(BaseSecretsManager):
                     encrypted_data=encrypted_data
                 )
             else:
-                db.encrypted_secrets.insert(
-                    path=path,
-                    encrypted_data=encrypted_data
-                )
+                db.encrypted_secrets.insert(path=path, encrypted_data=encrypted_data)
 
             db.commit()
 
@@ -135,6 +129,7 @@ class EncryptedDBSecretsManager(BaseSecretsManager):
 
     async def delete_secret(self, path: str) -> bool:
         """Delete a secret from the database."""
+
         def _delete():
             db = get_db()
             deleted = db(db.encrypted_secrets.path == path).delete()
@@ -150,18 +145,17 @@ class EncryptedDBSecretsManager(BaseSecretsManager):
 
     async def list_secrets(self, path: str = "") -> list[str]:
         """List all secrets, optionally filtered by path prefix."""
+
         def _list():
             db = get_db()
             if path:
                 # Filter by path prefix
                 rows = db(db.encrypted_secrets.path.startswith(path)).select(
-                    db.encrypted_secrets.path,
-                    orderby=db.encrypted_secrets.path
+                    db.encrypted_secrets.path, orderby=db.encrypted_secrets.path
                 )
             else:
                 rows = db(db.encrypted_secrets).select(
-                    db.encrypted_secrets.path,
-                    orderby=db.encrypted_secrets.path
+                    db.encrypted_secrets.path, orderby=db.encrypted_secrets.path
                 )
             return [row.path for row in rows]
 

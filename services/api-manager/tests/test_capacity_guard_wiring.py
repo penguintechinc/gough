@@ -13,14 +13,9 @@ from typing import Any
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-
 from app.clouds.base import CloudError, MachineSpec
 from app.clouds.lxd import LXDCloud, ResourceLimitsRequiredError
-from app.workers.migration_engine import (
-    BiomeSnapshot,
-    NodeSnapshot,
-    _violates_headroom,
-)
+from app.workers.migration_engine import BiomeSnapshot, NodeSnapshot, _violates_headroom
 
 API_ROOT = Path(__file__).resolve().parent.parent
 
@@ -54,26 +49,37 @@ def _lxd() -> LXDCloud:
 )
 def test_lxd_create_requires_limits(size: Any, storage_gb: int) -> None:
     """Missing cpu, memory, or root disk size is refused before any LXD call."""
-    spec = MachineSpec(name="web-1", image="ubuntu-22.04", size=size, storage_gb=storage_gb)
+    spec = MachineSpec(
+        name="web-1", image="ubuntu-22.04", size=size, storage_gb=storage_gb
+    )
     with pytest.raises(ResourceLimitsRequiredError, match="resource limits required"):
         _lxd().create_machine(spec)
 
 
-def test_lxd_limits_built_from_size_with_hard_enforcement(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_lxd_limits_built_from_size_with_hard_enforcement(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """With full limits, config carries limits.cpu, limits.memory and enforce=hard."""
     captured: dict[str, Any] = {}
     cloud = _lxd()
 
     class _Instances:
-        def create(self, body: dict[str, Any], wait: bool, target: str | None = None) -> Any:
+        def create(
+            self, body: dict[str, Any], wait: bool, target: str | None = None
+        ) -> Any:
             captured.update(body)
             captured["_target"] = target
             raise RuntimeError("stop after config build")
 
     cloud._client = type("C", (), {"instances": _Instances()})()
-    monkeypatch.setattr(cloud, "_parse_image_source", lambda image: {"type": "image", "alias": image})
+    monkeypatch.setattr(
+        cloud, "_parse_image_source", lambda image: {"type": "image", "alias": image}
+    )
     spec = MachineSpec(
-        name="web-1", image="ubuntu-22.04", size="2/4GiB", storage_gb=20,
+        name="web-1",
+        image="ubuntu-22.04",
+        size="2/4GiB",
+        storage_gb=20,
         extra={"capacity_guarded": True, "target": "member-b"},
     )
     with pytest.raises(RuntimeError, match="stop after config build"):
@@ -96,7 +102,11 @@ def test_lxd_create_refused_without_guarded_placement() -> None:
 def _biome() -> BiomeSnapshot:
     """A biome with no tag requirements and zero expected load."""
     return BiomeSnapshot(
-        biome_instance_id=1, biome_id=1, biome_kind="lxd_container", src_node_id=99, lock_to_host=False
+        biome_instance_id=1,
+        biome_id=1,
+        biome_kind="lxd_container",
+        src_node_id=99,
+        lock_to_host=False,
     )
 
 

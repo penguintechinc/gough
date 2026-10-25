@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-import dataclasses
 import datetime as _dt
 import hashlib
 import hmac
@@ -32,7 +31,7 @@ import json
 import logging
 import os
 import secrets as _secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Awaitable, Callable, Iterable, Optional
 
 import httpx
@@ -52,13 +51,13 @@ log = logging.getLogger(__name__)
 # Spec: explicit per-attempt delays (attempt #1 is immediate; subsequent retries
 # wait these durations between attempts). Max attempts = 1 + len(_RETRY_DELAYS).
 _RETRY_DELAYS_SECONDS: tuple[float, ...] = (
-    1.0,           # 1s
-    5.0,           # 5s
-    30.0,          # 30s
-    5 * 60.0,      # 5m
-    30 * 60.0,     # 30m
-    2 * 3600.0,    # 2h
-    12 * 3600.0,   # 12h
+    1.0,  # 1s
+    5.0,  # 5s
+    30.0,  # 30s
+    5 * 60.0,  # 5m
+    30 * 60.0,  # 30m
+    2 * 3600.0,  # 2h
+    12 * 3600.0,  # 12h
 )
 MAX_ATTEMPTS: int = 1 + len(_RETRY_DELAYS_SECONDS)  # = 8
 
@@ -166,9 +165,7 @@ class WebhookDispatcher:
         http_client: Optional[httpx.AsyncClient] = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         nats_publisher: Optional[Callable[[str, bytes], Awaitable[None]]] = None,
-        endpoint_loader: Optional[
-            Callable[[str], Iterable[WebhookEndpoint]]
-        ] = None,
+        endpoint_loader: Optional[Callable[[str], Iterable[WebhookEndpoint]]] = None,
     ) -> None:
         self._db = db_session
         self._key_mgr = WebhookKeyManager(vault_client)

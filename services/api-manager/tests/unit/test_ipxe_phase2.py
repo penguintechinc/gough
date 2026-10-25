@@ -8,11 +8,6 @@ Covers:
 
 from __future__ import annotations
 
-from typing import Any
-from unittest.mock import MagicMock, patch
-
-import pytest
-
 from app.api.ipxe import _render_deploy_ipxe_script
 
 
@@ -63,7 +58,7 @@ class TestRenderPhase2DeployScript:
 
         # Should have boot command and fallback handling
         assert "boot" in result
-        assert ("fallback" in result or "goto" in result)
+        assert "fallback" in result or "goto" in result
 
     def test_uses_primary_url_for_artifacts(self) -> None:
         """Kernel/initrd URLs use primary_url parameter."""

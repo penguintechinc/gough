@@ -92,12 +92,18 @@ def agent_pg_db(pg_url: str, _pg_schema: None) -> Iterator[DB]:
         table_names = [name for name in db.tables if name != "alembic_version"]
         if table_names:
             quoted = ", ".join(f'"{name}"' for name in table_names)
-            db.executesql(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE", check_injection=False)
+            db.executesql(
+                f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE",
+                check_injection=False,
+            )
         yield db
         table_names = [name for name in db.tables if name != "alembic_version"]
         if table_names:
             quoted = ", ".join(f'"{name}"' for name in table_names)
-            db.executesql(f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE", check_injection=False)
+            db.executesql(
+                f"TRUNCATE TABLE {quoted} RESTART IDENTITY CASCADE",
+                check_injection=False,
+            )
     finally:
         db.close()
 
@@ -109,16 +115,22 @@ def agents_pg_client(agent_pg_db: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
 
     monkeypatch.setattr(mw_mod, "auth_required", _passthrough_decorator)
     monkeypatch.setattr(mw_mod, "roles_required", _passthrough_decorator)
-    monkeypatch.setattr(mw_mod, "get_current_user", lambda: {
-        "id": "test-user-id",
-        "username": "test-user",
-        "role": "admin",
-    })
+    monkeypatch.setattr(
+        mw_mod,
+        "get_current_user",
+        lambda: {
+            "id": "test-user-id",
+            "username": "test-user",
+            "role": "admin",
+        },
+    )
 
     import app.audit as audit_mod
+
     monkeypatch.setattr(audit_mod, "get_audit_logger", lambda: None)
 
     import app.api.agents as agents_mod
+
     agents_mod = importlib.reload(agents_mod)
     monkeypatch.setattr(agents_mod, "get_db", lambda: agent_pg_db)
 
@@ -130,7 +142,11 @@ def agents_pg_client(agent_pg_db: Any, monkeypatch: pytest.MonkeyPatch) -> Any:
 
     @app.before_request
     async def _inject_auth() -> None:
-        g.current_user = {"id": "test-user-id", "username": "test-user", "role": "admin"}
+        g.current_user = {
+            "id": "test-user-id",
+            "username": "test-user",
+            "role": "admin",
+        }
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
     return app.test_client()
@@ -175,13 +191,18 @@ class TestEnrollAgentConcurrency:
         )
 
         statuses = sorted([resp_a.status_code, resp_b.status_code])
-        assert statuses == [201, 409], (
-            f"expected exactly one 201 (winner) and one 409 (loser), got {statuses}"
-        )
+        assert statuses == [
+            201,
+            409,
+        ], f"expected exactly one 201 (winner) and one 409 (loser), got {statuses}"
 
         # DB-level proof, not just the HTTP-layer proof above: the key was
         # consumed exactly once, and exactly one agent row exists for it.
-        key_row = agent_pg_db(agent_pg_db.enrollment_keys.key_hash == key_hash).select().first()
+        key_row = (
+            agent_pg_db(agent_pg_db.enrollment_keys.key_hash == key_hash)
+            .select()
+            .first()
+        )
         assert key_row.is_used is True
 
         agents = agent_pg_db(

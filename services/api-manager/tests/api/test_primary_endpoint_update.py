@@ -12,13 +12,12 @@ from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock
 
+import app.api.primary as primary
 import grpc
 import pytest
-from quart import Quart
-
-import app.api.primary as primary
 from app.audit import AuditLogger
 from app.grpc.gough import discovery_pb2_grpc
+from quart import Quart
 
 
 class _Col:
@@ -68,17 +67,23 @@ class _Stub:
     def __init__(self, channel: Any) -> None:
         self.channel = channel
 
-    def ExecCommand(self, req: Any, timeout: float) -> Any:  # noqa: N802 - gRPC method name
+    def ExecCommand(
+        self, req: Any, timeout: float
+    ) -> Any:  # noqa: N802 - gRPC method name
         _Stub.last_request = (req, timeout)
         return _Stub.behaviour(req, timeout)
 
 
-def _node(ipv4: str | None = "10.0.0.5", ipv6: str | None = None, family: str | None = None) -> Any:
+def _node(
+    ipv4: str | None = "10.0.0.5", ipv6: str | None = None, family: str | None = None
+) -> Any:
     """Return a node row with the given address columns."""
     return SimpleNamespace(ipv4=ipv4, ipv6=ipv6, preferred_addr_family=family)
 
 
-async def _call(endpoint: str, node_ids: list[int], app: Quart | None = None) -> dict[int, dict[str, Any]]:
+async def _call(
+    endpoint: str, node_ids: list[int], app: Quart | None = None
+) -> dict[int, dict[str, Any]]:
     """Run the helper inside an app context (it reads ``current_app.extensions``)."""
     app = app or Quart(__name__)
     async with app.app_context():
@@ -135,7 +140,9 @@ async def test_node_without_any_address_is_rejected(
     assert harness["targets"] == []
 
 
-async def test_ipv4_preferred_by_default(monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]) -> None:
+async def test_ipv4_preferred_by_default(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]
+) -> None:
     """Without an explicit family preference the ipv4 address is dialled on port 50051."""
     _install_db(monkeypatch, {1: _node(ipv4="10.0.0.5", ipv6="fd00::5")})
 
@@ -144,7 +151,9 @@ async def test_ipv4_preferred_by_default(monkeypatch: pytest.MonkeyPatch, harnes
     assert harness["targets"] == ["10.0.0.5:50051"]
 
 
-async def test_ipv6_preferred_when_family_is_ipv6(monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]) -> None:
+async def test_ipv6_preferred_when_family_is_ipv6(
+    monkeypatch: pytest.MonkeyPatch, harness: dict[str, Any]
+) -> None:
     """preferred_addr_family=IPv6 (any case) dials the ipv6 address."""
     _install_db(monkeypatch, {1: _node(ipv4="10.0.0.5", ipv6="fd00::5", family="IPV6")})
 
@@ -187,7 +196,9 @@ async def test_nonzero_exit_reports_code_and_output(
 ) -> None:
     """A non-zero exit is a failure carrying both the exit code and the script output."""
     _install_db(monkeypatch, {1: _node()})
-    _Stub.behaviour = lambda req, timeout: SimpleNamespace(exit_code=2, output="kube-vip missing")
+    _Stub.behaviour = lambda req, timeout: SimpleNamespace(
+        exit_code=2, output="kube-vip missing"
+    )
 
     result = await _call("10.0.0.100", [1])
 

@@ -128,7 +128,9 @@ class GCPCloud(BaseCloud):
                     str(creds_path),
                     scopes=["https://www.googleapis.com/auth/cloud-platform"],
                 )
-                log.info("Using service account credentials from %s", self.credentials_file)
+                log.info(
+                    "Using service account credentials from %s", self.credentials_file
+                )
             else:
                 # Use Application Default Credentials
                 log.info("Using Application Default Credentials for GCP")
@@ -246,7 +248,9 @@ class GCPCloud(BaseCloud):
         return Machine(
             id=str(instance.id) if hasattr(instance, "id") else "",
             name=instance.name if hasattr(instance, "name") else "",
-            state=self._map_state(instance.status if hasattr(instance, "status") else ""),
+            state=self._map_state(
+                instance.status if hasattr(instance, "status") else ""
+            ),
             provider=self.provider_type,
             provider_id=self.provider_id,
             region=zone,
@@ -329,8 +333,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import NotFound
+            from google.cloud import compute_v1
 
             # GCP primarily uses instance names, but we support IDs too
             # First try as a name
@@ -377,8 +381,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import ResourceExhausted
+            from google.cloud import compute_v1
 
             zone = spec.region if spec.region else self.zone
             machine_type = f"zones/{zone}/machineTypes/{spec.size}"
@@ -423,9 +427,7 @@ class GCPCloud(BaseCloud):
             # Add SSH keys
             if spec.ssh_keys:
                 # GCP format: username:ssh-key
-                ssh_keys_value = "\n".join(
-                    f"gough:{key}" for key in spec.ssh_keys
-                )
+                ssh_keys_value = "\n".join(f"gough:{key}" for key in spec.ssh_keys)
                 metadata_items.append(
                     compute_v1.Items(key="ssh-keys", value=ssh_keys_value)
                 )
@@ -525,12 +527,12 @@ class GCPCloud(BaseCloud):
                 pass
 
         # Fallback: assume it's a family in ubuntu-os-cloud
-        log.warning("Could not resolve image %s, using as family in ubuntu-os-cloud", image_spec)
+        log.warning(
+            "Could not resolve image %s, using as family in ubuntu-os-cloud", image_spec
+        )
         return f"projects/ubuntu-os-cloud/global/images/family/{image_spec}"
 
-    def _build_network_interfaces(
-        self, spec: MachineSpec, zone: str
-    ) -> list:
+    def _build_network_interfaces(self, spec: MachineSpec, zone: str) -> list:
         """Build network interface configuration.
 
         Args:
@@ -597,6 +599,7 @@ class GCPCloud(BaseCloud):
             CloudError: If operation fails or times out
         """
         import time
+
         from google.cloud import compute_v1
 
         operations_client = compute_v1.ZoneOperationsClient()
@@ -636,8 +639,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import NotFound
+            from google.cloud import compute_v1
 
             request = compute_v1.DeleteInstanceRequest(
                 project=self.project_id,
@@ -674,8 +677,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import NotFound
+            from google.cloud import compute_v1
 
             request = compute_v1.StartInstanceRequest(
                 project=self.project_id,
@@ -712,8 +715,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import NotFound
+            from google.cloud import compute_v1
 
             request = compute_v1.StopInstanceRequest(
                 project=self.project_id,
@@ -750,8 +753,8 @@ class GCPCloud(BaseCloud):
         self._ensure_authenticated()
 
         try:
-            from google.cloud import compute_v1
             from google.api_core.exceptions import NotFound
+            from google.cloud import compute_v1
 
             request = compute_v1.ResetInstanceRequest(
                 project=self.project_id,
@@ -804,19 +807,24 @@ class GCPCloud(BaseCloud):
 
                 # Apply family filter
                 if family_filter:
-                    if not hasattr(image, "family") or family_filter not in image.family:
+                    if (
+                        not hasattr(image, "family")
+                        or family_filter not in image.family
+                    ):
                         continue
 
-                images.append({
-                    "id": str(image.id) if hasattr(image, "id") else "",
-                    "name": image.name if hasattr(image, "name") else "",
-                    "family": getattr(image, "family", ""),
-                    "description": getattr(image, "description", ""),
-                    "status": getattr(image, "status", ""),
-                    "disk_size_gb": getattr(image, "disk_size_gb", 0),
-                    "self_link": getattr(image, "self_link", ""),
-                    "creation_timestamp": getattr(image, "creation_timestamp", ""),
-                })
+                images.append(
+                    {
+                        "id": str(image.id) if hasattr(image, "id") else "",
+                        "name": image.name if hasattr(image, "name") else "",
+                        "family": getattr(image, "family", ""),
+                        "description": getattr(image, "description", ""),
+                        "status": getattr(image, "status", ""),
+                        "disk_size_gb": getattr(image, "disk_size_gb", 0),
+                        "self_link": getattr(image, "self_link", ""),
+                        "creation_timestamp": getattr(image, "creation_timestamp", ""),
+                    }
+                )
 
             return images
 
@@ -850,15 +858,17 @@ class GCPCloud(BaseCloud):
 
             sizes = []
             for mt in machine_types:
-                sizes.append({
-                    "id": str(mt.id) if hasattr(mt, "id") else "",
-                    "name": mt.name if hasattr(mt, "name") else "",
-                    "description": getattr(mt, "description", ""),
-                    "vcpus": getattr(mt, "guest_cpus", 0),
-                    "memory_mb": getattr(mt, "memory_mb", 0),
-                    "is_shared_cpu": getattr(mt, "is_shared_cpu", False),
-                    "zone": zone,
-                })
+                sizes.append(
+                    {
+                        "id": str(mt.id) if hasattr(mt, "id") else "",
+                        "name": mt.name if hasattr(mt, "name") else "",
+                        "description": getattr(mt, "description", ""),
+                        "vcpus": getattr(mt, "guest_cpus", 0),
+                        "memory_mb": getattr(mt, "memory_mb", 0),
+                        "is_shared_cpu": getattr(mt, "is_shared_cpu", False),
+                        "zone": zone,
+                    }
+                )
 
             return sizes
 
@@ -885,13 +895,15 @@ class GCPCloud(BaseCloud):
                 # Extract region from zone name (e.g., us-central1-a -> us-central1)
                 region = "-".join(zone.name.split("-")[:2]) if zone.name else ""
 
-                regions.append({
-                    "id": str(zone.id) if hasattr(zone, "id") else "",
-                    "name": zone.name if hasattr(zone, "name") else "",
-                    "region": region,
-                    "status": getattr(zone, "status", ""),
-                    "description": getattr(zone, "description", ""),
-                })
+                regions.append(
+                    {
+                        "id": str(zone.id) if hasattr(zone, "id") else "",
+                        "name": zone.name if hasattr(zone, "name") else "",
+                        "region": region,
+                        "status": getattr(zone, "status", ""),
+                        "description": getattr(zone, "description", ""),
+                    }
+                )
 
             return regions
 
@@ -942,14 +954,20 @@ class GCPCloud(BaseCloud):
 
             result = []
             for network in networks:
-                result.append({
-                    "id": str(network.id) if hasattr(network, "id") else "",
-                    "name": network.name if hasattr(network, "name") else "",
-                    "description": getattr(network, "description", ""),
-                    "self_link": getattr(network, "self_link", ""),
-                    "auto_create_subnetworks": getattr(network, "auto_create_subnetworks", False),
-                    "routing_mode": getattr(network, "routing_config", {}).get("routing_mode", ""),
-                })
+                result.append(
+                    {
+                        "id": str(network.id) if hasattr(network, "id") else "",
+                        "name": network.name if hasattr(network, "name") else "",
+                        "description": getattr(network, "description", ""),
+                        "self_link": getattr(network, "self_link", ""),
+                        "auto_create_subnetworks": getattr(
+                            network, "auto_create_subnetworks", False
+                        ),
+                        "routing_mode": getattr(network, "routing_config", {}).get(
+                            "routing_mode", ""
+                        ),
+                    }
+                )
 
             return result
 
@@ -975,23 +993,27 @@ class GCPCloud(BaseCloud):
             for fw in firewalls:
                 allowed = []
                 for rule in getattr(fw, "allowed", []):
-                    allowed.append({
-                        "protocol": getattr(rule, "I_p_protocol", ""),
-                        "ports": list(getattr(rule, "ports", [])),
-                    })
+                    allowed.append(
+                        {
+                            "protocol": getattr(rule, "I_p_protocol", ""),
+                            "ports": list(getattr(rule, "ports", [])),
+                        }
+                    )
 
-                result.append({
-                    "id": str(fw.id) if hasattr(fw, "id") else "",
-                    "name": fw.name if hasattr(fw, "name") else "",
-                    "description": getattr(fw, "description", ""),
-                    "network": getattr(fw, "network", "").split("/")[-1],
-                    "direction": getattr(fw, "direction", ""),
-                    "priority": getattr(fw, "priority", 1000),
-                    "source_ranges": list(getattr(fw, "source_ranges", [])),
-                    "target_tags": list(getattr(fw, "target_tags", [])),
-                    "allowed": allowed,
-                    "disabled": getattr(fw, "disabled", False),
-                })
+                result.append(
+                    {
+                        "id": str(fw.id) if hasattr(fw, "id") else "",
+                        "name": fw.name if hasattr(fw, "name") else "",
+                        "description": getattr(fw, "description", ""),
+                        "network": getattr(fw, "network", "").split("/")[-1],
+                        "direction": getattr(fw, "direction", ""),
+                        "priority": getattr(fw, "priority", 1000),
+                        "source_ranges": list(getattr(fw, "source_ranges", [])),
+                        "target_tags": list(getattr(fw, "target_tags", [])),
+                        "allowed": allowed,
+                        "disabled": getattr(fw, "disabled", False),
+                    }
+                )
 
             return result
 
@@ -1114,6 +1136,7 @@ class GCPCloud(BaseCloud):
             CloudError: If operation fails or times out
         """
         import time
+
         from google.cloud import compute_v1
 
         operations_client = compute_v1.GlobalOperationsClient()

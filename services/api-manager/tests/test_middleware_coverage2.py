@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
+
 import pytest
 from quart import Quart, g, jsonify
 
@@ -17,6 +18,7 @@ def _make_app() -> Quart:
 
 def _make_token(app: Quart, **kwargs) -> str:
     import jwt as pyjwt
+
     payload = {
         "sub": "1",
         "type": "access",
@@ -70,7 +72,9 @@ class TestRoleRequiredDecorator:
         """role_required accepts a token whose scope satisfies the role bundle."""
         app = _make_app()
 
-        with patch("app.security.scope_enforcement.extract_scopes_from_jwt") as mock_extract:
+        with patch(
+            "app.security.scope_enforcement.extract_scopes_from_jwt"
+        ) as mock_extract:
             with patch("app.security.scope_enforcement.check_scopes") as mock_check:
                 from app.middleware import role_required
 
@@ -82,7 +86,10 @@ class TestRoleRequiredDecorator:
                     return jsonify({"ok": True}), 200
 
                 async with app.test_request_context("/"):
-                    g.current_user = {**_FAKE_ADMIN, "_jwt_payload": {"scope": "gough.cluster.admin"}}
+                    g.current_user = {
+                        **_FAKE_ADMIN,
+                        "_jwt_payload": {"scope": "gough.cluster.admin"},
+                    }
                     response, status = await protected()
                     assert status == 200
                     mock_check.assert_called()
@@ -112,7 +119,7 @@ class TestRecordRequestMetrics:
         mock_response.status_code = 200
 
         with patch("app.metrics.api_request_latency_seconds") as mock_latency:
-            with patch("app.metrics.api_error_total") as mock_error:
+            with patch("app.metrics.api_error_total"):
                 async with app.test_request_context("/api/v1/users/123", method="GET"):
                     g.request_started_at = time.perf_counter()
                     result = await _record_request_metrics(mock_response)
@@ -148,7 +155,10 @@ class TestRecordRequestMetrics:
         mock_response = MagicMock()
         mock_response.status_code = 200
 
-        with patch("app.metrics.api_request_latency_seconds", side_effect=Exception("metric error")):
+        with patch(
+            "app.metrics.api_request_latency_seconds",
+            side_effect=Exception("metric error"),
+        ):
             async with app.test_request_context("/api/v1/test", method="GET"):
                 result = await _record_request_metrics(mock_response)
                 assert result == mock_response

@@ -23,7 +23,9 @@ def _columns() -> set[str]:
 def upgrade() -> None:
     """Add the nullable tenant column and its index (legacy rows stay NULL)."""
     if "tenant_id" not in _columns():
-        op.add_column("access_agents", sa.Column("tenant_id", sa.String(255), nullable=True))
+        op.add_column(
+            "access_agents", sa.Column("tenant_id", sa.String(255), nullable=True)
+        )
         op.create_index("ix_access_agents_tenant_id", "access_agents", ["tenant_id"])
 
 

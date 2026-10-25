@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
+import pytest
 from app.workers.capacity_predictor import (
     CapacityPredictor,
     ClusterUsageSnapshot,
@@ -17,8 +17,12 @@ def prometheus_mock():
     """Mock Prometheus client."""
     client = AsyncMock()
     client.snapshot_node_usage.return_value = [
-        NodeUsageSnapshot(node_id=1, cpu_used_pct=30.0, ram_used_pct=50.0, disk_used_pct=60.0),
-        NodeUsageSnapshot(node_id=2, cpu_used_pct=25.0, ram_used_pct=45.0, disk_used_pct=55.0),
+        NodeUsageSnapshot(
+            node_id=1, cpu_used_pct=30.0, ram_used_pct=50.0, disk_used_pct=60.0
+        ),
+        NodeUsageSnapshot(
+            node_id=2, cpu_used_pct=25.0, ram_used_pct=45.0, disk_used_pct=55.0
+        ),
     ]
     client.snapshot_cluster_usage.return_value = ClusterUsageSnapshot(
         cpu_used_pct=27.5, ram_used_pct=47.5, disk_used_pct=57.5
@@ -98,6 +102,7 @@ async def test_compute_risks_returns_empty_on_unavailable(predictor, waddleai_mo
 @pytest.mark.asyncio
 async def test_confidence_aggregation_returns_minimum(predictor):
     """Test that confidence aggregation returns the minimum confidence across metrics."""
+
     # Mock _forecast_metric to return different confidences for each metric
     async def mock_forecast_metric(node_id, metric, current_value, horizon_days):
         if metric == "cpu_used_pct":

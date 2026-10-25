@@ -29,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from app.clients.vault import VaultClient, VaultSealedError, VaultTransitKeyMissing
+from app.clients.vault import VaultClient, VaultSealedError
 from app.security.audit_chain import insert_genesis_row
 
 logger = logging.getLogger(__name__)
@@ -160,7 +160,9 @@ def init_lxd_cluster(ha: bool) -> None:
 
     logger.info("Verifying LXD cluster trust list")
     try:
-        subprocess.run(["lxc", "config", "trust", "list"], check=True, capture_output=True)
+        subprocess.run(
+            ["lxc", "config", "trust", "list"], check=True, capture_output=True
+        )
         logger.info("LXD trust list verified")
     except subprocess.CalledProcessError as e:
         logger.error(f"LXD trust verify failed: {e.stderr.decode()}")
@@ -292,9 +294,7 @@ def bootstrap_spire(cluster_id: str) -> int:
     """
     logger.info("Checking SPIRE server health")
     try:
-        subprocess.run(
-            ["spire-server", "healthcheck"], check=True, capture_output=True
-        )
+        subprocess.run(["spire-server", "healthcheck"], check=True, capture_output=True)
         logger.info("SPIRE server healthy")
     except subprocess.CalledProcessError as e:
         logger.error(f"SPIRE server healthcheck failed: {e.stderr.decode()}")
@@ -366,12 +366,12 @@ def insert_genesis_audit_row(db_session: Any, cluster_id: str) -> None:
 
 #: Where the cluster descriptor is persisted. Overridable (``GOUGH_CLUSTER_JSON``) so tests and
 #: non-root dev runs never write under /etc.
-CLUSTER_JSON_PATH = Path(os.environ.get("GOUGH_CLUSTER_JSON", "/etc/gough/cluster.json"))
+CLUSTER_JSON_PATH = Path(
+    os.environ.get("GOUGH_CLUSTER_JSON", "/etc/gough/cluster.json")
+)
 
 
-def persist_cluster_json(
-    cluster_id: str, lxd_channel: str, host_tier: str
-) -> None:
+def persist_cluster_json(cluster_id: str, lxd_channel: str, host_tier: str) -> None:
     """Persistently store cluster.json.
 
     Args:

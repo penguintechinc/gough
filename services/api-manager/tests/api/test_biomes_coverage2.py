@@ -13,8 +13,6 @@ Focuses on:
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
-from unittest.mock import patch
 
 import pytest
 
@@ -32,10 +30,12 @@ class TestUserHasMFADirectCall:
         """Test MFA detection from amr claim with 'mfa' in list."""
         # Import the module to get the function
         import importlib
+
         biomes = importlib.import_module("app.api.biomes")
 
         # Patch get_current_user before calling the function
         import app.middleware as mw
+
         monkeypatch.setattr(
             mw,
             "get_current_user",
@@ -52,6 +52,7 @@ class TestUserHasMFADirectCall:
     def test_user_has_mfa_from_boolean_claim(self, monkeypatch):
         """Test MFA detection from boolean mfa claim."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -70,6 +71,7 @@ class TestUserHasMFADirectCall:
     def test_user_has_no_mfa_empty_amr(self, monkeypatch):
         """Test MFA detection with empty amr list."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -88,6 +90,7 @@ class TestUserHasMFADirectCall:
     def test_user_has_mfa_no_payload(self, monkeypatch):
         """Test MFA detection with missing payload."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -106,6 +109,7 @@ class TestUserHasScopeDirectCall:
     def test_scope_in_list_claim(self, monkeypatch):
         """Test scope detection when scope is a list."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -126,6 +130,7 @@ class TestUserHasScopeDirectCall:
     def test_scope_in_space_separated_string(self, monkeypatch):
         """Test scope detection when scope is space-separated string."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -145,6 +150,7 @@ class TestUserHasScopeDirectCall:
     def test_scope_empty_list(self, monkeypatch):
         """Test scope detection with empty list."""
         import importlib
+
         import app.middleware as mw
 
         monkeypatch.setattr(
@@ -211,36 +217,42 @@ class TestComplianceLaneDetection:
         """Test alpha env is NOT a compliance lane."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "alpha")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is False
 
     def test_compliance_lane_dev(self, monkeypatch):
         """Test dev env is NOT a compliance lane."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "dev")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is False
 
     def test_compliance_lane_local(self, monkeypatch):
         """Test local env is NOT a compliance lane."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "local")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is False
 
     def test_compliance_lane_beta(self, monkeypatch):
         """Test beta env IS a compliance lane."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "beta")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is True
 
     def test_compliance_lane_prod(self, monkeypatch):
         """Test prod env IS a compliance lane."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "prod")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is True
 
     def test_compliance_lane_default(self, monkeypatch):
         """Test default (no env) is NOT a compliance lane."""
         monkeypatch.delenv("GOUGH_DEPLOY_TIER", raising=False)
         from app.api.biomes import _is_compliance_lane
+
         # Default is "alpha"
         assert _is_compliance_lane() is False
 
@@ -248,6 +260,7 @@ class TestComplianceLaneDetection:
         """Test GOUGH_DEPLOY_TIER is case-insensitive."""
         monkeypatch.setenv("GOUGH_DEPLOY_TIER", "BETA")
         from app.api.biomes import _is_compliance_lane
+
         assert _is_compliance_lane() is True
 
 

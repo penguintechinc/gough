@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING
 
 from .base import (
     BaseCloud,
-    CloudError,
     CloudAuthError,
+    CloudError,
     CloudNotFoundError,
     CloudQuotaError,
     Machine,
@@ -31,45 +31,53 @@ CLOUD_REGISTRY: dict[str, type[BaseCloud]] = {}
 
 def register_cloud(name: str):
     """Decorator to register a cloud provider."""
+
     def decorator(cls: type[BaseCloud]):
         CLOUD_REGISTRY[name] = cls
         return cls
+
     return decorator
 
 
 # Import providers to trigger registration
 try:
     from .maas import MaaSCloud
+
     CLOUD_REGISTRY["maas"] = MaaSCloud
 except ImportError:
     log.debug("MaaS provider not available (missing dependencies)")
 
 try:
     from .lxd import LXDCloud
+
     CLOUD_REGISTRY["lxd"] = LXDCloud
 except ImportError:
     log.debug("LXD provider not available (missing dependencies)")
 
 try:
     from .aws import AWSCloud
+
     CLOUD_REGISTRY["aws"] = AWSCloud
 except ImportError:
     log.debug("AWS provider not available (missing dependencies)")
 
 try:
     from .gcp import GCPCloud
+
     CLOUD_REGISTRY["gcp"] = GCPCloud
 except ImportError:
     log.debug("GCP provider not available (missing dependencies)")
 
 try:
     from .azure import AzureCloud
+
     CLOUD_REGISTRY["azure"] = AzureCloud
 except ImportError:
     log.debug("Azure provider not available (missing dependencies)")
 
 try:
     from .vultr import VultrCloud
+
     CLOUD_REGISTRY["vultr"] = VultrCloud
 except ImportError:
     log.debug("Vultr provider not available (missing dependencies)")
@@ -92,7 +100,9 @@ def get_cloud_provider(provider_type: str, config: dict) -> BaseCloud:
 
     if provider_type not in CLOUD_REGISTRY:
         available = list(CLOUD_REGISTRY.keys())
-        raise CloudError(f"Unknown cloud provider: {provider_type}. Available: {available}")
+        raise CloudError(
+            f"Unknown cloud provider: {provider_type}. Available: {available}"
+        )
 
     provider_class = CLOUD_REGISTRY[provider_type]
 
@@ -111,11 +121,13 @@ def list_available_providers() -> list[dict]:
     """
     providers = []
     for name, cls in CLOUD_REGISTRY.items():
-        providers.append({
-            "name": name,
-            "description": cls.__doc__.split("\n")[0] if cls.__doc__ else "",
-            "supports_cloud_init": getattr(cls, "supports_cloud_init", True),
-        })
+        providers.append(
+            {
+                "name": name,
+                "description": cls.__doc__.split("\n")[0] if cls.__doc__ else "",
+                "supports_cloud_init": getattr(cls, "supports_cloud_init", True),
+            }
+        )
     return providers
 
 

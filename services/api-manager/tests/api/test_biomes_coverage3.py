@@ -12,9 +12,7 @@ from __future__ import annotations
 
 import json
 import threading
-import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -354,7 +352,9 @@ class TestResourceConstraintValidation:
         result = _eval_node_eligibility(dal, biome, node)
 
         # Should not have architecture violation
-        assert not any(v["resource"] == "architecture" for v in result.resource_violations)
+        assert not any(
+            v["resource"] == "architecture" for v in result.resource_violations
+        )
 
     @pytest.mark.asyncio
     async def test_resource_constraint_with_invalid_values(self, dal):

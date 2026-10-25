@@ -7,10 +7,6 @@ Tests:
 - Edge cases and error handling
 """
 
-import json
-from io import StringIO
-
-import pytest
 import yaml
 
 
@@ -533,7 +529,7 @@ runcmd:
         merged = {
             "packages": ["curl", "git", "vim"],
             "runcmd": ["cmd1", "cmd2"],
-            "hostname": "testhost"
+            "hostname": "testhost",
         }
         yaml_output = merger.to_yaml(merged)
         reparsed = yaml.safe_load(yaml_output)
@@ -545,11 +541,7 @@ runcmd:
     def test_yaml_output_readable_format(self):
         """Test that YAML output is human-readable."""
         merger = CloudInitMerger()
-        merged = {
-            "packages": ["curl"],
-            "hostname": "myhost",
-            "runcmd": ["echo test"]
-        }
+        merged = {"packages": ["curl"], "hostname": "myhost", "runcmd": ["echo test"]}
         yaml_output = merger.to_yaml(merged)
 
         # Should not use flow style

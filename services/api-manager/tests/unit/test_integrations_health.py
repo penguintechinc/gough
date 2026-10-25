@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import pytest
-import httpx
 from unittest.mock import AsyncMock, patch
 
+import httpx
+import pytest
 from app.api.integrations import _probe_integration_health
 from app.workers.integration_provisioner import Credentials
 

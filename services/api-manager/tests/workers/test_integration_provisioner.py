@@ -6,21 +6,15 @@ Per spec "PenguinTech Product Integration Matrix -> Service-account lifecycle".
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import httpx
 import pytest
-
-from app.clients.vault import VaultClient, VaultKvReadResponse, VaultError
+from app.clients.vault import VaultClient, VaultError, VaultKvReadResponse
 from app.workers.integration_provisioner import (
-    Credentials,
-    CredentialMissingError,
-    IntegrationError,
-    IntegrationProvisioner,
-    ProductApiError,
     REQUIRED_SCOPES,
-    ScopeValidationResult,
+    CredentialMissingError,
+    Credentials,
+    IntegrationProvisioner,
     UnsupportedProductError,
     _check_product,
     _expiry_iso,
@@ -64,7 +58,15 @@ def sample_creds():
 class TestCheckProduct:
     def test_valid_products(self):
         """_check_product accepts supported products."""
-        for product in ["tobogganing", "squawk", "skauswatch", "waddleai", "nest", "license-server", "waddlebot"]:
+        for product in [
+            "tobogganing",
+            "squawk",
+            "skauswatch",
+            "waddleai",
+            "nest",
+            "license-server",
+            "waddlebot",
+        ]:
             _check_product(product)  # Should not raise
 
     def test_invalid_product(self):
@@ -191,7 +193,9 @@ class TestEnsureServiceAccount:
 
 class TestValidateScope:
     @pytest.mark.asyncio
-    async def test_validate_scope_success(self, provisioner, vault_client, sample_creds):
+    async def test_validate_scope_success(
+        self, provisioner, vault_client, sample_creds
+    ):
         """Validate scope returns valid result."""
         vault_client.kv_read.return_value = VaultKvReadResponse(
             data=sample_creds.to_vault(),
@@ -289,6 +293,7 @@ class TestRotateCredentials:
 
         # Setup vault reads/writes
         read_count = 0
+
         def vault_read_side_effect(path):
             nonlocal read_count
             read_count += 1

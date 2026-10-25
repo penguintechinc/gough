@@ -20,16 +20,15 @@ from unittest.mock import MagicMock
 import pytest
 import requests
 import requests_mock as rm_module
-
 from app.clients import redfish as redfish_mod
 from app.clients.redfish import (
+    DEFAULT_CREDENTIAL_PAIRS,
     BMCAuthFailure,
     BMCCertPinMismatch,
     BMCDefaultCredentialsDetected,
     BMCFirmwareUpdateFailed,
     BMCOperationFailed,
     BMCUnreachable,
-    DEFAULT_CREDENTIAL_PAIRS,
     FirmwareComponent,
     RedfishClient,
     SelEntry,
@@ -41,7 +40,6 @@ from app.clients.redfish import (
     _safe_iter,
     _to_float,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -86,7 +84,9 @@ class _FakeRedis:
     def get(self, key: str) -> Any:
         return self.store.get(key)
 
-    def set(self, key: str, value: Any, ex: Optional[int] = None, nx: bool = False) -> Any:
+    def set(
+        self, key: str, value: Any, ex: Optional[int] = None, nx: bool = False
+    ) -> Any:
         self.store[key] = value
         return True
 
@@ -221,7 +221,10 @@ class TestHelpers:
             _normalize_fingerprint("AA:BB")
 
     def test_safe_iter_skips_non_dicts(self) -> None:
-        assert list(_safe_iter([{"a": 1}, "skip", None, {"b": 2}])) == [{"a": 1}, {"b": 2}]
+        assert list(_safe_iter([{"a": 1}, "skip", None, {"b": 2}])) == [
+            {"a": 1},
+            {"b": 2},
+        ]
         assert list(_safe_iter(None)) == []
 
     def test_to_float(self) -> None:
@@ -278,11 +281,20 @@ class TestCertPinning:
         monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         with rm_module.Mocker() as m:
             # All default-cred probes fail (401)
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
-            m.get("https://bmc.test/redfish/v1/", status_code=200, json={"RedfishVersion": "1.13.0"})
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
+            m.get(
+                "https://bmc.test/redfish/v1/",
+                status_code=200,
+                json={"RedfishVersion": "1.13.0"},
+            )
             client = RedfishClient(
-                "https://bmc.test", vault, node_bmc,
-                audit_writer=audit, nats_publisher=fake_nats,
+                "https://bmc.test",
+                vault,
+                node_bmc,
+                audit_writer=audit,
+                nats_publisher=fake_nats,
             )
             fp = client.first_connect()
             assert fp == _DEFAULT_FP
@@ -302,7 +314,9 @@ class TestCertPinning:
         # Fresh TOFU capture on first_connect() requires the explicit opt-in.
         monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         with rm_module.Mocker() as m:
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
             client = RedfishClient(
                 "https://bmc.test", vault, node_bmc, audit_writer=audit
@@ -327,8 +341,11 @@ class TestCertPinning:
     ) -> None:
         node_bmc.cert_fingerprint = _DEFAULT_FP
         client = RedfishClient(
-            "https://bmc.test", vault, node_bmc,
-            audit_writer=audit, redis_client=fake_redis,
+            "https://bmc.test",
+            vault,
+            node_bmc,
+            audit_writer=audit,
+            redis_client=fake_redis,
         )
         fake_redis.store["bmc:42:session"] = "x|y|99999999999"
         new_fp = _OTHER_FP
@@ -358,16 +375,25 @@ class TestDefaultCredentialRefusal:
                 if body == {"UserName": "root", "Password": "calvin"}:
                     context.status_code = 200
                     context.headers["X-Auth-Token"] = "factory-token"
-                    context.headers["Location"] = "/redfish/v1/SessionService/Sessions/1"
+                    context.headers["Location"] = (
+                        "/redfish/v1/SessionService/Sessions/1"
+                    )
                     return {}
                 context.status_code = 401
                 return {}
 
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", json=post_callback)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions",
+                json=post_callback,
+            )
             m.delete(rm_module.ANY, status_code=204)
             client = RedfishClient(
-                "https://bmc.test", vault, node_bmc,
-                audit_writer=audit, nats_publisher=fake_nats, cluster_id="c1",
+                "https://bmc.test",
+                vault,
+                node_bmc,
+                audit_writer=audit,
+                nats_publisher=fake_nats,
+                cluster_id="c1",
             )
             with pytest.raises(BMCDefaultCredentialsDetected) as exc:
                 client.first_connect()
@@ -551,9 +577,7 @@ class TestVaultLookup:
         with pytest.raises(BMCAuthFailure, match="empty"):
             client._read_credentials()
 
-    def test_dict_response_supported(
-        self, patch_tls_handshake, node_bmc
-    ) -> None:
+    def test_dict_response_supported(self, patch_tls_handshake, node_bmc) -> None:
         node_bmc.cert_fingerprint = _DEFAULT_FP
 
         class DictVault:
@@ -614,7 +638,9 @@ class TestPowerControl:
         reset_type: str,
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             captured: dict[str, Any] = {}
 
             def cb(request, context):
@@ -628,7 +654,9 @@ class TestPowerControl:
             )
             getattr(client, method)()
             assert captured["body"] == {"ResetType": reset_type}
-            assert any(e["action"] == f"bmc.power_{reset_type.lower()}" for e in audit.events)
+            assert any(
+                e["action"] == f"bmc.power_{reset_type.lower()}" for e in audit.events
+            )
 
 
 class TestOneTimeBoot:
@@ -636,7 +664,9 @@ class TestOneTimeBoot:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             captured: dict[str, Any] = {}
 
             def cb(request, context):
@@ -647,7 +677,10 @@ class TestOneTimeBoot:
             m.patch("https://bmc.test/redfish/v1/Systems/1", json=cb)
             client.set_one_time_boot_target("Pxe")
             assert captured["body"] == {
-                "Boot": {"BootSourceOverrideTarget": "Pxe", "BootSourceOverrideEnabled": "Once"}
+                "Boot": {
+                    "BootSourceOverrideTarget": "Pxe",
+                    "BootSourceOverrideEnabled": "Once",
+                }
             }
             assert any(
                 e["action"] == "bmc.set_one_time_boot" and e["after"]["target"] == "Pxe"
@@ -660,13 +693,18 @@ class TestSensors:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.get(
                 "https://bmc.test/redfish/v1/Chassis/1/Thermal",
                 json={
                     "Temperatures": [
-                        {"Name": "CPU1", "ReadingCelsius": 65.0,
-                         "Status": {"Health": "OK"}}
+                        {
+                            "Name": "CPU1",
+                            "ReadingCelsius": 65.0,
+                            "Status": {"Health": "OK"},
+                        }
                     ],
                     "Fans": [{"Name": "Fan1", "Reading": 4500, "ReadingUnits": "RPM"}],
                 },
@@ -675,8 +713,11 @@ class TestSensors:
                 "https://bmc.test/redfish/v1/Chassis/1/Power",
                 json={
                     "PowerSupplies": [
-                        {"Name": "PSU1", "PowerOutputWatts": 250.0,
-                         "Status": {"Health": "OK"}}
+                        {
+                            "Name": "PSU1",
+                            "PowerOutputWatts": 250.0,
+                            "Status": {"Health": "OK"},
+                        }
                     ],
                     "Voltages": [{"Name": "V1", "ReadingVolts": 12.0}],
                 },
@@ -693,7 +734,9 @@ class TestSelLog:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.get(
                 "https://bmc.test/redfish/v1/Systems/1/LogServices/Sel/Entries",
                 json={
@@ -720,24 +763,40 @@ class TestFirmwareInventory:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.get(
                 "https://bmc.test/redfish/v1/UpdateService/FirmwareInventory",
                 json={
                     "Members": [
-                        {"@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BIOS"},
-                        {"@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BMC"},
+                        {
+                            "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BIOS"
+                        },
+                        {
+                            "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory/BMC"
+                        },
                     ]
                 },
             )
             m.get(
                 "https://bmc.test/redfish/v1/UpdateService/FirmwareInventory/BIOS",
-                json={"Id": "BIOS", "Name": "System BIOS", "Version": "2.10",
-                      "Updateable": True, "Manufacturer": "Dell"},
+                json={
+                    "Id": "BIOS",
+                    "Name": "System BIOS",
+                    "Version": "2.10",
+                    "Updateable": True,
+                    "Manufacturer": "Dell",
+                },
             )
             m.get(
                 "https://bmc.test/redfish/v1/UpdateService/FirmwareInventory/BMC",
-                json={"Id": "BMC", "Name": "iDRAC", "Version": "5.10", "Updateable": True},
+                json={
+                    "Id": "BMC",
+                    "Name": "iDRAC",
+                    "Version": "5.10",
+                    "Updateable": True,
+                },
             )
             components = client.get_firmware_inventory()
             assert [c.component_id for c in components] == ["BIOS", "BMC"]
@@ -749,7 +808,9 @@ class TestUpdateFirmware:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.post(
                 "https://bmc.test/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
                 status_code=202,
@@ -766,7 +827,9 @@ class TestUpdateFirmware:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.post(
                 "https://bmc.test/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
                 status_code=202,
@@ -781,7 +844,9 @@ class TestBiosSettings:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.get(
                 "https://bmc.test/redfish/v1/Systems/1/Bios",
                 json={"Attributes": {"BootMode": "Uefi", "SecureBoot": "Enabled"}},
@@ -793,7 +858,9 @@ class TestBiosSettings:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             captured: dict[str, Any] = {}
 
             def cb(request, context):
@@ -812,7 +879,9 @@ class TestCapabilities:
         self, patch_tls_handshake, vault, node_bmc, audit, fake_redis
     ) -> None:
         with rm_module.Mocker() as m:
-            client = _client_pinned(patch_tls_handshake, vault, node_bmc, audit, fake_redis, m)
+            client = _client_pinned(
+                patch_tls_handshake, vault, node_bmc, audit, fake_redis, m
+            )
             m.get(
                 "https://bmc.test/redfish/v1/",
                 json={
@@ -831,7 +900,9 @@ class TestCapabilities:
                             "target": "/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate"
                         }
                     },
-                    "FirmwareInventory": {"@odata.id": "/redfish/v1/UpdateService/FirmwareInventory"},
+                    "FirmwareInventory": {
+                        "@odata.id": "/redfish/v1/UpdateService/FirmwareInventory"
+                    },
                 },
             )
             caps = client.get_capabilities()
@@ -843,9 +914,7 @@ class TestCapabilities:
 
 
 class TestCloseAndCtxManager:
-    def test_context_manager_closes(
-        self, patch_tls_handshake, vault, node_bmc
-    ) -> None:
+    def test_context_manager_closes(self, patch_tls_handshake, vault, node_bmc) -> None:
         node_bmc.cert_fingerprint = _DEFAULT_FP
         with rm_module.Mocker():
             with RedfishClient("https://bmc.test", vault, node_bmc) as client:
@@ -877,8 +946,11 @@ class TestAuditFailureIsolation:
                 status_code=204,
             )
             client = RedfishClient(
-                "https://bmc.test", vault, node_bmc,
-                audit_writer=BadAudit(), redis_client=fake_redis,
+                "https://bmc.test",
+                vault,
+                node_bmc,
+                audit_writer=BadAudit(),
+                redis_client=fake_redis,
             )
             client.power_on()  # must not raise
 
@@ -892,11 +964,16 @@ class TestPinCallback:
         monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
         captured = MagicMock()
         with rm_module.Mocker() as m:
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
             client = RedfishClient(
-                "https://bmc.test", vault, node_bmc,
-                audit_writer=audit, on_fingerprint_pinned=captured,
+                "https://bmc.test",
+                vault,
+                node_bmc,
+                audit_writer=audit,
+                on_fingerprint_pinned=captured,
             )
             client.first_connect()
             captured.assert_called_once_with(_DEFAULT_FP)
@@ -926,9 +1003,13 @@ class TestTOFUEnvGating:
         monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "true")
 
         with rm_module.Mocker() as m:
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
-            client = RedfishClient("https://bmc.test", vault, node_bmc, audit_writer=audit)
+            client = RedfishClient(
+                "https://bmc.test", vault, node_bmc, audit_writer=audit
+            )
             fp = client.first_connect()
             assert fp == _DEFAULT_FP
             assert node_bmc.cert_fingerprint == _DEFAULT_FP
@@ -941,9 +1022,13 @@ class TestTOFUEnvGating:
         monkeypatch.setenv("BMC_ALLOW_INSECURE_TLS", "1")
 
         with rm_module.Mocker() as m:
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
-            client = RedfishClient("https://bmc.test", vault, node_bmc, audit_writer=audit)
+            client = RedfishClient(
+                "https://bmc.test", vault, node_bmc, audit_writer=audit
+            )
             fp = client.first_connect()
             assert fp == _DEFAULT_FP
 
@@ -955,9 +1040,13 @@ class TestTOFUEnvGating:
         monkeypatch.delenv("BMC_ALLOW_INSECURE_TLS", raising=False)
 
         with rm_module.Mocker() as m:
-            m.post("https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401)
+            m.post(
+                "https://bmc.test/redfish/v1/SessionService/Sessions", status_code=401
+            )
             m.get("https://bmc.test/redfish/v1/", status_code=200, json={})
-            client = RedfishClient("https://bmc.test", vault, node_bmc, audit_writer=audit)
+            client = RedfishClient(
+                "https://bmc.test", vault, node_bmc, audit_writer=audit
+            )
             fp = client.first_connect()
             assert fp == _DEFAULT_FP  # Succeeds without env flag
 

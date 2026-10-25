@@ -9,8 +9,8 @@ Provides shared fixtures for testing:
 """
 
 import json
-from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from datetime import datetime
+from unittest.mock import MagicMock, patch
 
 import pytest
 from quart import Quart
@@ -18,11 +18,9 @@ from quart import Quart
 # Try importing from api-manager
 try:
     import sys
-    sys.path.insert(0, '/home/penguin/code/Gough/services/api-manager')
-    from app import create_app
-    from app.config import Config
-    from app.models import init_db, get_db
-    from app.models_sqlalchemy import create_all_tables
+
+    sys.path.insert(0, "/home/penguin/code/Gough/services/api-manager")
+    from app.models import get_db
 except ImportError:
     # Fallback for testing without full app
     pass
@@ -52,7 +50,7 @@ def test_config():
 @pytest.fixture(scope="function")
 def app(test_config, tmp_path):
     """Create and configure test Quart application."""
-    import os
+
     app = Quart(__name__)
     app.config.from_object(test_config)
 
@@ -64,6 +62,7 @@ def app(test_config, tmp_path):
     try:
         from app.models_sqlalchemy import create_all_tables
         from penguin_dal import DB
+
         create_all_tables(db_uri)
         db = DB(db_uri, pool_size=5)
         app.config["db"] = db
@@ -105,7 +104,7 @@ def test_user(app, db):
             role_id = db.auth_role.insert(
                 name="admin",
                 description="Administrator",
-                permissions=json.dumps(["all"])
+                permissions=json.dumps(["all"]),
             )
             db.commit()
         else:
@@ -122,15 +121,12 @@ def test_user(app, db):
             active=True,
             fs_uniquifier="test-uniquifier-001",
             confirmed_at=datetime.utcnow(),
-            full_name="Test User"
+            full_name="Test User",
         )
         db.commit()
 
         # Assign admin role
-        db.auth_user_roles.insert(
-            user_id=user_id,
-            role_id=role_id
-        )
+        db.auth_user_roles.insert(user_id=user_id, role_id=role_id)
         db.commit()
 
         return db.auth_user(user_id)
@@ -151,11 +147,10 @@ def test_storage_config(app, db, test_user):
         is_active=True,
         is_default=True,
         use_ssl=False,
-        config_data=json.dumps({
-            "access_key": "minioadmin",
-            "secret_key": "minioadmin"
-        }),
-        created_by=test_user.id
+        config_data=json.dumps(
+            {"access_key": "minioadmin", "secret_key": "minioadmin"}
+        ),
+        created_by=test_user.id,
     )
     db.commit()
     return db.storage_config(config_id)
@@ -170,11 +165,10 @@ def test_cloud_provider(app, db):
         description="Test MaaS provider",
         region="us-east-1",
         credentials_path="secrets:maas",
-        config_data=json.dumps({
-            "url": "http://localhost:5240/MAAS",
-            "api_key": "test-api-key"
-        }),
-        is_active=True
+        config_data=json.dumps(
+            {"url": "http://localhost:5240/MAAS", "api_key": "test-api-key"}
+        ),
+        is_active=True,
     )
     db.commit()
     return db.cloud_providers(provider_id)
@@ -189,7 +183,7 @@ def test_biome(app, db):
         workload_type="lxc",
         phase="post_deploy",
         registry_url="ghcr.io/penguintechinc/gough/k8s-worker:v1.0.0",
-        tenant_id="__default__"
+        tenant_id="__default__",
     )
     db.commit()
     return db.biomes(biome_id)
@@ -210,7 +204,7 @@ runcmd:
 """,
         template_type="user-data",
         is_default=True,
-        version="1.0"
+        version="1.0",
     )
     db.commit()
     return db.cloud_init_templates(template_id)
@@ -230,7 +224,7 @@ def test_ipxe_config(app, db):
         dns_servers=json.dumps(["8.8.8.8", "8.8.4.4"]),
         tftp_enabled=True,
         http_boot_url="http://localhost:8080",
-        is_active=True
+        is_active=True,
     )
     db.commit()
     return db.ipxe_config(config_id)
@@ -254,7 +248,7 @@ def test_machine(app, db, test_ipxe_config):
         zone="default",
         pool="default",
         tags=json.dumps(["test", "demo"]),
-        last_seen_at=datetime.utcnow()
+        last_seen_at=datetime.utcnow(),
     )
     db.commit()
     return db.ipxe_machines(machine_id)
@@ -277,7 +271,7 @@ def test_image(app, db):
         is_default=True,
         is_active=True,
         checksum="abc123def456",
-        size_bytes=500000000
+        size_bytes=500000000,
     )
     db.commit()
     return db.ipxe_images(image_id)
@@ -294,7 +288,7 @@ def test_boot_config(app, db, test_image):
         boot_order=json.dumps(["pxe", "disk"]),
         timeout_seconds=30,
         default_image_id=test_image.id,
-        is_default=True
+        is_default=True,
     )
     db.commit()
     return db.ipxe_boot_configs(config_id)
@@ -308,7 +302,7 @@ def test_biome_group(app, db, test_biome):
         display_name="Test Group",
         description="Test biome group",
         biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
-        is_default=False
+        is_default=False,
     )
     db.commit()
     return db.biome_groups(group_id)
@@ -317,26 +311,24 @@ def test_biome_group(app, db, test_biome):
 @pytest.fixture(scope="function")
 def mock_boto3_client():
     """Mock boto3 S3 client."""
-    with patch('boto3.client') as mock_client:
+    with patch("boto3.client") as mock_client:
         client = MagicMock()
         mock_client.return_value = client
         client.head_object.return_value = {
-            'ContentLength': 1000,
-            'ETag': '"abc123"',
-            'LastModified': datetime.utcnow()
+            "ContentLength": 1000,
+            "ETag": '"abc123"',
+            "LastModified": datetime.utcnow(),
         }
         client.get_object.return_value = {
-            'Body': MagicMock(read=MagicMock(return_value=b'test data')),
-            'ContentLength': 1000
+            "Body": MagicMock(read=MagicMock(return_value=b"test data")),
+            "ContentLength": 1000,
         }
-        client.put_object.return_value = {
-            'ETag': '"abc123"'
-        }
+        client.put_object.return_value = {"ETag": '"abc123"'}
         yield client
 
 
 @pytest.fixture(scope="function")
 def mock_storage_service(mock_boto3_client):
     """Mock storage service with boto3."""
-    with patch('app.services.storage.boto3.client', return_value=mock_boto3_client):
+    with patch("app.services.storage.boto3.client", return_value=mock_boto3_client):
         yield mock_boto3_client

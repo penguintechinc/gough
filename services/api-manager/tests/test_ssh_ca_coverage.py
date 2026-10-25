@@ -9,22 +9,13 @@ Tests for missed coverage lines focusing on:
 
 from __future__ import annotations
 
-import asyncio
 import subprocess
-import tempfile
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
-
-from app.ssh_ca import (
-    SSHCertificateAuthority,
-    SSHCAException,
-    generate_key_id,
-    validate_principals,
-)
-
+from app.ssh_ca import SSHCertificateAuthority, generate_key_id, validate_principals
 
 # ============================================================================
 # generate_key_id tests (lines 273-284)
@@ -87,31 +78,21 @@ class TestValidatePrincipals:
 
     def test_validate_principals_success(self):
         """All principals are in allowed list."""
-        assert validate_principals(
-            ["ubuntu", "root"],
-            ["ubuntu", "root", "admin"]
-        ) is True
+        assert (
+            validate_principals(["ubuntu", "root"], ["ubuntu", "root", "admin"]) is True
+        )
 
     def test_validate_principals_single(self):
         """Single principal in allowed list."""
-        assert validate_principals(
-            ["ubuntu"],
-            ["ubuntu", "root"]
-        ) is True
+        assert validate_principals(["ubuntu"], ["ubuntu", "root"]) is True
 
     def test_validate_principals_not_allowed(self):
         """Requested principal not in allowed list."""
-        assert validate_principals(
-            ["baduser"],
-            ["ubuntu", "root"]
-        ) is False
+        assert validate_principals(["baduser"], ["ubuntu", "root"]) is False
 
     def test_validate_principals_mixed_allowed_denied(self):
         """Some principals allowed, some not."""
-        assert validate_principals(
-            ["ubuntu", "baduser"],
-            ["ubuntu", "root"]
-        ) is False
+        assert validate_principals(["ubuntu", "baduser"], ["ubuntu", "root"]) is False
 
     def test_validate_principals_empty_requested(self):
         """Empty principals list returns False - line 300-301."""
@@ -127,10 +108,7 @@ class TestValidatePrincipals:
 
     def test_validate_principals_exact_match(self):
         """Requested principals exactly match allowed."""
-        assert validate_principals(
-            ["ubuntu"],
-            ["ubuntu"]
-        ) is True
+        assert validate_principals(["ubuntu"], ["ubuntu"]) is True
 
 
 # ============================================================================
@@ -151,7 +129,7 @@ class TestSignUserKeyErrors:
                 public_key="ssh-rsa AAAA...",
                 principals=["ubuntu"],
                 validity_seconds=28801,  # MAX is 28800
-                key_id="test-key"
+                key_id="test-key",
             )
 
     @pytest.mark.asyncio
@@ -164,18 +142,21 @@ class TestSignUserKeyErrors:
                 public_key="ssh-rsa AAAA...",
                 principals=[],  # Empty list
                 validity_seconds=3600,
-                key_id="test-key"
+                key_id="test-key",
             )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(strict=False, reason="Complex asyncio.to_thread mocking - tested via integration")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Complex asyncio.to_thread mocking - tested via integration",
+    )
     async def test_sign_user_key_subprocess_error(self):
         """Handle subprocess.CalledProcessError - line 227-231."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db, \
-             patch('asyncio.to_thread') as mock_to_thread, \
-             patch('app.ssh_ca.current_app') as mock_app:
+        with patch("app.ssh_ca.get_db") as mock_get_db, patch(
+            "asyncio.to_thread"
+        ) as mock_to_thread, patch("app.ssh_ca.current_app") as mock_app:
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -202,7 +183,9 @@ class TestSignUserKeyErrors:
 
             mock_to_thread.side_effect = side_effect
 
-            with patch('app.ssh_ca.SSHCertificateAuthority._get_private_key_path') as mock_get_key:
+            with patch(
+                "app.ssh_ca.SSHCertificateAuthority._get_private_key_path"
+            ) as mock_get_key:
                 mock_get_key.return_value = Path("/tmp/ca_key")
 
                 with pytest.raises(RuntimeError, match="Failed to sign SSH key"):
@@ -210,18 +193,21 @@ class TestSignUserKeyErrors:
                         public_key="ssh-rsa AAAA...",
                         principals=["ubuntu"],
                         validity_seconds=3600,
-                        key_id="test-key"
+                        key_id="test-key",
                     )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(strict=False, reason="Complex asyncio.to_thread mocking - tested via integration")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Complex asyncio.to_thread mocking - tested via integration",
+    )
     async def test_sign_user_key_timeout(self):
         """Handle subprocess.TimeoutExpired - line 232-233."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db, \
-             patch('asyncio.to_thread') as mock_to_thread, \
-             patch('app.ssh_ca.current_app') as mock_app:
+        with patch("app.ssh_ca.get_db") as mock_get_db, patch(
+            "asyncio.to_thread"
+        ) as mock_to_thread, patch("app.ssh_ca.current_app") as mock_app:
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -234,7 +220,9 @@ class TestSignUserKeyErrors:
 
             mock_to_thread.side_effect = side_effect
 
-            with patch('app.ssh_ca.SSHCertificateAuthority._get_private_key_path') as mock_get_key:
+            with patch(
+                "app.ssh_ca.SSHCertificateAuthority._get_private_key_path"
+            ) as mock_get_key:
                 mock_get_key.return_value = Path("/tmp/ca_key")
 
                 with pytest.raises(RuntimeError, match="timed out"):
@@ -242,18 +230,21 @@ class TestSignUserKeyErrors:
                         public_key="ssh-rsa AAAA...",
                         principals=["ubuntu"],
                         validity_seconds=3600,
-                        key_id="test-key"
+                        key_id="test-key",
                     )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(strict=False, reason="Complex asyncio.to_thread mocking - tested via integration")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Complex asyncio.to_thread mocking - tested via integration",
+    )
     async def test_sign_user_key_cert_not_created(self):
         """Handle missing certificate file - line 236-237."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db, \
-             patch('asyncio.to_thread') as mock_to_thread, \
-             patch('app.ssh_ca.current_app') as mock_app:
+        with patch("app.ssh_ca.get_db") as mock_get_db, patch(
+            "asyncio.to_thread"
+        ) as mock_to_thread, patch("app.ssh_ca.current_app") as mock_app:
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -268,7 +259,9 @@ class TestSignUserKeyErrors:
 
             mock_to_thread.side_effect = side_effect
 
-            with patch('app.ssh_ca.SSHCertificateAuthority._get_private_key_path') as mock_get_key:
+            with patch(
+                "app.ssh_ca.SSHCertificateAuthority._get_private_key_path"
+            ) as mock_get_key:
                 mock_get_key.return_value = Path("/tmp/ca_key")
 
                 with pytest.raises(RuntimeError, match="Certificate file not created"):
@@ -276,7 +269,7 @@ class TestSignUserKeyErrors:
                         public_key="ssh-rsa AAAA...",
                         principals=["ubuntu"],
                         validity_seconds=3600,
-                        key_id="test-key"
+                        key_id="test-key",
                     )
 
 
@@ -292,7 +285,7 @@ class TestGetPrivateKeyPath:
         """Raise RuntimeError when CA not initialized - line 259-260."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db:
+        with patch("app.ssh_ca.get_db") as mock_get_db:
             mock_db = MagicMock()
             mock_db.return_value.select.return_value.first.return_value = None
             mock_get_db.return_value = mock_db
@@ -304,7 +297,7 @@ class TestGetPrivateKeyPath:
         """Raise RuntimeError when key file doesn't exist - line 265-268."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db:
+        with patch("app.ssh_ca.get_db") as mock_get_db:
             mock_db = MagicMock()
             mock_config = MagicMock()
             mock_config.private_key_vault_path = "/nonexistent/ca_key"
@@ -318,8 +311,9 @@ class TestGetPrivateKeyPath:
         """Successfully retrieve private key path."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db, \
-             patch.object(Path, 'exists', return_value=True):
+        with patch("app.ssh_ca.get_db") as mock_get_db, patch.object(
+            Path, "exists", return_value=True
+        ):
 
             mock_db = MagicMock()
             mock_config = MagicMock()
@@ -352,33 +346,31 @@ class TestSSHCAEdgeCases:
 
     def test_principals_case_sensitive(self):
         """Principals validation is case-sensitive."""
-        assert validate_principals(
-            ["Ubuntu"],
-            ["ubuntu"]
-        ) is False
+        assert validate_principals(["Ubuntu"], ["ubuntu"]) is False
 
-        assert validate_principals(
-            ["ubuntu"],
-            ["Ubuntu"]
-        ) is False
+        assert validate_principals(["ubuntu"], ["Ubuntu"]) is False
 
     def test_principals_with_special_chars(self):
         """Principals with special characters."""
-        assert validate_principals(
-            ["user-1", "user_2"],
-            ["user-1", "user_2", "admin"]
-        ) is True
+        assert (
+            validate_principals(["user-1", "user_2"], ["user-1", "user_2", "admin"])
+            is True
+        )
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(strict=False, reason="Complex asyncio.to_thread mocking - tested via integration")
+    @pytest.mark.xfail(
+        strict=False,
+        reason="Complex asyncio.to_thread mocking - tested via integration",
+    )
     async def test_sign_user_key_max_validity(self):
         """Test with maximum allowed validity."""
         ca = SSHCertificateAuthority()
 
-        with patch('app.ssh_ca.get_db') as mock_get_db, \
-             patch('asyncio.to_thread') as mock_to_thread, \
-             patch('app.ssh_ca.current_app') as mock_app, \
-             patch('app.ssh_ca.SSHCertificateAuthority._get_private_key_path') as mock_get_key:
+        with patch("app.ssh_ca.get_db") as mock_get_db, patch(
+            "asyncio.to_thread"
+        ) as mock_to_thread, patch("app.ssh_ca.current_app") as mock_app, patch(
+            "app.ssh_ca.SSHCertificateAuthority._get_private_key_path"
+        ) as mock_get_key:
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -401,7 +393,7 @@ class TestSSHCAEdgeCases:
                 public_key="ssh-rsa AAAA...",
                 principals=["ubuntu"],
                 validity_seconds=28800,  # Maximum allowed
-                key_id="test-key"
+                key_id="test-key",
             )
 
             assert result == "ssh-rsa-cert-v01@openssh.com ..."

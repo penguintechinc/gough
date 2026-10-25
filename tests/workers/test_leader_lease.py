@@ -2,14 +2,13 @@
 
 import time
 from datetime import datetime, timedelta, timezone
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
-
-from app.models_m1 import Base, LeaderLease
+from app.models_m1 import Base
 from app.workers import leader_lease as ll
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -27,6 +26,7 @@ def sqlite_session():
 def postgres_session():
     """Create a Postgres test session (requires GOUGH_TEST_DB)."""
     import os
+
     db_url = os.getenv("GOUGH_TEST_DB")
     if not db_url:
         pytest.skip("GOUGH_TEST_DB not set")
@@ -71,9 +71,7 @@ class TestLeaderLeaseAcquire:
         """Acquiring an expired lease succeeds (takeover)."""
         holder1 = "holder1"
         holder2 = "holder2"
-        h1 = ll.acquire(
-            sqlite_session, "test_lease", ttl_seconds=1, holder_id=holder1
-        )
+        h1 = ll.acquire(sqlite_session, "test_lease", ttl_seconds=1, holder_id=holder1)
         assert h1 is not None
         sqlite_session.commit()
 
@@ -98,9 +96,7 @@ class TestLeaderLeaseAcquire:
         """Two concurrent acquires on expired lease — only one wins via CAS."""
         holder1 = "holder1"
         holder2 = "holder2"
-        h1 = ll.acquire(
-            sqlite_session, "test_lease", ttl_seconds=1, holder_id=holder1
-        )
+        h1 = ll.acquire(sqlite_session, "test_lease", ttl_seconds=1, holder_id=holder1)
         assert h1 is not None
         sqlite_session.commit()
 
@@ -160,9 +156,7 @@ class TestLeaderLeaseRenew:
         assert handle is not None
         sqlite_session.commit()
 
-        ll.acquire(
-            sqlite_session, "test_lease", holder_id="holder2"
-        )
+        ll.acquire(sqlite_session, "test_lease", holder_id="holder2")
         sqlite_session.commit()
 
         with pytest.raises(ll.LeaseLostError, match="renewal failed"):
@@ -272,9 +266,11 @@ class TestLeaderLeaseWaitForLeader:
 
     def test_wait_for_leader_immediate(self, sqlite_session):
         """wait_for_leader succeeds immediately on fresh lease."""
+
         def factory():
-            from sqlalchemy.orm import sessionmaker
             from sqlalchemy import create_engine
+            from sqlalchemy.orm import sessionmaker
+
             engine = create_engine("sqlite:///:memory:")
             Base.metadata.create_all(engine)
             return sessionmaker(bind=engine)()
@@ -295,6 +291,7 @@ class TestLeaderLeaseWaitForLeader:
 
     def test_wait_for_leader_max_attempts(self, sqlite_session):
         """wait_for_leader raises after max_attempts."""
+
         def factory():
             return sqlite_session
 

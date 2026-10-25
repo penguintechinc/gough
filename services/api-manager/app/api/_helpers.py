@@ -85,6 +85,7 @@ def envelope_error(
 
 # Convenience shortcuts for the common error slugs from the spec table.
 
+
 def err_bad_request(message: str = "Malformed request body or content-type"):
     return envelope_error("bad_request", message, 400)
 
@@ -106,7 +107,9 @@ def err_conflict(message: str, *, details: Optional[dict] = None):
     return envelope_error("conflict", message, 409, details=details)
 
 
-def err_forbidden_mfa(message: str = "MFA required for this action in compliance lanes"):
+def err_forbidden_mfa(
+    message: str = "MFA required for this action in compliance lanes",
+):
     return envelope_error("forbidden_mfa_required", message, 403)
 
 
@@ -155,7 +158,9 @@ def validate_body(model: type[BaseModel], payload: Any):
             }
             for err in exc.errors()
         ]
-        return None, err_validation("Request body failed schema validation", violations=violations)
+        return None, err_validation(
+            "Request body failed schema validation", violations=violations
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -352,11 +357,7 @@ def check_tag_eligibility(
         if fbd in cats:
             forbidden_present.append(fbd)
 
-    eligible = (
-        not missing
-        and not forbidden_present
-        and not (resource_violations or [])
-    )
+    eligible = not missing and not forbidden_present and not (resource_violations or [])
 
     return EligibilityResult(
         eligible=eligible,
@@ -382,9 +383,7 @@ def node_effective_tags(db, node) -> list[str]:
     operator_rows: list[Any] = []
     try:
         nid = node.id if hasattr(node, "id") else node["id"]
-        operator_rows = list(
-            db(db.node_tags_operator.node_id == nid).select()
-        )
+        operator_rows = list(db(db.node_tags_operator.node_id == nid).select())
     except Exception:  # noqa: BLE001 — table may be absent on minimal test DBs
         operator_rows = []
 
@@ -446,7 +445,11 @@ def tenant_owns(row_tenant: Any) -> bool:
     """
     if request_is_cross_tenant():
         return True
-    return isinstance(row_tenant, str) and bool(row_tenant) and row_tenant == request_tenant_id()
+    return (
+        isinstance(row_tenant, str)
+        and bool(row_tenant)
+        and row_tenant == request_tenant_id()
+    )
 
 
 def resolve_node_id_by_name(db: Any, name: str, tenant_id: str | None) -> int | None:

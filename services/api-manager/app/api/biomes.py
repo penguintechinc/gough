@@ -48,7 +48,6 @@ from ._helpers import (
     envelope_success,
     err_bad_request,
     err_conflict,
-    err_forbidden,
     err_forbidden_mfa,
     err_internal,
     err_not_found,
@@ -62,6 +61,9 @@ from ._schemas.biomes import (
     BiomeGroupResponse,
     BiomeGroupUpdateRequest,
 )
+
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_TRUE = True
 
 log = logging.getLogger(__name__)
 
@@ -112,7 +114,11 @@ def _deployment_owned(db: Any, deployment: Any) -> bool:
 def _is_compliance_lane() -> bool:
     import os
 
-    return os.getenv("GOUGH_DEPLOY_TIER", "alpha").lower() not in ("alpha", "dev", "local")
+    return os.getenv("GOUGH_DEPLOY_TIER", "alpha").lower() not in (
+        "alpha",
+        "dev",
+        "local",
+    )
 
 
 def _user_has_mfa() -> bool:
@@ -239,12 +245,14 @@ def _eval_node_eligibility(db, biome, node) -> EligibilityResult:
 def validate_biome_type(biome_type: str) -> bool:
     """Validate biome type against allowed values."""
     from ..models.ipxe import BIOME_TYPES
+
     return biome_type in BIOME_TYPES
 
 
 def validate_architecture(arch: str) -> bool:
     """Validate architecture against allowed values."""
     from ..models.ipxe import ARCHITECTURES
+
     return arch in ARCHITECTURES or arch == "any"
 
 
@@ -316,7 +324,11 @@ def serialize_biome(biome: object) -> dict:
         "registry_url": _g(biome, "registry_url"),
         "image_digest": _g(biome, "image_digest"),
         "signature_verified": _g(biome, "signature_verified", False),
-        "signing_status": _g(biome, "signing_status", "unsigned" if not _g(biome, "signing_key_id") else "signed"),
+        "signing_status": _g(
+            biome,
+            "signing_status",
+            "unsigned" if not _g(biome, "signing_key_id") else "signed",
+        ),
         "created_at": created_at.isoformat() if created_at else None,
         "updated_at": updated_at.isoformat() if updated_at else None,
     }
@@ -405,7 +417,14 @@ def merge_cloud_init_configs(configs: list[str]) -> str:
 # ============================================================================
 
 
-_BIOME_KINDS = {"infrastructure", "k8s", "monitoring", "storage", "user_workload", "custom"}
+_BIOME_KINDS = {
+    "infrastructure",
+    "k8s",
+    "monitoring",
+    "storage",
+    "user_workload",
+    "custom",
+}
 _BIOME_PHASES = {"phase1_helper", "phase2_initial", "post_deploy", "always"}
 _WORKLOAD_TYPES = {"lxc", "vm"}
 
@@ -634,7 +653,9 @@ async def create_biome():
                     else None
                 ),
                 readiness_probe=(
-                    biome_in.readiness_probe.model_dump(by_alias=True, exclude_none=True)
+                    biome_in.readiness_probe.model_dump(
+                        by_alias=True, exclude_none=True
+                    )
                     if biome_in.readiness_probe is not None
                     else None
                 ),
@@ -736,12 +757,19 @@ async def update_biome(biome_id: int):
 
     # Check for name conflict if name is being changed
     if "name" in data and data["name"] != biome.name:
+
         def _check_name_conflict() -> Any:
-            return db((db.biomes.name == data["name"]) & (db.biomes.id != biome_id)).select().first()
+            return (
+                db((db.biomes.name == data["name"]) & (db.biomes.id != biome_id))
+                .select()
+                .first()
+            )
 
         existing = await run_db(_check_name_conflict)
         if existing:
-            return err_conflict("Biome name already exists", details={"name": data["name"]})
+            return err_conflict(
+                "Biome name already exists", details={"name": data["name"]}
+            )
 
     if "biome_type" in data and not validate_biome_type(data["biome_type"]):
         return err_validation(f"Invalid biome_type: {data['biome_type']}")
@@ -759,7 +787,9 @@ async def update_biome(biome_id: int):
 
     if "required_architecture" in data:
         if not validate_architecture(data["required_architecture"]):
-            return err_validation(f"Invalid required_architecture: {data['required_architecture']}")
+            return err_validation(
+                f"Invalid required_architecture: {data['required_architecture']}"
+            )
 
     try:
         update_fields = {}
@@ -767,21 +797,48 @@ async def update_biome(biome_id: int):
         # Update only provided fields (legacy + M1 extension columns)
         allowed_fields = {
             # legacy
-            "name", "display_name", "description", "biome_type", "version",
-            "category", "snap_name", "snap_channel", "snap_classic",
-            "cloud_init_content", "lxd_image_alias", "lxd_image_url",
-            "lxd_profiles", "is_hypervisor_config", "dependencies",
-            "min_ram_mb", "min_disk_gb", "required_architecture",
-            "is_active", "is_default", "checksum", "size_bytes",
+            "name",
+            "display_name",
+            "description",
+            "biome_type",
+            "version",
+            "category",
+            "snap_name",
+            "snap_channel",
+            "snap_classic",
+            "cloud_init_content",
+            "lxd_image_alias",
+            "lxd_image_url",
+            "lxd_profiles",
+            "is_hypervisor_config",
+            "dependencies",
+            "min_ram_mb",
+            "min_disk_gb",
+            "required_architecture",
+            "is_active",
+            "is_default",
+            "checksum",
+            "size_bytes",
             # M1 extensions
-            "biome_kind", "phase", "workload_type", "lock_to_host",
-            "auto_join_cluster", "upgrade_strategy",
-            "requires_hardware_tags", "prefers_hardware_tags",
-            "forbids_hardware_tags", "storage_requirements_json",
-            "readiness_probe", "emits_joiner_secrets",
-            "joiner_emit_spec", "consumes_joiner_secrets_from",
-            "joiner_consume_spec", "snapshot_schedule_json",
-            "required_interfaces", "signing_key_id", "sbom_url",
+            "biome_kind",
+            "phase",
+            "workload_type",
+            "lock_to_host",
+            "auto_join_cluster",
+            "upgrade_strategy",
+            "requires_hardware_tags",
+            "prefers_hardware_tags",
+            "forbids_hardware_tags",
+            "storage_requirements_json",
+            "readiness_probe",
+            "emits_joiner_secrets",
+            "joiner_emit_spec",
+            "consumes_joiner_secrets_from",
+            "joiner_consume_spec",
+            "snapshot_schedule_json",
+            "required_interfaces",
+            "signing_key_id",
+            "sbom_url",
             "registry_url",
         }
         for fname in allowed_fields:
@@ -859,10 +916,15 @@ async def delete_biome(biome_id: int):
     # ``hasattr`` was always False and this safety check never actually ran).
     in_use_count = 0
     if hasattr(db, "node_egg_assignments"):
+
         def _count_in_use() -> int:
             return db(
                 (db.node_egg_assignments.egg_id == biome_id)
-                & (db.node_egg_assignments.status.belongs(["pending", "deploying", "ready", "draining"]))
+                & (
+                    db.node_egg_assignments.status.belongs(
+                        ["pending", "deploying", "ready", "draining"]
+                    )
+                )
             ).count()
 
         in_use_count = await run_db(_count_in_use)
@@ -877,6 +939,7 @@ async def delete_biome(biome_id: int):
     # ipxe_machines table -- now off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     if hard and hasattr(db, "ipxe_machines"):
+
         def _fetch_biome_machines() -> Any:
             return db(db.ipxe_machines.assigned_biomes.contains(str(biome_id))).select()
 
@@ -939,9 +1002,10 @@ async def upload_lxd_image(biome_id: int):
         return jsonify({"error": "Biome not found"}), 404
 
     if biome.biome_type not in ["lxd_container", "lxd_vm"]:
-        return jsonify({
-            "error": "Upload only supported for LXD container/VM biomes"
-        }), 400
+        return (
+            jsonify({"error": "Upload only supported for LXD container/VM biomes"}),
+            400,
+        )
 
     files = await request.files
     if "file" not in files:
@@ -966,7 +1030,7 @@ async def upload_lxd_image(biome_id: int):
 
     # Get storage configuration
     def _fetch_storage() -> Any:
-        return db(db.storage_config.is_active == True).select().first()
+        return db(db.storage_config.is_active == _DB_TRUE).select().first()
 
     storage = await run_db(_fetch_storage)
     if not storage:
@@ -974,7 +1038,9 @@ async def upload_lxd_image(biome_id: int):
 
     # In a real implementation, upload to MinIO/S3 here
     # For now, generate a placeholder URL
-    storage_url = f"{storage.endpoint_url}/{storage.bucket_lxd_images}/{biome.name}/{filename}"
+    storage_url = (
+        f"{storage.endpoint_url}/{storage.bucket_lxd_images}/{biome.name}/{filename}"
+    )
 
     # Regression: gh-22. Update + commit + the post-commit refetch is one
     # unit of work -- stays in one run_db() closure per the house rule.
@@ -996,16 +1062,21 @@ async def upload_lxd_image(biome_id: int):
     if not ok:
         return jsonify({"error": str(result)}), 500
 
-    return jsonify({
-        "message": "LXD image uploaded successfully",
-        "biome": serialize_biome(result),
-        "upload_details": {
-            "filename": filename,
-            "size_bytes": file_size,
-            "checksum": checksum,
-            "storage_url": storage_url,
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "LXD image uploaded successfully",
+                "biome": serialize_biome(result),
+                "upload_details": {
+                    "filename": filename,
+                    "size_bytes": file_size,
+                    "checksum": checksum,
+                    "storage_url": storage_url,
+                },
+            }
+        ),
+        200,
+    )
 
 
 # ============================================================================
@@ -1073,7 +1144,9 @@ def _validate_image_ref(image_ref: str) -> str:
     if ref.startswith("-"):
         raise CosignError(f"refusing image reference that parses as a flag: {ref!r}")
     if any(c.isspace() or ord(c) < 0x20 for c in ref):
-        raise CosignError(f"image reference has illegal whitespace/control chars: {ref!r}")
+        raise CosignError(
+            f"image reference has illegal whitespace/control chars: {ref!r}"
+        )
     return ref
 
 
@@ -1110,7 +1183,9 @@ async def _run_subprocess(argv: list[str], *, timeout: float) -> tuple[str, str]
     stdout = stdout_b.decode("utf-8", errors="replace")
     stderr = stderr_b.decode("utf-8", errors="replace")
     if proc.returncode != 0:
-        raise CosignError(f"{argv[0]} exited {proc.returncode}: {(stderr or stdout).strip()}")
+        raise CosignError(
+            f"{argv[0]} exited {proc.returncode}: {(stderr or stdout).strip()}"
+        )
     return stdout, stderr
 
 
@@ -1127,7 +1202,9 @@ def _parse_cosign_digest(stdout: str, image_ref: str) -> str:
             raise ValueError("digest missing or malformed")
         return digest
     except (json.JSONDecodeError, KeyError, IndexError, TypeError, ValueError) as exc:
-        raise CosignError(f"could not parse cosign verify output for {image_ref}: {exc}") from exc
+        raise CosignError(
+            f"could not parse cosign verify output for {image_ref}: {exc}"
+        ) from exc
 
 
 async def _cosign_verify(image_ref: str, *, key_id: str) -> str:
@@ -1195,8 +1272,12 @@ async def _cosign_sign_and_attest(
     digest = await _cosign_verify(image_ref, key_id=key_id)
 
     sbom_argv = [_SYFT_BIN, "-o", "spdx-json", "--", image_ref]
-    sbom_stdout, _sbom_stderr = await _run_subprocess(sbom_argv, timeout=_COSIGN_TIMEOUT_SECONDS)
-    sbom_url = await _store_sbom(biome_name=biome_name, image_digest=digest, sbom_json=sbom_stdout)
+    sbom_stdout, _sbom_stderr = await _run_subprocess(
+        sbom_argv, timeout=_COSIGN_TIMEOUT_SECONDS
+    )
+    sbom_url = await _store_sbom(
+        biome_name=biome_name, image_digest=digest, sbom_json=sbom_stdout
+    )
 
     return digest, sbom_url
 
@@ -1227,7 +1308,10 @@ async def _verify_biome_before_deploy(biome: Any) -> tuple[bool, str | None]:
     """
     signing_status = _g(biome, "signing_status", "unsigned")
     if signing_status != "signed" or not _g(biome, "signature_verified", False):
-        return False, f"biome is not in a signed+verified state (signing_status={signing_status!r})"
+        return (
+            False,
+            f"biome is not in a signed+verified state (signing_status={signing_status!r})",
+        )
 
     registry_url = _g(biome, "registry_url")
     if not registry_url:
@@ -1283,7 +1367,9 @@ async def sign_biome(biome_id: int):
     # writer subscribes to.  This is *not* a stub — it is a deliberate
     # Sprint-4-deferred dispatch boundary documented in the spec.
     user = get_current_user() or {}
-    actor_sub = (user.get("_jwt_payload") or {}).get("sub", str(user.get("id", "unknown")))
+    actor_sub = (user.get("_jwt_payload") or {}).get(
+        "sub", str(user.get("id", "unknown"))
+    )
     log.info(
         "biome.sign.requested",
         extra={
@@ -1342,7 +1428,9 @@ async def sign_biome(biome_id: int):
         # whose exact execution timing relative to that cleanup should
         # never be relied on.
         error_message = str(exc)
-        _metrics.biome_signature_verification_failed.labels(environment=_deploy_tier()).inc()
+        _metrics.biome_signature_verification_failed.labels(
+            environment=_deploy_tier()
+        ).inc()
         log.error(
             "biome.sign.failed",
             extra={
@@ -1354,7 +1442,9 @@ async def sign_biome(biome_id: int):
             },
         )
         await run_db(lambda: _mark_signing_failed(db, biome_id, error_message))
-        return err_conflict(f"Biome signing failed: {error_message}", details={"biome_id": biome_id})
+        return err_conflict(
+            f"Biome signing failed: {error_message}", details={"biome_id": biome_id}
+        )
 
     def _apply_signed() -> tuple[bool, Any]:
         try:
@@ -1375,7 +1465,9 @@ async def sign_biome(biome_id: int):
 
     ok, persist_err = await run_db(_apply_signed)
     if not ok:
-        return err_internal(f"Biome signed but failed to persist signing metadata: {persist_err}")
+        return err_internal(
+            f"Biome signed but failed to persist signing metadata: {persist_err}"
+        )
 
     log.info(
         "biome.sign.completed",
@@ -1414,7 +1506,6 @@ async def upgrade_biome(biome_id: int):
     orchestration asynchronously (canary → batched → all phases).
     Returns 202 with upgrade_run_id for polling.
     """
-    import asyncio
     import uuid
     from datetime import datetime, timezone
 
@@ -1453,7 +1544,9 @@ async def upgrade_biome(biome_id: int):
                 },
             )
             await run_db(
-                lambda: _mark_signing_failed(db, biome_id, verify_reason or "verification_failed")
+                lambda: _mark_signing_failed(
+                    db, biome_id, verify_reason or "verification_failed"
+                )
             )
             return err_conflict(
                 f"Biome {biome_id} failed signature verification; deployment blocked.",
@@ -1477,7 +1570,11 @@ async def upgrade_biome(biome_id: int):
             return err_validation(
                 "approval_token is required for k8s/storage upgrades",
                 violations=[
-                    {"field": "approval_token", "code": "missing", "message": "required for biome_kind=k8s|storage"},
+                    {
+                        "field": "approval_token",
+                        "code": "missing",
+                        "message": "required for biome_kind=k8s|storage",
+                    },
                 ],
             )
 
@@ -1566,22 +1663,22 @@ async def _execute_upgrade_orchestration(
     closure spanning the whole multi-phase rollout -- the poll sleeps
     between phases stay plain ``await asyncio.sleep()``, not blocking work.
     """
-    import asyncio
     from datetime import datetime, timezone
-
-    import aiohttp
 
     db = get_db()
     # rollout_plan is either a named strategy string ("auto"/"canary") or an
     # explicit config dict -- only the dict form carries a batch_size override.
-    batch_size = rollout_plan.get("batch_size", 2) if isinstance(rollout_plan, dict) else 2
+    batch_size = (
+        rollout_plan.get("batch_size", 2) if isinstance(rollout_plan, dict) else 2
+    )
 
     def _update_run(**fields: Any) -> None:
         db(db.upgrade_runs.id == run_id).update(**fields)
 
     def _fetch_deployment_rows() -> Any:
         return db(
-            (db.deployments.biome_id == biome_id) & (db.deployments.status == "completed")
+            (db.deployments.biome_id == biome_id)
+            & (db.deployments.status == "completed")
         ).select()
 
     # Derive target nodes from completed deployments for this biome
@@ -1593,19 +1690,23 @@ async def _execute_upgrade_orchestration(
             "upgrade.no_target_nodes",
             extra={"biome_id": biome_id, "run_id": run_id},
         )
-        await run_db(lambda: _update_run(
-            status="failed",
-            phase="canary",
-            completed_at=datetime.now(timezone.utc),
-            rollback_reason="no_target_nodes_available",
-        ))
+        await run_db(
+            lambda: _update_run(
+                status="failed",
+                phase="canary",
+                completed_at=datetime.now(timezone.utc),
+                rollback_reason="no_target_nodes_available",
+            )
+        )
         return
 
-    await run_db(lambda: _update_run(
-        status="running",
-        started_at=datetime.now(timezone.utc),
-        nodes_total=len(target_nodes),
-    ))
+    await run_db(
+        lambda: _update_run(
+            status="running",
+            started_at=datetime.now(timezone.utc),
+            nodes_total=len(target_nodes),
+        )
+    )
 
     # Canary phase
     log.info("upgrade.canary.start", extra={"run_id": run_id, "biome_id": biome_id})
@@ -1615,14 +1716,18 @@ async def _execute_upgrade_orchestration(
     )
 
     if not canary_ok:
-        await run_db(lambda: _update_run(
-            status="rolled_back",
-            phase="canary",
-            nodes_failed=len(canary_nodes),
-            completed_at=datetime.now(timezone.utc),
-            rollback_reason="canary_failed",
-        ))
-        log.info("upgrade.canary.failed", extra={"run_id": run_id, "biome_id": biome_id})
+        await run_db(
+            lambda: _update_run(
+                status="rolled_back",
+                phase="canary",
+                nodes_failed=len(canary_nodes),
+                completed_at=datetime.now(timezone.utc),
+                rollback_reason="canary_failed",
+            )
+        )
+        log.info(
+            "upgrade.canary.failed", extra={"run_id": run_id, "biome_id": biome_id}
+        )
         return
 
     # Batched phase
@@ -1636,14 +1741,18 @@ async def _execute_upgrade_orchestration(
             batch, biome_id, target_version, run_id
         )
         if not batch_ok:
-            await run_db(lambda: _update_run(
-                status="failed",
-                phase="batched",
-                nodes_failed=len(batch),
-                completed_at=datetime.now(timezone.utc),
-                rollback_reason="batched_phase_failed",
-            ))
-            log.info("upgrade.batched.failed", extra={"run_id": run_id, "biome_id": biome_id})
+            await run_db(
+                lambda: _update_run(
+                    status="failed",
+                    phase="batched",
+                    nodes_failed=len(batch),
+                    completed_at=datetime.now(timezone.utc),
+                    rollback_reason="batched_phase_failed",
+                )
+            )
+            log.info(
+                "upgrade.batched.failed", extra={"run_id": run_id, "biome_id": biome_id}
+            )
             return
         completed += len(batch)
         await run_db(lambda: _update_run(nodes_completed=completed))
@@ -1651,12 +1760,14 @@ async def _execute_upgrade_orchestration(
     # All phase: parallel deploy to any remaining
     log.info("upgrade.all.start", extra={"run_id": run_id, "biome_id": biome_id})
 
-    await run_db(lambda: _update_run(
-        status="completed",
-        phase="done",
-        nodes_completed=len(target_nodes),
-        completed_at=datetime.now(timezone.utc),
-    ))
+    await run_db(
+        lambda: _update_run(
+            status="completed",
+            phase="done",
+            nodes_completed=len(target_nodes),
+            completed_at=datetime.now(timezone.utc),
+        )
+    )
     log.info("upgrade.completed", extra={"run_id": run_id, "biome_id": biome_id})
 
 
@@ -1719,7 +1830,9 @@ async def _deploy_and_health_check(
                 )
                 return False
 
-            node_hostname = node_row.name if hasattr(node_row, "name") else f"node-{node_id}"
+            node_hostname = (
+                node_row.name if hasattr(node_row, "name") else f"node-{node_id}"
+            )
 
             # Determine deploy strategy based on biome_kind. Names come from
             # the DB; validate strictly before they reach any backend.
@@ -1769,7 +1882,11 @@ async def _deploy_and_health_check(
                         all_healthy = False
                         break
 
-                    node_hostname = node_row.name if hasattr(node_row, "name") else f"node-{node_id}"
+                    node_hostname = (
+                        node_row.name
+                        if hasattr(node_row, "name")
+                        else f"node-{node_id}"
+                    )
                     url = f"http://{node_hostname}:8080/healthz"
 
                     try:
@@ -1830,9 +1947,11 @@ async def get_upgrade_run(biome_id: int, run_id: str):
             and getattr(biome, "tenant_id", "__default__") != _current_tenant_id()
         ):
             return None
-        return db(
-            (db.upgrade_runs.id == run_id) & (db.upgrade_runs.biome_id == biome_id)
-        ).select().first()
+        return (
+            db((db.upgrade_runs.id == run_id) & (db.upgrade_runs.biome_id == biome_id))
+            .select()
+            .first()
+        )
 
     run = await run_db(_fetch)
 
@@ -1890,7 +2009,11 @@ async def biome_eligibility(biome_id: int):
         return err_not_found(f"Biome {biome_id} not found")
 
     def _fetch_node() -> Any:
-        return db(db.nodes.id == node_id).select().first() if hasattr(db, "nodes") else None
+        return (
+            db(db.nodes.id == node_id).select().first()
+            if hasattr(db, "nodes")
+            else None
+        )
 
     node = await run_db(_fetch_node)
     if not node:
@@ -1928,10 +2051,15 @@ async def list_biome_groups():
 
     groups = await run_db(_fetch)
 
-    return jsonify({
-        "groups": [serialize_biome_group(group) for group in groups],
-        "total": len(groups),
-    }), 200
+    return (
+        jsonify(
+            {
+                "groups": [serialize_biome_group(group) for group in groups],
+                "total": len(groups),
+            }
+        ),
+        200,
+    )
 
 
 # Attach response model for OpenAPI documentation
@@ -2022,10 +2150,15 @@ async def create_biome_group():
     if not ok:
         return jsonify({"error": str(result)}), 500
 
-    return jsonify({
-        "message": "Biome group created successfully",
-        "group": serialize_biome_group(result),
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Biome group created successfully",
+                "group": serialize_biome_group(result),
+            }
+        ),
+        201,
+    )
 
 
 # Attach models for OpenAPI documentation
@@ -2054,14 +2187,16 @@ async def get_biome_group(group_id: int):
         if not group:
             return None, []
         resolved_biomes: list[dict[str, Any]] = []
-        for biome_ref in (group.biomes or []):
+        for biome_ref in group.biomes or []:
             if isinstance(biome_ref, dict) and "biome_id" in biome_ref:
                 biome = db(db.biomes.id == biome_ref["biome_id"]).select().first()
                 if biome:
-                    resolved_biomes.append({
-                        "order": biome_ref.get("order", 0),
-                        "biome": serialize_biome(biome),
-                    })
+                    resolved_biomes.append(
+                        {
+                            "order": biome_ref.get("order", 0),
+                            "biome": serialize_biome(biome),
+                        }
+                    )
         return group, resolved_biomes
 
     group, resolved_biomes = await run_db(_fetch_group_and_resolve)
@@ -2110,8 +2245,16 @@ async def update_biome_group(group_id: int):
 
     # Check for name conflict if name is being changed
     if "name" in data and data["name"] != group.name:
+
         def _check_name_conflict() -> Any:
-            return db((db.biome_groups.name == data["name"]) & (db.biome_groups.id != group_id)).select().first()
+            return (
+                db(
+                    (db.biome_groups.name == data["name"])
+                    & (db.biome_groups.id != group_id)
+                )
+                .select()
+                .first()
+            )
 
         existing = await run_db(_check_name_conflict)
         if existing:
@@ -2132,14 +2275,20 @@ async def update_biome_group(group_id: int):
                     return {"error": "invalid_format"}
                 biome = db(db.biomes.id == biome_ref["biome_id"]).select().first()
                 if not biome:
-                    return {"error": "biome_not_found", "biome_id": biome_ref["biome_id"]}
+                    return {
+                        "error": "biome_not_found",
+                        "biome_id": biome_ref["biome_id"],
+                    }
             return None
 
         validation = await run_db(_validate_biomes)
         if validation is not None:
             if validation["error"] == "invalid_format":
                 return jsonify({"error": "Invalid biome reference format"}), 400
-            return jsonify({"error": f"Biome ID {validation['biome_id']} not found"}), 400
+            return (
+                jsonify({"error": f"Biome ID {validation['biome_id']} not found"}),
+                400,
+            )
 
     try:
         update_fields = {}
@@ -2165,10 +2314,15 @@ async def update_biome_group(group_id: int):
         if not ok:
             return jsonify({"error": str(result)}), 500
 
-        return jsonify({
-            "message": "Biome group updated successfully",
-            "group": serialize_biome_group(result),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Biome group updated successfully",
+                    "group": serialize_biome_group(result),
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         await run_db(lambda: db.rollback())
@@ -2210,10 +2364,15 @@ async def delete_biome_group(group_id: int):
         return jsonify({"error": "Biome group not found"}), 404
 
     if configs:
-        return jsonify({
-            "error": "Cannot delete biome group that is assigned to boot configs",
-            "configs_count": len(configs),
-        }), 409
+        return (
+            jsonify(
+                {
+                    "error": "Cannot delete biome group that is assigned to boot configs",
+                    "configs_count": len(configs),
+                }
+            ),
+            409,
+        )
 
     def _delete_group() -> tuple[bool, Any]:
         try:
@@ -2283,11 +2442,13 @@ async def render_cloud_init():
 
             if biome.cloud_init_content:
                 configs.append(biome.cloud_init_content)
-                biomes_info.append({
-                    "id": biome.id,
-                    "name": biome.name,
-                    "display_name": biome.display_name,
-                })
+                biomes_info.append(
+                    {
+                        "id": biome.id,
+                        "name": biome.name,
+                        "display_name": biome.display_name,
+                    }
+                )
         return None, configs, biomes_info
 
     missing_biome_id, configs, biomes_info = await run_db(_collect_configs)
@@ -2303,20 +2464,26 @@ async def render_cloud_init():
         configs.append(additional_config)
 
     if not configs:
-        return jsonify({
-            "error": "No cloud-init content found in specified biomes"
-        }), 400
+        return (
+            jsonify({"error": "No cloud-init content found in specified biomes"}),
+            400,
+        )
 
     try:
         # Merge all configs
         merged_config = merge_cloud_init_configs(configs)
 
-        return jsonify({
-            "message": "Cloud-init configuration rendered successfully",
-            "cloud_init": merged_config,
-            "biomes_merged": biomes_info,
-            "total_biomes": len(biomes_info),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "message": "Cloud-init configuration rendered successfully",
+                    "cloud_init": merged_config,
+                    "biomes_merged": biomes_info,
+                    "total_biomes": len(biomes_info),
+                }
+            ),
+            200,
+        )
 
     except Exception as e:
         log.exception(f"Error rendering cloud-init: {e}")
@@ -2373,6 +2540,7 @@ async def list_deployments():
         q = q & (db.deployments.biome_id == biome_id)
     if node_id:
         q = q & (db.deployments.node_id == node_id)
+
     # Regression: gh-22. Count + paginated select is a sequence of reads
     # feeding the response -- one run_db() closure instead of blocking the
     # request coroutine inline.
@@ -2381,7 +2549,10 @@ async def list_deployments():
         if not _is_cross_tenant():
             # Tenant isolation: deployments carry no tenant column; scope via target node.
             own_nodes = [
-                r.id for r in db(db.nodes.tenant_id == _current_tenant_id()).select(db.nodes.id)
+                r.id
+                for r in db(db.nodes.tenant_id == _current_tenant_id()).select(
+                    db.nodes.id
+                )
             ]
             if not own_nodes:
                 return 0, []
@@ -2398,16 +2569,18 @@ async def list_deployments():
 
     deployments = []
     for row in deployments_rows:
-        deployments.append({
-            "id": str(row.id),
-            "biome_id": int(row.biome_id),
-            "node_id": int(row.node_id),
-            "phase": int(row.phase),
-            "status": row.status,
-            "logs_url": row.logs_url,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        })
+        deployments.append(
+            {
+                "id": str(row.id),
+                "biome_id": int(row.biome_id),
+                "node_id": int(row.node_id),
+                "phase": int(row.phase),
+                "status": row.status,
+                "logs_url": row.logs_url,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+            }
+        )
 
     return envelope_success(
         {
@@ -2444,16 +2617,22 @@ async def get_deployment(deployment_id: str):
     if not deployment:
         return err_not_found(f"Deployment {deployment_id} not found")
 
-    return envelope_success({
-        "id": str(deployment.id),
-        "biome_id": int(deployment.biome_id),
-        "node_id": int(deployment.node_id),
-        "phase": int(deployment.phase),
-        "status": deployment.status,
-        "logs_url": deployment.logs_url,
-        "created_at": deployment.created_at.isoformat() if deployment.created_at else None,
-        "updated_at": deployment.updated_at.isoformat() if deployment.updated_at else None,
-    })
+    return envelope_success(
+        {
+            "id": str(deployment.id),
+            "biome_id": int(deployment.biome_id),
+            "node_id": int(deployment.node_id),
+            "phase": int(deployment.phase),
+            "status": deployment.status,
+            "logs_url": deployment.logs_url,
+            "created_at": (
+                deployment.created_at.isoformat() if deployment.created_at else None
+            ),
+            "updated_at": (
+                deployment.updated_at.isoformat() if deployment.updated_at else None
+            ),
+        }
+    )
 
 
 # ============================================================================
@@ -2471,7 +2650,9 @@ async def _deploy_nats_safe(subject: str, payload: dict, tenant_id: str) -> None
             client = getattr(current_app, "nats_client", None)
 
         if client is None:
-            log.warning("NATS client not wired; skipping publish on subject=%s", subject)
+            log.warning(
+                "NATS client not wired; skipping publish on subject=%s", subject
+            )
             return
 
         await client.publish(
@@ -2530,26 +2711,32 @@ async def get_deployment_logs(deployment_id: str):
     # Fetch logs ordered by created_at ascending. Regression: gh-22 -- now
     # off the event loop via run_db() instead of blocking the request
     # coroutine inline.
-    logs_rows = await run_db(lambda: query.select(orderby=db.deployment_logs.created_at))
+    logs_rows = await run_db(
+        lambda: query.select(orderby=db.deployment_logs.created_at)
+    )
 
     logs = []
     for row in logs_rows:
-        logs.append({
-            "id": str(row.id),
-            "deployment_id": str(row.deployment_id),
-            "message": row.message,
-            "level": row.level,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-        })
+        logs.append(
+            {
+                "id": str(row.id),
+                "deployment_id": str(row.deployment_id),
+                "message": row.message,
+                "level": row.level,
+                "created_at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
 
     # Apply tail limit
     if len(logs) > tail:
         logs = logs[-tail:]
 
-    return envelope_success({
-        "logs": logs,
-        "deployment_id": str(deployment_id),
-    })
+    return envelope_success(
+        {
+            "logs": logs,
+            "deployment_id": str(deployment_id),
+        }
+    )
 
 
 @biomes_bp.route("/deployments/<string:deployment_id>/cancel", methods=["POST"])
@@ -2579,7 +2766,7 @@ async def cancel_deployment(deployment_id: str):
     if current_status not in ("pending", "in_progress"):
         return err_conflict(
             f"Cannot cancel deployment in status '{current_status}'",
-            details={"status": current_status, "allowed": ["pending", "in_progress"]}
+            details={"status": current_status, "allowed": ["pending", "in_progress"]},
         )
 
     def _cancel() -> tuple[bool, Any]:
@@ -2612,8 +2799,10 @@ async def cancel_deployment(deployment_id: str):
         tenant_id=tenant_id,
     )
 
-    return envelope_success({
-        "cancelled": True,
-        "deployment_id": str(deployment_id),
-        "status": "cancelled",
-    })
+    return envelope_success(
+        {
+            "cancelled": True,
+            "deployment_id": str(deployment_id),
+            "status": "cancelled",
+        }
+    )

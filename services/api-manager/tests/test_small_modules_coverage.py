@@ -1,12 +1,11 @@
 """Coverage tests for small modules."""
 
 from unittest.mock import Mock, patch
-import pytest
 
-from app.models import get_user_by_id, _get_user_role
-from app.permissions import check_team_access, check_resource_permission, TEAM_ROLES
-from app.rate_limit import RateLimitInfo, InMemoryStorage
-from app.security_datastore import PyDALUser, PyDALRole, PyDALUserDatastore
+from app.models import _get_user_role, get_user_by_id
+from app.permissions import check_resource_permission, check_team_access
+from app.rate_limit import InMemoryStorage, RateLimitInfo
+from app.security_datastore import PyDALRole, PyDALUser, PyDALUserDatastore
 
 
 class TestGetUserById:
@@ -133,6 +132,7 @@ class TestRateLimitInfo:
     def test_rate_limit_info_creation(self):
         """Test RateLimitInfo creation."""
         from datetime import datetime, timedelta
+
         reset = datetime.utcnow() + timedelta(seconds=60)
         info = RateLimitInfo(limit=10, remaining=5, reset_at=reset)
         assert info.limit == 10

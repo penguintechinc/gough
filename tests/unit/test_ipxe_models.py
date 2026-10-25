@@ -32,7 +32,7 @@ class TestIPXEConfig:
             dns_servers=json.dumps(["8.8.8.8", "8.8.4.4"]),
             tftp_enabled=True,
             http_boot_url="http://boot.local:8080",
-            is_active=True
+            is_active=True,
         )
         db.commit()
 
@@ -46,18 +46,12 @@ class TestIPXEConfig:
 
     def test_ipxe_config_unique_name(self, db):
         """Test that iPXE config names are unique."""
-        db.ipxe_config.insert(
-            name="ipxe-1",
-            dhcp_mode="proxy",
-            dhcp_interface="eth0"
-        )
+        db.ipxe_config.insert(name="ipxe-1", dhcp_mode="proxy", dhcp_interface="eth0")
         db.commit()
 
         with pytest.raises(Exception):  # Constraint violation
             db.ipxe_config.insert(
-                name="ipxe-1",
-                dhcp_mode="full",
-                dhcp_interface="eth1"
+                name="ipxe-1", dhcp_mode="full", dhcp_interface="eth1"
             )
             db.commit()
 
@@ -67,9 +61,7 @@ class TestIPXEConfig:
 
         for mode in valid_modes:
             config_id = db.ipxe_config.insert(
-                name=f"ipxe-{mode}",
-                dhcp_mode=mode,
-                dhcp_interface="eth0"
+                name=f"ipxe-{mode}", dhcp_mode=mode, dhcp_interface="eth0"
             )
             db.commit()
             assert db.ipxe_config[config_id].dhcp_mode == mode
@@ -77,9 +69,7 @@ class TestIPXEConfig:
     def test_ipxe_config_timestamps(self, db):
         """Test that timestamps are automatically set."""
         config_id = db.ipxe_config.insert(
-            name="ipxe-timestamps",
-            dhcp_mode="proxy",
-            dhcp_interface="eth0"
+            name="ipxe-timestamps", dhcp_mode="proxy", dhcp_interface="eth0"
         )
         db.commit()
 
@@ -107,7 +97,7 @@ class TestIPXEMachine:
             storage_gb=500,
             power_type="ipmi",
             zone="zone-a",
-            pool="default"
+            pool="default",
         )
         db.commit()
 
@@ -121,30 +111,33 @@ class TestIPXEMachine:
 
     def test_machine_unique_constraints(self, db):
         """Test unique constraints on system_id and mac_address."""
-        db.ipxe_machines.insert(
-            system_id="node-001",
-            mac_address="00:1a:2b:3c:4d:5e"
-        )
+        db.ipxe_machines.insert(system_id="node-001", mac_address="00:1a:2b:3c:4d:5e")
         db.commit()
 
         # Duplicate system_id
         with pytest.raises(Exception):
             db.ipxe_machines.insert(
-                system_id="node-001",
-                mac_address="00:1a:2b:3c:4d:5f"
+                system_id="node-001", mac_address="00:1a:2b:3c:4d:5f"
             )
             db.commit()
 
     def test_machine_statuses(self, db):
         """Test valid machine statuses."""
-        statuses = ["unknown", "discovered", "commissioning", "ready",
-                   "deploying", "deployed", "failed"]
+        statuses = [
+            "unknown",
+            "discovered",
+            "commissioning",
+            "ready",
+            "deploying",
+            "deployed",
+            "failed",
+        ]
 
         for i, status in enumerate(statuses):
             machine_id = db.ipxe_machines.insert(
                 system_id=f"node-{i}",
                 mac_address=f"00:1a:2b:3c:4d:{i:02x}",
-                status=status
+                status=status,
             )
             db.commit()
             assert db.ipxe_machines[machine_id].status == status
@@ -157,7 +150,7 @@ class TestIPXEMachine:
             machine_id = db.ipxe_machines.insert(
                 system_id=f"node-mode-{i}",
                 mac_address=f"00:2a:2b:3c:4d:{i:02x}",
-                boot_mode=mode
+                boot_mode=mode,
             )
             db.commit()
             assert db.ipxe_machines[machine_id].boot_mode == mode
@@ -168,7 +161,7 @@ class TestIPXEMachine:
         machine_id = db.ipxe_machines.insert(
             system_id="tagged-node",
             mac_address="00:3a:2b:3c:4d:5e",
-            tags=json.dumps(tags)
+            tags=json.dumps(tags),
         )
         db.commit()
 
@@ -188,7 +181,7 @@ class TestBiome:
             workload_type="lxc",
             phase="post_deploy",
             registry_url="ghcr.io/penguintechinc/gough/k8s-worker:v1.0.0",
-            tenant_id="__default__"
+            tenant_id="__default__",
         )
         db.commit()
 
@@ -206,7 +199,7 @@ class TestBiome:
             workload_type="host",
             phase="phase2_initial",
             registry_url="ghcr.io/penguintechinc/gough/nest-agent:v1.0.0",
-            tenant_id="__default__"
+            tenant_id="__default__",
         )
         db.commit()
 
@@ -225,7 +218,7 @@ class TestBiome:
             phase="post_deploy",
             requires_hardware_tags=json.dumps(["disk:count:2", "mem:total-gb:8"]),
             registry_url="ghcr.io/penguintechinc/gough/longhorn-agent:v1.0.0",
-            tenant_id="__default__"
+            tenant_id="__default__",
         )
         db.commit()
 
@@ -237,18 +230,12 @@ class TestBiome:
 
     def test_biome_unique_name(self, db):
         """Test that biome names are unique."""
-        db.biomes.insert(
-            name="unique-biome",
-            biome_kind="custom",
-            workload_type="lxc"
-        )
+        db.biomes.insert(name="unique-biome", biome_kind="custom", workload_type="lxc")
         db.commit()
 
         with pytest.raises(Exception):
             db.biomes.insert(
-                name="unique-biome",
-                biome_kind="custom",
-                workload_type="lxc"
+                name="unique-biome", biome_kind="custom", workload_type="lxc"
             )
             db.commit()
 
@@ -260,7 +247,7 @@ class TestBiome:
             workload_type="lxc",
             signing_key_id="cosign-prod-key",
             image_digest="sha256:abc123def456",
-            signature_verified=True
+            signature_verified=True,
         )
         db.commit()
 
@@ -276,7 +263,7 @@ class TestBiome:
             biome_kind="cuda-app",
             workload_type="lxc",
             requires_hardware_tags=json.dumps(["mem:total-gb:4", "disk:count:1"]),
-            forbids_hardware_tags=json.dumps(["gpu:nvidia"])
+            forbids_hardware_tags=json.dumps(["gpu:nvidia"]),
         )
         db.commit()
 
@@ -306,7 +293,7 @@ class TestIPXEImage:
             is_default=True,
             is_active=True,
             checksum="sha256:abc123def456",
-            size_bytes=700000000
+            size_bytes=700000000,
         )
         db.commit()
 
@@ -326,7 +313,7 @@ class TestIPXEImage:
                 name=f"image-{img_type}",
                 display_name=f"Image {img_type}",
                 os_name="ubuntu",
-                image_type=img_type
+                image_type=img_type,
             )
             db.commit()
             assert db.ipxe_images[image_id].image_type == img_type
@@ -340,7 +327,7 @@ class TestIPXEImage:
                 name=f"ubuntu-{arch}",
                 display_name=f"Ubuntu {arch}",
                 os_name="ubuntu",
-                architecture=arch
+                architecture=arch,
             )
             db.commit()
             assert db.ipxe_images[image_id].architecture == arch
@@ -359,7 +346,7 @@ class TestBootConfig:
             boot_order=json.dumps(["pxe", "disk"]),
             timeout_seconds=30,
             default_image_id=test_image.id,
-            is_default=True
+            is_default=True,
         )
         db.commit()
 
@@ -372,17 +359,11 @@ class TestBootConfig:
 
     def test_boot_config_unique_name(self, db, test_image):
         """Test that boot config names are unique."""
-        db.ipxe_boot_configs.insert(
-            name="config-1",
-            default_image_id=test_image.id
-        )
+        db.ipxe_boot_configs.insert(name="config-1", default_image_id=test_image.id)
         db.commit()
 
         with pytest.raises(Exception):
-            db.ipxe_boot_configs.insert(
-                name="config-1",
-                default_image_id=test_image.id
-            )
+            db.ipxe_boot_configs.insert(name="config-1", default_image_id=test_image.id)
             db.commit()
 
 
@@ -397,7 +378,7 @@ class TestDeploymentJob:
             image_id=test_image.id,
             eggs_to_deploy=json.dumps([1, 2]),
             status="pending",
-            progress_percent=0
+            progress_percent=0,
         )
         db.commit()
 
@@ -409,15 +390,22 @@ class TestDeploymentJob:
 
     def test_deployment_job_statuses(self, db, test_machine, test_image):
         """Test valid deployment statuses."""
-        statuses = ["pending", "power_on", "pxe_boot", "os_install",
-                   "egg_deploy", "complete", "failed"]
+        statuses = [
+            "pending",
+            "power_on",
+            "pxe_boot",
+            "os_install",
+            "egg_deploy",
+            "complete",
+            "failed",
+        ]
 
         for i, status in enumerate(statuses):
             job_id = db.deployment_jobs.insert(
                 job_id=f"deploy-{i}",
                 machine_id=test_machine.id,
                 image_id=test_image.id,
-                status=status
+                status=status,
             )
             db.commit()
             assert db.deployment_jobs[job_id].status == status
@@ -429,7 +417,7 @@ class TestDeploymentJob:
             machine_id=test_machine.id,
             image_id=test_image.id,
             status="os_install",
-            progress_percent=45
+            progress_percent=45,
         )
         db.commit()
 
@@ -452,7 +440,7 @@ class TestBootEvent:
             ip_address="10.0.0.100",
             event_type="dhcp_request",
             details=json.dumps({"dhcp_server": "10.0.0.1"}),
-            status="success"
+            status="success",
         )
         db.commit()
 
@@ -463,15 +451,22 @@ class TestBootEvent:
 
     def test_boot_event_types(self, db, test_machine):
         """Test valid boot event types."""
-        types = ["dhcp_request", "tftp_request", "boot_start",
-                "os_installed", "egg_started", "egg_complete",
-                "deployment_complete", "error"]
+        types = [
+            "dhcp_request",
+            "tftp_request",
+            "boot_start",
+            "os_installed",
+            "egg_started",
+            "egg_complete",
+            "deployment_complete",
+            "error",
+        ]
 
         for i, event_type in enumerate(types):
             event_id = db.boot_events.insert(
                 machine_id=test_machine.id,
                 mac_address=f"00:1a:2b:3c:4d:{i:02x}",
-                event_type=event_type
+                event_type=event_type,
             )
             db.commit()
             assert db.boot_events[event_id].event_type == event_type
@@ -481,13 +476,13 @@ class TestBootEvent:
         details = {
             "dhcp_server": "10.0.0.1",
             "offered_ip": "10.0.0.100",
-            "transaction_id": "0x12345678"
+            "transaction_id": "0x12345678",
         }
         event_id = db.boot_events.insert(
             machine_id=test_machine.id,
             mac_address="00:1a:2b:3c:4d:5e",
             event_type="dhcp_request",
-            details=json.dumps(details)
+            details=json.dumps(details),
         )
         db.commit()
 
@@ -506,7 +501,7 @@ class TestBiomeGroup:
             display_name="Hypervisor Stack",
             description="Complete hypervisor deployment",
             biomes=json.dumps([{"biome_id": test_biome.id, "order": 1}]),
-            is_default=False
+            is_default=False,
         )
         db.commit()
 
@@ -521,21 +516,16 @@ class TestBiomeGroup:
         biome_ids = []
         for i in range(3):
             biome_id = db.biomes.insert(
-                name=f"app-{i}",
-                biome_kind="custom",
-                workload_type="lxc"
+                name=f"app-{i}", biome_kind="custom", workload_type="lxc"
             )
             biome_ids.append(biome_id)
         db.commit()
 
         biomes_data = [
-            {"biome_id": eid, "order": i+1}
-            for i, eid in enumerate(biome_ids)
+            {"biome_id": eid, "order": i + 1} for i, eid in enumerate(biome_ids)
         ]
         group_id = db.biome_groups.insert(
-            name="multi-app",
-            display_name="Multi App",
-            biomes=json.dumps(biomes_data)
+            name="multi-app", display_name="Multi App", biomes=json.dumps(biomes_data)
         )
         db.commit()
 

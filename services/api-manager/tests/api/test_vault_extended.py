@@ -8,13 +8,14 @@ Coverage targets:
 """
 
 import importlib
-import uuid
-import pytest
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from types import SimpleNamespace
+from typing import Any
+from unittest.mock import MagicMock, patch
+
+import pytest
 
 
 def _make_mock_db(rowcount=5):
@@ -32,6 +33,7 @@ def _make_mock_db(rowcount=5):
 def vault_app(monkeypatch, app):
     """Setup vault API blueprint with auth stubbed."""
     import importlib
+
     import app.middleware as mw_mod
 
     def _passthrough(*dargs, **dkwargs):
@@ -45,8 +47,11 @@ def vault_app(monkeypatch, app):
 
     # Unregister existing Prometheus metrics to avoid duplicate registration on reload
     from prometheus_client import REGISTRY
+
     for collector in list(set(REGISTRY._names_to_collectors.values())):
-        if hasattr(collector, '_name') and 'gough_vault' in getattr(collector, '_name', ''):
+        if hasattr(collector, "_name") and "gough_vault" in getattr(
+            collector, "_name", ""
+        ):
             try:
                 REGISTRY.unregister(collector)
             except Exception:
@@ -59,6 +64,7 @@ def vault_app(monkeypatch, app):
     @app.before_request
     async def _inject_context():
         from quart import g
+
         g.current_user = {"id": 1, "username": "admin", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
         g.db = _make_mock_db(rowcount=5)
@@ -127,10 +133,12 @@ async def test_rotate_keys_with_reason(vault_app):
     client = vault_app.test_client()
     response = await client.post(
         "/api/v1/vault/rotate-keys",
-        data=json.dumps({
-            "rotation_class": "joiner",
-            "reason": "security-incident",
-        }),
+        data=json.dumps(
+            {
+                "rotation_class": "joiner",
+                "reason": "security-incident",
+            }
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 200
@@ -139,10 +147,12 @@ async def test_rotate_keys_with_reason(vault_app):
 @pytest.mark.asyncio
 async def test_rotate_keys_db_not_available(vault_app):
     """Test POST returns 503 when database unavailable."""
+
     # Override before_request to simulate missing db
     @vault_app.before_request
     async def _no_db():
         from quart import g
+
         g.current_user = {"id": 1, "username": "admin", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
         # Don't set g.db to simulate unavailable DB
@@ -160,9 +170,11 @@ async def test_rotate_keys_db_not_available(vault_app):
 @pytest.mark.asyncio
 async def test_rotate_keys_db_error(vault_app):
     """Test POST returns 500 on database error."""
+
     @vault_app.before_request
     async def _error_db():
         from quart import g
+
         g.current_user = {"id": 1, "username": "admin", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
         error_db = MagicMock()
@@ -202,10 +214,12 @@ async def test_rotate_keys_audit_logging(vault_app):
         client = vault_app.test_client()
         response = await client.post(
             "/api/v1/vault/rotate-keys",
-            data=json.dumps({
-                "rotation_class": "joiner",
-                "reason": "manual-rotation",
-            }),
+            data=json.dumps(
+                {
+                    "rotation_class": "joiner",
+                    "reason": "manual-rotation",
+                }
+            ),
             headers={"Content-Type": "application/json"},
         )
         if response.status_code == 200:
@@ -218,10 +232,12 @@ async def test_rotate_keys_whitespace_handling(vault_app):
     client = vault_app.test_client()
     response = await client.post(
         "/api/v1/vault/rotate-keys",
-        data=json.dumps({
-            "rotation_class": "  joiner  ",
-            "reason": "  operator-triggered  ",
-        }),
+        data=json.dumps(
+            {
+                "rotation_class": "  joiner  ",
+                "reason": "  operator-triggered  ",
+            }
+        ),
         headers={"Content-Type": "application/json"},
     )
     data = await response.get_json()
@@ -254,12 +270,15 @@ def _build_vault_app_real_auth():
     the genuine, unpatched decorators.
     """
     import importlib
-    from quart import Quart
-    import app.api.vault as vault_mod
 
+    import app.api.vault as vault_mod
     from prometheus_client import REGISTRY
+    from quart import Quart
+
     for collector in list(set(REGISTRY._names_to_collectors.values())):
-        if hasattr(collector, "_name") and "gough_vault" in getattr(collector, "_name", ""):
+        if hasattr(collector, "_name") and "gough_vault" in getattr(
+            collector, "_name", ""
+        ):
             try:
                 REGISTRY.unregister(collector)
             except Exception:
@@ -331,6 +350,7 @@ async def test_rotate_keys_insufficient_scope_rejected(monkeypatch):
     @quart_app.before_request
     async def _inject_authenticated_no_scope() -> None:
         from quart import g
+
         g.current_user = {
             "id": 1,
             "username": "not-superadmin",
@@ -423,9 +443,9 @@ def _build_vault_app_pg(
     ``test_rotate_keys_insufficient_scope_rejected`` below, which
     deliberately do NOT stub these.
     """
-    from quart import Quart, g
     import app.middleware as mw_mod
     import app.security.scope_enforcement as scope_mod
+    from quart import Quart, g
 
     def _passthrough(*dargs: Any, **dkwargs: Any) -> Any:
         if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
@@ -436,10 +456,12 @@ def _build_vault_app_pg(
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough)
 
     import app.api.vault as vault_mod
-
     from prometheus_client import REGISTRY
+
     for collector in list(set(REGISTRY._names_to_collectors.values())):
-        if hasattr(collector, "_name") and "gough_vault" in getattr(collector, "_name", ""):
+        if hasattr(collector, "_name") and "gough_vault" in getattr(
+            collector, "_name", ""
+        ):
             try:
                 REGISTRY.unregister(collector)
             except Exception:
@@ -485,19 +507,28 @@ async def test_rotate_keys_real_postgres_revokes_matching_secrets_only(
     now = datetime.now(timezone.utc)
 
     target_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, rotation_class="joiner",
+        pg_db,
+        emitter_biome_id=biome_id,
+        rotation_class="joiner",
         expires_at=now + timedelta(hours=1),
     )
     already_revoked_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, rotation_class="joiner",
-        expires_at=now + timedelta(hours=1), revoked_at=now - timedelta(minutes=5),
+        pg_db,
+        emitter_biome_id=biome_id,
+        rotation_class="joiner",
+        expires_at=now + timedelta(hours=1),
+        revoked_at=now - timedelta(minutes=5),
     )
     expired_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, rotation_class="joiner",
+        pg_db,
+        emitter_biome_id=biome_id,
+        rotation_class="joiner",
         expires_at=now - timedelta(minutes=5),
     )
     other_class_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, rotation_class="bootstrap",
+        pg_db,
+        emitter_biome_id=biome_id,
+        rotation_class="bootstrap",
         expires_at=now + timedelta(hours=1),
     )
     pg_db.commit()
@@ -531,9 +562,9 @@ async def test_rotate_keys_real_postgres_revokes_matching_secrets_only(
         )
     }
     assert rows[target_id] is not None, "matching active row must be revoked"
-    assert rows[already_revoked_id] == original_revoked_at, (
-        "already-revoked row's revoked_at must be UNCHANGED (not re-stamped) by rotate-keys"
-    )
+    assert (
+        rows[already_revoked_id] == original_revoked_at
+    ), "already-revoked row's revoked_at must be UNCHANGED (not re-stamped) by rotate-keys"
     assert rows[expired_id] is None, "expired row must NOT be revoked"
     assert rows[other_class_id] is None, "different rotation_class must NOT be revoked"
 
@@ -569,7 +600,10 @@ async def test_rotate_keys_rls_scoped_role_revokes_under_pushed_tenant(
     biome_id = _seed_biome_pg(pg_db)
     now = datetime.now(timezone.utc)
     target_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, tenant_id="acme", rotation_class="joiner",
+        pg_db,
+        emitter_biome_id=biome_id,
+        tenant_id="acme",
+        rotation_class="joiner",
         expires_at=now + timedelta(hours=1),
     )
     pg_db.commit()
@@ -606,7 +640,10 @@ async def test_rotate_keys_rls_scoped_role_sees_nothing_for_other_tenant(
     biome_id = _seed_biome_pg(pg_db)
     now = datetime.now(timezone.utc)
     target_id = _seed_joiner_secret_pg(
-        pg_db, emitter_biome_id=biome_id, tenant_id="tenant-a", rotation_class="joiner",
+        pg_db,
+        emitter_biome_id=biome_id,
+        tenant_id="tenant-a",
+        rotation_class="joiner",
         expires_at=now + timedelta(hours=1),
     )
     pg_db.commit()
@@ -622,7 +659,9 @@ async def test_rotate_keys_rls_scoped_role_sees_nothing_for_other_tenant(
     )
     assert response.status_code == 200
     data = await response.get_json()
-    assert data["revoked_count"] == 0, "a different tenant's GUC must not see tenant-a's row"
+    assert (
+        data["revoked_count"] == 0
+    ), "a different tenant's GUC must not see tenant-a's row"
 
     row = pg_db.executesql(
         "SELECT revoked_at FROM joiner_secrets WHERE id = %(id)s",

@@ -7,9 +7,12 @@ from typing import Any
 import pytest
 from py3tftp.exceptions import ProtocolException
 from py3tftp.netascii import Netascii
-
 from worker.config import WorkerConfig
-from worker.services.tftp_server import RootedFileReader, RootedTFTPServerProtocol, TFTPServer
+from worker.services.tftp_server import (
+    RootedFileReader,
+    RootedTFTPServerProtocol,
+    TFTPServer,
+)
 
 
 def _cfg(root: Path, port: int = 0) -> WorkerConfig:
@@ -76,7 +79,9 @@ async def test_start_fails_when_root_missing(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_serves_until_stopped_and_stop_closes_transport(boot_root: Path) -> None:
+async def test_start_serves_until_stopped_and_stop_closes_transport(
+    boot_root: Path,
+) -> None:
     """start() binds a real UDP socket, reports running, and returns once stop() is called."""
     server = TFTPServer(_cfg(boot_root))
     task = asyncio.create_task(server.start())
@@ -98,7 +103,9 @@ async def test_start_serves_until_stopped_and_stop_closes_transport(boot_root: P
 
 
 @pytest.mark.asyncio
-async def test_start_bind_failure_is_reraised(boot_root: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_start_bind_failure_is_reraised(
+    boot_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """A UDP bind error (e.g. port 69 held by another process) propagates and leaves the server stopped."""
     server = TFTPServer(_cfg(boot_root))
     loop = asyncio.get_running_loop()

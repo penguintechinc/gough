@@ -6,7 +6,6 @@ from pathlib import Path
 import pytest
 from py3tftp.exceptions import ProtocolException
 from py3tftp.tftp_packet import TFTPPacketFactory
-
 from worker.services.tftp_server import RootedFileReader, RootedTFTPServerProtocol
 
 
@@ -87,7 +86,9 @@ def test_rejects_missing_file(tftp_root: Path) -> None:
         RootedFileReader(tftp_root, b"missing.kpxe", 512, b"octet")
 
 
-@pytest.mark.parametrize("name", [b"undionly.kpxe\x00.txt", b"\x00", b"sub\x00dir/inner.bin"])
+@pytest.mark.parametrize(
+    "name", [b"undionly.kpxe\x00.txt", b"\x00", b"sub\x00dir/inner.bin"]
+)
 def test_rejects_nul_bytes(tftp_root: Path, name: bytes) -> None:
     """Filenames containing NUL bytes are rejected before any path resolution."""
     with pytest.raises(FileNotFoundError):

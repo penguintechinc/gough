@@ -31,10 +31,9 @@ from types import SimpleNamespace
 from typing import Any, ClassVar
 
 import pytest
-from quart import Quart, g
-
 from app.clouds import CLOUD_REGISTRY
 from app.clouds.base import BaseCloud, Machine, MachineSpec, MachineState
+from quart import Quart, g
 
 FAKE_PROVIDER_TYPE = "fakecloud"
 
@@ -143,9 +142,8 @@ def shipped_schema_db():
     penguin-dal connects over it by reflection with no table definitions of its
     own. Whatever columns exist here are the columns a deployment has.
     """
-    from penguin_dal import DB
-
     from app.models_sqlalchemy import convert_pydal_to_sqlalchemy_uri, create_all_tables
+    from penguin_dal import DB
 
     tmpdir = tempfile.mkdtemp(prefix="gough-multicloud-")
     pydal_uri = f"sqlite://{os.path.join(tmpdir, 'gough.db')}"
@@ -390,7 +388,9 @@ class TestOpenedSurfaceWritePaths:
             f"/api/v1/clouds/{pid}/machines",
             json={"name": "web-01", "image": "ubuntu-22.04", "size": "small"},
         )
-        assert fake_provider.created_specs, "provider was never asked to create a machine"
+        assert (
+            fake_provider.created_specs
+        ), "provider was never asked to create a machine"
         assert fake_provider.created_specs[-1].tags.get("gough-managed") == "true"
 
 
@@ -437,27 +437,56 @@ class TestShippedSchemaMatchesCloudApi:
     """
 
     #: Columns app/api/clouds.py writes on cloud_machines.
-    MACHINE_API_COLUMNS = frozenset({
-        "provider_id", "external_id", "hostname", "status", "zone", "os_image",
-        "machine_type", "public_ips", "private_ips", "ip_address", "private_ip",
-        "tags", "metadata",
-    })
+    MACHINE_API_COLUMNS = frozenset(
+        {
+            "provider_id",
+            "external_id",
+            "hostname",
+            "status",
+            "zone",
+            "os_image",
+            "machine_type",
+            "public_ips",
+            "private_ips",
+            "ip_address",
+            "private_ip",
+            "tags",
+            "metadata",
+        }
+    )
 
     #: Columns with no reader today, kept because they are the schema side of
     #: planned capacity and LXD/FleetDM work. Dropping them to match the API
     #: would delete those features quietly, so they are asserted, not assumed.
-    MACHINE_RESERVED_COLUMNS = frozenset({
-        "architecture", "cpu_count", "memory_mb", "storage_gb",
-        "lxd_cluster_id", "fleet_host_id",
-    })
+    MACHINE_RESERVED_COLUMNS = frozenset(
+        {
+            "architecture",
+            "cpu_count",
+            "memory_mb",
+            "storage_gb",
+            "lxd_cluster_id",
+            "fleet_host_id",
+        }
+    )
 
-    PROVIDER_API_COLUMNS = frozenset({
-        "name", "provider_type", "config_data", "status", "is_active",
-    })
+    PROVIDER_API_COLUMNS = frozenset(
+        {
+            "name",
+            "provider_type",
+            "config_data",
+            "status",
+            "is_active",
+        }
+    )
 
-    PROVIDER_RESERVED_COLUMNS = frozenset({
-        "description", "region", "credentials_path", "last_sync_at",
-    })
+    PROVIDER_RESERVED_COLUMNS = frozenset(
+        {
+            "description",
+            "region",
+            "credentials_path",
+            "last_sync_at",
+        }
+    )
 
     @staticmethod
     def _columns(db, table_name: str) -> set[str]:
@@ -478,7 +507,9 @@ class TestShippedSchemaMatchesCloudApi:
         missing = self.PROVIDER_API_COLUMNS - columns
         assert not missing, f"cloud_providers missing: {sorted(missing)}"
 
-    def test_cloud_providers_keeps_its_reserved_feature_columns(self, shipped_schema_db):
+    def test_cloud_providers_keeps_its_reserved_feature_columns(
+        self, shipped_schema_db
+    ):
         columns = self._columns(shipped_schema_db, "cloud_providers")
         missing = self.PROVIDER_RESERVED_COLUMNS - columns
         assert not missing, f"cloud_providers lost reserved columns: {sorted(missing)}"
@@ -508,9 +539,13 @@ class TestProvisionedMachineRoundTrips:
         )
         assert resp.status_code == 201
 
-        row = shipped_schema_db(
-            shipped_schema_db.cloud_machines.external_id == "m-fake-001"
-        ).select().first()
+        row = (
+            shipped_schema_db(
+                shipped_schema_db.cloud_machines.external_id == "m-fake-001"
+            )
+            .select()
+            .first()
+        )
         assert row is not None, "machine was not persisted"
 
         assert row.hostname == "web-01"
@@ -519,7 +554,9 @@ class TestProvisionedMachineRoundTrips:
         assert row.os_image == "ubuntu-22.04"
         assert row.machine_type == "small"
 
-    async def test_address_lists_survive_as_lists(self, cloud_client, shipped_schema_db):
+    async def test_address_lists_survive_as_lists(
+        self, cloud_client, shipped_schema_db
+    ):
         """The reason public_ips/private_ips exist: a scalar column cannot hold
         what the provider reports."""
         pid = _seed_provider(shipped_schema_db)
@@ -527,9 +564,13 @@ class TestProvisionedMachineRoundTrips:
             f"/api/v1/clouds/{pid}/machines",
             json={"name": "web-01", "image": "ubuntu-22.04", "size": "small"},
         )
-        row = shipped_schema_db(
-            shipped_schema_db.cloud_machines.external_id == "m-fake-001"
-        ).select().first()
+        row = (
+            shipped_schema_db(
+                shipped_schema_db.cloud_machines.external_id == "m-fake-001"
+            )
+            .select()
+            .first()
+        )
 
         assert row.public_ips == ["203.0.113.10"]
         assert row.private_ips == ["10.0.0.10"]
@@ -548,13 +589,19 @@ class TestProvisionedMachineRoundTrips:
         await cloud_client.post(
             f"/api/v1/clouds/{pid}/machines",
             json={
-                "name": "web-01", "image": "ubuntu-22.04", "size": "small",
+                "name": "web-01",
+                "image": "ubuntu-22.04",
+                "size": "small",
                 "tags": {"role": "web"},
             },
         )
-        row = shipped_schema_db(
-            shipped_schema_db.cloud_machines.external_id == "m-fake-001"
-        ).select().first()
+        row = (
+            shipped_schema_db(
+                shipped_schema_db.cloud_machines.external_id == "m-fake-001"
+            )
+            .select()
+            .first()
+        )
 
         assert isinstance(row.tags, dict)
         assert row.tags["role"] == "web", "operator tag was dropped"

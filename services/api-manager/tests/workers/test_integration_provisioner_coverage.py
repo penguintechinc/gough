@@ -1,21 +1,20 @@
 """Extended coverage tests for integration_provisioner.py missed lines."""
 
-import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
-import httpx
+from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
+import pytest
 from app.workers.integration_provisioner import (
-    IntegrationProvisioner,
-    Credentials,
-    UnsupportedProductError,
-    ProductApiError,
     CredentialMissingError,
+    Credentials,
+    IntegrationProvisioner,
+    ProductApiError,
     ScopeValidationResult,
+    UnsupportedProductError,
     _check_product,
-    _vault_path,
     _load_endpoint,
+    _vault_path,
 )
-from app.clients.vault import VaultError
 
 
 class TestIntegrationProvisionerHelpers:
@@ -56,7 +55,9 @@ class TestIntegrationProvisionerHelpers:
 
     def test_load_endpoint_missing_token(self):
         """_load_endpoint raises when token env var missing."""
-        with patch.dict("os.environ", {"INTEGRATION_TOBOGGANING_URL": "http://localhost:8080"}):
+        with patch.dict(
+            "os.environ", {"INTEGRATION_TOBOGGANING_URL": "http://localhost:8080"}
+        ):
             with pytest.raises(Exception):  # Catches IntegrationError
                 _load_endpoint("tobogganing")
 
@@ -176,7 +177,9 @@ class TestIntegrationProvisionerEnsureServiceAccount:
         )
 
         with patch.object(provisioner, "_read_credential", return_value=None):
-            with patch.object(provisioner, "_mint_service_account", return_value=new_creds):
+            with patch.object(
+                provisioner, "_mint_service_account", return_value=new_creds
+            ):
                 with patch.object(provisioner, "_write_credential"):
                     result = await provisioner.ensure_service_account("tobogganing")
                     assert result.account_id == "new123"
@@ -254,7 +257,9 @@ class TestIntegrationProvisionerValidateScope:
         )
 
         with patch.object(provisioner, "_read_credential", return_value=creds):
-            with patch("app.workers.integration_provisioner._load_endpoint") as mock_load:
+            with patch(
+                "app.workers.integration_provisioner._load_endpoint"
+            ) as mock_load:
                 from app.workers.integration_provisioner import ProductEndpoint
 
                 mock_load.return_value = ProductEndpoint(
@@ -296,7 +301,9 @@ class TestIntegrationProvisionerRotate:
         )
 
         with patch.object(provisioner, "_read_credential", return_value=old_creds):
-            with patch.object(provisioner, "_mint_service_account", return_value=new_creds):
+            with patch.object(
+                provisioner, "_mint_service_account", return_value=new_creds
+            ):
                 with patch.object(provisioner, "_write_credential"):
                     with patch.object(provisioner, "_delete_credential"):
                         with patch.object(
@@ -305,7 +312,9 @@ class TestIntegrationProvisionerRotate:
                             return_value=failed_validation,
                         ):
                             with patch.object(provisioner, "_revoke_on_product"):
-                                with pytest.raises(ProductApiError, match="Scope validation failed"):
+                                with pytest.raises(
+                                    ProductApiError, match="Scope validation failed"
+                                ):
                                     await provisioner.rotate("tobogganing")
 
     @pytest.mark.asyncio
@@ -334,9 +343,11 @@ class TestIntegrationProvisionerRotate:
         )
 
         with patch.object(provisioner, "_read_credential", return_value=old_creds):
-            with patch.object(provisioner, "_mint_service_account", return_value=new_creds):
-                with patch.object(provisioner, "_write_credential") as mock_write:
-                    with patch.object(provisioner, "_delete_credential") as mock_delete:
+            with patch.object(
+                provisioner, "_mint_service_account", return_value=new_creds
+            ):
+                with patch.object(provisioner, "_write_credential"):
+                    with patch.object(provisioner, "_delete_credential"):
                         with patch.object(
                             provisioner,
                             "validate_scope",
@@ -371,11 +382,17 @@ class TestIntegrationProvisionerCompromiseResponse:
         )
 
         with patch.object(provisioner, "_read_credential", return_value=old_creds):
-            with patch.object(provisioner, "_mint_service_account", return_value=new_creds):
+            with patch.object(
+                provisioner, "_mint_service_account", return_value=new_creds
+            ):
                 with patch.object(provisioner, "_write_credential"):
                     with patch.object(provisioner, "_delete_credential"):
-                        with patch.object(provisioner, "_revoke_on_product") as mock_revoke:
-                            result = await provisioner.compromise_response("tobogganing")
+                        with patch.object(
+                            provisioner, "_revoke_on_product"
+                        ) as mock_revoke:
+                            result = await provisioner.compromise_response(
+                                "tobogganing"
+                            )
                             assert result.account_id == "new123"
                             mock_revoke.assert_called_once()
 
@@ -407,7 +424,9 @@ class TestIntegrationProvisionerRevoke:
 
             with patch("app.workers.integration_provisioner.logger") as mock_logger:
                 # Should not raise
-                await provisioner._revoke_on_product("tobogganing", "acc123", best_effort=True)
+                await provisioner._revoke_on_product(
+                    "tobogganing", "acc123", best_effort=True
+                )
                 assert mock_logger.warning.called
 
     @pytest.mark.asyncio
@@ -434,7 +453,9 @@ class TestIntegrationProvisionerRevoke:
             )
 
             # Should not raise
-            await provisioner._revoke_on_product("tobogganing", "acc123", best_effort=True)
+            await provisioner._revoke_on_product(
+                "tobogganing", "acc123", best_effort=True
+            )
 
 
 class TestIntegrationProvisionerClientLifecycle:

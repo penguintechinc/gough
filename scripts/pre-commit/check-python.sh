@@ -72,7 +72,7 @@ if command -v flake8 &> /dev/null; then
     for dir in "${PYTHON_DIRS[@]}"; do
         if ! flake8 "$dir" --max-line-length=120 --ignore=E501,W503 --exclude="*app-skeleton*,*gough*,*__pycache__*,*.venv*,*venv*"; then
             echo "flake8 failed for $dir"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     done
 else
@@ -85,7 +85,7 @@ if command -v black &> /dev/null; then
     for dir in "${PYTHON_DIRS[@]}"; do
         if ! black --check --quiet "$dir" 2>/dev/null; then
             echo "black format check failed for $dir"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     done
 else
@@ -98,7 +98,7 @@ if command -v isort &> /dev/null; then
     for dir in "${PYTHON_DIRS[@]}"; do
         if ! isort --check-only --quiet "$dir" 2>/dev/null; then
             echo "isort check failed for $dir"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     done
 else
@@ -111,7 +111,7 @@ if command -v mypy &> /dev/null; then
     for dir in "${PYTHON_DIRS[@]}"; do
         if ! mypy "$dir" --ignore-missing-imports --no-error-summary 2>/dev/null; then
             echo "mypy found type errors in $dir"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     done
 else
@@ -127,7 +127,7 @@ if command -v bandit &> /dev/null; then
     for dir in "${PYTHON_DIRS[@]}"; do
         if ! bandit -r "$dir" -ll -q 2>/dev/null; then
             echo "bandit found security issues in $dir"
-            ((FAILED++))
+            FAILED=$((FAILED + 1))
         fi
     done
 else
@@ -141,7 +141,7 @@ if command -v safety &> /dev/null; then
         if [ -f "$dir/requirements.txt" ]; then
             if ! safety check -r "$dir/requirements.txt" --short-report 2>/dev/null; then
                 echo "safety found vulnerable dependencies in $dir"
-                ((FAILED++))
+                FAILED=$((FAILED + 1))
             fi
         fi
     done
@@ -154,12 +154,12 @@ echo "--- Build Check ---"
 
 # Syntax check
 echo "Running syntax check..."
-find "$PROJECT_ROOT" -name "*.py" -type f ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/__pycache__/*" | while read -r pyfile; do
+while IFS= read -r -d '' pyfile; do
     if ! python3 -m py_compile "$pyfile" 2>/dev/null; then
         echo "Syntax error in $pyfile"
-        ((FAILED++))
+        FAILED=$((FAILED + 1))
     fi
-done
+done < <(find "$PROJECT_ROOT" -name "*.py" -type f ! -path "*/.venv/*" ! -path "*/venv/*" ! -path "*/__pycache__/*" -print0)
 
 echo ""
 if [ "$FAILED" -eq 0 ]; then

@@ -10,9 +10,8 @@ from __future__ import annotations
 
 from typing import Any
 
-import pytest
-
 import app.clouds as clouds
+import pytest
 from app import observability
 from app.clouds.base import BaseCloud, CloudError
 
@@ -72,7 +71,10 @@ def test_factory_builds_registered_provider_with_config(registry: dict) -> None:
 
 def test_factory_unknown_type_lists_available_providers(registry: dict) -> None:
     """An unknown provider type raises CloudError naming the type and the available set."""
-    with pytest.raises(CloudError, match=r"Unknown cloud provider: nimbus\. Available: \['good', 'broken'\]"):
+    with pytest.raises(
+        CloudError,
+        match=r"Unknown cloud provider: nimbus\. Available: \['good', 'broken'\]",
+    ):
         clouds.get_cloud_provider("nimbus", {})
 
 
@@ -82,7 +84,9 @@ def test_factory_wraps_constructor_failure(registry: dict) -> None:
         clouds.get_cloud_provider("broken", {})
 
 
-def test_register_cloud_decorator_adds_class_and_returns_it(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_cloud_decorator_adds_class_and_returns_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The register_cloud decorator records the class under the name and returns it unchanged."""
     reg: dict[str, type[BaseCloud]] = {}
     monkeypatch.setattr(clouds, "CLOUD_REGISTRY", reg)
@@ -115,10 +119,14 @@ def test_build_resource_defaults_service_name(monkeypatch: pytest.MonkeyPatch) -
     assert attrs["service.name"] == "gough-api-manager"
 
 
-def test_build_resource_merges_resource_attributes(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_build_resource_merges_resource_attributes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """OTEL_RESOURCE_ATTRIBUTES extends the resource and can override the service name."""
     monkeypatch.setenv("OTEL_SERVICE_NAME", "custom")
-    monkeypatch.setenv("OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=beta,team=infra")
+    monkeypatch.setenv(
+        "OTEL_RESOURCE_ATTRIBUTES", "deployment.environment=beta,team=infra"
+    )
 
     attrs = dict(observability._build_resource().attributes)
 

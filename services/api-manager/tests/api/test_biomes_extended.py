@@ -15,7 +15,6 @@ Tests cover:
 from __future__ import annotations
 
 import pytest
-from datetime import datetime, timezone
 
 pytestmark = pytest.mark.asyncio
 
@@ -115,7 +114,11 @@ def sample_node(dal_with_eggs):
         name="test-node",
         state="ready",
         hardware_tags=["cpu:cores:16", "mem:total-gb:64"],
-        hardware_json={"memory_mb": 65536, "disk_total_gb": 500, "architecture": "x86_64"},
+        hardware_json={
+            "memory_mb": 65536,
+            "disk_total_gb": 500,
+            "architecture": "x86_64",
+        },
     )
     dal_with_eggs.commit()
     return int(node_id)
@@ -128,23 +131,25 @@ class TestMFAEnforcement:
         """Sign endpoint should reject requests without MFA."""
         # Mock _user_has_mfa to return False
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: False)
 
         response = await app_client.post(
-            f"/api/v1/biomes/{sample_biome}/sign",
-            json={"signature": "fake-sig"}
+            f"/api/v1/biomes/{sample_biome}/sign", json={"signature": "fake-sig"}
         )
         # Should return 403 when MFA is required but not present
         assert response.status_code in (403, 400, 401, 422)
 
-    async def test_upgrade_biome_no_mfa_fails(self, app_client, sample_biome, monkeypatch):
+    async def test_upgrade_biome_no_mfa_fails(
+        self, app_client, sample_biome, monkeypatch
+    ):
         """Upgrade endpoint should reject requests without MFA."""
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: False)
 
         response = await app_client.post(
-            f"/api/v1/biomes/{sample_biome}/upgrade",
-            json={"plan": "test"}
+            f"/api/v1/biomes/{sample_biome}/upgrade", json={"plan": "test"}
         )
         assert response.status_code in (403, 400, 401, 422)
 
@@ -152,14 +157,17 @@ class TestMFAEnforcement:
 class TestSignatureVerification:
     """Tests for signature verification failures."""
 
-    async def test_sign_biome_invalid_signature(self, app_client, sample_biome, monkeypatch):
+    async def test_sign_biome_invalid_signature(
+        self, app_client, sample_biome, monkeypatch
+    ):
         """Sign should fail with invalid signature."""
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: True)
 
         response = await app_client.post(
             f"/api/v1/biomes/{sample_biome}/sign",
-            json={"signature": "invalid-base64!!!"}
+            json={"signature": "invalid-base64!!!"},
         )
         # Should reject malformed signature
         assert response.status_code in (400, 422)
@@ -167,11 +175,11 @@ class TestSignatureVerification:
     async def test_sign_nonexistent_biome(self, app_client, monkeypatch):
         """Sign should return 404 for nonexistent biome."""
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: True)
 
         response = await app_client.post(
-            "/api/v1/biomes/99999/sign",
-            json={"signature": "test"}
+            "/api/v1/biomes/99999/sign", json={"signature": "test"}
         )
         assert response.status_code in (404, 422)
 
@@ -179,7 +187,9 @@ class TestSignatureVerification:
 class TestResourceConstraintViolations:
     """Tests for hardware resource constraint checking."""
 
-    async def test_eligibility_insufficient_memory(self, app_client, dal_with_eggs, sample_biome, monkeypatch):
+    async def test_eligibility_insufficient_memory(
+        self, app_client, dal_with_eggs, sample_biome, monkeypatch
+    ):
         """Eligibility check should fail when node has insufficient RAM."""
         from penguin_dal import Field
 
@@ -198,19 +208,31 @@ class TestResourceConstraintViolations:
             tenant_id="__default__",
             name="low-mem-node",
             state="ready",
-            hardware_json={"memory_mb": 1024, "disk_total_gb": 500, "architecture": "x86_64"},
+            hardware_json={
+                "memory_mb": 1024,
+                "disk_total_gb": 500,
+                "architecture": "x86_64",
+            },
         )
         dal_with_eggs.commit()
 
-        response = await app_client.get(f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}")
+        response = await app_client.get(
+            f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}"
+        )
         # Should return 200 but indicate ineligibility
         assert response.status_code == 200
         body = await response.get_json()
         # Check for violation in response (data is wrapped in envelope)
         data = body.get("data", {})
-        assert data.get("eligible") is False or "missing_tags" in data or "resource_violations" in data
+        assert (
+            data.get("eligible") is False
+            or "missing_tags" in data
+            or "resource_violations" in data
+        )
 
-    async def test_eligibility_insufficient_disk(self, app_client, dal_with_eggs, sample_biome, monkeypatch):
+    async def test_eligibility_insufficient_disk(
+        self, app_client, dal_with_eggs, sample_biome, monkeypatch
+    ):
         """Eligibility check should fail when node has insufficient disk."""
         from penguin_dal import Field
 
@@ -229,17 +251,25 @@ class TestResourceConstraintViolations:
             tenant_id="__default__",
             name="low-disk-node",
             state="ready",
-            hardware_json={"memory_mb": 65536, "disk_total_gb": 10, "architecture": "x86_64"},
+            hardware_json={
+                "memory_mb": 65536,
+                "disk_total_gb": 10,
+                "architecture": "x86_64",
+            },
         )
         dal_with_eggs.commit()
 
-        response = await app_client.get(f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}")
+        response = await app_client.get(
+            f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         data = body.get("data", {})
         assert data.get("eligible") is False or "resource_violations" in data
 
-    async def test_eligibility_architecture_mismatch(self, app_client, dal_with_eggs, sample_biome, monkeypatch):
+    async def test_eligibility_architecture_mismatch(
+        self, app_client, dal_with_eggs, sample_biome, monkeypatch
+    ):
         """Eligibility check should fail on architecture mismatch."""
         from penguin_dal import Field
 
@@ -258,11 +288,17 @@ class TestResourceConstraintViolations:
             tenant_id="__default__",
             name="arm64-node",
             state="ready",
-            hardware_json={"memory_mb": 65536, "disk_total_gb": 500, "architecture": "arm64"},
+            hardware_json={
+                "memory_mb": 65536,
+                "disk_total_gb": 500,
+                "architecture": "arm64",
+            },
         )
         dal_with_eggs.commit()
 
-        response = await app_client.get(f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}")
+        response = await app_client.get(
+            f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         data = body.get("data", {})
@@ -272,7 +308,9 @@ class TestResourceConstraintViolations:
 class TestHardwareTagEligibility:
     """Tests for hardware tag eligibility checking."""
 
-    async def test_eligibility_missing_required_tags(self, app_client, dal_with_eggs, sample_biome, monkeypatch):
+    async def test_eligibility_missing_required_tags(
+        self, app_client, dal_with_eggs, sample_biome, monkeypatch
+    ):
         """Eligibility check should fail when required tags are missing."""
         from penguin_dal import Field
 
@@ -295,14 +333,18 @@ class TestHardwareTagEligibility:
         )
         dal_with_eggs.commit()
 
-        response = await app_client.get(f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}")
+        response = await app_client.get(
+            f"/api/v1/biomes/{sample_biome}/eligibility?node_id={int(node_id)}"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         # Should show ineligibility
         data = body.get("data", {})
         assert data.get("eligible") is False or "missing_tags" in data
 
-    async def test_eligibility_forbidden_tags_present(self, app_client, dal_with_eggs, monkeypatch):
+    async def test_eligibility_forbidden_tags_present(
+        self, app_client, dal_with_eggs, monkeypatch
+    ):
         """Eligibility check should fail when forbidden tags are present."""
         from penguin_dal import Field
 
@@ -344,7 +386,9 @@ class TestHardwareTagEligibility:
         )
         dal_with_eggs.commit()
 
-        response = await app_client.get(f"/api/v1/biomes/{int(biome_id)}/eligibility?node_id={int(node_id)}")
+        response = await app_client.get(
+            f"/api/v1/biomes/{int(biome_id)}/eligibility?node_id={int(node_id)}"
+        )
         assert response.status_code == 200
         body = await response.get_json()
         data = body.get("data", {})
@@ -357,20 +401,20 @@ class TestNodeBiomeAssignmentErrors:
     async def test_assign_nonexistent_biome(self, app_client, sample_node):
         """Assign should return 404 for nonexistent biome."""
         response = await app_client.post(
-            f"/api/v1/nodes/{sample_node}/biomes",
-            json={"biome_id": 99999}
+            f"/api/v1/nodes/{sample_node}/biomes", json={"biome_id": 99999}
         )
         assert response.status_code == 404
 
     async def test_assign_nonexistent_node(self, app_client, sample_biome):
         """Assign should return 404 for nonexistent node."""
         response = await app_client.post(
-            f"/api/v1/nodes/99999/biomes",
-            json={"biome_id": sample_biome}
+            "/api/v1/nodes/99999/biomes", json={"biome_id": sample_biome}
         )
         assert response.status_code == 404
 
-    async def test_unassign_nonexistent_assignment(self, app_client, sample_node, sample_biome):
+    async def test_unassign_nonexistent_assignment(
+        self, app_client, sample_node, sample_biome
+    ):
         """Unassign should return 404 when assignment doesn't exist."""
         response = await app_client.delete(
             f"/api/v1/nodes/{sample_node}/biomes/{sample_biome}"
@@ -381,7 +425,9 @@ class TestNodeBiomeAssignmentErrors:
 class TestLockToHostValidation:
     """Tests for lock_to_host constraint validation."""
 
-    async def test_lock_to_host_prevents_reassignment(self, app_client, dal_with_eggs, monkeypatch):
+    async def test_lock_to_host_prevents_reassignment(
+        self, app_client, dal_with_eggs, monkeypatch
+    ):
         """Biome with lock_to_host=true should not allow reassignment."""
         from penguin_dal import Field
 
@@ -441,8 +487,7 @@ class TestLockToHostValidation:
 
         # Try to assign to second node — should fail
         response = await app_client.post(
-            f"/api/v1/nodes/{int(node2_id)}/biomes",
-            json={"biome_id": int(biome_id)}
+            f"/api/v1/nodes/{int(node2_id)}/biomes", json={"biome_id": int(biome_id)}
         )
         # Should reject reassignment of locked biome (or allow it if not implemented)
         assert response.status_code in (409, 403, 400, 201)
@@ -460,7 +505,7 @@ class TestCloudInitValidation:
                 "biome_type": "lxd_container",
                 "version": "1.0.0",
                 "cloud_init_content": "invalid: yaml: content: with: [unbalanced, braces",
-            }
+            },
         )
         # Should reject malformed YAML
         assert response.status_code in (400, 422)
@@ -475,9 +520,7 @@ class TestGetCurrentUserEdgeCases:
 
         # Patch get_current_user to return user without JWT payload
         monkeypatch.setattr(
-            biomes_mod,
-            "get_current_user",
-            lambda: {"id": "test", "_jwt_payload": {}}
+            biomes_mod, "get_current_user", lambda: {"id": "test", "_jwt_payload": {}}
         )
 
         # _user_has_scope should return False for missing scopes
@@ -491,7 +534,10 @@ class TestGetCurrentUserEdgeCases:
         monkeypatch.setattr(
             biomes_mod,
             "get_current_user",
-            lambda: {"id": "test", "_jwt_payload": {"scope": ["admin:read", "admin:write"]}}
+            lambda: {
+                "id": "test",
+                "_jwt_payload": {"scope": ["admin:read", "admin:write"]},
+            },
         )
 
         has_scope = biomes_mod._user_has_scope("admin:write")
@@ -504,22 +550,22 @@ class TestUpgradeAndRollback:
     async def test_upgrade_nonexistent_biome(self, app_client, monkeypatch):
         """Upgrade should return 404 for nonexistent biome."""
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: True)
 
         response = await app_client.post(
-            "/api/v1/biomes/99999/upgrade",
-            json={"plan": "test"}
+            "/api/v1/biomes/99999/upgrade", json={"plan": "test"}
         )
         assert response.status_code in (404, 422)
 
     async def test_upgrade_missing_plan(self, app_client, sample_biome, monkeypatch):
         """Upgrade should validate plan is present."""
         import app.api.biomes as biomes_mod
+
         monkeypatch.setattr(biomes_mod, "_user_has_mfa", lambda: True)
 
         response = await app_client.post(
-            f"/api/v1/biomes/{sample_biome}/upgrade",
-            json={}
+            f"/api/v1/biomes/{sample_biome}/upgrade", json={}
         )
         assert response.status_code in (400, 422)
 
@@ -615,8 +661,5 @@ class TestBiomeGroupOperations:
 
     async def test_create_group_invalid_body(self, app_client, dal_with_biome_groups):
         """Create should validate required fields."""
-        response = await app_client.post(
-            "/api/v1/biomes/groups",
-            json={}
-        )
+        response = await app_client.post("/api/v1/biomes/groups", json={})
         assert response.status_code in (400, 422)

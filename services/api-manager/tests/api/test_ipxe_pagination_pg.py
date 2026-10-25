@@ -144,8 +144,15 @@ class TestListMachinesFilters:
     async def test_filters_by_status(
         self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _seed_machine(pg_db, system_id="m-ready", mac_address="aa:bb:cc:dd:ee:01", status="ready")
-        _seed_machine(pg_db, system_id="m-failed", mac_address="aa:bb:cc:dd:ee:02", status="failed")
+        _seed_machine(
+            pg_db, system_id="m-ready", mac_address="aa:bb:cc:dd:ee:01", status="ready"
+        )
+        _seed_machine(
+            pg_db,
+            system_id="m-failed",
+            mac_address="aa:bb:cc:dd:ee:02",
+            status="failed",
+        )
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
@@ -159,12 +166,18 @@ class TestListMachinesFilters:
         self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         _seed_machine(
-            pg_db, system_id="m-a", mac_address="aa:bb:cc:dd:ee:03",
-            zone="dal2", pool="default",
+            pg_db,
+            system_id="m-a",
+            mac_address="aa:bb:cc:dd:ee:03",
+            zone="dal2",
+            pool="default",
         )
         _seed_machine(
-            pg_db, system_id="m-b", mac_address="aa:bb:cc:dd:ee:04",
-            zone="dal3", pool="default",
+            pg_db,
+            system_id="m-b",
+            mac_address="aa:bb:cc:dd:ee:04",
+            zone="dal3",
+            pool="default",
         )
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db)
@@ -178,7 +191,9 @@ class TestListMachinesFilters:
     async def test_no_match_returns_empty_list(
         self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _seed_machine(pg_db, system_id="m-ready", mac_address="aa:bb:cc:dd:ee:05", status="ready")
+        _seed_machine(
+            pg_db, system_id="m-ready", mac_address="aa:bb:cc:dd:ee:05", status="ready"
+        )
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
@@ -269,7 +284,9 @@ class TestListImagesFilters:
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db)
         client = app.test_client()
-        resp = await client.get("/api/v1/ipxe/images?architecture=arm64&os_version=24.04")
+        resp = await client.get(
+            "/api/v1/ipxe/images?architecture=arm64&os_version=24.04"
+        )
         assert resp.status_code == 200
         body = await resp.get_json()
         assert body["count"] == 1

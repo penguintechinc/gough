@@ -14,10 +14,9 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import insert, select
-
 from app import capacity_guard as cg
 from app.models_sqlalchemy import Base
+from sqlalchemy import insert, select
 
 from .test_capacity_guard import _policy, _req, _snapshot_dict
 
@@ -30,7 +29,9 @@ def node_id(pg_db: Any, monkeypatch: pytest.MonkeyPatch) -> int:
     now = datetime.now(UTC)
     with pg_db.engine.begin() as conn:
         nid = conn.execute(
-            insert(nodes).values(tenant_id="acme", name=f"pg-{uuid.uuid4().hex[:8]}", state="ready").returning(nodes.c.id)
+            insert(nodes)
+            .values(tenant_id="acme", name=f"pg-{uuid.uuid4().hex[:8]}", state="ready")
+            .returning(nodes.c.id)
         ).scalar_one()
         snap = cg.parse_snapshot(_snapshot_dict(now))
         assert cg.record_snapshot(conn, nid, snap, now) is cg.SnapshotOutcome.STORED
@@ -64,7 +65,9 @@ def _race(engine: Any, node: int, threads: int, cpu: float) -> list[cg.ReserveRe
     return results
 
 
-def test_pg_concurrent_reserve_last_slot_exactly_one_wins(pg_db: Any, node_id: int) -> None:
+def test_pg_concurrent_reserve_last_slot_exactly_one_wins(
+    pg_db: Any, node_id: int
+) -> None:
     """12 racers each want 40 of 56 CPU: exactly one reservation is granted."""
     results = _race(pg_db.engine, node_id, 12, 40.0)
     granted = [r for r in results if r.fit.ok]
@@ -72,7 +75,9 @@ def test_pg_concurrent_reserve_last_slot_exactly_one_wins(pg_db: Any, node_id: i
     assert all("insufficient_cpu" in r.fit.reasons for r in results if not r.fit.ok)
     table = cg.CapacityReservation.__table__
     with pg_db.engine.connect() as conn:
-        active = conn.execute(select(table.c.public_id).where(table.c.node_id == node_id)).all()
+        active = conn.execute(
+            select(table.c.public_id).where(table.c.node_id == node_id)
+        ).all()
     assert len(active) == 1
 
 
@@ -82,7 +87,12 @@ def test_pg_concurrent_reserve_never_oversubscribes(pg_db: Any, node_id: int) ->
     assert sum(1 for r in results if r.fit.ok) == 8
     table = cg.CapacityReservation.__table__
     with pg_db.engine.connect() as conn:
-        total = sum(float(c) for (c,) in conn.execute(select(table.c.cpu_cores).where(table.c.node_id == node_id)))
+        total = sum(
+            float(c)
+            for (c,) in conn.execute(
+                select(table.c.cpu_cores).where(table.c.node_id == node_id)
+            )
+        )
     assert total == pytest.approx(56.0)
 
 
@@ -92,12 +102,24 @@ def test_pg_agent_link_refusals(pg_db: Any, node_id: int) -> None:
     with pg_db.engine.begin() as conn:
         for agent_id, status in (("pg-ag-1", "active"), ("pg-ag-2", "active")):
             conn.execute(
-                insert(agents).values(agent_id=agent_id, hostname="spoofed", status=status, node_id=node_id)
+                insert(agents).values(
+                    agent_id=agent_id,
+                    hostname="spoofed",
+                    status=status,
+                    node_id=node_id,
+                )
             )
     with pg_db.engine.connect() as conn:
-        assert cg.resolve_agent_node(conn, "pg-ag-1").reason == "node_has_multiple_active_agents"
+        assert (
+            cg.resolve_agent_node(conn, "pg-ag-1").reason
+            == "node_has_multiple_active_agents"
+        )
         assert cg.resolve_agent_node(conn, "ghost").reason == "unknown_agent"
     with pg_db.engine.begin() as conn:
-        conn.execute(agents.update().where(agents.c.agent_id == "pg-ag-2").values(status="revoked"))
+        conn.execute(
+            agents.update()
+            .where(agents.c.agent_id == "pg-ag-2")
+            .values(status="revoked")
+        )
     with pg_db.engine.connect() as conn:
         assert cg.resolve_agent_node(conn, "pg-ag-1").node_id == node_id

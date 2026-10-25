@@ -65,7 +65,9 @@ def _build_app(
 
     application = Quart(__name__)
     application.config["TESTING"] = True
-    application.register_blueprint(clusters_mod.clusters_bp, url_prefix="/api/v1/clusters")
+    application.register_blueprint(
+        clusters_mod.clusters_bp, url_prefix="/api/v1/clusters"
+    )
 
     @application.before_request
     async def inject_user() -> None:
@@ -85,8 +87,11 @@ def _seed_cluster(owner_db: Any, *, cluster_id: str, tenant_id: str, name: str) 
     """Insert a ``clusters`` row as the table OWNER (bypasses RLS on insert)."""
     now = datetime.now(timezone.utc)
     owner_db.clusters.insert(
-        id=cluster_id, tenant_id=tenant_id, name=name,
-        created_at=now, updated_at=now,
+        id=cluster_id,
+        tenant_id=tenant_id,
+        name=name,
+        created_at=now,
+        updated_at=now,
     )
     owner_db.commit()
 
@@ -95,7 +100,9 @@ class TestClusterTenantIdorGate:
     """The regression this task exists to close."""
 
     async def test_cross_tenant_request_404s(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """# regression: gh-21
 
@@ -105,7 +112,9 @@ class TestClusterTenantIdorGate:
         ``hasattr(db, "clusters")`` check was always False and this request
         would have returned 200 with tenant-a's data.
         """
-        _seed_cluster(pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a")
+        _seed_cluster(
+            pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a"
+        )
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-b")
         client = app.test_client()
@@ -117,10 +126,14 @@ class TestClusterTenantIdorGate:
         assert body["error"] == "Cluster not found"
 
     async def test_same_tenant_request_succeeds(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Sanity: the gate must not also block the legitimate owning tenant."""
-        _seed_cluster(pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a")
+        _seed_cluster(
+            pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a"
+        )
 
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a")
         client = app.test_client()
@@ -133,13 +146,20 @@ class TestClusterTenantIdorGate:
         assert body["data"]["cluster_id"] == "cluster-a"
 
     async def test_cross_tenant_super_admin_bypasses_gate(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A cross_tenant=true (super-admin) token bypasses the ownership check by design."""
-        _seed_cluster(pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a")
+        _seed_cluster(
+            pg_db, cluster_id="cluster-a", tenant_id="tenant-a", name="cluster-a"
+        )
 
         app = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-b", cross_tenant=True,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-b",
+            cross_tenant=True,
         )
         client = app.test_client()
 
@@ -148,7 +168,9 @@ class TestClusterTenantIdorGate:
         assert response.status_code == 200
 
     async def test_nonexistent_cluster_still_404s(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A cluster_id that matches no row at all must also 404 (not 500/other)."""
         app = _build_app(monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a")
@@ -170,8 +192,11 @@ class TestClusterInsertSelectAsScopedRole:
         try:
             now = datetime.now(timezone.utc)
             pg_db_scoped.clusters.insert(
-                id="scoped-cluster", tenant_id="tenant-a", name="scoped-cluster",
-                created_at=now, updated_at=now,
+                id="scoped-cluster",
+                tenant_id="tenant-a",
+                name="scoped-cluster",
+                created_at=now,
+                updated_at=now,
             )
             rows = pg_db_scoped(pg_db_scoped.clusters.id == "scoped-cluster").select()
         finally:
@@ -182,14 +207,20 @@ class TestClusterInsertSelectAsScopedRole:
         assert rows[0].status == "ready"
 
     async def test_cluster_config_insert_and_select_as_scoped_role(
-        self, pg_db: Any, pg_db_scoped: Any,
+        self,
+        pg_db: Any,
+        pg_db_scoped: Any,
     ) -> None:
         """``cluster_config`` is cluster-scoped, not tenant-scoped -- no RLS,
         so this only needs to prove the grant (not tenant isolation)."""
-        _seed_cluster(pg_db, cluster_id="cfg-cluster", tenant_id="tenant-a", name="cfg-cluster")
+        _seed_cluster(
+            pg_db, cluster_id="cfg-cluster", tenant_id="tenant-a", name="cfg-cluster"
+        )
 
         row_id = pg_db_scoped.cluster_config.insert(
-            cluster_id="cfg-cluster", key="network_pools", value_json=[{"name": "mgmt"}],
+            cluster_id="cfg-cluster",
+            key="network_pools",
+            value_json=[{"name": "mgmt"}],
         )
         rows = pg_db_scoped(pg_db_scoped.cluster_config.id == row_id).select()
 

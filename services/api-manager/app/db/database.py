@@ -146,7 +146,7 @@ def get_db() -> DB:
         penguin-dal ``DB`` instance for the current thread. Lazily built on
         first call per thread via ``init_db()``.
     """
-    if not hasattr(_thread_local, 'db') or _thread_local.db is None:
+    if not hasattr(_thread_local, "db") or _thread_local.db is None:
         _thread_local.db = init_db()
 
     return _thread_local.db
@@ -158,7 +158,7 @@ def close_db() -> None:
 
     Safe to call multiple times.
     """
-    if hasattr(_thread_local, 'db') and _thread_local.db is not None:
+    if hasattr(_thread_local, "db") and _thread_local.db is not None:
         try:
             _thread_local.db.close()
             logger.debug("Database connection closed")

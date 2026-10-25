@@ -206,7 +206,9 @@ class TestNonOidcEndpointsEnforceOwnAuth:
         assert _reached_handler(body), "must reach the handler, not the OIDC gate"
         assert body.get("error") == "Enrollment key required"
 
-    async def test_nodes_discover_bad_bootstrap_rejected_by_handler(self, real_auth_env):
+    async def test_nodes_discover_bad_bootstrap_rejected_by_handler(
+        self, real_auth_env
+    ):
         """POST /nodes/discover with a bad bootstrap token -> 401 from the handler."""
         resp = await real_auth_env.client.post(
             "/api/v1/nodes/discover", json={"bootstrap_token": "bogus"}

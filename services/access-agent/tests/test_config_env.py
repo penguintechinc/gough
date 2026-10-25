@@ -5,7 +5,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-
 from agent.config import AgentConfig
 from agent.host_resources import DEFAULT_LXD_SOCKET
 
@@ -94,14 +93,18 @@ def test_verify_ssl_only_true_string_enables_verification(
         ("GOUGH_SNAPSHOT_TIMEOUT_S", "soon"),
     ],
 )
-def test_invalid_numeric_values_raise(monkeypatch: pytest.MonkeyPatch, var: str, value: str) -> None:
+def test_invalid_numeric_values_raise(
+    monkeypatch: pytest.MonkeyPatch, var: str, value: str
+) -> None:
     """Non-numeric values for numeric settings fail loudly at load time."""
     monkeypatch.setenv(var, value)
     with pytest.raises(ValueError):
         AgentConfig.from_env()
 
 
-def test_from_file_missing_falls_back_to_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_from_file_missing_falls_back_to_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """A missing YAML file defers to environment loading."""
     monkeypatch.setenv("GOUGH_HOSTNAME", "from-env")
     cfg = AgentConfig.from_file(str(tmp_path / "absent.yaml"))
@@ -142,7 +145,9 @@ def test_from_file_reads_yaml_values(tmp_path: Path) -> None:
     assert cfg.capabilities == ["ssh", "files"]
 
 
-def test_from_file_uses_env_for_absent_yaml_keys(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_from_file_uses_env_for_absent_yaml_keys(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Keys missing from YAML fall back to the matching GOUGH_* env variable."""
     monkeypatch.setenv("GOUGH_MANAGEMENT_SERVER", "https://env.example")
     monkeypatch.setenv("GOUGH_ENROLLMENT_KEY", "env-key")

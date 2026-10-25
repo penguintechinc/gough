@@ -7,7 +7,6 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Color codes
 RED='\033[0;31m'
@@ -17,7 +16,6 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # Configuration
-TIMEOUT=120 # Total timeout for all tests
 VERBOSE="${VERBOSE:-false}"
 
 # Counters
@@ -71,7 +69,8 @@ run_test() {
 
 # Main execution
 main() {
-    local start_time=$(date +%s)
+    local start_time
+    start_time=$(date +%s)
 
     echo -e "${BLUE}"
     echo "╔════════════════════════════════════════╗"
@@ -95,10 +94,11 @@ main() {
 
     # Check if containers are running
     echo -e "${YELLOW}Checking container status...${NC}"
-    local running_containers=$(docker ps --format "{{.Names}}" | wc -l)
+    local running_containers
+    running_containers=$(docker ps --format "{{.Names}}" | wc -l)
     echo "Found $running_containers running containers"
 
-    if [ $running_containers -eq 0 ]; then
+    if [ "$running_containers" -eq 0 ]; then
         echo -e "${YELLOW}WARNING: No containers appear to be running${NC}"
         echo "You may need to start containers with: docker-compose up -d"
         echo "Continuing with tests anyway..."
@@ -114,8 +114,10 @@ main() {
     done
 
     # Print summary
-    local end_time=$(date +%s)
-    local duration=$((end_time - start_time))
+    local end_time
+    end_time=$(date +%s)
+    local duration
+    duration=$((end_time - start_time))
 
     echo ""
     echo -e "${BLUE}════════════════════════════════════════${NC}"

@@ -7,29 +7,30 @@ refresh, and run_once behaviour with both leader / non-leader outcomes.
 
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import sys
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-import pytest
-
-from app.workers import smart_sweeper as sw
-
 # Same sys.path shim _grpc_smartctl_runner performs itself (see that
 # function's docstring) -- needed here too so `gough.discovery_pb2_grpc`
 # resolves to the *same* sys.modules entry the production code will import
 # at call time, letting tests monkeypatch `discovery_pb2_grpc.DiscoveryStub`
 # in a way the real deferred import actually observes.
+import grpc
+import pytest
+from app.workers import smart_sweeper as sw
+
 _GRPC_PKG_DIR = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "app", "grpc"
 )
 if _GRPC_PKG_DIR not in sys.path:
     sys.path.insert(0, _GRPC_PKG_DIR)
 
-import grpc
-from gough import discovery_pb2, discovery_pb2_grpc
+discovery_pb2 = importlib.import_module("gough.discovery_pb2")
+discovery_pb2_grpc = importlib.import_module("gough.discovery_pb2_grpc")
 
 HEALTHY_SATA = {
     "smart_status": {"passed": True},
@@ -157,9 +158,13 @@ class _FakeLease:
         if not self.will_grant:
             return None
         return SimpleNamespace(
-            lease_name=name, holder_id=holder_id or "test", ttl_seconds=ttl_seconds,
+            lease_name=name,
+            holder_id=holder_id or "test",
+            ttl_seconds=ttl_seconds,
             acquired_at=datetime.now(timezone.utc),
-            expires_at=datetime.now(timezone.utc), version=1, extra={},
+            expires_at=datetime.now(timezone.utc),
+            version=1,
+            extra={},
         )
 
     def release(self, conn, handle):
@@ -177,25 +182,45 @@ def ready_node(dal):
     """Insert a ready node + two disks."""
     now = datetime.now(timezone.utc)
     node_id = dal.nodes.insert(
-        tenant_id="acme", name="n1", state="ready",
-        dmi_uuid="0", primary_nic_mac="00:00:00:00:00:01",
+        tenant_id="acme",
+        name="n1",
+        state="ready",
+        dmi_uuid="0",
+        primary_nic_mac="00:00:00:00:00:01",
     )
     sda = dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=512_000_000_000, rotational=False, smart_status="passed",
-        reserved_for_storage=True, storage_backend="nest", tier="fast",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=512_000_000_000,
+        rotational=False,
+        smart_status="passed",
+        reserved_for_storage=True,
+        storage_backend="nest",
+        tier="fast",
+        created_at=now,
+        updated_at=now,
     )
     sdb = dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
-        capacity_bytes=2_000_000_000_000, rotational=True, smart_status="passed",
-        reserved_for_storage=True, storage_backend="nest", tier="bulk",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sdb",
+        capacity_bytes=2_000_000_000_000,
+        rotational=True,
+        smart_status="passed",
+        reserved_for_storage=True,
+        storage_backend="nest",
+        tier="bulk",
+        created_at=now,
+        updated_at=now,
     )
     # A "new" node should be ignored.
     dal.nodes.insert(
-        tenant_id="acme", name="n2", state="new",
-        dmi_uuid="x", primary_nic_mac="00:00:00:00:00:02",
+        tenant_id="acme",
+        name="n2",
+        state="new",
+        dmi_uuid="x",
+        primary_nic_mac="00:00:00:00:00:02",
     )
     dal.commit()
     return SimpleNamespace(node_id=int(node_id), sda=int(sda), sdb=int(sdb))
@@ -375,7 +400,9 @@ def test_failed_smart_emits_warning_with_failed_status(dal, ready_node):
 # (`pg_db`/`pg_db_scoped`) instead.
 
 
-def _seed_pg_ready_node_and_disk(db, tenant_id: str = "acme", node_name: str = "pg-node-1"):
+def _seed_pg_ready_node_and_disk(
+    db, tenant_id: str = "acme", node_name: str = "pg-node-1"
+):
     """Insert a real ``ready`` node + one disk via penguin-dal; return their ids.
 
     ``created_at``/``updated_at`` have no server-side DEFAULT
@@ -386,15 +413,26 @@ def _seed_pg_ready_node_and_disk(db, tenant_id: str = "acme", node_name: str = "
     """
     now = datetime.now(timezone.utc)
     node_id = db.nodes.insert(
-        tenant_id=tenant_id, name=node_name, state="ready",
-        dmi_uuid=f"dmi-{node_name}", primary_nic_mac="aa:bb:cc:dd:ee:01",
-        created_at=now, updated_at=now,
+        tenant_id=tenant_id,
+        name=node_name,
+        state="ready",
+        dmi_uuid=f"dmi-{node_name}",
+        primary_nic_mac="aa:bb:cc:dd:ee:01",
+        created_at=now,
+        updated_at=now,
     )
     disk_id = db.disks.insert(
-        node_id=node_id, tenant_id=tenant_id, device_path="/dev/sda",
-        capacity_bytes=512_000_000_000, rotational=False, smart_status="unknown",
-        reserved_for_storage=True, storage_backend="nest", tier="fast",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id=tenant_id,
+        device_path="/dev/sda",
+        capacity_bytes=512_000_000_000,
+        rotational=False,
+        smart_status="unknown",
+        reserved_for_storage=True,
+        storage_backend="nest",
+        tier="fast",
+        created_at=now,
+        updated_at=now,
     )
     db.commit()
     return int(node_id), int(disk_id)
@@ -475,7 +513,9 @@ def test_run_once_real_leader_lease_module_accepts_penguin_dal_db(pg_db, monkeyp
         "SELECT holder_id FROM leader_leases WHERE lease_name = %(name)s",
         {"name": "smart_sweeper"},
     )
-    assert lease_rows == [(None,)], "release() must clear the holder after a successful sweep"
+    assert lease_rows == [
+        (None,)
+    ], "release() must clear the holder after a successful sweep"
 
 
 def test_run_once_second_sweep_reacquires_released_lease(pg_db, monkeypatch):
@@ -527,7 +567,9 @@ def test_run_once_cross_tenant_sentinel_lets_scoped_role_sweep_other_tenant(
         set_current_tenant(None)
 
     assert res.leader is True
-    assert res.nodes_visited == 1, "sentinel must let the scoped role see the other tenant's node"
+    assert (
+        res.nodes_visited == 1
+    ), "sentinel must let the scoped role see the other tenant's node"
     assert res.disks_probed == 1
 
     disk = pg_db(pg_db.disks.id == disk_id).select().first()
@@ -598,7 +640,8 @@ def test_tunnel_enabled_true_when_flag_on(monkeypatch):
     from app import licensing
 
     monkeypatch.setattr(
-        licensing, "_feature_enabled_sync",
+        licensing,
+        "_feature_enabled_sync",
         lambda flag, ident: flag == sw.FLAG_SMART_SWEEPER_TUNNEL,
     )
     assert sw._tunnel_enabled() is True
@@ -732,9 +775,13 @@ def grpc_dal(tmp_path, monkeypatch):
 
 def _insert_grpc_node(db, **overrides):
     defaults = {
-        "tenant_id": "acme", "name": "grpc-node", "state": "ready",
-        "dmi_uuid": "grpc-1", "primary_nic_mac": "aa:bb:cc:dd:ee:ff",
-        "ipv4": "10.1.2.3", "preferred_addr_family": "ipv4",
+        "tenant_id": "acme",
+        "name": "grpc-node",
+        "state": "ready",
+        "dmi_uuid": "grpc-1",
+        "primary_nic_mac": "aa:bb:cc:dd:ee:ff",
+        "ipv4": "10.1.2.3",
+        "preferred_addr_family": "ipv4",
     }
     defaults.update(overrides)
     node_id = db.nodes.insert(**defaults)
@@ -787,12 +834,22 @@ def test_grpc_smartctl_runner_parses_both_devices(grpc_dal, monkeypatch):
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sdb",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
     node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
@@ -836,12 +893,22 @@ def test_grpc_smartctl_runner_skips_device_on_rpc_error(grpc_dal, monkeypatch):
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sdb",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
     node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
@@ -869,8 +936,13 @@ def test_grpc_smartctl_runner_skips_device_on_invalid_json(grpc_dal, monkeypatch
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
     node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
@@ -890,7 +962,9 @@ def test_grpc_smartctl_runner_skips_device_on_invalid_json(grpc_dal, monkeypatch
     assert after == before + 1
 
 
-def test_grpc_smartctl_runner_skips_device_on_commandline_exit_bit(grpc_dal, monkeypatch):
+def test_grpc_smartctl_runner_skips_device_on_commandline_exit_bit(
+    grpc_dal, monkeypatch
+):
     """smartctl's exit code is a bitmask -- only bit 0 (command-line parse
     failure) means the output is unusable. A device returning that bit must
     be skipped (and counted as an error), not treated as valid data.
@@ -898,8 +972,13 @@ def test_grpc_smartctl_runner_skips_device_on_commandline_exit_bit(grpc_dal, mon
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
     node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
@@ -919,7 +998,9 @@ def test_grpc_smartctl_runner_skips_device_on_commandline_exit_bit(grpc_dal, mon
     assert after == before + 1
 
 
-def test_grpc_smartctl_runner_allows_nonzero_exit_with_health_bits_set(grpc_dal, monkeypatch):
+def test_grpc_smartctl_runner_allows_nonzero_exit_with_health_bits_set(
+    grpc_dal, monkeypatch
+):
     """A nonzero exit code that is NOT bit 0 (e.g. bit 2 -- SMART overall-
     health self-assessment failed) still carries usable JSON -- this is
     exactly the pre-fail/failed signal the sweeper exists to catch, so it
@@ -928,15 +1009,21 @@ def test_grpc_smartctl_runner_allows_nonzero_exit_with_health_bits_set(grpc_dal,
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1, smart_status="passed", created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1,
+        smart_status="passed",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
     node = grpc_dal(grpc_dal.nodes.id == node_id).select().first()
 
     def _responder(request):
         return discovery_pb2.ExecCommandResponse(
-            output=json.dumps(FAILED_SATA), exit_code=4,  # bit 2 set, bit 0 clear
+            output=json.dumps(FAILED_SATA),
+            exit_code=4,  # bit 2 set, bit 0 clear
         )
 
     monkeypatch.setattr(grpc, "secure_channel", lambda target, creds: _FakeChannel())
@@ -967,22 +1054,37 @@ def test_flag_on_real_grpc_path_parses_and_flags_failing_disk(grpc_dal, monkeypa
     node_id = _insert_grpc_node(grpc_dal)
     now = datetime.now(timezone.utc)
     sda = grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        capacity_bytes=1_000_000_000_000, rotational=False, smart_status="passed",
-        reserved_for_storage=True, storage_backend="nest", tier="fast",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        capacity_bytes=1_000_000_000_000,
+        rotational=False,
+        smart_status="passed",
+        reserved_for_storage=True,
+        storage_backend="nest",
+        tier="fast",
+        created_at=now,
+        updated_at=now,
     )
     sdb = grpc_dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
-        capacity_bytes=1_000_000_000_000, rotational=True, smart_status="passed",
-        reserved_for_storage=True, storage_backend="nest", tier="bulk",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sdb",
+        capacity_bytes=1_000_000_000_000,
+        rotational=True,
+        smart_status="passed",
+        reserved_for_storage=True,
+        storage_backend="nest",
+        tier="bulk",
+        created_at=now,
+        updated_at=now,
     )
     grpc_dal.commit()
 
     # Force the flag ON without a real PostHog server/network call.
     monkeypatch.setattr(
-        licensing, "_feature_enabled_sync",
+        licensing,
+        "_feature_enabled_sync",
         lambda flag, ident: flag == sw.FLAG_SMART_SWEEPER_TUNNEL,
     )
 

@@ -11,11 +11,7 @@ from typing import Any
 
 from quart import current_app
 
-from .base import (
-    BaseSecretsManager,
-    SecretNotFoundError,
-    SecretsManagerError,
-)
+from .base import BaseSecretsManager, SecretNotFoundError, SecretsManagerError
 
 log = logging.getLogger(__name__)
 
@@ -39,9 +35,9 @@ class InfisicalSecretsManager(BaseSecretsManager):
         if self._client is None:
             try:
                 from infisical_client import (
+                    AuthenticationOptions,
                     ClientSettings,
                     InfisicalClient,
-                    AuthenticationOptions,
                     UniversalAuthMethod,
                 )
 
@@ -54,14 +50,15 @@ class InfisicalSecretsManager(BaseSecretsManager):
                         "Set INFISICAL_CLIENT_ID and INFISICAL_CLIENT_SECRET"
                     )
 
-                self._client = InfisicalClient(ClientSettings(
-                    auth=AuthenticationOptions(
-                        universal_auth=UniversalAuthMethod(
-                            client_id=client_id,
-                            client_secret=client_secret
+                self._client = InfisicalClient(
+                    ClientSettings(
+                        auth=AuthenticationOptions(
+                            universal_auth=UniversalAuthMethod(
+                                client_id=client_id, client_secret=client_secret
+                            )
                         )
                     )
-                ))
+                )
                 log.info("Connected to Infisical")
 
             except ImportError:
@@ -100,8 +97,8 @@ class InfisicalSecretsManager(BaseSecretsManager):
                     secret_name=secret_name,
                     project_id=self.project_id,
                     environment=self.environment,
-                    path=folder
-                )
+                    path=folder,
+                ),
             )
 
             return {"value": secret.secret_value}
@@ -130,6 +127,7 @@ class InfisicalSecretsManager(BaseSecretsManager):
                 secret_value = str(data["value"])
             else:
                 import json
+
                 secret_value = json.dumps(data)
 
             # Try to update, create if doesn't exist
@@ -141,8 +139,8 @@ class InfisicalSecretsManager(BaseSecretsManager):
                         secret_value=secret_value,
                         project_id=self.project_id,
                         environment=self.environment,
-                        path=folder
-                    )
+                        path=folder,
+                    ),
                 )
             except Exception:
                 await asyncio.to_thread(
@@ -152,8 +150,8 @@ class InfisicalSecretsManager(BaseSecretsManager):
                         secret_value=secret_value,
                         project_id=self.project_id,
                         environment=self.environment,
-                        path=folder
-                    )
+                        path=folder,
+                    ),
                 )
 
             log.info(f"Secret stored in Infisical at path: {path}")
@@ -181,8 +179,8 @@ class InfisicalSecretsManager(BaseSecretsManager):
                     secret_name=secret_name,
                     project_id=self.project_id,
                     environment=self.environment,
-                    path=folder
-                )
+                    path=folder,
+                ),
             )
 
             log.info(f"Secret deleted from Infisical at path: {path}")
@@ -205,8 +203,8 @@ class InfisicalSecretsManager(BaseSecretsManager):
                 ListSecretsOptions(
                     project_id=self.project_id,
                     environment=self.environment,
-                    path=folder
-                )
+                    path=folder,
+                ),
             )
 
             prefix = f"{path}/" if path else ""

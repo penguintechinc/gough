@@ -3,11 +3,11 @@
 Covers SPIRE workload API, registration, and error handling.
 """
 
-import pytest
 from datetime import datetime, timezone
-from unittest.mock import MagicMock, patch, Mock
-from pydantic import ValidationError
+from unittest.mock import MagicMock, patch
 
+import pytest
+from pydantic import ValidationError
 
 # ============================================================================
 # Tests for app/clients/spire.py
@@ -111,8 +111,8 @@ class TestSpireClient:
         """Test SpireClient initialization with defaults."""
         from app.clients.spire import SpireClient
 
-        monkeypatch.delenv('SPIRE_AGENT_SOCKET', raising=False)
-        monkeypatch.delenv('SPIRE_SERVER_ADDRESS', raising=False)
+        monkeypatch.delenv("SPIRE_AGENT_SOCKET", raising=False)
+        monkeypatch.delenv("SPIRE_SERVER_ADDRESS", raising=False)
 
         client = SpireClient()
 
@@ -123,43 +123,43 @@ class TestSpireClient:
         """Test SpireClient initialization with environment variables."""
         from app.clients.spire import SpireClient
 
-        monkeypatch.setenv('SPIRE_AGENT_SOCKET', 'unix:///var/run/spire/agent.sock')
-        monkeypatch.setenv('SPIRE_SERVER_ADDRESS', 'spire-server:8081')
+        monkeypatch.setenv("SPIRE_AGENT_SOCKET", "unix:///var/run/spire/agent.sock")
+        monkeypatch.setenv("SPIRE_SERVER_ADDRESS", "spire-server:8081")
 
         client = SpireClient()
 
-        assert client.workload_api_socket == 'unix:///var/run/spire/agent.sock'
-        assert client.server_address == 'spire-server:8081'
+        assert client.workload_api_socket == "unix:///var/run/spire/agent.sock"
+        assert client.server_address == "spire-server:8081"
 
     def test_spire_client_init_custom_socket(self):
         """Test SpireClient initialization with custom socket path."""
         from app.clients.spire import SpireClient
 
-        client = SpireClient(workload_api_socket='unix:///custom/socket')
+        client = SpireClient(workload_api_socket="unix:///custom/socket")
 
-        assert client.workload_api_socket == 'unix:///custom/socket'
+        assert client.workload_api_socket == "unix:///custom/socket"
 
     def test_spire_client_init_custom_server(self):
         """Test SpireClient initialization with custom server address."""
         from app.clients.spire import SpireClient
 
-        client = SpireClient(server_address='custom-server:9081')
+        client = SpireClient(server_address="custom-server:9081")
 
-        assert client.server_address == 'custom-server:9081'
+        assert client.server_address == "custom-server:9081"
 
     def test_spire_client_invalid_socket_format(self):
         """Test SpireClient raises ValueError for invalid socket format."""
         from app.clients.spire import SpireClient
 
         with pytest.raises(ValueError, match="Invalid workload_api_socket"):
-            SpireClient(workload_api_socket='invalid://socket')
+            SpireClient(workload_api_socket="invalid://socket")
 
     def test_spire_client_invalid_server_address(self):
         """Test SpireClient raises ValueError for invalid server address."""
         from app.clients.spire import SpireClient
 
         with pytest.raises(ValueError, match="Invalid server_address"):
-            SpireClient(server_address='no-colon-here')
+            SpireClient(server_address="no-colon-here")
 
     def test_spire_client_workload_api_client_lazy_init(self):
         """Test SpireClient lazily initializes workload API client."""
@@ -168,7 +168,7 @@ class TestSpireClient:
         client = SpireClient()
         assert client._workload_api_client is None
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_get_workload_api_client_creates_instance(self, mock_client_class):
         """Test _get_workload_api_client() creates instance on first call."""
         from app.clients.spire import SpireClient
@@ -182,7 +182,7 @@ class TestSpireClient:
         assert result is mock_instance
         mock_client_class.assert_called_once()
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_get_workload_api_client_returns_cached(self, mock_client_class):
         """Test _get_workload_api_client() returns cached instance."""
         from app.clients.spire import SpireClient
@@ -198,7 +198,7 @@ class TestSpireClient:
         # Should only be called once due to caching
         mock_client_class.assert_called_once()
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_x509_svid_success(self, mock_client_class):
         """Test fetch_x509_svid() retrieves X.509 SVID successfully."""
         from app.clients.spire import SpireClient
@@ -230,7 +230,7 @@ class TestSpireClient:
         assert "-----BEGIN CERTIFICATE-----" in result.cert_pem
         assert "-----BEGIN PRIVATE KEY-----" in result.key_pem
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_x509_svid_unavailable(self, mock_client_class):
         """Test fetch_x509_svid() raises when socket unavailable."""
         from app.clients.spire import SpireClient, SpireWorkloadApiUnavailable
@@ -244,7 +244,7 @@ class TestSpireClient:
         with pytest.raises(SpireWorkloadApiUnavailable):
             client.fetch_x509_svid()
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_x509_svid_no_svids(self, mock_client_class):
         """Test fetch_x509_svid() raises when no SVIDs returned."""
         from app.clients.spire import SpireClient, SpireSvidUnavailable
@@ -261,7 +261,7 @@ class TestSpireClient:
         with pytest.raises(SpireSvidUnavailable):
             client.fetch_x509_svid()
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_jwt_svid_success(self, mock_client_class):
         """Test fetch_jwt_svid() retrieves JWT SVID successfully."""
         from app.clients.spire import SpireClient
@@ -274,12 +274,12 @@ class TestSpireClient:
         mock_client_class.return_value = mock_instance
 
         client = SpireClient()
-        result = client.fetch_jwt_svid(['api-manager'])
+        result = client.fetch_jwt_svid(["api-manager"])
 
         assert result == "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
-        mock_instance.fetch_jwt_svid.assert_called_once_with(audiences=['api-manager'])
+        mock_instance.fetch_jwt_svid.assert_called_once_with(audiences=["api-manager"])
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_jwt_svid_unavailable(self, mock_client_class):
         """Test fetch_jwt_svid() raises when socket unavailable."""
         from app.clients.spire import SpireClient, SpireWorkloadApiUnavailable
@@ -291,9 +291,9 @@ class TestSpireClient:
         client = SpireClient()
 
         with pytest.raises(SpireWorkloadApiUnavailable):
-            client.fetch_jwt_svid(['api-manager'])
+            client.fetch_jwt_svid(["api-manager"])
 
-    @patch('app.clients.spire.DefaultWorkloadApiClient')
+    @patch("app.clients.spire.DefaultWorkloadApiClient")
     def test_fetch_jwt_svid_no_token(self, mock_client_class):
         """Test fetch_jwt_svid() raises when no token returned."""
         from app.clients.spire import SpireClient, SpireSvidUnavailable
@@ -305,9 +305,9 @@ class TestSpireClient:
         client = SpireClient()
 
         with pytest.raises(SpireSvidUnavailable):
-            client.fetch_jwt_svid(['api-manager'])
+            client.fetch_jwt_svid(["api-manager"])
 
-    @patch('app.clients.spire.subprocess.run')
+    @patch("app.clients.spire.subprocess.run")
     def test_register_workload_success(self, mock_run):
         """Test register_workload() registers with SPIRE server."""
         from app.clients.spire import SpireClient, SpireRegistrationEntry
@@ -329,10 +329,14 @@ class TestSpireClient:
         assert result == "12345"
         mock_run.assert_called_once()
 
-    @patch('app.clients.spire.subprocess.run')
+    @patch("app.clients.spire.subprocess.run")
     def test_register_workload_failure(self, mock_run):
         """Test register_workload() raises on registration failure."""
-        from app.clients.spire import SpireClient, SpireRegistrationEntry, SpireRegistrationFailed
+        from app.clients.spire import (
+            SpireClient,
+            SpireRegistrationEntry,
+            SpireRegistrationFailed,
+        )
 
         mock_result = MagicMock()
         mock_result.returncode = 1
@@ -348,7 +352,7 @@ class TestSpireClient:
         with pytest.raises(SpireRegistrationFailed):
             client.register_workload(entry)
 
-    @patch('app.clients.spire.subprocess.run')
+    @patch("app.clients.spire.subprocess.run")
     def test_register_workload_with_multiple_selectors(self, mock_run):
         """Test register_workload() includes all selectors in command."""
         from app.clients.spire import SpireClient, SpireRegistrationEntry
@@ -372,7 +376,7 @@ class TestSpireClient:
         cmd = call_args[0][0] if call_args[0] else []
         assert any("-selector" in str(arg) for arg in cmd)
 
-    @patch('app.clients.spire.subprocess.run')
+    @patch("app.clients.spire.subprocess.run")
     def test_register_workload_no_selectors(self, mock_run):
         """Test register_workload() works with no selectors."""
         from app.clients.spire import SpireClient, SpireRegistrationEntry
@@ -396,7 +400,7 @@ class TestSpireClient:
         """Test fetch_jwt_svid() accepts list of audiences."""
         from app.clients.spire import SpireClient
 
-        with patch('app.clients.spire.DefaultWorkloadApiClient') as mock_client_class:
+        with patch("app.clients.spire.DefaultWorkloadApiClient") as mock_client_class:
             mock_instance = MagicMock()
             mock_jwt = MagicMock()
             mock_jwt.token = "token123"
@@ -404,7 +408,7 @@ class TestSpireClient:
             mock_client_class.return_value = mock_instance
 
             client = SpireClient()
-            audiences = ['api-manager', 'internal']
+            audiences = ["api-manager", "internal"]
 
             result = client.fetch_jwt_svid(audiences)
 

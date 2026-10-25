@@ -6,13 +6,12 @@ import pathlib
 import re
 from types import SimpleNamespace
 
+import app.websocket as ws_mod
 import pytest
+from app.shell_tickets import TicketClaims, set_ticket_store
+from app.websocket import MalformedMessage, init_websocket, parse_client_message
 from quart import Quart
 from quart.testing.connections import WebsocketDisconnectError, WebsocketResponseError
-
-import app.websocket as ws_mod
-from app.shell_tickets import ShellTicketStore, TicketClaims, set_ticket_store
-from app.websocket import MalformedMessage, init_websocket, parse_client_message
 
 SID = "11111111-1111-4111-8111-111111111111"
 MODULE = pathlib.Path(ws_mod.__file__)
@@ -38,6 +37,7 @@ def store():
     """Fresh in-memory ticket store (also resets the pre-auth audit budget)."""
     ws_mod._pre_auth_hits.clear()
     from tests.fake_redis import make_store
+
     s = make_store()
     set_ticket_store(s)
     yield s
@@ -57,7 +57,9 @@ def client(store, monkeypatch):
     monkeypatch.setattr(ws_mod, "feature_enabled", _flag)
     monkeypatch.setattr(ws_mod, "run_db", _inline)
     monkeypatch.setattr(ws_mod, "get_audit_logger", lambda: None)
-    sess = SimpleNamespace(user_id=1, ended_at=None, resource_type="vm", resource_id="x")
+    sess = SimpleNamespace(
+        user_id=1, ended_at=None, resource_type="vm", resource_id="x"
+    )
     state = {"session": sess, "deny": ""}
 
     def _authorize(session_id, user_id):

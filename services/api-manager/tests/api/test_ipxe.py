@@ -16,21 +16,20 @@ All external dependencies (Redis, Vault, DB) are mocked. No network.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import jwt
 import pytest
-
 from app.api import ipxe as ipxe_module
 from app.api.ipxe import (
-    _RateLimiter,
+    _BOOTSTRAP_JWT_TTL_SECONDS,
     _mint_bootstrap_jwt,
     _normalize_mac,
+    _RateLimiter,
     _render_deploy_ipxe_script,
     _render_helper_ipxe_script,
-    _BOOTSTRAP_JWT_TTL_SECONDS,
 )
 from app.security.credentials import (
     ExpiredCredentialError,
@@ -38,7 +37,6 @@ from app.security.credentials import (
     OneTimeTokenReplayError,
     validate_one_time_bootstrap_token,
 )
-
 
 # =============================================================================
 # Pure-function tests (no Quart context required)
@@ -179,7 +177,9 @@ def fake_app(fake_redis: MagicMock) -> _FakeApp:
 class TestMintBootstrapJwt:
     """One-time bootstrap JWT minting."""
 
-    def test_mint_hs256_fallback(self, fake_app: _FakeApp, fake_redis: MagicMock) -> None:
+    def test_mint_hs256_fallback(
+        self, fake_app: _FakeApp, fake_redis: MagicMock
+    ) -> None:
         with patch("app.api.ipxe.current_app", fake_app):
             token, nonce = _mint_bootstrap_jwt("aa:bb:cc:dd:ee:ff", phase="helper")
         assert isinstance(token, str)
@@ -210,7 +210,9 @@ class TestMintBootstrapJwt:
         payload = jwt.decode(token, "test-secret", algorithms=["HS256"])
         assert payload["mac"] == "aa:bb:cc:dd:ee:ff"
 
-    def test_redis_collision_raises(self, fake_app: _FakeApp, fake_redis: MagicMock) -> None:
+    def test_redis_collision_raises(
+        self, fake_app: _FakeApp, fake_redis: MagicMock
+    ) -> None:
         fake_redis.set.return_value = False  # NX collision
         with patch("app.api.ipxe.current_app", fake_app):
             with pytest.raises(RuntimeError, match="collision"):
@@ -223,7 +225,10 @@ class TestMintBootstrapJwt:
 
 
 def _make_node_record(
-    *, node_id: int = 1, mac: str = "aa:bb:cc:dd:ee:ff", dmi_uuid: str = "dmi-uuid-1",
+    *,
+    node_id: int = 1,
+    mac: str = "aa:bb:cc:dd:ee:ff",
+    dmi_uuid: str = "dmi-uuid-1",
     source: str = "nodes",
 ) -> dict:
     return {
@@ -468,12 +473,14 @@ class TestBootstrapTokenValidation:
 
     def test_missing_nonce_raises(self) -> None:
         now = int(datetime.now(timezone.utc).timestamp())
-        token = _hs256_token({
-            "mac": "aa:bb:cc:dd:ee:ff",
-            "iat": now,
-            "exp": now + 600,
-            "phase": "helper",
-        })
+        token = _hs256_token(
+            {
+                "mac": "aa:bb:cc:dd:ee:ff",
+                "iat": now,
+                "exp": now + 600,
+                "phase": "helper",
+            }
+        )
         with pytest.raises(InvalidCredentialError):
             validate_one_time_bootstrap_token(
                 token, MagicMock(), MagicMock(), signing_secret="test-secret"
@@ -620,8 +627,7 @@ class TestBootstrapTokenValidationEdgeCases:
         redis.set = MagicMock(return_value=True)
 
         principal = validate_one_time_bootstrap_token(
-            token, MagicMock(), redis, expected_mac=mac,
-            signing_secret="test-secret"
+            token, MagicMock(), redis, expected_mac=mac, signing_secret="test-secret"
         )
         assert principal.sub == f"bootstrap:{mac}"
 
@@ -648,13 +654,15 @@ class TestBootstrapTokenValidationEdgeCases:
 
     def test_ttl_exceeds_10min_raises(self) -> None:
         now = int(datetime.now(timezone.utc).timestamp())
-        token = _hs256_token({
-            "mac": "aa:bb:cc:dd:ee:ff",
-            "nonce": "n",
-            "iat": now,
-            "exp": now + 1200,  # 20 minutes — over the 10-min ceiling
-            "phase": "helper",
-        })
+        token = _hs256_token(
+            {
+                "mac": "aa:bb:cc:dd:ee:ff",
+                "nonce": "n",
+                "iat": now,
+                "exp": now + 1200,  # 20 minutes — over the 10-min ceiling
+                "phase": "helper",
+            }
+        )
         with pytest.raises(InvalidCredentialError):
             validate_one_time_bootstrap_token(
                 token, MagicMock(), MagicMock(), signing_secret="test-secret"
@@ -677,7 +685,9 @@ class TestFindNodeOrMachineByMac:
         db.tables = ["nodes", "ipxe_machines"]
         node_row = MagicMock()
         node_row.as_dict.return_value = {
-            "id": 7, "primary_nic_mac": "aa:bb:cc:dd:ee:ff", "dmi_uuid": "dmi-x",
+            "id": 7,
+            "primary_nic_mac": "aa:bb:cc:dd:ee:ff",
+            "dmi_uuid": "dmi-x",
         }
         # db(query).select().first() chain
         select_chain = MagicMock()
@@ -701,7 +711,9 @@ class TestFindNodeOrMachineByMac:
         nodes_select.first.return_value = None
         machine_row = MagicMock()
         machine_row.as_dict.return_value = {
-            "id": 99, "mac_address": "aa:bb:cc:dd:ee:ff", "dmi_uuid": None,
+            "id": 99,
+            "mac_address": "aa:bb:cc:dd:ee:ff",
+            "dmi_uuid": None,
         }
         machines_select = MagicMock()
         machines_select.first.return_value = machine_row
@@ -856,6 +868,7 @@ def _make_boot_config_dict(**kwargs):
 # GET /api/v1/ipxe/config — 404 + 200
 # -----------------------------------------------------------------------------
 
+
 class TestGetIpxeConfig:
     @pytest.mark.asyncio
     async def test_no_active_config_returns_404(self, auth_client) -> None:
@@ -884,12 +897,11 @@ class TestGetIpxeConfig:
 # PUT /api/v1/ipxe/config — create / update / missing name
 # -----------------------------------------------------------------------------
 
+
 class TestUpdateIpxeConfig:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, auth_client) -> None:
-        resp = await auth_client.put(
-            "/api/v1/ipxe/config", json=None
-        )
+        resp = await auth_client.put("/api/v1/ipxe/config", json=None)
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
@@ -934,6 +946,7 @@ class TestUpdateIpxeConfig:
 # GET /api/v1/ipxe/machines  (list with filters)
 # -----------------------------------------------------------------------------
 
+
 class TestListMachines:
     @pytest.mark.asyncio
     async def test_returns_empty_list(self, auth_client) -> None:
@@ -973,6 +986,7 @@ class TestListMachines:
 # GET /api/v1/ipxe/machines/<id> — 404
 # -----------------------------------------------------------------------------
 
+
 class TestGetMachine:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, auth_client) -> None:
@@ -993,6 +1007,7 @@ class TestGetMachine:
 # -----------------------------------------------------------------------------
 # POST /api/v1/ipxe/machines/<id>/commission
 # -----------------------------------------------------------------------------
+
 
 class TestCommissionMachine:
     @pytest.mark.asyncio
@@ -1020,8 +1035,9 @@ class TestCommissionMachine:
         db.boot_events.insert = MagicMock()
         db.return_value.update.return_value = None
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/commission")
         assert resp.status_code in (200, 401, 500)
         if resp.status_code == 200:
@@ -1032,6 +1048,7 @@ class TestCommissionMachine:
 # -----------------------------------------------------------------------------
 # POST /api/v1/ipxe/machines/<id>/release
 # -----------------------------------------------------------------------------
+
 
 class TestReleaseMachine:
     @pytest.mark.asyncio
@@ -1056,8 +1073,9 @@ class TestReleaseMachine:
         db.boot_events.insert = MagicMock()
         db.return_value.update.return_value = None
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/release")
         assert resp.status_code in (200, 401, 500)
         if resp.status_code == 200:
@@ -1068,6 +1086,7 @@ class TestReleaseMachine:
 # -----------------------------------------------------------------------------
 # POST /api/v1/ipxe/machines/<id>/power/<action>
 # -----------------------------------------------------------------------------
+
 
 class TestPowerControl:
     @pytest.mark.asyncio
@@ -1098,8 +1117,9 @@ class TestPowerControl:
         db.boot_events = MagicMock()
         db.boot_events.insert = MagicMock()
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/power/on")
         assert resp.status_code in (501, 401)
         if resp.status_code == 501:
@@ -1114,8 +1134,9 @@ class TestPowerControl:
         db.boot_events = MagicMock()
         db.boot_events.insert = MagicMock()
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.post("/api/v1/ipxe/machines/1/power/cycle")
         assert resp.status_code in (501, 401)
 
@@ -1123,6 +1144,7 @@ class TestPowerControl:
 # -----------------------------------------------------------------------------
 # GET /api/v1/ipxe/images — list with filters
 # -----------------------------------------------------------------------------
+
 
 class TestListImages:
     @pytest.mark.asyncio
@@ -1152,13 +1174,16 @@ class TestListImages:
         images_sel.__len__ = MagicMock(return_value=0)
         db.return_value.select.return_value = images_sel
         with patch("app.api.ipxe.get_db", return_value=db):
-            resp = await auth_client.get("/api/v1/ipxe/images?architecture=arm64&os_version=24.04")
+            resp = await auth_client.get(
+                "/api/v1/ipxe/images?architecture=arm64&os_version=24.04"
+            )
         assert resp.status_code in (200, 401, 500)
 
 
 # -----------------------------------------------------------------------------
 # POST /api/v1/ipxe/images — create image errors + success
 # -----------------------------------------------------------------------------
+
 
 class TestCreateImage:
     def _valid_payload(self, **overrides):
@@ -1175,9 +1200,7 @@ class TestCreateImage:
 
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, auth_client) -> None:
-        resp = await auth_client.post(
-            "/api/v1/ipxe/images", json=None
-        )
+        resp = await auth_client.post("/api/v1/ipxe/images", json=None)
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
@@ -1192,7 +1215,9 @@ class TestCreateImage:
         db.ipxe_images = MagicMock()
         db.return_value.select.return_value.first.return_value = existing
         with patch("app.api.ipxe.get_db", return_value=db):
-            resp = await auth_client.post("/api/v1/ipxe/images", json=self._valid_payload())
+            resp = await auth_client.post(
+                "/api/v1/ipxe/images", json=self._valid_payload()
+            )
         assert resp.status_code in (409, 401)
 
     @pytest.mark.asyncio
@@ -1205,13 +1230,16 @@ class TestCreateImage:
         db.return_value.select.return_value.first.side_effect = [None, created]
         db.commit = MagicMock()
         with patch("app.api.ipxe.get_db", return_value=db):
-            resp = await auth_client.post("/api/v1/ipxe/images", json=self._valid_payload())
+            resp = await auth_client.post(
+                "/api/v1/ipxe/images", json=self._valid_payload()
+            )
         assert resp.status_code in (201, 401)
 
 
 # -----------------------------------------------------------------------------
 # GET /api/v1/ipxe/images/<id>
 # -----------------------------------------------------------------------------
+
 
 class TestGetImage:
     @pytest.mark.asyncio
@@ -1234,20 +1262,21 @@ class TestGetImage:
 # PUT /api/v1/ipxe/images/<id>
 # -----------------------------------------------------------------------------
 
+
 class TestUpdateImage:
     @pytest.mark.asyncio
     async def test_not_found_returns_404(self, auth_client) -> None:
         with patch("app.api.ipxe._get_image_by_id", return_value=None):
-            resp = await auth_client.put("/api/v1/ipxe/images/99", json={"display_name": "x"})
+            resp = await auth_client.put(
+                "/api/v1/ipxe/images/99", json={"display_name": "x"}
+            )
         assert resp.status_code in (404, 401)
 
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, auth_client) -> None:
         image = _make_image_dict()
         with patch("app.api.ipxe._get_image_by_id", return_value=image):
-            resp = await auth_client.put(
-                "/api/v1/ipxe/images/1", json=None
-            )
+            resp = await auth_client.put("/api/v1/ipxe/images/1", json=None)
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
@@ -1260,8 +1289,9 @@ class TestUpdateImage:
         db.return_value.update.return_value = None
         db.return_value.select.return_value.first.return_value = updated
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_image_by_id", return_value=image), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.put(
                 "/api/v1/ipxe/images/1", json={"display_name": "Updated"}
             )
@@ -1271,6 +1301,7 @@ class TestUpdateImage:
 # -----------------------------------------------------------------------------
 # DELETE /api/v1/ipxe/images/<id>
 # -----------------------------------------------------------------------------
+
 
 class TestDeleteImage:
     @pytest.mark.asyncio
@@ -1290,9 +1321,13 @@ class TestDeleteImage:
         db.deployment_jobs = MagicMock()
         machines_sel = MagicMock()
         machines_sel.__iter__ = MagicMock(return_value=iter([deploying_machine]))
-        db.return_value.select.side_effect = [machines_sel, MagicMock(first=MagicMock(return_value=active_job))]
-        with patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        db.return_value.select.side_effect = [
+            machines_sel,
+            MagicMock(first=MagicMock(return_value=active_job)),
+        ]
+        with patch("app.api.ipxe._get_image_by_id", return_value=image), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.delete("/api/v1/ipxe/images/1")
         assert resp.status_code in (400, 401)
 
@@ -1307,8 +1342,9 @@ class TestDeleteImage:
         db.return_value.select.return_value = no_machines
         db.return_value.delete.return_value = None
         db.commit = MagicMock()
-        with patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe.get_db", return_value=db):
+        with patch("app.api.ipxe._get_image_by_id", return_value=image), patch(
+            "app.api.ipxe.get_db", return_value=db
+        ):
             resp = await auth_client.delete("/api/v1/ipxe/images/1")
         assert resp.status_code in (200, 401, 500)
 
@@ -1316,6 +1352,7 @@ class TestDeleteImage:
 # -----------------------------------------------------------------------------
 # GET /api/v1/ipxe/boot-configs
 # -----------------------------------------------------------------------------
+
 
 class TestListBootConfigs:
     @pytest.mark.asyncio
@@ -1337,17 +1374,18 @@ class TestListBootConfigs:
 # POST /api/v1/ipxe/boot-configs
 # -----------------------------------------------------------------------------
 
+
 class TestCreateBootConfig:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, auth_client) -> None:
-        resp = await auth_client.post(
-            "/api/v1/ipxe/boot-configs", json=None
-        )
+        resp = await auth_client.post("/api/v1/ipxe/boot-configs", json=None)
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
     async def test_missing_name_returns_400(self, auth_client) -> None:
-        resp = await auth_client.post("/api/v1/ipxe/boot-configs", json={"description": "x"})
+        resp = await auth_client.post(
+            "/api/v1/ipxe/boot-configs", json={"description": "x"}
+        )
         assert resp.status_code in (400, 401)
 
     @pytest.mark.asyncio
@@ -1357,7 +1395,9 @@ class TestCreateBootConfig:
         db.ipxe_boot_configs = MagicMock()
         db.return_value.select.return_value.first.return_value = existing
         with patch("app.api.ipxe.get_db", return_value=db):
-            resp = await auth_client.post("/api/v1/ipxe/boot-configs", json={"name": "taken"})
+            resp = await auth_client.post(
+                "/api/v1/ipxe/boot-configs", json={"name": "taken"}
+            )
         assert resp.status_code in (409, 401)
 
     @pytest.mark.asyncio
@@ -1370,13 +1410,16 @@ class TestCreateBootConfig:
         db.return_value.select.return_value.first.side_effect = [None, created]
         db.commit = MagicMock()
         with patch("app.api.ipxe.get_db", return_value=db):
-            resp = await auth_client.post("/api/v1/ipxe/boot-configs", json={"name": "new-cfg"})
+            resp = await auth_client.post(
+                "/api/v1/ipxe/boot-configs", json={"name": "new-cfg"}
+            )
         assert resp.status_code in (201, 401)
 
 
 # -----------------------------------------------------------------------------
 # GET /api/v1/ipxe/boot-configs/<id>
 # -----------------------------------------------------------------------------
+
 
 class TestGetBootConfig:
     @pytest.mark.asyncio
@@ -1398,6 +1441,7 @@ class TestGetBootConfig:
 # -----------------------------------------------------------------------------
 # Private helpers
 # -----------------------------------------------------------------------------
+
 
 class TestGetMachineById:
     def test_integer_id_lookup(self) -> None:
@@ -1475,6 +1519,7 @@ class TestValidateRequiredFields:
     @pytest.mark.asyncio
     async def test_missing_fields_returns_400_tuple(self) -> None:
         from quart import Quart
+
         app = Quart(__name__)
         async with app.app_context():
             result = ipxe_module._validate_required_fields({"a": "1"}, ["a", "b"])

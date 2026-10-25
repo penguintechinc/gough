@@ -9,22 +9,18 @@ Tests for missed coverage lines focusing on:
 
 from __future__ import annotations
 
-import pytest
 import jwt
-from unittest.mock import patch, MagicMock
-from datetime import datetime, timezone, timedelta
-
+import pytest
 from app.security.credentials import (
-    CredentialType,
-    Principal,
     CredentialError,
-    MissingCredentialError,
-    InvalidCredentialError,
+    CredentialType,
     ExpiredCredentialError,
+    InvalidCredentialError,
+    MissingCredentialError,
     OneTimeTokenReplayError,
+    Principal,
     detect_credential_type,
 )
-
 
 # ============================================================================
 # Credential Detection Tests
@@ -37,7 +33,9 @@ class TestDetectCredentialType:
     def test_detect_service_svid_with_peer_cert(self):
         """Return SERVICE_SVID when peer_cert_pem provided - line 129-130."""
         headers = {"Authorization": "Bearer token"}
-        result = detect_credential_type(headers, peer_cert_pem="-----BEGIN CERTIFICATE-----")
+        result = detect_credential_type(
+            headers, peer_cert_pem="-----BEGIN CERTIFICATE-----"
+        )
 
         assert result == CredentialType.SERVICE_SVID
 
@@ -65,9 +63,7 @@ class TestDetectCredentialType:
     def test_detect_one_time_bootstrap_token(self):
         """Return ONE_TIME_BOOTSTRAP for helper phase token - line 145-146."""
         token = jwt.encode(
-            {"phase": "helper", "sub": "bootstrap"},
-            "secret",
-            algorithm="HS256"
+            {"phase": "helper", "sub": "bootstrap"}, "secret", algorithm="HS256"
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -80,7 +76,7 @@ class TestDetectCredentialType:
         token = jwt.encode(
             {"sub": "machine:api-server", "phase": "online"},
             "secret",
-            algorithm="HS256"
+            algorithm="HS256",
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -93,7 +89,7 @@ class TestDetectCredentialType:
         token = jwt.encode(
             {"sub": "user-123", "email": "user@example.com"},
             "secret",
-            algorithm="HS256"
+            algorithm="HS256",
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -103,11 +99,7 @@ class TestDetectCredentialType:
 
     def test_detect_case_insensitive_authorization_header(self):
         """Handle lowercase authorization header - line 132."""
-        token = jwt.encode(
-            {"sub": "user-123"},
-            "secret",
-            algorithm="HS256"
-        )
+        token = jwt.encode({"sub": "user-123"}, "secret", algorithm="HS256")
         headers = {"authorization": f"Bearer {token}"}  # lowercase
 
         result = detect_credential_type(headers, peer_cert_pem=None)
@@ -117,11 +109,7 @@ class TestDetectCredentialType:
     def test_detect_machine_jwt_with_machine_prefix(self):
         """Machine JWT with various machine: subjects."""
         for subject in ["machine:api", "machine:worker-1", "machine:batch-processor"]:
-            token = jwt.encode(
-                {"sub": subject},
-                "secret",
-                algorithm="HS256"
-            )
+            token = jwt.encode({"sub": subject}, "secret", algorithm="HS256")
             headers = {"Authorization": f"Bearer {token}"}
 
             result = detect_credential_type(headers, peer_cert_pem=None)
@@ -133,7 +121,7 @@ class TestDetectCredentialType:
         token = jwt.encode(
             {"phase": "online", "email": "user@example.com"},
             "secret",
-            algorithm="HS256"
+            algorithm="HS256",
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -147,10 +135,10 @@ class TestDetectCredentialType:
         token = jwt.encode(
             {
                 "phase": "helper",
-                "sub": "machine:something"  # Would be MACHINE_JWT without phase
+                "sub": "machine:something",  # Would be MACHINE_JWT without phase
             },
             "secret",
-            algorithm="HS256"
+            algorithm="HS256",
         )
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -191,9 +179,7 @@ class TestPrincipalModel:
     def test_principal_creation_basic(self):
         """Create Principal with required fields."""
         principal = Principal(
-            cred_type=CredentialType.USER_JWT,
-            sub="user-123",
-            tenant_id="tenant-1"
+            cred_type=CredentialType.USER_JWT, sub="user-123", tenant_id="tenant-1"
         )
 
         assert principal.cred_type == CredentialType.USER_JWT
@@ -210,7 +196,7 @@ class TestPrincipalModel:
             cred_type=CredentialType.USER_JWT,
             sub="user-123",
             tenant_id="tenant-1",
-            scopes=scopes
+            scopes=scopes,
         )
 
         assert principal.scopes == scopes
@@ -221,7 +207,7 @@ class TestPrincipalModel:
             cred_type=CredentialType.SERVICE_SVID,
             sub="api-server",
             tenant_id="tenant-1",
-            spiffe_id="spiffe://penguintech.io/prod/api-server"
+            spiffe_id="spiffe://penguintech.io/prod/api-server",
         )
 
         assert principal.spiffe_id == "spiffe://penguintech.io/prod/api-server"
@@ -233,7 +219,7 @@ class TestPrincipalModel:
             cred_type=CredentialType.USER_JWT,
             sub="user-123",
             tenant_id="tenant-1",
-            claims=claims
+            claims=claims,
         )
 
         assert principal.claims == claims
@@ -241,9 +227,7 @@ class TestPrincipalModel:
     def test_principal_frozen(self):
         """Principal is immutable (frozen) - line 62."""
         principal = Principal(
-            cred_type=CredentialType.USER_JWT,
-            sub="user-123",
-            tenant_id="tenant-1"
+            cred_type=CredentialType.USER_JWT, sub="user-123", tenant_id="tenant-1"
         )
 
         with pytest.raises(Exception):  # Should raise when trying to modify
@@ -255,7 +239,7 @@ class TestPrincipalModel:
             cred_type=CredentialType.USER_JWT,
             sub="user-123",
             tenant_id="tenant-1",
-            scopes=frozenset(["read"])
+            scopes=frozenset(["read"]),
         )
 
         with pytest.raises(AttributeError):
@@ -316,18 +300,30 @@ class TestCredentialDetectionIntegration:
         """Verify detection works for all credential types."""
         # USER_JWT
         token = jwt.encode({"sub": "user-1"}, "secret", algorithm="HS256")
-        assert detect_credential_type({"Authorization": f"Bearer {token}"}) == CredentialType.USER_JWT
+        assert (
+            detect_credential_type({"Authorization": f"Bearer {token}"})
+            == CredentialType.USER_JWT
+        )
 
         # MACHINE_JWT
         token = jwt.encode({"sub": "machine:api"}, "secret", algorithm="HS256")
-        assert detect_credential_type({"Authorization": f"Bearer {token}"}) == CredentialType.MACHINE_JWT
+        assert (
+            detect_credential_type({"Authorization": f"Bearer {token}"})
+            == CredentialType.MACHINE_JWT
+        )
 
         # ONE_TIME_BOOTSTRAP
         token = jwt.encode({"phase": "helper"}, "secret", algorithm="HS256")
-        assert detect_credential_type({"Authorization": f"Bearer {token}"}) == CredentialType.ONE_TIME_BOOTSTRAP
+        assert (
+            detect_credential_type({"Authorization": f"Bearer {token}"})
+            == CredentialType.ONE_TIME_BOOTSTRAP
+        )
 
         # SERVICE_SVID
-        assert detect_credential_type({}, peer_cert_pem="cert") == CredentialType.SERVICE_SVID
+        assert (
+            detect_credential_type({}, peer_cert_pem="cert")
+            == CredentialType.SERVICE_SVID
+        )
 
     def test_bearer_token_extraction(self):
         """Verify Bearer token is correctly extracted - line 136."""

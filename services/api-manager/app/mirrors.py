@@ -17,7 +17,12 @@ from urllib.parse import urlsplit
 _SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 # https only, and no characters that could break out of a shell-quoted argument.
 _HTTPS_URL_RE = re.compile(r"^https://[A-Za-z0-9._~:/?#\[\]@!$&()*+,;=%-]+$")
-DEFAULT_MIRRORED_REGISTRIES: tuple[str, ...] = ("docker.io", "quay.io", "registry.k8s.io", "ghcr.io")
+DEFAULT_MIRRORED_REGISTRIES: tuple[str, ...] = (
+    "docker.io",
+    "quay.io",
+    "registry.k8s.io",
+    "ghcr.io",
+)
 
 
 class MirrorConfigError(ValueError):

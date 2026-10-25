@@ -9,12 +9,11 @@ from __future__ import annotations
 import datetime
 
 import pytest
+from app.security.credentials import InvalidCredentialError, validate_service_svid
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
-
-from app.security.credentials import validate_service_svid, InvalidCredentialError
 
 SPIFFE_ID = "spiffe://penguintech.io/prod/discovery-agent"
 

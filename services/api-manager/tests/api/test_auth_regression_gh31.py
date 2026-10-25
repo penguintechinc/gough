@@ -75,7 +75,9 @@ class TestAnonymousEndpointsReachableWithoutToken:
         assert resp.status_code != 403, "refresh must be in ANONYMOUS_PATHS"
         assert resp.status_code == 401  # no matching refresh token, handler reached
 
-    async def test_refresh_missing_body_is_validation_error_not_403(self, real_auth_env):
+    async def test_refresh_missing_body_is_validation_error_not_403(
+        self, real_auth_env
+    ):
         """Refresh without a token body is a 400 validation error, not 403."""
         resp = await real_auth_env.client.post("/api/v1/auth/refresh", json={})
         assert resp.status_code != 403
@@ -127,16 +129,18 @@ class TestPolicyCoveredRouteRealAuth:
         body = await resp.get_json()
         # The seeded __default__ node is visible to the authenticated tenant.
         nodes = body.get("nodes", body) if isinstance(body, dict) else body
-        assert any(
-            n.get("tenant_id", "__default__") == "__default__"
-            for n in (nodes if isinstance(nodes, list) else [])
-        ) or nodes == [] or isinstance(body, dict)
+        assert (
+            any(
+                n.get("tenant_id", "__default__") == "__default__"
+                for n in (nodes if isinstance(nodes, list) else [])
+            )
+            or nodes == []
+            or isinstance(body, dict)
+        )
 
     async def test_no_authorization_header_returns_401(self, real_auth_env):
         """No Authorization header -> 401 from the ASGI OIDC gate."""
-        resp = await real_auth_env.client.get(
-            "/api/v1/nodes", follow_redirects=True
-        )
+        resp = await real_auth_env.client.get("/api/v1/nodes", follow_redirects=True)
         assert resp.status_code == 401
 
     async def test_garbage_token_returns_401(self, real_auth_env):
@@ -254,7 +258,9 @@ class TestAuthenticatedEndpointsRealAuth:
             headers={"Authorization": f"Bearer {token}"},
             json={},
         )
-        assert resp.status_code != 403, "/logout must be in SCOPE_POLICY with frozenset()"
+        assert (
+            resp.status_code != 403
+        ), "/logout must be in SCOPE_POLICY with frozenset()"
         assert resp.status_code == 200
 
     async def test_change_password_without_token_returns_401(self, real_auth_env):
@@ -278,8 +284,8 @@ class TestAuthenticatedEndpointsRealAuth:
             headers={"Authorization": f"Bearer {token}"},
             json={"current_password": "a"},  # new_password missing -> handler 400
         )
-        assert resp.status_code != 403, (
-            "/change-password must be in SCOPE_POLICY with frozenset()"
-        )
+        assert (
+            resp.status_code != 403
+        ), "/change-password must be in SCOPE_POLICY with frozenset()"
         assert resp.status_code not in (401, 403)  # passed both middleware layers
         assert resp.status_code == 400  # handler's own validation error

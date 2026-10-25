@@ -2,34 +2,29 @@
 
 from __future__ import annotations
 
-import json
-from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch, MagicMock
-from typing import Any
+from datetime import datetime, timedelta, timezone
+from unittest.mock import Mock, patch
 
+import jwt
 import pytest
+from app.security.credentials import (
+    CredentialType,
+    ExpiredCredentialError,
+    InvalidCredentialError,
+    MissingCredentialError,
+    OneTimeTokenReplayError,
+    Principal,
+    detect_credential_type,
+    validate_machine_jwt,
+    validate_one_time_bootstrap_token,
+    validate_service_svid,
+    validate_user_jwt,
+)
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID, ExtensionOID
-import jwt
-
-from app.security.credentials import (
-    CredentialType,
-    Principal,
-    CredentialError,
-    MissingCredentialError,
-    InvalidCredentialError,
-    ExpiredCredentialError,
-    OneTimeTokenReplayError,
-    detect_credential_type,
-    validate_user_jwt,
-    validate_machine_jwt,
-    validate_service_svid,
-    validate_one_time_bootstrap_token,
-)
-
+from cryptography.x509.oid import NameOID
 
 # ==============================================================================
 # Fixtures
@@ -121,9 +116,9 @@ def x509_cert_and_ca() -> tuple[str, str]:
         .not_valid_before(datetime.now(timezone.utc) - timedelta(days=1))
         .not_valid_after(datetime.now(timezone.utc) + timedelta(days=365))
         .add_extension(
-            x509.SubjectAlternativeName([
-                x509.UniformResourceIdentifier("spiffe://test.local/test-service")
-            ]),
+            x509.SubjectAlternativeName(
+                [x509.UniformResourceIdentifier("spiffe://test.local/test-service")]
+            ),
             critical=False,
         )
         .sign(ca_key, hashes.SHA256(), default_backend())
@@ -143,7 +138,9 @@ def x509_cert_and_ca() -> tuple[str, str]:
 def test_credential_type_detect_service_svid_via_peer_cert() -> None:
     """SERVICE_SVID detected when peer_cert_pem provided."""
     headers = {}
-    cred_type = detect_credential_type(headers, peer_cert_pem="-----BEGIN CERTIFICATE-----")
+    cred_type = detect_credential_type(
+        headers, peer_cert_pem="-----BEGIN CERTIFICATE-----"
+    )
     assert cred_type == CredentialType.SERVICE_SVID
 
 

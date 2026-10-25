@@ -135,7 +135,11 @@ class ElderClient:
 
         parsed = urlparse(url)
         host = parsed.hostname or ""
-        ip = f"[{self.pinned_ip}]" if ":" in (self.pinned_ip or "") else str(self.pinned_ip)
+        ip = (
+            f"[{self.pinned_ip}]"
+            if ":" in (self.pinned_ip or "")
+            else str(self.pinned_ip)
+        )
         netloc = f"{ip}:{parsed.port}" if parsed.port else ip
         original = f"{host}:{parsed.port}" if parsed.port else host
         return (
@@ -238,7 +242,7 @@ class ElderClient:
                         f"Server error {response.status_code}"
                     )
                     if attempt < self.max_retries - 1:
-                        wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)
+                        wait_time = self.RETRY_DELAY_SECONDS * (2**attempt)
                         log.warning(
                             f"Elder server error, retrying in {wait_time}s: {response.status_code}"
                         )
@@ -271,7 +275,7 @@ class ElderClient:
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = ElderConnectionError(f"Connection failed: {str(e)}")
                 if attempt < self.max_retries - 1:
-                    wait_time = self.RETRY_DELAY_SECONDS * (2 ** attempt)
+                    wait_time = self.RETRY_DELAY_SECONDS * (2**attempt)
                     log.warning(
                         f"Elder connection failed, retrying in {wait_time}s: {str(e)}"
                     )
@@ -467,9 +471,7 @@ class ElderClient:
         log.info(f"Registering app endpoint with Elder: {app_name}")
 
         try:
-            result = await self._request(
-                "POST", "/api/v1/applications", data=payload
-            )
+            result = await self._request("POST", "/api/v1/applications", data=payload)
             log.info(f"Application registered successfully: {app_name}")
             return result
         except ElderConflictError:
@@ -532,9 +534,7 @@ class ElderClient:
         log.info(f"Syncing machine to Elder: {hostname} ({machine_id})")
 
         try:
-            result = await self._request(
-                "POST", "/api/v1/machines/sync", data=payload
-            )
+            result = await self._request("POST", "/api/v1/machines/sync", data=payload)
             log.info(f"Machine synced successfully: {hostname}")
             return result
         except ElderError as e:
@@ -581,13 +581,18 @@ async def get_elder_client(db) -> Optional[ElderClient]:
 
     # SSRF guard (use-time): the stored URL is admin-supplied free text. Refuse
     # loopback/link-local/metadata targets before any request leaves the process.
-    from ..clients.cluster_discovery import ClusterDiscoveryUnavailable, _validate_discovery_endpoint
+    from ..clients.cluster_discovery import (
+        ClusterDiscoveryUnavailable,
+        _validate_discovery_endpoint,
+    )
 
     try:
         vetted = await _validate_discovery_endpoint(config.elder_url)
     except ClusterDiscoveryUnavailable as exc:
         log.error("Elder endpoint refused by SSRF guard: %s", exc)
-        raise ElderError("Elder endpoint refused: loopback/link-local/metadata or unresolvable") from exc
+        raise ElderError(
+            "Elder endpoint refused: loopback/link-local/metadata or unresolvable"
+        ) from exc
 
     log.debug(f"Initializing Elder client: {config.elder_url}")
 

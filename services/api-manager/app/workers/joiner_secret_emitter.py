@@ -28,19 +28,13 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Iterable, Optional, Protocol
 
-from pydantic import BaseModel
-from penguin_dal import DB, Row
-
 from app.clients.vault import VaultClient
 from app.db.rls import CROSS_TENANT_SENTINEL, get_current_tenant, set_current_tenant
 from app.models_m1 import JoinerSecret
-from app.security.audit_chain import (
-    ZERO_HASH,
-    compute_chain_hash,
-    generate_uuidv7,
-)
+from app.security.audit_chain import ZERO_HASH, compute_chain_hash, generate_uuidv7
 from app.security.joiner_envelope import encrypt_envelope, zero_bytes
-
+from penguin_dal import DB, Row
+from pydantic import BaseModel
 
 VAULT_KEK_NAME = "gough-joiner-dek-wrap"
 
@@ -158,8 +152,8 @@ class EmitResult:
     """Result of a successful joiner secret emission."""
 
     joiner_secret_id: object  # uuid.UUID
-    audit_event_id: object    # uuid.UUID
-    expires_at: object        # datetime
+    audit_event_id: object  # uuid.UUID
+    expires_at: object  # datetime
 
 
 def persist_extracted_material(
@@ -474,7 +468,10 @@ class JoinerSecretEmitter:
             if not spec_extractors:
                 self.logger.info(
                     "Biome has emits_joiner_secrets=true but no extractors; skipping",
-                    extra={"biome_id": biome.id, "biome_instance_id": biome_instance_id},
+                    extra={
+                        "biome_id": biome.id,
+                        "biome_instance_id": biome_instance_id,
+                    },
                 )
                 return []
 
@@ -796,9 +793,7 @@ class JoinerSecretEmitter:
     # Helpers                                                            #
     # ------------------------------------------------------------------ #
 
-    def _load_context(
-        self, biome_instance_id: int
-    ) -> tuple[Row, Row, Row]:
+    def _load_context(self, biome_instance_id: int) -> tuple[Row, Row, Row]:
         """Load assignment + biome + node and validate ready state.
 
         Physical table is ``node_egg_assignments`` (``db.node_egg_assignments``)
@@ -813,9 +808,7 @@ class JoinerSecretEmitter:
             .first()
         )
         if assignment is None:
-            raise EmitterStateError(
-                f"biome_instance {biome_instance_id} not found"
-            )
+            raise EmitterStateError(f"biome_instance {biome_instance_id} not found")
         if assignment.status != "ready":
             raise EmitterStateError(
                 f"biome_instance {biome_instance_id} status is "
@@ -864,9 +857,7 @@ class JoinerSecretEmitter:
         return str(row.cluster_id)
 
     @staticmethod
-    def _derive_lxd_instance(
-        node: Row, biome: Row, assignment: Row
-    ) -> str:
+    def _derive_lxd_instance(node: Row, biome: Row, assignment: Row) -> str:
         """Derive the LXD instance name for the biome's workload.
 
         Spec convention: workloads run in an LXD instance named

@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # (e.g. the FedRAMP lane). Tests that exercise the client supply a fake
 # command class via the ``command_factory`` constructor argument.
 try:  # pragma: no cover - import side-effect only
-    from pyghmi.ipmi import command as _pyghmi_command  # type: ignore
     from pyghmi.exceptions import IpmiException as _PyghmiIpmiException  # type: ignore
+    from pyghmi.ipmi import command as _pyghmi_command  # type: ignore
 except Exception:  # pragma: no cover
     _pyghmi_command = None
     _PyghmiIpmiException = Exception  # type: ignore[assignment]
@@ -148,7 +148,9 @@ class _AuditWriterProto(Protocol):
 
 
 class _NatsPublisherProto(Protocol):
-    def publish(self, subject: str, payload: dict[str, Any]) -> None: ...  # pragma: no cover
+    def publish(
+        self, subject: str, payload: dict[str, Any]
+    ) -> None: ...  # pragma: no cover
 
 
 # ---------------------------------------------------------------------------
@@ -212,9 +214,7 @@ class IpmiClient:
         if data is None and isinstance(resp, dict):
             data = resp.get("data")
         if not isinstance(data, dict) or field_name not in data:
-            raise BMCAuthFailure(
-                f"Vault KV path {path!r} missing field {field_name!r}"
-            )
+            raise BMCAuthFailure(f"Vault KV path {path!r} missing field {field_name!r}")
         value = data[field_name]
         if not isinstance(value, str) or not value:
             raise BMCAuthFailure(f"Vault credential at {ref!r} is empty")
@@ -246,7 +246,9 @@ class IpmiClient:
                 raise BMCAuthFailure(str(exc)) from exc
             raise BMCUnreachable(str(exc)) from exc
         except OSError as exc:
-            raise BMCUnreachable(f"IPMI session to {self._host}:{self._port} failed: {exc}") from exc
+            raise BMCUnreachable(
+                f"IPMI session to {self._host}:{self._port} failed: {exc}"
+            ) from exc
 
         # Enforce cipher suite at the session level. pyghmi exposes the
         # negotiated cipher via ``cmd.ipmi_session.cipher_suite``; we tolerate
@@ -370,7 +372,9 @@ class IpmiClient:
     # Boot device
     # ------------------------------------------------------------------
 
-    def set_chassis_bootdev(self, target: BootDevice = "pxe", persistent: bool = False) -> None:
+    def set_chassis_bootdev(
+        self, target: BootDevice = "pxe", persistent: bool = False
+    ) -> None:
         cmd = self._ensure_open()
         try:
             cmd.set_bootdev(target, persist=persistent, uefiboot=False)

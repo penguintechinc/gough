@@ -10,10 +10,28 @@ functions from the parent module here.
 # Re-export functions that were in models.py
 # These are imported from the parent module by manipulating sys.modules
 from datetime import datetime
-from quart import Quart, g
+
 from penguin_dal import DB
+from quart import Quart, g
+
 from ..config import Config
 from ..models_sqlalchemy import create_all_tables
+
+# Export iPXE constants
+from .ipxe import (
+    ARCHITECTURES,
+    BIOME_TYPES,
+    BOOT_EVENT_TYPES,
+    BOOT_MODES,
+    DEPLOYMENT_STATUSES,
+    DHCP_MODES,
+    IMAGE_TYPES,
+    POWER_TYPES,
+    STORAGE_PROVIDERS,
+)
+
+# pydal builds SQL from `field == value`; named constants keep that operator form (E712-clean).
+_DB_FALSE = False
 
 # Valid roles for RBAC
 VALID_ROLES = ["admin", "maintainer", "viewer"]
@@ -29,9 +47,19 @@ JOB_STATUSES = ["pending", "running", "completed", "failed", "cancelled"]
 
 # Machine status values - note: different from iPXE MACHINE_STATUSES
 MACHINE_STATUSES = [
-    "new", "commissioning", "ready", "allocated", "deploying",
-    "deployed", "releasing", "disk_erasing", "failed", "broken",
-    "running", "stopped", "terminated"
+    "new",
+    "commissioning",
+    "ready",
+    "allocated",
+    "deploying",
+    "deployed",
+    "releasing",
+    "disk_erasing",
+    "failed",
+    "broken",
+    "running",
+    "stopped",
+    "terminated",
 ]
 
 
@@ -41,14 +69,15 @@ def validate_database_schema(db_uri: str) -> bool:
     Checks for critical tables and columns without creating them.
     Returns True if validation passes, False if schema needs initialization.
     """
-    from sqlalchemy import create_engine, inspect
+    from sqlalchemy import inspect
+
     from ..models_sqlalchemy import get_sqlalchemy_engine
 
     engine = get_sqlalchemy_engine(db_uri)
     inspector = inspect(engine)
 
     # Check for critical tables
-    expected_tables = ['auth_user', 'auth_role', 'auth_user_roles']
+    expected_tables = ["auth_user", "auth_role", "auth_user_roles"]
     existing_tables = inspector.get_table_names()
 
     for table in expected_tables:
@@ -57,8 +86,8 @@ def validate_database_schema(db_uri: str) -> bool:
             return False
 
     # Check auth_user table has expected columns
-    auth_user_columns = {col['name'] for col in inspector.get_columns('auth_user')}
-    expected_columns = {'id', 'email', 'password', 'active', 'fs_uniquifier'}
+    auth_user_columns = {col["name"] for col in inspector.get_columns("auth_user")}
+    expected_columns = {"id", "email", "password", "active", "fs_uniquifier"}
 
     if not expected_columns.issubset(auth_user_columns):
         missing = expected_columns - auth_user_columns
@@ -114,7 +143,9 @@ def init_db(app: Quart) -> DB:
     # Step 1: Validate schema or create it
     try:
         if not validate_database_schema(pydal_uri):
-            print(f"Database schema validation failed, creating schema with SQLAlchemy: {pydal_uri}")
+            print(
+                f"Database schema validation failed, creating schema with SQLAlchemy: {pydal_uri}"
+            )
             create_all_tables(pydal_uri)
             print("Database schema created successfully")
         else:
@@ -335,16 +366,18 @@ def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict], int]:
     result = []
     for user in users:
         role_name = _get_user_role(db, user.id)
-        result.append({
-            "id": user.id,
-            "email": user.email,
-            "password_hash": user.password,
-            "full_name": user.full_name,
-            "role": role_name,
-            "is_active": user.active,
-            "created_at": user.created_at,
-            "updated_at": user.updated_at,
-        })
+        result.append(
+            {
+                "id": user.id,
+                "email": user.email,
+                "password_hash": user.password,
+                "full_name": user.full_name,
+                "role": role_name,
+                "is_active": user.active,
+                "created_at": user.created_at,
+                "updated_at": user.updated_at,
+            }
+        )
 
     return result, total
 
@@ -352,6 +385,7 @@ def list_users(page: int = 1, per_page: int = 20) -> tuple[list[dict], int]:
 # =============================================================================
 # Refresh Token Functions
 # =============================================================================
+
 
 def store_refresh_token(user_id: int, token_hash: str, expires_at: datetime) -> int:
     """Store a refresh token hash in the database."""
@@ -373,11 +407,15 @@ def is_refresh_token_valid(token_hash: str) -> bool:
     """Check if a refresh token is valid and not revoked."""
     db = get_db()
 
-    token = db(
-        (db.auth_refresh_tokens.token_hash == token_hash) &
-        (db.auth_refresh_tokens.revoked == False) &
-        (db.auth_refresh_tokens.expires_at > datetime.utcnow())
-    ).select().first()
+    token = (
+        db(
+            (db.auth_refresh_tokens.token_hash == token_hash)
+            & (db.auth_refresh_tokens.revoked == _DB_FALSE)
+            & (db.auth_refresh_tokens.expires_at > datetime.utcnow())
+        )
+        .select()
+        .first()
+    )
 
     return token is not None
 
@@ -386,9 +424,7 @@ def revoke_refresh_token(token_hash: str) -> bool:
     """Revoke a specific refresh token."""
     db = get_db()
 
-    updated = db(db.auth_refresh_tokens.token_hash == token_hash).update(
-        revoked=True
-    )
+    updated = db(db.auth_refresh_tokens.token_hash == token_hash).update(revoked=True)
 
     db.commit()
 
@@ -400,27 +436,14 @@ def revoke_all_user_tokens(user_id: int) -> int:
     db = get_db()
 
     updated = db(
-        (db.auth_refresh_tokens.user_id == user_id) &
-        (db.auth_refresh_tokens.revoked == False)
+        (db.auth_refresh_tokens.user_id == user_id)
+        & (db.auth_refresh_tokens.revoked == _DB_FALSE)
     ).update(revoked=True)
 
     db.commit()
 
     return updated
 
-
-# Export iPXE constants
-from .ipxe import (
-    DHCP_MODES,
-    BOOT_MODES,
-    ARCHITECTURES,
-    POWER_TYPES,
-    BIOME_TYPES,
-    IMAGE_TYPES,
-    DEPLOYMENT_STATUSES,
-    BOOT_EVENT_TYPES,
-    STORAGE_PROVIDERS,
-)
 
 __all__ = [
     "init_db",

@@ -8,8 +8,6 @@ and ``POST /api/v1/nodes/{id}/biomes``.
 from __future__ import annotations
 
 import pytest
-from pydantic import ValidationError
-
 from app.api._biome_schema import (
     BiomeCreate,
     BiomeSignRequest,
@@ -18,6 +16,7 @@ from app.api._biome_schema import (
     ReadinessProbe,
     StorageRequirements,
 )
+from pydantic import ValidationError
 
 
 class TestBiomeCreateMinimal:
@@ -136,9 +135,7 @@ class TestBiomeCreateFullSpec:
 
 class TestReadinessProbe:
     def test_http_get_only_passes(self) -> None:
-        ReadinessProbe.model_validate(
-            {"httpGet": {"path": "/", "port": 80}}
-        )
+        ReadinessProbe.model_validate({"httpGet": {"path": "/", "port": 80}})
 
     def test_grpc_only_passes(self) -> None:
         ReadinessProbe.model_validate({"grpc": {"service": "Health", "port": 50051}})

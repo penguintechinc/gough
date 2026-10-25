@@ -17,9 +17,6 @@ import uuid
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from prometheus_client import REGISTRY
-from quart import Quart, g
-
 from app.audit import (
     _PENDING_PUBLISH_TASKS,
     AuditEvent,
@@ -40,6 +37,8 @@ from app.rate_limit import (
     RateLimiterBackendUnavailable,
     RedisStorage,
 )
+from prometheus_client import REGISTRY
+from quart import Quart, g
 
 # Port 1 on loopback is closed: connecting is refused immediately, a real
 # unreachable-Redis path without relying on DNS or network timeouts.
@@ -100,7 +99,9 @@ def test_redis_kwargs_default_to_two_second_timeouts() -> None:
 
 def test_redis_kwargs_read_env_driven_config() -> None:
     """Config overrides flow into the redis.from_url kwargs."""
-    kwargs = redis_client_kwargs({"REDIS_SOCKET_TIMEOUT": 1.5, "REDIS_SOCKET_CONNECT_TIMEOUT": 0.5})
+    kwargs = redis_client_kwargs(
+        {"REDIS_SOCKET_TIMEOUT": 1.5, "REDIS_SOCKET_CONNECT_TIMEOUT": 0.5}
+    )
     assert kwargs["socket_timeout"] == 1.5
     assert kwargs["socket_connect_timeout"] == 0.5
 
@@ -134,7 +135,9 @@ def test_rate_limiter_redis_client_created_with_timeouts() -> None:
 def test_unreachable_redis_raises_without_fallback_flag() -> None:
     """Configured-but-down Redis aborts init instead of silently using memory."""
     app = _app(RATE_LIMIT_REDIS_URL=UNREACHABLE_REDIS, REDIS_SOCKET_CONNECT_TIMEOUT=0.2)
-    with pytest.raises(RateLimiterBackendUnavailable, match="RATE_LIMIT_ALLOW_MEMORY_FALLBACK"):
+    with pytest.raises(
+        RateLimiterBackendUnavailable, match="RATE_LIMIT_ALLOW_MEMORY_FALLBACK"
+    ):
         RateLimiter(app)
 
 
@@ -159,7 +162,9 @@ def test_memory_only_config_clears_degraded_gauge() -> None:
 
 def test_missing_redis_package_is_never_swallowed() -> None:
     """ImportError for the redis package propagates even with the fallback flag set."""
-    app = _app(RATE_LIMIT_REDIS_URL=UNREACHABLE_REDIS, RATE_LIMIT_ALLOW_MEMORY_FALLBACK=True)
+    app = _app(
+        RATE_LIMIT_REDIS_URL=UNREACHABLE_REDIS, RATE_LIMIT_ALLOW_MEMORY_FALLBACK=True
+    )
     with patch.dict(sys.modules, {"redis": UNIMPORTABLE}):
         with pytest.raises(ImportError):
             RateLimiter(app)
@@ -211,7 +216,9 @@ def test_close_runtime_resources_releases_everything() -> None:
     db.engine.dispose.assert_called_once()
 
 
-def test_failing_shutdown_step_is_logged_and_others_still_close(caplog: pytest.LogCaptureFixture) -> None:
+def test_failing_shutdown_step_is_logged_and_others_still_close(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """One resource failing to close is logged at ERROR; remaining resources still close."""
     app = Quart(__name__)
     capacity_redis = MagicMock()
@@ -231,7 +238,9 @@ def test_failing_shutdown_step_is_logged_and_others_still_close(caplog: pytest.L
     assert "shutdown step failed: redis" in caplog.text
 
 
-def test_hypercorn_graceful_timeout_defaults_to_25s(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hypercorn_graceful_timeout_defaults_to_25s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Default graceful window is 25s, leaving headroom under the 30s pod grace period."""
     monkeypatch.delenv("GRACEFUL_SHUTDOWN_TIMEOUT", raising=False)
     config = build_hypercorn_config("0.0.0.0:5000")
@@ -239,7 +248,9 @@ def test_hypercorn_graceful_timeout_defaults_to_25s(monkeypatch: pytest.MonkeyPa
     assert config.bind == ["0.0.0.0:5000"]
 
 
-def test_hypercorn_graceful_timeout_is_env_configurable(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_hypercorn_graceful_timeout_is_env_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """GRACEFUL_SHUTDOWN_TIMEOUT overrides the default."""
     monkeypatch.setenv("GRACEFUL_SHUTDOWN_TIMEOUT", "10")
     assert build_hypercorn_config("0.0.0.0:5000").graceful_timeout == 10.0
@@ -261,17 +272,27 @@ def test_request_latency_recorded_positive_and_route_template_labelled() -> None
     """Latency is observed (>0) under the route template, never the raw UUID path."""
     app = _metrics_app()
     thing_id = uuid.uuid4()
-    labels = {"method": "GET", "endpoint": "/api/v1/things/<uuid:thing_id>", "status_code": "200"}
+    labels = {
+        "method": "GET",
+        "endpoint": "/api/v1/things/<uuid:thing_id>",
+        "status_code": "200",
+    }
     sum_before = _sample("gough_api_request_latency_seconds_sum", labels)
     count_before = _sample("gough_api_request_latency_seconds_count", labels)
 
     status = asyncio.run(_get(app, f"/api/v1/things/{thing_id}"))
 
     assert status == 200
-    assert _sample("gough_api_request_latency_seconds_count", labels) - count_before == 1
+    assert (
+        _sample("gough_api_request_latency_seconds_count", labels) - count_before == 1
+    )
     observed = _sample("gough_api_request_latency_seconds_sum", labels) - sum_before
     assert observed >= 0.02
-    raw_label = {"method": "GET", "endpoint": f"/api/v1/things/{thing_id}", "status_code": "200"}
+    raw_label = {
+        "method": "GET",
+        "endpoint": f"/api/v1/things/{thing_id}",
+        "status_code": "200",
+    }
     assert _sample("gough_api_request_latency_seconds_count", raw_label) == 0
 
 
@@ -284,7 +305,9 @@ def test_unmatched_route_labelled_unmatched() -> None:
     status = asyncio.run(_get(app, f"/no/such/{uuid.uuid4()}"))
 
     assert status == 404
-    assert _sample("gough_api_request_latency_seconds_count", labels) - count_before == 1
+    assert (
+        _sample("gough_api_request_latency_seconds_count", labels) - count_before == 1
+    )
 
 
 def test_metrics_failure_is_counted_and_never_fails_response() -> None:

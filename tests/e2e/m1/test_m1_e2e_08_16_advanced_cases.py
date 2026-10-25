@@ -1,8 +1,9 @@
 """M1 E2E Tests 08-16: Advanced functionality."""
 
-import pytest
 import time
 import uuid
+
+import pytest
 
 
 def test_m1_e2e_08_identity_conflict(primary_cluster, sim_node_factory, api_client):
@@ -41,8 +42,9 @@ def test_m1_e2e_08_identity_conflict(primary_cluster, sim_node_factory, api_clie
                     if node.get("identity_conflict"):
                         print(f"[m1-e2e-08] Conflict detected on node {node.get('id')}")
                         assert node.get("state") == "probed"
-                        assert node.get("operator_action_required"), \
-                            "Operator should be prompted for conflicting node"
+                        assert node.get(
+                            "operator_action_required"
+                        ), "Operator should be prompted for conflicting node"
                         return  # Test passed
 
         time.sleep(1)
@@ -62,11 +64,7 @@ def test_m1_e2e_09_smart_warning(primary_cluster, sim_node_factory, api_client):
     dmi_uuid = str(uuid.uuid4())
 
     # Launch sim node with warning SMART pattern
-    sim_node = sim_node_factory(
-        firmware="bios",
-        smart_pattern="warning",
-        dmi_uuid=dmi_uuid
-    )
+    sim_node_factory(firmware="bios", smart_pattern="warning", dmi_uuid=dmi_uuid)
 
     # Wait for node to be probed
     max_retries = 300
@@ -75,7 +73,9 @@ def test_m1_e2e_09_smart_warning(primary_cluster, sim_node_factory, api_client):
         resp = api_client.get("/api/v1/nodes", timeout=5)
         if resp.status_code == 200:
             nodes = resp.json().get("nodes", [])
-            probed_node = next((n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None)
+            probed_node = next(
+                (n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None
+            )
 
             if probed_node and probed_node.get("state") == "probed":
                 node_id = probed_node.get("id")
@@ -100,21 +100,22 @@ def test_m1_e2e_09_smart_warning(primary_cluster, sim_node_factory, api_client):
 
     assert warning_disk_found, "No disk with warning SMART status found"
 
-    print(f"[m1-e2e-09] SMART warning detected on disk")
+    print("[m1-e2e-09] SMART warning detected on disk")
 
     # Try to assign an biome with strict health requirement
     egg_plan = {
         "node_id": node_id,
-        "biomes": [{"name": "k8s-controller", "min_disk_health": "healthy"}]
+        "biomes": [{"name": "k8s-controller", "min_disk_health": "healthy"}],
     }
 
     resp = api_client.post("/api/v1/plans", data=egg_plan, timeout=10)
 
     # Should be rejected due to health requirement
-    assert resp.status_code == 422, \
-        f"Expected 422 (health requirement not met), got {resp.status_code}"
+    assert (
+        resp.status_code == 422
+    ), f"Expected 422 (health requirement not met), got {resp.status_code}"
 
-    print(f"[m1-e2e-09] Biome assignment correctly blocked due to SMART warning")
+    print("[m1-e2e-09] Biome assignment correctly blocked due to SMART warning")
 
 
 def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_client):
@@ -127,7 +128,7 @@ def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_clie
     print("\n[m1-e2e-10] Starting dark drive toggle test")
 
     dmi_uuid = str(uuid.uuid4())
-    sim_node = sim_node_factory(firmware="bios", dmi_uuid=dmi_uuid)
+    sim_node_factory(firmware="bios", dmi_uuid=dmi_uuid)
 
     # Wait for probed
     max_retries = 300
@@ -136,7 +137,9 @@ def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_clie
         resp = api_client.get("/api/v1/nodes", timeout=5)
         if resp.status_code == 200:
             nodes = resp.json().get("nodes", [])
-            probed_node = next((n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None)
+            probed_node = next(
+                (n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None
+            )
 
             if probed_node and probed_node.get("state") == "probed":
                 node_id = probed_node.get("id")
@@ -160,7 +163,7 @@ def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_clie
     update_resp = api_client.put(
         f"/api/v1/nodes/{node_id}/disks/{disk_id}",
         data={"reserved_for_storage": True},
-        timeout=10
+        timeout=10,
     )
 
     assert update_resp.status_code == 200
@@ -177,7 +180,7 @@ def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_clie
     # Deploy OS, verify it skips the reserved disk
     disk_plan = {
         "node_id": node_id,
-        "disks": [{"id": disks[0].get("id"), "action": "format_and_deploy"}]
+        "disks": [{"id": disks[0].get("id"), "action": "format_and_deploy"}],
     }
 
     plan_resp = api_client.post("/api/v1/plans", data=disk_plan, timeout=10)
@@ -190,7 +193,7 @@ def test_m1_e2e_10_dark_drive_toggle(primary_cluster, sim_node_factory, api_clie
     deployed_disk_ids = [d.get("id") for d in plan_disks]
     assert disk_id not in deployed_disk_ids, "Reserved disk was included in deploy plan"
 
-    print(f"[m1-e2e-10] Deploy plan correctly skipped reserved disk")
+    print("[m1-e2e-10] Deploy plan correctly skipped reserved disk")
 
 
 def test_m1_e2e_11_luks_rekey(primary_cluster, api_client):
@@ -209,9 +212,7 @@ def test_m1_e2e_11_luks_rekey(primary_cluster, api_client):
     node_id = "test-node-11"
 
     rekey_resp = api_client.post(
-        f"/api/v1/nodes/{node_id}/luks/rekey",
-        data={"force": False},
-        timeout=300
+        f"/api/v1/nodes/{node_id}/luks/rekey", data={"force": False}, timeout=300
     )
 
     # In test env, this might return 404 if node doesn't exist
@@ -262,9 +263,9 @@ def test_m1_e2e_13_uefi_boot(primary_cluster, sim_node_factory, api_client):
     dmi_uuid = str(uuid.uuid4())
 
     # Launch sim with UEFI firmware
-    sim_node = sim_node_factory(firmware="uefi", dmi_uuid=dmi_uuid)
+    sim_node_factory(firmware="uefi", dmi_uuid=dmi_uuid)
 
-    print(f"[m1-e2e-13] UEFI sim node launched, waiting for probed state...")
+    print("[m1-e2e-13] UEFI sim node launched, waiting for probed state...")
 
     # Wait for probed
     max_retries = 300
@@ -272,13 +273,15 @@ def test_m1_e2e_13_uefi_boot(primary_cluster, sim_node_factory, api_client):
         resp = api_client.get("/api/v1/nodes", timeout=5)
         if resp.status_code == 200:
             nodes = resp.json().get("nodes", [])
-            probed_node = next((n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None)
+            probed_node = next(
+                (n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None
+            )
 
             if probed_node and probed_node.get("state") == "probed":
                 # Check boot method in metadata
                 boot_method = probed_node.get("metadata", {}).get("boot_method")
                 assert boot_method == "uefi", f"Expected UEFI boot, got {boot_method}"
-                print(f"[m1-e2e-13] Node booted via UEFI")
+                print("[m1-e2e-13] Node booted via UEFI")
                 return
 
         time.sleep(1)
@@ -298,13 +301,9 @@ def test_m1_e2e_14_ipv6_slaac(primary_cluster, sim_node_factory, api_client):
     dmi_uuid = str(uuid.uuid4())
 
     # Launch sim with IPv6 SLAAC-only
-    sim_node = sim_node_factory(
-        firmware="bios",
-        ipv6="slaac-only",
-        dmi_uuid=dmi_uuid
-    )
+    sim_node_factory(firmware="bios", ipv6="slaac-only", dmi_uuid=dmi_uuid)
 
-    print(f"[m1-e2e-14] IPv6 SLAAC sim node launched...")
+    print("[m1-e2e-14] IPv6 SLAAC sim node launched...")
 
     # Wait for probed
     max_retries = 300
@@ -312,7 +311,9 @@ def test_m1_e2e_14_ipv6_slaac(primary_cluster, sim_node_factory, api_client):
         resp = api_client.get("/api/v1/nodes", timeout=5)
         if resp.status_code == 200:
             nodes = resp.json().get("nodes", [])
-            probed_node = next((n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None)
+            probed_node = next(
+                (n for n in nodes if n.get("dmi_uuid") == dmi_uuid), None
+            )
 
             if probed_node and probed_node.get("state") == "probed":
                 # Verify IPv6 method
@@ -320,10 +321,12 @@ def test_m1_e2e_14_ipv6_slaac(primary_cluster, sim_node_factory, api_client):
                 assert ipv6_method == "slaac", f"Expected SLAAC, got {ipv6_method}"
 
                 # Check for NATS conflict
-                has_conflict = probed_node.get("metadata", {}).get("ipv6_slaac_conflict")
+                has_conflict = probed_node.get("metadata", {}).get(
+                    "ipv6_slaac_conflict"
+                )
                 assert not has_conflict, "SLAAC conflict raised"
 
-                print(f"[m1-e2e-14] Node booted via IPv6 SLAAC, no conflicts")
+                print("[m1-e2e-14] Node booted via IPv6 SLAAC, no conflicts")
                 return
 
         time.sleep(1)
@@ -347,7 +350,7 @@ def test_m1_e2e_15_joiner_secret_emit(primary_cluster, api_client):
     emit_resp = api_client.post(
         f"/api/v1/nodes/{node_id}/joiner-secret/emit",
         data={"purpose": "k8s-worker"},
-        timeout=10
+        timeout=10,
     )
 
     if emit_resp.status_code == 200:
@@ -355,17 +358,20 @@ def test_m1_e2e_15_joiner_secret_emit(primary_cluster, api_client):
 
         # Verify ciphertext structure
         assert secret.get("ciphertext"), "No ciphertext in response"
-        assert secret.get("cipher_type") == "aes-256-gcm", \
-            f"Expected AES-256-GCM, got {secret.get('cipher_type')}"
+        assert (
+            secret.get("cipher_type") == "aes-256-gcm"
+        ), f"Expected AES-256-GCM, got {secret.get('cipher_type')}"
 
         # Verify DEK is Vault-wrapped
         dek = secret.get("dek_wrapped")
         assert dek, "DEK not wrapped"
         assert dek.get("vault_path"), "DEK missing Vault path"
 
-        print(f"[m1-e2e-15] Joiner secret emitted with GCM ciphertext")
+        print("[m1-e2e-15] Joiner secret emitted with GCM ciphertext")
     else:
-        print(f"[m1-e2e-15] Joiner secret API available (status {emit_resp.status_code})")
+        print(
+            f"[m1-e2e-15] Joiner secret API available (status {emit_resp.status_code})"
+        )
 
 
 def test_m1_e2e_16_cross_tenant_denied(primary_cluster, api_client):
@@ -377,18 +383,12 @@ def test_m1_e2e_16_cross_tenant_denied(primary_cluster, api_client):
     print("\n[m1-e2e-16] Starting cross-tenant denial test")
 
     # Create two different tenant tokens
-    tenant_a_token = "test-token-a-" + str(uuid.uuid4())[:8]
-    tenant_b_token = "test-token-b-" + str(uuid.uuid4())[:8]
 
     # Try to access Tenant A's node with Tenant B's token
     # This requires the API to enforce tenant boundaries
-    headers_b = {
-        "Authorization": f"Bearer {tenant_b_token}",
-        "X-Tenant-ID": "tenant-b"
-    }
 
     # Would need a way to create cross-tenant request; for now, mock the structure
-    print(f"[m1-e2e-16] Cross-tenant isolation enforced at API layer")
+    print("[m1-e2e-16] Cross-tenant isolation enforced at API layer")
 
 
 if __name__ == "__main__":

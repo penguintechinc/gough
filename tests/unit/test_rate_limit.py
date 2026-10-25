@@ -10,37 +10,35 @@ Tests for:
 - rate limiting decorators
 """
 
-import asyncio
 import hashlib
+import importlib
 import sys
 import time
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock, patch, Mock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = "/home/penguin/code/gough/services/api-manager"
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
-    if _mod == 'app' or _mod.startswith('app.'):
+    if _mod == "app" or _mod.startswith("app."):
         del sys.modules[_mod]
 
-from app.rate_limit import (
-    RateLimitStrategy,
-    RateLimitExceeded,
-    RateLimitInfo,
-    InMemoryStorage,
-    RedisStorage,
-    RateLimiter,
-    rate_limit,
-    rate_limit_by_ip,
-    rate_limit_by_user,
-    rate_limit_by_api_key,
-    exempt_admin,
-    get_rate_limiter,
-    init_rate_limiter,
-)
+_mod_app_rate_limit = importlib.import_module("app.rate_limit")
+InMemoryStorage = _mod_app_rate_limit.InMemoryStorage
+RateLimiter = _mod_app_rate_limit.RateLimiter
+RateLimitExceeded = _mod_app_rate_limit.RateLimitExceeded
+RateLimitInfo = _mod_app_rate_limit.RateLimitInfo
+RateLimitStrategy = _mod_app_rate_limit.RateLimitStrategy
+RedisStorage = _mod_app_rate_limit.RedisStorage
+get_rate_limiter = _mod_app_rate_limit.get_rate_limiter
+init_rate_limiter = _mod_app_rate_limit.init_rate_limiter
+rate_limit = _mod_app_rate_limit.rate_limit
+rate_limit_by_api_key = _mod_app_rate_limit.rate_limit_by_api_key
+rate_limit_by_ip = _mod_app_rate_limit.rate_limit_by_ip
+rate_limit_by_user = _mod_app_rate_limit.rate_limit_by_user
 
 
 class TestRateLimitStrategy:
@@ -222,6 +220,7 @@ class TestRedisStorage:
 
         # Mock get to return JSON data
         import json
+
         mock_redis.get.return_value = json.dumps({"count": 5})
 
         data = storage.get("key1")
@@ -436,7 +435,8 @@ class TestRateLimiterRedisInit:
         mock_app.config = {"RATE_LIMIT_REDIS_URL": "redis://localhost:6379"}
 
         try:
-            import redis
+            pytest.importorskip("redis")
+
             with patch("redis.from_url") as mock_from_url:
                 mock_from_url.return_value = mock_redis
                 limiter = RateLimiter()
@@ -454,7 +454,8 @@ class TestRateLimiterRedisInit:
         mock_app.config = {"RATE_LIMIT_REDIS_URL": "redis://localhost:6379"}
 
         try:
-            import redis
+            pytest.importorskip("redis")
+
             with patch("redis.from_url") as mock_from_url:
                 mock_from_url.side_effect = Exception("Connection failed")
                 limiter = RateLimiter()
@@ -720,9 +721,7 @@ class TestRateLimitDecorator:
             mock_limiter = MagicMock()
             mock_get_limiter.return_value = mock_limiter
 
-            decorator = rate_limit(
-                limit="100/minute", exempt_when=exempt_func
-            )
+            decorator = rate_limit(limit="100/minute", exempt_when=exempt_func)
             wrapped = decorator(test_func)
 
             result = await wrapped()
@@ -743,9 +742,7 @@ class TestRateLimitDecorator:
 
             # Mock check_rate_limit
             expires_at = datetime.utcnow()
-            info = RateLimitInfo(
-                limit=100, remaining=50, reset_at=expires_at
-            )
+            info = RateLimitInfo(limit=100, remaining=50, reset_at=expires_at)
             mock_limiter.check_rate_limit = AsyncMock(return_value=info)
             mock_limiter._parse_limit_string.return_value = [(100, 60)]
 

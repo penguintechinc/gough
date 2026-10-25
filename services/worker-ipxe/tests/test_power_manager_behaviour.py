@@ -5,7 +5,6 @@ TLS/socket fingerprinting via fake socket and SSL objects.
 """
 
 import asyncio
-import hashlib
 import socket
 import tempfile
 from pathlib import Path
@@ -14,16 +13,18 @@ from typing import Any
 import httpx
 import pytest
 import respx
-
-from tests.certs import make_cert as _make_cert
 from worker.services import power_manager as pm
 from worker.services.power_manager import BMCCredentials, PowerManager
+
+from tests.certs import make_cert as _make_cert
 
 HOST = "bmc.lab.test"
 PIN = "AB:" * 31 + "AB"  # well-formed 32-byte fingerprint (uppercase, colon separated)
 
 
-def _creds(power_type: str = "ipmi", address: str = HOST, **kw: object) -> BMCCredentials:
+def _creds(
+    power_type: str = "ipmi", address: str = HOST, **kw: object
+) -> BMCCredentials:
     """Build BMC credentials for the given power type."""
     return BMCCredentials(
         address=address,
@@ -37,8 +38,13 @@ def _creds(power_type: str = "ipmi", address: str = HOST, **kw: object) -> BMCCr
 class FakeProc:
     """Subprocess stand-in exposing communicate() and returncode."""
 
-    def __init__(self, returncode: int = 0, stdout: bytes = b"", stderr: bytes = b"",
-                 communicate_error: Exception | None = None) -> None:
+    def __init__(
+        self,
+        returncode: int = 0,
+        stdout: bytes = b"",
+        stderr: bytes = b"",
+        communicate_error: Exception | None = None,
+    ) -> None:
         """Script the exit code, output and optional communicate() failure."""
         self.returncode = returncode
         self._stdout = stdout
@@ -52,8 +58,12 @@ class FakeProc:
         return self._stdout, self._stderr
 
 
-def _spawn(monkeypatch: pytest.MonkeyPatch, proc: FakeProc | None, calls: list[dict[str, Any]],
-           error: Exception | None = None) -> None:
+def _spawn(
+    monkeypatch: pytest.MonkeyPatch,
+    proc: FakeProc | None,
+    calls: list[dict[str, Any]],
+    error: Exception | None = None,
+) -> None:
     """Replace create_subprocess_exec: record argv/env, then return proc or raise error."""
 
     async def fake_exec(*args: Any, **kwargs: Any) -> FakeProc:
@@ -76,6 +86,7 @@ def _no_cert_check(monkeypatch: pytest.MonkeyPatch) -> None:
 
 # --- fingerprint helpers ---------------------------------------------------------------
 
+
 def test_normalize_fingerprint_accepts_plain_lower_and_spaced_forms() -> None:
     """Plain hex, lowercase and space-separated inputs all normalise to colon-separated uppercase."""
     plain = "ab" * 32
@@ -93,6 +104,7 @@ def test_normalize_fingerprint_rejects_wrong_length(bad: str) -> None:
 
 # --- dispatch ------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
 async def test_unsupported_power_type_is_rejected() -> None:
     """Unknown power types return a failure tuple instead of raising."""
@@ -104,24 +116,44 @@ async def test_unsupported_power_type_is_rejected() -> None:
 
 # --- IPMI ----------------------------------------------------------------------------
 
+
 @pytest.mark.asyncio
-async def test_ipmi_power_on_success_passes_password_via_env_not_argv(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_power_on_success_passes_password_via_env_not_argv(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """IPMI power on runs ipmitool with -E and the password only in IPMI_PASSWORD, and returns stdout."""
     calls: list[dict[str, Any]] = []
-    _spawn(monkeypatch, FakeProc(returncode=0, stdout=b"Chassis Power Control: Up/On\n"), calls)
+    _spawn(
+        monkeypatch,
+        FakeProc(returncode=0, stdout=b"Chassis Power Control: Up/On\n"),
+        calls,
+    )
 
     ok, out = await PowerManager().power_control(_creds(), "on")
 
     assert ok is True
     assert out == "Chassis Power Control: Up/On"
     argv = calls[0]["argv"]
-    assert argv == ["ipmitool", "-I", "lanplus", "-H", HOST, "-U", "admin", "-E", "power", "on"]
+    assert argv == [
+        "ipmitool",
+        "-I",
+        "lanplus",
+        "-H",
+        HOST,
+        "-U",
+        "admin",
+        "-E",
+        "power",
+        "on",
+    ]
     assert "s3cret-pass" not in " ".join(argv)
     assert calls[0]["env"]["IPMI_PASSWORD"] == "s3cret-pass"
 
 
 @pytest.mark.asyncio
-async def test_ipmi_child_env_excludes_worker_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_child_env_excludes_worker_secrets(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """ipmitool gets a minimal environment: the BMC password, never the worker's own secrets."""
     monkeypatch.setenv("WORKER_API_KEY", "worker-key-should-not-leak")
     monkeypatch.setenv("STORAGE_SECRET_KEY", "storage-should-not-leak")
@@ -151,8 +183,12 @@ async def test_ipmi_address_that_looks_like_an_option_is_refused(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("mac", ["-v", "not-a-mac", "00:11:22:33:44", "00:11:22:33:44:55:66"])
-async def test_wol_rejects_non_mac_address_before_spawning(monkeypatch: pytest.MonkeyPatch, mac: str) -> None:
+@pytest.mark.parametrize(
+    "mac", ["-v", "not-a-mac", "00:11:22:33:44", "00:11:22:33:44:55:66"]
+)
+async def test_wol_rejects_non_mac_address_before_spawning(
+    monkeypatch: pytest.MonkeyPatch, mac: str
+) -> None:
     """Only a 6-octet MAC reaches wakeonlan; anything else (incl. option-like input) is refused."""
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(), calls)
@@ -165,10 +201,16 @@ async def test_wol_rejects_non_mac_address_before_spawning(monkeypatch: pytest.M
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "action, expected_tail",
-    [("off", ["power", "off"]), ("cycle", ["power", "cycle"]),
-     ("reset", ["power", "reset"]), ("status", ["power", "status"])],
+    [
+        ("off", ["power", "off"]),
+        ("cycle", ["power", "cycle"]),
+        ("reset", ["power", "reset"]),
+        ("status", ["power", "status"]),
+    ],
 )
-async def test_ipmi_action_mapping(monkeypatch: pytest.MonkeyPatch, action: str, expected_tail: list[str]) -> None:
+async def test_ipmi_action_mapping(
+    monkeypatch: pytest.MonkeyPatch, action: str, expected_tail: list[str]
+) -> None:
     """Each power action maps to its ipmitool subcommand."""
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(returncode=0, stdout=b"ok"), calls)
@@ -179,7 +221,9 @@ async def test_ipmi_action_mapping(monkeypatch: pytest.MonkeyPatch, action: str,
 
 
 @pytest.mark.asyncio
-async def test_ipmi_invalid_action_never_spawns(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_invalid_action_never_spawns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An unknown action is refused before ipmitool is launched."""
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(), calls)
@@ -192,9 +236,15 @@ async def test_ipmi_invalid_action_never_spawns(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_ipmi_nonzero_exit_returns_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_nonzero_exit_returns_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A failing ipmitool returns its stderr text as the failure message."""
-    _spawn(monkeypatch, FakeProc(returncode=1, stderr=b"Unable to establish IPMI v2 / RMCP+ session\n"), [])
+    _spawn(
+        monkeypatch,
+        FakeProc(returncode=1, stderr=b"Unable to establish IPMI v2 / RMCP+ session\n"),
+        [],
+    )
 
     ok, msg = await PowerManager().power_control(_creds(), "on")
 
@@ -214,7 +264,9 @@ async def test_ipmi_timeout_reports_timeout(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 @pytest.mark.asyncio
-async def test_ipmi_missing_binary_reports_not_installed(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_missing_binary_reports_not_installed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A missing ipmitool binary is reported as not installed, not as a crash."""
     _spawn(monkeypatch, None, [], error=FileNotFoundError("ipmitool"))
 
@@ -225,7 +277,9 @@ async def test_ipmi_missing_binary_reports_not_installed(monkeypatch: pytest.Mon
 
 
 @pytest.mark.asyncio
-async def test_ipmi_unexpected_exception_returns_message(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_ipmi_unexpected_exception_returns_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Any other exception is converted to a failure message."""
     _spawn(monkeypatch, None, [], error=PermissionError("no exec"))
 
@@ -244,7 +298,12 @@ REDFISH_SYSTEM = f"https://{HOST}/redfish/v1/Systems/1"
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "action, reset_type",
-    [("on", "On"), ("off", "ForceOff"), ("cycle", "ForceRestart"), ("reset", "ForceRestart")],
+    [
+        ("on", "On"),
+        ("off", "ForceOff"),
+        ("cycle", "ForceRestart"),
+        ("reset", "ForceRestart"),
+    ],
 )
 async def test_redfish_reset_maps_action_and_sends_basic_auth(
     monkeypatch: pytest.MonkeyPatch, action: str, reset_type: str
@@ -263,11 +322,15 @@ async def test_redfish_reset_maps_action_and_sends_basic_auth(
 
 
 @pytest.mark.asyncio
-async def test_redfish_non_success_status_is_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_non_success_status_is_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A 403 from the BMC is a failure carrying the status code."""
     _no_cert_check(monkeypatch)
     with respx.mock:
-        respx.post(REDFISH_RESET).mock(return_value=httpx.Response(403, text="forbidden"))
+        respx.post(REDFISH_RESET).mock(
+            return_value=httpx.Response(403, text="forbidden")
+        )
         ok, msg = await PowerManager().power_control(_creds("redfish"), "on")
 
     assert ok is False
@@ -275,11 +338,15 @@ async def test_redfish_non_success_status_is_failure(monkeypatch: pytest.MonkeyP
 
 
 @pytest.mark.asyncio
-async def test_redfish_transport_error_is_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_transport_error_is_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A transport error during reset is returned as the failure message."""
     _no_cert_check(monkeypatch)
     with respx.mock:
-        respx.post(REDFISH_RESET).mock(side_effect=httpx.ConnectError("bmc unreachable"))
+        respx.post(REDFISH_RESET).mock(
+            side_effect=httpx.ConnectError("bmc unreachable")
+        )
         ok, msg = await PowerManager().power_control(_creds("redfish"), "off")
 
     assert ok is False
@@ -287,7 +354,9 @@ async def test_redfish_transport_error_is_failure(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_redfish_invalid_action_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_invalid_action_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """An action outside the Redfish map (and not status) is refused without any request."""
     _no_cert_check(monkeypatch)
     ok, msg = await PowerManager().power_control(_creds("redfish"), "nuke")  # type: ignore[arg-type]
@@ -297,7 +366,9 @@ async def test_redfish_invalid_action_is_rejected(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_redfish_without_ca_or_pin_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_without_ca_or_pin_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """No REDFISH_CA_FILE and no pin: no request is made and the error says why."""
     monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
     with respx.mock(assert_all_called=False) as router:
@@ -310,11 +381,15 @@ async def test_redfish_without_ca_or_pin_is_refused(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_returns_power_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_status_returns_power_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The status action returns the PowerState field of the system resource."""
     _no_cert_check(monkeypatch)
     with respx.mock(assert_all_called=True) as router:
-        router.get(REDFISH_SYSTEM).mock(return_value=httpx.Response(200, json={"PowerState": "On"}))
+        router.get(REDFISH_SYSTEM).mock(
+            return_value=httpx.Response(200, json={"PowerState": "On"})
+        )
         ok, state = await PowerManager().power_control(_creds("redfish"), "status")
 
     assert ok is True
@@ -322,7 +397,9 @@ async def test_redfish_status_returns_power_state(monkeypatch: pytest.MonkeyPatc
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_defaults_to_unknown_when_field_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_status_defaults_to_unknown_when_field_missing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A system resource without PowerState reports 'Unknown' instead of failing."""
     _no_cert_check(monkeypatch)
     with respx.mock:
@@ -334,7 +411,9 @@ async def test_redfish_status_defaults_to_unknown_when_field_missing(monkeypatch
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_non_200_is_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_status_non_200_is_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A non-200 status read is reported with its code."""
     _no_cert_check(monkeypatch)
     with respx.mock:
@@ -346,7 +425,9 @@ async def test_redfish_status_non_200_is_failure(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_exception_is_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_status_exception_is_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A transport error during a status read is returned as the message."""
     _no_cert_check(monkeypatch)
     with respx.mock:
@@ -358,7 +439,9 @@ async def test_redfish_status_exception_is_failure(monkeypatch: pytest.MonkeyPat
 
 
 @pytest.mark.asyncio
-async def test_redfish_status_without_ca_or_pin_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_redfish_status_without_ca_or_pin_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Status reads are gated by the same mandatory TLS verification."""
     monkeypatch.delenv("REDFISH_CA_FILE", raising=False)
 
@@ -383,7 +466,9 @@ async def test_wol_only_supports_power_on() -> None:
 
 
 @pytest.mark.asyncio
-async def test_wol_uses_wakeonlan_utility_when_present(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_uses_wakeonlan_utility_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """With the wakeonlan utility installed, it is invoked with the MAC and success is reported."""
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(returncode=0), calls)
@@ -396,7 +481,9 @@ async def test_wol_uses_wakeonlan_utility_when_present(monkeypatch: pytest.Monke
 
 
 @pytest.mark.asyncio
-async def test_wol_utility_failure_exit_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_utility_failure_exit_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A wakeonlan exit code of non-zero is a failure."""
     _spawn(monkeypatch, FakeProc(returncode=1), [])
 
@@ -407,7 +494,9 @@ async def test_wol_utility_failure_exit_is_reported(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
-async def test_wol_unexpected_error_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_unexpected_error_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A non-missing-binary failure while sending is reported, not raised."""
     _spawn(monkeypatch, FakeProc(communicate_error=RuntimeError("pipe broke")), [])
 
@@ -441,7 +530,9 @@ class _FakeUDP:
 
 
 @pytest.mark.asyncio
-async def test_wol_manual_fallback_sends_magic_packet(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_manual_fallback_sends_magic_packet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Without the utility, a standard magic packet (6x FF + 16x MAC) is broadcast on UDP/9."""
     _FakeUDP.sent = []
     _FakeUDP.options = []
@@ -460,7 +551,9 @@ async def test_wol_manual_fallback_sends_magic_packet(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.asyncio
-async def test_wol_manual_rejects_wrong_length_mac(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_manual_rejects_wrong_length_mac(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A MAC that is not exactly 6 bytes never produces a packet."""
     _FakeUDP.sent = []
     monkeypatch.setattr(socket, "socket", _FakeUDP)
@@ -485,7 +578,9 @@ async def test_wol_manual_rejects_non_hex_mac(monkeypatch: pytest.MonkeyPatch) -
 
 
 @pytest.mark.asyncio
-async def test_wol_manual_socket_error_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_wol_manual_socket_error_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A broadcast socket failure is returned as a failure message."""
 
     class BrokenUDP(_FakeUDP):
@@ -504,6 +599,7 @@ async def test_wol_manual_socket_error_is_reported(monkeypatch: pytest.MonkeyPat
 
 
 # --- boot device ---------------------------------------------------------------------
+
 
 @pytest.mark.asyncio
 async def test_set_boot_device_requires_ipmi() -> None:
@@ -524,7 +620,9 @@ async def test_set_boot_device_rejects_unknown_device() -> None:
 
 
 @pytest.mark.asyncio
-async def test_set_boot_device_one_shot_uses_efiboot_option(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_set_boot_device_one_shot_uses_efiboot_option(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A non-persistent PXE selection uses options=efiboot and keeps the password out of argv."""
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(returncode=0), calls)
@@ -545,14 +643,18 @@ async def test_set_boot_device_persistent(monkeypatch: pytest.MonkeyPatch) -> No
     calls: list[dict[str, Any]] = []
     _spawn(monkeypatch, FakeProc(returncode=0), calls)
 
-    ok, _ = await PowerManager().set_boot_device(_creds("ipmi"), "disk", persistent=True)
+    ok, _ = await PowerManager().set_boot_device(
+        _creds("ipmi"), "disk", persistent=True
+    )
 
     assert ok is True
     assert calls[0]["argv"][-1] == "persistent"
 
 
 @pytest.mark.asyncio
-async def test_set_boot_device_failure_returns_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_set_boot_device_failure_returns_stderr(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A failing bootdev command returns its stderr text."""
     _spawn(monkeypatch, FakeProc(returncode=1, stderr=b"Set Boot Device failed\n"), [])
 
@@ -563,7 +665,9 @@ async def test_set_boot_device_failure_returns_stderr(monkeypatch: pytest.Monkey
 
 
 @pytest.mark.asyncio
-async def test_set_boot_device_exception_is_reported(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_set_boot_device_exception_is_reported(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """Spawn errors during bootdev are returned as messages."""
     _spawn(monkeypatch, None, [], error=FileNotFoundError("ipmitool"))
 

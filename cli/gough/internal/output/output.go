@@ -183,7 +183,7 @@ func (w *Writer) Successf(format string, args ...interface{}) {
 	if w.quiet || w.format != FormatTable {
 		return
 	}
-	fmt.Fprintf(w.out, color.GreenString("✓ ")+format+"\n", args...)
+	_, _ = fmt.Fprintf(w.out, color.GreenString("✓ ")+format+"\n", args...)
 }
 
 // Infof prints an informational message (suppressed in --quiet mode).
@@ -191,7 +191,7 @@ func (w *Writer) Infof(format string, args ...interface{}) {
 	if w.quiet || w.format != FormatTable {
 		return
 	}
-	fmt.Fprintf(w.out, format+"\n", args...)
+	_, _ = fmt.Fprintf(w.out, format+"\n", args...)
 }
 
 // Warnf prints a warning to stderr.
@@ -199,12 +199,12 @@ func (w *Writer) Warnf(format string, args ...interface{}) {
 	if w.quiet {
 		return
 	}
-	fmt.Fprintf(w.errOut, color.YellowString("warning: ")+format+"\n", args...)
+	_, _ = fmt.Fprintf(w.errOut, color.YellowString("warning: ")+format+"\n", args...)
 }
 
 // Errorf prints an error to stderr and is never suppressed by --quiet.
 func (w *Writer) Errorf(format string, args ...interface{}) {
-	fmt.Fprintf(w.errOut, color.RedString("error: ")+format+"\n", args...)
+	_, _ = fmt.Fprintf(w.errOut, color.RedString("error: ")+format+"\n", args...)
 }
 
 // DeferredNote prints the deferred-note string from a 202 API response.
@@ -213,7 +213,7 @@ func (w *Writer) DeferredNote(note string) {
 		return
 	}
 	if w.format == FormatTable {
-		fmt.Fprintf(w.out, color.YellowString("⏳ deferred: ")+"%s\n", note)
+		_, _ = fmt.Fprintf(w.out, color.YellowString("⏳ deferred: ")+"%s\n", note)
 		return
 	}
 	w.PrintObject(map[string]string{"status": "deferred", "note": note})
@@ -256,7 +256,7 @@ func (w *Writer) printJSONPath(v interface{}) {
 		w.Errorf("jsonpath execute: %v", err)
 		return
 	}
-	fmt.Fprintln(w.out)
+	_, _ = fmt.Fprintln(w.out)
 }
 
 // MaskToken returns a masked representation of a token suitable for logging.

@@ -6,20 +6,16 @@ Focus on missed line coverage: URL validation, filter validation, retry policy.
 from __future__ import annotations
 
 import json
-from typing import Any
-
-import pytest
-from penguin_dal.query import Row
 
 from app.api.webhooks import (
     MAX_EVENT_FILTER_PATTERNS,
     MAX_URL_LENGTH,
-    _validate_url,
+    _row_to_dict,
     _validate_event_filter,
     _validate_retry_policy,
-    _row_to_dict,
+    _validate_url,
 )
-
+from penguin_dal.query import Row
 
 # =============================================================================
 # Tests: _validate_url (lines 93-102)
@@ -294,10 +290,7 @@ def test_validate_retry_policy_max_attempts_float():
 
 def test_validate_retry_policy_combined():
     """_validate_retry_policy validates mode and max_attempts."""
-    ok, err, policy = _validate_retry_policy({
-        "mode": "none",
-        "max_attempts": 3
-    })
+    ok, err, policy = _validate_retry_policy({"mode": "none", "max_attempts": 3})
     assert ok
     assert policy["mode"] == "none"
     assert policy["max_attempts"] == 3

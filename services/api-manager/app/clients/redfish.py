@@ -64,14 +64,21 @@ NATS_SUBJECT_DEFAULT_CREDS = "gough.bmc.default_credentials"
 # Well-known factory credential pairs that must never be left configured. Order
 # is significant: the first pair that authenticates is reported.
 DEFAULT_CREDENTIAL_PAIRS: tuple[tuple[str, str], ...] = (
-    ("root", "calvin"),       # Dell iDRAC factory default
-    ("admin", "admin"),       # Supermicro / generic factory default
-    ("ADMIN", "ADMIN"),       # Older Supermicro firmware
+    ("root", "calvin"),  # Dell iDRAC factory default
+    ("admin", "admin"),  # Supermicro / generic factory default
+    ("ADMIN", "ADMIN"),  # Older Supermicro firmware
     ("Administrator", "Administrator"),  # HPE iLO factory default
 )
 
 BootTarget = Literal["Pxe", "Hdd", "Cd", "UsbKey", "BiosSetup", "None"]
-ResetType = Literal["On", "ForceOff", "GracefulShutdown", "GracefulRestart", "ForceRestart", "PowerCycle"]
+ResetType = Literal[
+    "On",
+    "ForceOff",
+    "GracefulShutdown",
+    "GracefulRestart",
+    "ForceRestart",
+    "PowerCycle",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -144,12 +151,17 @@ class _AuditWriterProto(Protocol):
 
 class _RedisProto(Protocol):
     def get(self, key: str) -> Any: ...  # pragma: no cover
-    def set(self, key: str, value: Any, ex: Optional[int] = ..., nx: bool = ...) -> Any: ...  # pragma: no cover
+
+    def set(
+        self, key: str, value: Any, ex: Optional[int] = ..., nx: bool = ...
+    ) -> Any: ...  # pragma: no cover
     def delete(self, *keys: str) -> int: ...  # pragma: no cover
 
 
 class _NatsPublisherProto(Protocol):
-    def publish(self, subject: str, payload: dict[str, Any]) -> None:  # pragma: no cover
+    def publish(
+        self, subject: str, payload: dict[str, Any]
+    ) -> None:  # pragma: no cover
         ...
 
 
@@ -262,7 +274,9 @@ class _PinnedAdapter(HTTPAdapter):
 
     def __init__(self, expected_fingerprint: Optional[str]) -> None:
         self.expected_fingerprint: Optional[str] = (
-            _normalize_fingerprint(expected_fingerprint) if expected_fingerprint else None
+            _normalize_fingerprint(expected_fingerprint)
+            if expected_fingerprint
+            else None
         )
         self.captured_fingerprint: Optional[str] = None
         super().__init__()
@@ -293,7 +307,10 @@ class _PinnedAdapter(HTTPAdapter):
         live_fp = _fetch_cert_fingerprint(host, port, connect_timeout)
         self.captured_fingerprint = live_fp
 
-        if self.expected_fingerprint is not None and live_fp != self.expected_fingerprint:
+        if (
+            self.expected_fingerprint is not None
+            and live_fp != self.expected_fingerprint
+        ):
             raise BMCCertPinMismatch(
                 f"BMC cert fingerprint mismatch for {host}:{port}: "
                 f"pinned={self.expected_fingerprint} live={live_fp}"
@@ -387,9 +404,7 @@ class RedfishClient:
         if data is None and isinstance(resp, dict):
             data = resp.get("data")
         if not isinstance(data, dict) or field_name not in data:
-            raise BMCAuthFailure(
-                f"Vault KV path {path!r} missing field {field_name!r}"
-            )
+            raise BMCAuthFailure(f"Vault KV path {path!r} missing field {field_name!r}")
         value = data[field_name]
         if not isinstance(value, str) or not value:
             raise BMCAuthFailure(f"Vault credential at {ref!r} is empty")
@@ -419,8 +434,11 @@ class RedfishClient:
                 after=after,
             )
         except Exception:  # pragma: no cover - audit failures must not mask BMC ops
-            logger.exception("audit append failed for action=%s node=%s",
-                             action, self._node_bmc.node_id)
+            logger.exception(
+                "audit append failed for action=%s node=%s",
+                action,
+                self._node_bmc.node_id,
+            )
 
     def _emit_default_creds_event(self, username: str) -> None:
         if self._nats is None:
@@ -458,12 +476,18 @@ class RedfishClient:
         host = parsed.hostname or ""
         port = parsed.port or 443
         timeout = (
-            self._timeout[0] if isinstance(self._timeout, tuple) else float(self._timeout)
+            self._timeout[0]
+            if isinstance(self._timeout, tuple)
+            else float(self._timeout)
         )
 
         # Gate TOFU behind explicit env flag when no pin is pre-configured
         if not getattr(self._node_bmc, "cert_fingerprint", None):
-            if os.getenv("BMC_ALLOW_INSECURE_TLS", "").lower() not in ("true", "1", "yes"):
+            if os.getenv("BMC_ALLOW_INSECURE_TLS", "").lower() not in (
+                "true",
+                "1",
+                "yes",
+            ):
                 raise BMCUnreachable(
                     f"BMC {host}:{port} has no certificate pin configured and "
                     "BMC_ALLOW_INSECURE_TLS is not enabled. Set BMC_ALLOW_INSECURE_TLS=true "
@@ -500,12 +524,12 @@ class RedfishClient:
         except BMCUnreachable:
             raise
         except requests.RequestException as exc:
-            raise BMCUnreachable(f"failed to reach Redfish service root: {exc}") from exc
+            raise BMCUnreachable(
+                f"failed to reach Redfish service root: {exc}"
+            ) from exc
 
         if resp.status_code >= 500:
-            raise BMCUnreachable(
-                f"Redfish service root returned {resp.status_code}"
-            )
+            raise BMCUnreachable(f"Redfish service root returned {resp.status_code}")
 
         # Persist the pin if this was a TOFU first-connect.
         if not getattr(self._node_bmc, "cert_fingerprint", None):
@@ -593,17 +617,23 @@ class RedfishClient:
             raise BMCUnreachable(f"login request failed: {exc}") from exc
 
         if resp.status_code in (401, 403):
-            raise BMCAuthFailure(f"BMC rejected operator credentials ({resp.status_code})")
+            raise BMCAuthFailure(
+                f"BMC rejected operator credentials ({resp.status_code})"
+            )
         if resp.status_code not in (200, 201):
             raise BMCOperationFailed(f"login returned HTTP {resp.status_code}")
 
         token = resp.headers.get("X-Auth-Token") or ""
         location = resp.headers.get("Location") or ""
         if not token or not location:
-            raise BMCOperationFailed("login response missing X-Auth-Token/Location headers")
+            raise BMCOperationFailed(
+                "login response missing X-Auth-Token/Location headers"
+            )
 
-        ttl = max(int(getattr(self._node_bmc, "session_ttl_sec", DEFAULT_SESSION_TTL_SEC)),
-                  SESSION_TTL_MARGIN_SEC + 1)
+        ttl = max(
+            int(getattr(self._node_bmc, "session_ttl_sec", DEFAULT_SESSION_TTL_SEC)),
+            SESSION_TTL_MARGIN_SEC + 1,
+        )
         sess = _SessionToken(
             token=token,
             location=self._absolute(location),
@@ -623,9 +653,13 @@ class RedfishClient:
         if not raw:
             return None
         try:
-            text = raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+            text = (
+                raw.decode("utf-8") if isinstance(raw, (bytes, bytearray)) else str(raw)
+            )
             token, location, expires = text.split("|", 2)
-            sess = _SessionToken(token=token, location=location, expires_at_epoch=float(expires))
+            sess = _SessionToken(
+                token=token, location=location, expires_at_epoch=float(expires)
+            )
         except (ValueError, AttributeError):
             return None
         if sess.expires_at_epoch <= time.time():
@@ -669,7 +703,8 @@ class RedfishClient:
             _req_host = parsed.hostname or ""
             _req_port = parsed.port or 443
             _req_timeout = (
-                self._timeout[0] if isinstance(self._timeout, tuple)
+                self._timeout[0]
+                if isinstance(self._timeout, tuple)
                 else float(self._timeout)
             )
             live_fp = _fetch_cert_fingerprint(_req_host, _req_port, _req_timeout)
@@ -699,7 +734,9 @@ class RedfishClient:
             self._invalidate_cached_session()
             return self._request(method, path, json_body=json_body, retry_on_401=False)
         if resp.status_code in (401, 403):
-            raise BMCAuthFailure(f"{method} {path} rejected with HTTP {resp.status_code}")
+            raise BMCAuthFailure(
+                f"{method} {path} rejected with HTTP {resp.status_code}"
+            )
         if resp.status_code >= 400:
             raise BMCOperationFailed(
                 f"{method} {path} returned HTTP {resp.status_code}: {resp.text[:200]}"
@@ -713,7 +750,9 @@ class RedfishClient:
                 body = {}
         else:
             body = {}
-        return _RedfishOpResult(status_code=resp.status_code, body=body, headers=dict(resp.headers))
+        return _RedfishOpResult(
+            status_code=resp.status_code, body=body, headers=dict(resp.headers)
+        )
 
     # ------------------------------------------------------------------
     # Power control
@@ -830,9 +869,7 @@ class RedfishClient:
         return entries
 
     def get_firmware_inventory(self) -> list[FirmwareComponent]:
-        body = self._request(
-            "GET", "/redfish/v1/UpdateService/FirmwareInventory"
-        ).body
+        body = self._request("GET", "/redfish/v1/UpdateService/FirmwareInventory").body
         components: list[FirmwareComponent] = []
         for member in _safe_iter(body.get("Members")):
             href = member.get("@odata.id")
@@ -870,7 +907,9 @@ class RedfishClient:
             "/redfish/v1/UpdateService/Actions/UpdateService.SimpleUpdate",
             json_body=body,
         )
-        task_loc = result.headers.get("Location") or _get_in(result.body, ("@odata.id",))
+        task_loc = result.headers.get("Location") or _get_in(
+            result.body, ("@odata.id",)
+        )
         if not task_loc:
             raise BMCFirmwareUpdateFailed(
                 f"firmware update for {component_id} accepted but no task id returned"
@@ -878,7 +917,11 @@ class RedfishClient:
         task_id = task_loc.rsplit("/", 1)[-1]
         self._audit_event(
             "firmware_update_submitted",
-            after={"component_id": component_id, "task_id": task_id, "image_url": image_url},
+            after={
+                "component_id": component_id,
+                "task_id": task_id,
+                "image_url": image_url,
+            },
         )
         return task_id
 

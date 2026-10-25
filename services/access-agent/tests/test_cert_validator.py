@@ -8,12 +8,10 @@ vulnerability has been closed.
 
 import subprocess
 import tempfile
-import time
 from pathlib import Path
 
 import pytest
-
-from agent.cert_validator import CertificateValidator, CertificateValidationError
+from agent.cert_validator import CertificateValidationError, CertificateValidator
 
 
 @pytest.fixture
@@ -199,9 +197,7 @@ class TestCertificateValidation:
         ca_b_priv, ca_b_pub = generate_ca_keypair(temp_dir, "ca-b")
 
         # Attacker signs a certificate with their CA-B for "gough-agent"
-        attacker_cert = sign_certificate(
-            temp_dir, ca_b_priv, "gough-agent", "attacker"
-        )
+        attacker_cert = sign_certificate(temp_dir, ca_b_priv, "gough-agent", "attacker")
 
         # Create validator trusting only CA-A
         validator = CertificateValidator(ca_a_pub)
@@ -237,7 +233,9 @@ class TestCertificateValidation:
 
         # Flip one character in the middle of the base64
         corrupted_b64 = (
-            cert_data_b64[:100] + ("X" if cert_data_b64[100] != "X" else "Y") + cert_data_b64[101:]
+            cert_data_b64[:100]
+            + ("X" if cert_data_b64[100] != "X" else "Y")
+            + cert_data_b64[101:]
         )
         corrupted_cert = f"{cert_type} {corrupted_b64}"
 
@@ -275,26 +273,28 @@ class TestCertificateValidation:
         blob = base64.b64decode(cert_b.split()[1])
         m = Message(blob)
         out = Message()
-        out.add_string(m.get_text())                       # cert type
-        out.add_string(m.get_string())                     # nonce
-        out.add_mpint(m.get_mpint())                        # rsa e
-        out.add_mpint(m.get_mpint())                        # rsa n
-        out.add_int64(m.get_int64())                        # serial
-        out.add_int(m.get_int())                            # type
-        out.add_string(m.get_string())                     # key id
-        out.add_string(m.get_string())                     # valid principals
-        out.add_int64(m.get_int64())                        # valid after
-        out.add_int64(m.get_int64())                        # valid before
-        out.add_string(m.get_string())                     # critical options
-        out.add_string(m.get_string())                     # extensions
-        out.add_string(m.get_string())                     # reserved
-        m.get_string()                                     # original signing key (CA-B) — drop
-        orig_sig = m.get_string()                          # CA-B signature
-        out.add_string(base64.b64decode(ca_a_pub.split()[1]))  # spoof signing key = CA-A
-        out.add_string(orig_sig)                           # keep CA-B signature
-        spoofed_cert = "ssh-rsa-cert-v01@openssh.com " + base64.b64encode(
-            out.asbytes()
-        ).decode()
+        out.add_string(m.get_text())  # cert type
+        out.add_string(m.get_string())  # nonce
+        out.add_mpint(m.get_mpint())  # rsa e
+        out.add_mpint(m.get_mpint())  # rsa n
+        out.add_int64(m.get_int64())  # serial
+        out.add_int(m.get_int())  # type
+        out.add_string(m.get_string())  # key id
+        out.add_string(m.get_string())  # valid principals
+        out.add_int64(m.get_int64())  # valid after
+        out.add_int64(m.get_int64())  # valid before
+        out.add_string(m.get_string())  # critical options
+        out.add_string(m.get_string())  # extensions
+        out.add_string(m.get_string())  # reserved
+        m.get_string()  # original signing key (CA-B) — drop
+        orig_sig = m.get_string()  # CA-B signature
+        out.add_string(
+            base64.b64decode(ca_a_pub.split()[1])
+        )  # spoof signing key = CA-A
+        out.add_string(orig_sig)  # keep CA-B signature
+        spoofed_cert = (
+            "ssh-rsa-cert-v01@openssh.com " + base64.b64encode(out.asbytes()).decode()
+        )
 
         validator = CertificateValidator(ca_a_pub)
         with pytest.raises(CertificateValidationError):

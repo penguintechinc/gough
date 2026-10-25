@@ -9,18 +9,18 @@ delegated to app.security.tenant. Anonymous paths (ANONYMOUS_PATHS) are skipped.
 
 from __future__ import annotations
 
+import base64
+import json
+import logging
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Mapping, Optional
 
+import jwt
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
-from cryptography.x509.oid import ExtensionOID, NameOID
+from cryptography.x509.oid import ExtensionOID
 from pydantic import BaseModel, Field
-import base64
-import json
-import jwt
-import logging
 
 log = logging.getLogger(__name__)
 
@@ -58,16 +58,14 @@ class Principal(BaseModel):
     sub: str = Field(..., description="Subject identifier (user ID, service name, etc)")
     tenant_id: str = Field(..., description="Tenant ID from JWT or default")
     scopes: frozenset[str] = Field(
-        default_factory=frozenset,
-        description="Authorized scopes as frozenset"
+        default_factory=frozenset, description="Authorized scopes as frozenset"
     )
     spiffe_id: Optional[str] = Field(
-        default=None,
-        description="SPIFFE ID for SERVICE_SVID credentials"
+        default=None, description="SPIFFE ID for SERVICE_SVID credentials"
     )
     claims: dict[str, Any] = Field(
         default_factory=dict,
-        description="Full JWT or cert claim payload for downstream use"
+        description="Full JWT or cert claim payload for downstream use",
     )
 
     class Config:
@@ -158,7 +156,9 @@ def detect_credential_type(
         # nosemgrep: python.jwt.security.unverified-jwt-decode.unverified-jwt-decode
         payload = jwt.decode(
             token,
-            options={"verify_signature": False},  # nosec -- verified downstream per CredentialType
+            options={
+                "verify_signature": False
+            },  # nosec -- verified downstream per CredentialType
         )
     except jwt.DecodeError as e:
         raise InvalidCredentialError(f"Cannot decode JWT: {e}")
@@ -231,7 +231,11 @@ def validate_user_jwt(
             )
         except jwt.ExpiredSignatureError as e:
             raise ExpiredCredentialError(f"JWT expired: {e}")
-        except (jwt.InvalidSignatureError, jwt.DecodeError, jwt.InvalidAudienceError) as e:
+        except (
+            jwt.InvalidSignatureError,
+            jwt.DecodeError,
+            jwt.InvalidAudienceError,
+        ) as e:
             last_error = e
             continue
 
@@ -318,7 +322,9 @@ def _verify_x509_signature(cert: x509.Certificate, ca_public_key: Any) -> None:
             )
     except InvalidCredentialError:
         raise
-    except Exception as e:  # noqa: BLE001 - cryptography.exceptions.InvalidSignature etc.
+    except (
+        Exception
+    ) as e:  # noqa: BLE001 - cryptography.exceptions.InvalidSignature etc.
         raise InvalidCredentialError(f"Certificate signature verification failed: {e}")
 
 
@@ -358,16 +364,16 @@ def validate_service_svid(
         InvalidCredentialError: On parse/validation error.
     """
     try:
-        cert = x509.load_pem_x509_certificate(
-            peer_cert_pem.encode(), default_backend()
-        )
+        cert = x509.load_pem_x509_certificate(peer_cert_pem.encode(), default_backend())
     except Exception as e:
         raise InvalidCredentialError(f"Cannot parse peer certificate: {e}")
 
     # Extract SPIFFE URI from SAN extension
     spiffe_id: Optional[str] = None
     try:
-        san_ext = cert.extensions.get_extension_for_oid(ExtensionOID.SUBJECT_ALTERNATIVE_NAME)
+        san_ext = cert.extensions.get_extension_for_oid(
+            ExtensionOID.SUBJECT_ALTERNATIVE_NAME
+        )
         for san in san_ext.value:  # type: ignore
             if isinstance(san, x509.UniformResourceIdentifier):
                 uri = san.value
@@ -381,9 +387,7 @@ def validate_service_svid(
         raise InvalidCredentialError("No SPIFFE URI found in certificate SAN")
 
     if spiffe_id not in allowed_spiffe_ids:
-        raise InvalidCredentialError(
-            f"SPIFFE ID {spiffe_id} not in allowed list"
-        )
+        raise InvalidCredentialError(f"SPIFFE ID {spiffe_id} not in allowed list")
 
     # Full X.509 chain validation against trust bundle
     try:
@@ -405,9 +409,7 @@ def validate_service_svid(
 
         # The SVID must be issued by the CA.
         if cert.issuer != ca_cert.subject:
-            raise InvalidCredentialError(
-                "Certificate issuer does not match CA subject"
-            )
+            raise InvalidCredentialError("Certificate issuer does not match CA subject")
 
         # Both the SVID and the CA must currently be within their validity window.
         now = datetime.now(timezone.utc)
@@ -521,14 +523,20 @@ def validate_one_time_bootstrap_token(
         try:
             vault_signature = _b64url_decode(sig_b64).decode()
         except Exception as e:  # noqa: BLE001
-            raise InvalidCredentialError(f"Cannot decode bootstrap token signature: {e}")
+            raise InvalidCredentialError(
+                f"Cannot decode bootstrap token signature: {e}"
+            )
         try:
             # Key name is pinned (not read from the attacker-controlled header).
             valid = verify(_BOOTSTRAP_VAULT_KEY, signing_input, vault_signature)
         except Exception as e:  # noqa: BLE001
-            raise InvalidCredentialError(f"Bootstrap token Vault verification error: {e}")
+            raise InvalidCredentialError(
+                f"Bootstrap token Vault verification error: {e}"
+            )
         if not valid:
-            raise InvalidCredentialError("Bootstrap token signature invalid (Vault transit)")
+            raise InvalidCredentialError(
+                "Bootstrap token signature invalid (Vault transit)"
+            )
         try:
             payload = json.loads(_b64url_decode(p_b64))
         except Exception as e:  # noqa: BLE001
@@ -621,8 +629,8 @@ async def credentials_middleware(
     Raises:
         CredentialError (subclasses): On validation failure.
     """
-    from quart import g
     from app.security.scope_policy import ANONYMOUS_PATHS
+    from quart import g
 
     # Skip for anonymous paths
     method = request.method
@@ -640,16 +648,18 @@ async def credentials_middleware(
     if cred_type == CredentialType.SERVICE_SVID:
         if not peer_cert_pem:
             raise InvalidCredentialError("SERVICE_SVID requires peer certificate")
-        principal = validate_service_svid(peer_cert_pem, spire_trust_bundle, allowed_spiffe_ids)
+        principal = validate_service_svid(
+            peer_cert_pem, spire_trust_bundle, allowed_spiffe_ids
+        )
     elif cred_type == CredentialType.ONE_TIME_BOOTSTRAP:
         auth_header = headers.get("Authorization") or headers.get("authorization") or ""
         token = auth_header[7:]
         # Use JWT_SECRET_KEY or BOOTSTRAP_JWT_SECRET from config for signature verification
         from quart import current_app
-        signing_secret = (
-            current_app.config.get("JWT_SECRET_KEY")
-            or current_app.config.get("BOOTSTRAP_JWT_SECRET")
-        )
+
+        signing_secret = current_app.config.get(
+            "JWT_SECRET_KEY"
+        ) or current_app.config.get("BOOTSTRAP_JWT_SECRET")
         principal = validate_one_time_bootstrap_token(
             token, vault_client, redis_client, signing_secret=signing_secret
         )

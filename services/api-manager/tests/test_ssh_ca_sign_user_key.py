@@ -6,17 +6,20 @@ import shutil
 import subprocess
 from types import SimpleNamespace
 
+import app.ssh_ca as ssh_ca_mod
 import pytest
+from app.ssh_ca import SSHCertificateAuthority, validate_principal_syntax
 from quart import Quart
 
-import app.ssh_ca as ssh_ca_mod
-from app.ssh_ca import SSHCertificateAuthority, validate_principal_syntax
-
-pytestmark = pytest.mark.skipif(shutil.which("ssh-keygen") is None, reason="needs ssh-keygen")
+pytestmark = pytest.mark.skipif(
+    shutil.which("ssh-keygen") is None, reason="needs ssh-keygen"
+)
 
 
 def _keygen(path):
-    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(path)], check=True)
+    subprocess.run(
+        ["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-f", str(path)], check=True
+    )
 
 
 @pytest.fixture()
@@ -49,11 +52,16 @@ async def test_signed_cert_exact_principals_options_validity(env, tmp_path):
     ca, pub, app = env
     async with app.app_context():
         cert = await ca.sign_user_key(
-            pub, ["ubuntu"], 300, "u@r-1", host_ids=["agent-1"],
-            source_address="10.0.0.5", force_command="/bin/true",
+            pub,
+            ["ubuntu"],
+            300,
+            "u@r-1",
+            host_ids=["agent-1"],
+            source_address="10.0.0.5",
+            force_command="/bin/true",
         )
     out = _describe(cert, tmp_path)
-    assert "Key ID: \"u@r-1\"" in out
+    assert 'Key ID: "u@r-1"' in out
     principals = out.split("Principals:")[1].split("Critical Options:")[0].split()
     assert principals == ["ubuntu", "host:agent-1"]
     assert "source-address 10.0.0.5" in out and "force-command /bin/true" in out
@@ -71,7 +79,9 @@ async def test_allow_root_only_via_keyword(env, tmp_path):
         )
     out = _describe(cert, tmp_path)
     assert out.split("Principals:")[1].split("Critical")[0].split() == [
-        "root", "host:a", "allow-root"
+        "root",
+        "host:a",
+        "allow-root",
     ]
 
 
@@ -118,9 +128,12 @@ def sign_client(monkeypatch):
 
     monkeypatch.setattr(api, "run_db", _inline)
     monkeypatch.setattr(api, "check_shell_access", lambda *a: True)
+
     def _resolve(*_a):
         if state["agent"] is None:
-            raise api.AgentResolutionError(404, "No active access agent for this resource")
+            raise api.AgentResolutionError(
+                404, "No active access agent for this resource"
+            )
         return state["agent"]
 
     monkeypatch.setattr(api, "resolve_agent_id", _resolve)
@@ -128,6 +141,7 @@ def sign_client(monkeypatch):
     monkeypatch.setattr(api, "user_is_admin", lambda uid: state["admin"])
     monkeypatch.setattr(api, "get_audit_logger", lambda: None)
     monkeypatch.setattr(api, "SSHCertificateAuthority", FakeCA)
+
     class _DB:
         ssh_ca_config = SimpleNamespace(id=1)
 
@@ -135,8 +149,11 @@ def sign_client(monkeypatch):
             return SimpleNamespace(select=lambda: SimpleNamespace(first=lambda: 1))
 
     monkeypatch.setattr(api, "get_db", lambda: _DB())
-    monkeypatch.setattr(api, "get_current_user", lambda: {
-        "id": 1, "email": "u@x", "_jwt_payload": {"scope": state["scopes"]}})
+    monkeypatch.setattr(
+        api,
+        "get_current_user",
+        lambda: {"id": 1, "email": "u@x", "_jwt_payload": {"scope": state["scopes"]}},
+    )
     import app.middleware as mw
 
     monkeypatch.setattr(mw, "get_current_user", lambda: {"id": 1})
@@ -146,8 +163,13 @@ def sign_client(monkeypatch):
 
 
 def _body(**kw):
-    base = {"public_key": "k", "resource_type": "vm", "resource_id": "r",
-            "principals": ["ubuntu"], "validity_seconds": 99999}
+    base = {
+        "public_key": "k",
+        "resource_type": "vm",
+        "resource_id": "r",
+        "principals": ["ubuntu"],
+        "validity_seconds": 99999,
+    }
     base.update(kw)
     return base
 

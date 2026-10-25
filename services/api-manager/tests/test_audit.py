@@ -18,15 +18,11 @@ Covers:
 from __future__ import annotations
 
 import json
-import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
-from quart import Quart
-
 from app.audit import (
     AuditEvent,
     AuditEventType,
@@ -36,7 +32,7 @@ from app.audit import (
     get_audit_logger,
     init_audit_logger,
 )
-
+from quart import Quart
 
 # =============================================================================
 # Enum tests
@@ -267,6 +263,7 @@ class TestGetRequestContext:
         @app.before_request
         async def set_user():
             from quart import g
+
             g.current_user = {"id": 42, "email": "test@example.com"}
 
         logger = AuditLogger(app)
@@ -280,6 +277,7 @@ class TestGetRequestContext:
         ):
             # Manually set current_user since before_request won't run in test context
             from quart import g
+
             g.current_user = {"id": 42, "email": "test@example.com"}
 
             context = logger._get_request_context()
@@ -838,6 +836,7 @@ class TestGetAuditLogger:
 
         # Use async context manager
         import asyncio
+
         async def test():
             async with app.app_context():
                 result = get_audit_logger()
@@ -857,6 +856,7 @@ class TestGetAuditLogger:
         # Don't initialize AuditLogger, so extensions won't have audit
 
         import asyncio
+
         async def test():
             async with app.app_context():
                 result = get_audit_logger()

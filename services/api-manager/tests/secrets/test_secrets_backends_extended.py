@@ -9,22 +9,15 @@ Tests cover:
 
 from __future__ import annotations
 
-import asyncio
-import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, AsyncMock
-
 from app.secrets.aws_secrets import AWSSecretsManager
-from app.secrets.gcp_secrets import GCPSecretsManager
 from app.secrets.azure_keyvault import AzureKeyVaultSecretsManager
-from app.secrets.vault import VaultSecretsManager
+from app.secrets.base import SecretAccessError, SecretNotFoundError, SecretsManagerError
+from app.secrets.gcp_secrets import GCPSecretsManager
 from app.secrets.infisical import InfisicalSecretsManager
-from app.secrets.base import (
-    SecretNotFoundError,
-    SecretAccessError,
-    SecretsManagerError,
-)
-
+from app.secrets.vault import VaultSecretsManager
 
 # ============================================================================
 # AWS Secrets Manager Extended Tests
@@ -110,12 +103,17 @@ class TestAWSSecretsManagerExtended:
     async def test_get_secret_not_found(self, mock_current_app, manager):
         """Test getting a secret that doesn't exist - error case."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
         # Simulate a ClientError with ResourceNotFoundException code
-        error_response = {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}}
-        manager._client.get_secret_value.side_effect = ClientError(error_response, "GetSecretValue")
+        error_response = {
+            "Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}
+        }
+        manager._client.get_secret_value.side_effect = ClientError(
+            error_response, "GetSecretValue"
+        )
 
         with pytest.raises(SecretNotFoundError):
             await manager.get_secret("nonexistent/secret")
@@ -124,11 +122,16 @@ class TestAWSSecretsManagerExtended:
     async def test_get_secret_access_denied(self, mock_current_app, manager):
         """Test getting a secret when access is denied."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
-        error_response = {"Error": {"Code": "AccessDeniedException", "Message": "Access denied"}}
-        manager._client.get_secret_value.side_effect = ClientError(error_response, "GetSecretValue")
+        error_response = {
+            "Error": {"Code": "AccessDeniedException", "Message": "Access denied"}
+        }
+        manager._client.get_secret_value.side_effect = ClientError(
+            error_response, "GetSecretValue"
+        )
 
         with pytest.raises(SecretsManagerError):
             await manager.get_secret("protected/secret")
@@ -137,11 +140,19 @@ class TestAWSSecretsManagerExtended:
     async def test_get_secret_other_error(self, mock_current_app, manager):
         """Test getting a secret with other AWS errors."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
-        error_response = {"Error": {"Code": "InvalidParameterException", "Message": "Invalid parameter"}}
-        manager._client.get_secret_value.side_effect = ClientError(error_response, "GetSecretValue")
+        error_response = {
+            "Error": {
+                "Code": "InvalidParameterException",
+                "Message": "Invalid parameter",
+            }
+        }
+        manager._client.get_secret_value.side_effect = ClientError(
+            error_response, "GetSecretValue"
+        )
 
         with pytest.raises(SecretsManagerError):
             await manager.get_secret("my/secret")
@@ -150,12 +161,17 @@ class TestAWSSecretsManagerExtended:
     async def test_set_secret_create_new(self, mock_current_app, manager):
         """Test creating a new secret when put_secret_value fails."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
         # First call (put) raises ResourceNotFoundException, second (create) succeeds
-        error_response = {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}}
-        manager._client.put_secret_value.side_effect = ClientError(error_response, "PutSecretValue")
+        error_response = {
+            "Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}
+        }
+        manager._client.put_secret_value.side_effect = ClientError(
+            error_response, "PutSecretValue"
+        )
         manager._client.create_secret.return_value = {}
 
         # Should succeed because create_secret succeeds after put fails
@@ -166,12 +182,19 @@ class TestAWSSecretsManagerExtended:
     async def test_set_secret_error(self, mock_current_app, manager):
         """Test error handling when setting a secret."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
-        error_response = {"Error": {"Code": "ServiceUnavailable", "Message": "Service unavailable"}}
-        manager._client.put_secret_value.side_effect = ClientError(error_response, "PutSecretValue")
-        manager._client.create_secret.side_effect = ClientError(error_response, "CreateSecret")
+        error_response = {
+            "Error": {"Code": "ServiceUnavailable", "Message": "Service unavailable"}
+        }
+        manager._client.put_secret_value.side_effect = ClientError(
+            error_response, "PutSecretValue"
+        )
+        manager._client.create_secret.side_effect = ClientError(
+            error_response, "CreateSecret"
+        )
 
         with pytest.raises(SecretsManagerError):
             await manager.set_secret("my/secret", {"key": "value"})
@@ -180,11 +203,16 @@ class TestAWSSecretsManagerExtended:
     async def test_delete_secret_not_found(self, mock_current_app, manager):
         """Test deleting a secret that doesn't exist."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
-        error_response = {"Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}}
-        manager._client.delete_secret.side_effect = ClientError(error_response, "DeleteSecret")
+        error_response = {
+            "Error": {"Code": "ResourceNotFoundException", "Message": "Not found"}
+        }
+        manager._client.delete_secret.side_effect = ClientError(
+            error_response, "DeleteSecret"
+        )
 
         # Should return False because delete_secret catches ResourceNotFoundException
         result = await manager.delete_secret("nonexistent/secret")
@@ -194,11 +222,16 @@ class TestAWSSecretsManagerExtended:
     async def test_delete_secret_error(self, mock_current_app, manager):
         """Test error handling when deleting a secret."""
         from botocore.exceptions import ClientError
+
         mock_current_app.config["AWS_REGION"] = "us-east-1"
         manager._client = MagicMock()
 
-        error_response = {"Error": {"Code": "ServiceUnavailable", "Message": "Service unavailable"}}
-        manager._client.delete_secret.side_effect = ClientError(error_response, "DeleteSecret")
+        error_response = {
+            "Error": {"Code": "ServiceUnavailable", "Message": "Service unavailable"}
+        }
+        manager._client.delete_secret.side_effect = ClientError(
+            error_response, "DeleteSecret"
+        )
 
         with pytest.raises(SecretsManagerError):
             await manager.delete_secret("my/secret")
@@ -319,7 +352,7 @@ class TestVaultSecretsManagerExtended:
     @pytest.mark.asyncio
     async def test_auth_approle_invalid_request(self, mock_current_app, manager):
         """Test AppRole authentication failure."""
-        import sys
+
         mock_current_app.config["VAULT_ADDR"] = "http://vault:8200"
         mock_current_app.config["VAULT_ROLE_ID"] = "bad-role"
         mock_current_app.config["VAULT_SECRET_ID"] = "bad-secret"
@@ -328,18 +361,21 @@ class TestVaultSecretsManagerExtended:
 
         # Get the actual exception class from conftest
         import hvac
+
         manager._client.auth.approle.login.side_effect = hvac.exceptions.InvalidRequest(
-                "Auth failed"
-            )
+            "Auth failed"
+        )
 
         with pytest.raises(SecretsManagerError) as exc_info:
             await manager._authenticate()
-        assert "AppRole authentication failed" in str(exc_info.value) or "Auth failed" in str(exc_info.value)
+        assert "AppRole authentication failed" in str(
+            exc_info.value
+        ) or "Auth failed" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_auth_vault_down(self, mock_current_app, manager):
         """Test authentication when Vault server is sealed/unavailable."""
-        import sys
+
         mock_current_app.config["VAULT_ADDR"] = "http://vault:8200"
         mock_current_app.config["VAULT_TOKEN"] = "test-token"
 
@@ -347,6 +383,7 @@ class TestVaultSecretsManagerExtended:
 
         # Get the actual exception class from conftest
         import hvac
+
         manager._client.is_authenticated.side_effect = hvac.exceptions.VaultDown()
 
         with pytest.raises(SecretsManagerError) as exc_info:
@@ -356,7 +393,7 @@ class TestVaultSecretsManagerExtended:
     @pytest.mark.asyncio
     async def test_auth_not_authenticated(self, mock_current_app, manager):
         """Test when is_authenticated returns False."""
-        import sys
+
         mock_current_app.config["VAULT_ADDR"] = "http://vault:8200"
         mock_current_app.config["VAULT_TOKEN"] = "test-token"
 
@@ -371,7 +408,7 @@ class TestVaultSecretsManagerExtended:
     @pytest.mark.asyncio
     async def test_get_secret_forbidden(self, mock_current_app, manager):
         """Test getting a secret when access is forbidden."""
-        import sys
+
         mock_current_app.config["VAULT_ADDR"] = "http://vault:8200"
         mock_current_app.config["VAULT_TOKEN"] = "test-token"
 
@@ -379,7 +416,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.read_secret_version.side_effect = hvac.exceptions.Forbidden()
+
+        manager._client.secrets.kv.v2.read_secret_version.side_effect = (
+            hvac.exceptions.Forbidden()
+        )
 
         with pytest.raises(SecretAccessError):
             await manager.get_secret("nonexistent/secret")
@@ -394,7 +434,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.read_secret_version.side_effect = hvac.exceptions.InvalidPath()
+
+        manager._client.secrets.kv.v2.read_secret_version.side_effect = (
+            hvac.exceptions.InvalidPath()
+        )
 
         with pytest.raises(SecretNotFoundError):
             await manager.get_secret("nonexistent/secret")
@@ -409,7 +452,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.create_or_update_secret.side_effect = hvac.exceptions.Forbidden()
+
+        manager._client.secrets.kv.v2.create_or_update_secret.side_effect = (
+            hvac.exceptions.Forbidden()
+        )
 
         with pytest.raises(SecretAccessError):
             await manager.set_secret("secret/path", {"key": "value"})
@@ -424,7 +470,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.delete_metadata_and_all_versions.side_effect = hvac.exceptions.Forbidden()
+
+        manager._client.secrets.kv.v2.delete_metadata_and_all_versions.side_effect = (
+            hvac.exceptions.Forbidden()
+        )
 
         with pytest.raises(SecretAccessError):
             await manager.delete_secret("secret/path")
@@ -439,7 +488,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.delete_metadata_and_all_versions.side_effect = hvac.exceptions.InvalidPath()
+
+        manager._client.secrets.kv.v2.delete_metadata_and_all_versions.side_effect = (
+            hvac.exceptions.InvalidPath()
+        )
 
         result = await manager.delete_secret("nonexistent/secret")
         assert result is False
@@ -454,7 +506,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.list_secrets.side_effect = hvac.exceptions.Forbidden()
+
+        manager._client.secrets.kv.v2.list_secrets.side_effect = (
+            hvac.exceptions.Forbidden()
+        )
 
         with pytest.raises(SecretAccessError):
             await manager.list_secrets()
@@ -469,7 +524,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.list_secrets.side_effect = hvac.exceptions.InvalidPath()
+
+        manager._client.secrets.kv.v2.list_secrets.side_effect = (
+            hvac.exceptions.InvalidPath()
+        )
 
         result = await manager.list_secrets("nonexistent")
         assert result == []
@@ -484,7 +542,10 @@ class TestVaultSecretsManagerExtended:
         manager._authenticated = True
 
         import hvac
-        manager._client.secrets.kv.v2.read_secret_metadata.side_effect = hvac.exceptions.InvalidPath()
+
+        manager._client.secrets.kv.v2.read_secret_metadata.side_effect = (
+            hvac.exceptions.InvalidPath()
+        )
 
         with pytest.raises(SecretNotFoundError):
             await manager.get_secret_metadata("nonexistent/secret")
@@ -564,6 +625,7 @@ class TestAzureKeyVaultExtended:
     async def test_delete_secret_not_found(self, mock_current_app, manager):
         """Test deleting a secret that doesn't exist."""
         import sys
+
         mock_current_app.config["AZURE_VAULT_URL"] = "https://myvault.vault.azure.net/"
         manager._client = MagicMock()
 
@@ -612,9 +674,7 @@ class TestAzureKeyVaultExtended:
         """Test error handling when listing secrets."""
         mock_current_app.config["AZURE_VAULT_URL"] = "https://myvault.vault.azure.net/"
         manager._client = MagicMock()
-        manager._client.list_properties_of_secrets.side_effect = Exception(
-            "List error"
-        )
+        manager._client.list_properties_of_secrets.side_effect = Exception("List error")
 
         with pytest.raises(SecretsManagerError) as exc_info:
             await manager.list_secrets()
@@ -699,6 +759,7 @@ class TestGCPSecretsManagerExtended:
     async def test_get_secret_not_found(self, mock_current_app, manager):
         """Test getting a secret that doesn't exist."""
         import sys
+
         mock_current_app.config["GCP_PROJECT_ID"] = "my-project"
         manager._client = MagicMock()
 
@@ -716,6 +777,7 @@ class TestGCPSecretsManagerExtended:
     async def test_get_secret_permission_denied(self, mock_current_app, manager):
         """Test getting a secret with permission denied."""
         import sys
+
         mock_current_app.config["GCP_PROJECT_ID"] = "my-project"
         manager._client = MagicMock()
 
@@ -724,7 +786,9 @@ class TestGCPSecretsManagerExtended:
             PermissionDenied = google_module.PermissionDenied
             manager._client.access_secret_version.side_effect = PermissionDenied()
         else:
-            manager._client.access_secret_version.side_effect = Exception("PermissionDenied")
+            manager._client.access_secret_version.side_effect = Exception(
+                "PermissionDenied"
+            )
 
         with pytest.raises(SecretsManagerError):
             await manager.get_secret("my/secret")
@@ -745,6 +809,7 @@ class TestGCPSecretsManagerExtended:
     async def test_set_secret_new(self, mock_current_app, manager):
         """Test creating a new secret."""
         import sys
+
         mock_current_app.config["GCP_PROJECT_ID"] = "my-project"
         manager._client = MagicMock()
 
@@ -777,6 +842,7 @@ class TestGCPSecretsManagerExtended:
     async def test_set_secret_error(self, mock_current_app, manager):
         """Test error handling when setting secret."""
         import sys
+
         mock_current_app.config["GCP_PROJECT_ID"] = "my-project"
         manager._client = MagicMock()
 
@@ -796,6 +862,7 @@ class TestGCPSecretsManagerExtended:
     async def test_delete_secret_not_found(self, mock_current_app, manager):
         """Test deleting a secret that doesn't exist."""
         import sys
+
         mock_current_app.config["GCP_PROJECT_ID"] = "my-project"
         manager._client = MagicMock()
 

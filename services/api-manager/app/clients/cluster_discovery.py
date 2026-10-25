@@ -60,7 +60,9 @@ import httpx
 log = logging.getLogger(__name__)
 
 #: Discovery call timeout. Short because this gates a user-facing request.
-DISCOVERY_TIMEOUT_SECONDS = float(os.environ.get("CLUSTER_DISCOVERY_TIMEOUT_SECONDS", "10"))
+DISCOVERY_TIMEOUT_SECONDS = float(
+    os.environ.get("CLUSTER_DISCOVERY_TIMEOUT_SECONDS", "10")
+)
 
 _LXD_MEMBERS_PATH = "/1.0/cluster/members"
 _K8S_NODES_PATH = "/api/v1/nodes"
@@ -166,12 +168,18 @@ def _parse_k8s_nodes(payload: dict) -> list[DiscoveredMember]:
         status = item.get("status") or {}
         addresses = status.get("addresses") or []
         address = next(
-            (a.get("address") for a in addresses if isinstance(a, dict) and a.get("address")),
+            (
+                a.get("address")
+                for a in addresses
+                if isinstance(a, dict) and a.get("address")
+            ),
             None,
         )
         conditions = status.get("conditions") or []
         ready = any(
-            isinstance(c, dict) and c.get("type") == "Ready" and c.get("status") == "True"
+            isinstance(c, dict)
+            and c.get("type") == "Ready"
+            and c.get("status") == "True"
             for c in conditions
         )
         members.append(
@@ -213,7 +221,9 @@ async def _validate_discovery_endpoint(endpoint: str) -> _VettedEndpoint:
         )
     host = parsed.hostname
     if not host:
-        raise ClusterDiscoveryUnavailable(f"endpoint {endpoint!r} has no resolvable host")
+        raise ClusterDiscoveryUnavailable(
+            f"endpoint {endpoint!r} has no resolvable host"
+        )
     port = parsed.port or (443 if parsed.scheme == "https" else 80)
 
     loop = asyncio.get_running_loop()
@@ -243,7 +253,9 @@ async def _validate_discovery_endpoint(endpoint: str) -> _VettedEndpoint:
             f"endpoint host {host!r} did not resolve to a usable IP address"
         )
 
-    return _VettedEndpoint(scheme=parsed.scheme, host=host, pinned_ip=pinned_ip, port=port)
+    return _VettedEndpoint(
+        scheme=parsed.scheme, host=host, pinned_ip=pinned_ip, port=port
+    )
 
 
 async def discover_inventory(
@@ -270,7 +282,9 @@ async def discover_inventory(
     # window the validation above just closed). The hostname is preserved
     # below only as the Host header / TLS SNI name.
     # regression: SSRF TOCTOU cluster_discovery (sec review)
-    connect_host = f"[{vetted.pinned_ip}]" if ":" in vetted.pinned_ip else vetted.pinned_ip
+    connect_host = (
+        f"[{vetted.pinned_ip}]" if ":" in vetted.pinned_ip else vetted.pinned_ip
+    )
     url = f"{vetted.scheme}://{connect_host}:{vetted.port}{path}"
     display_url = f"{vetted.scheme}://{vetted.host}:{vetted.port}{path}"
 
@@ -288,9 +302,9 @@ async def discover_inventory(
             # followed, or it would reintroduce the exact SSRF bypass the
             # pinned-IP connect above closes.
             # regression: SSRF TOCTOU cluster_discovery (sec review)
-            assert http.follow_redirects is False, (
-                "httpx redirect-following must stay disabled for discovery requests"
-            )
+            assert (
+                http.follow_redirects is False
+            ), "httpx redirect-following must stay disabled for discovery requests"
             response = await http.get(
                 url,
                 headers=headers,

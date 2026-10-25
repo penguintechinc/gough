@@ -1,14 +1,12 @@
 """Tests for secrets module initialization."""
 
 import pytest
-from unittest.mock import patch
-
 from app.secrets import (
-    get_secrets_manager,
-    register_backend,
-    get_backend_registry,
     BACKEND_REGISTRY,
     BaseSecretsManager,
+    get_backend_registry,
+    get_secrets_manager,
+    register_backend,
 )
 from app.secrets.encrypted_db import EncryptedDBSecretsManager
 
@@ -49,7 +47,7 @@ async def test_get_secrets_manager_creates_instances(mock_current_app):
     m1 = await get_secrets_manager()
     m2 = await get_secrets_manager()
     assert m1 is not m2
-    assert type(m1) == type(m2)
+    assert type(m1) is type(m2)
 
 
 def test_register_backend():
@@ -59,10 +57,13 @@ def test_register_backend():
     class TestBackend(BaseSecretsManager):
         async def get_secret(self, path):
             return {}
+
         async def set_secret(self, path, data):
             return True
+
         async def delete_secret(self, path):
             return True
+
         async def list_secrets(self, path=""):
             return []
 

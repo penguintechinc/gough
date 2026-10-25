@@ -61,7 +61,11 @@ def _passthrough_decorator(*dargs: Any, **dkwargs: Any) -> Any:
 
 
 def _build_app(
-    *, monkeypatch: pytest.MonkeyPatch, dal_db: Any, tenant: str, scope: str,
+    *,
+    monkeypatch: pytest.MonkeyPatch,
+    dal_db: Any,
+    tenant: str,
+    scope: str,
 ) -> tuple[Quart, Any]:
     """Build an ephemeral Quart app with a freshly-reloaded ``clusters_bp``.
 
@@ -80,13 +84,17 @@ def _build_app(
 
     application = Quart(__name__)
     application.config["TESTING"] = True
-    application.register_blueprint(clusters_mod.clusters_bp, url_prefix="/api/v1/clusters")
+    application.register_blueprint(
+        clusters_mod.clusters_bp, url_prefix="/api/v1/clusters"
+    )
 
     @application.before_request
     async def inject_user() -> None:
         g.current_user = {
             "_jwt_payload": {
-                "tenant": tenant, "scope": scope, "sub": "user-123",
+                "tenant": tenant,
+                "scope": scope,
+                "sub": "user-123",
                 "cross_tenant": False,
             }
         }
@@ -98,25 +106,38 @@ def _build_app(
 def _seed_cluster(owner_db: Any, *, cluster_id: str, tenant_id: str) -> None:
     now = datetime.now(timezone.utc)
     owner_db.clusters.insert(
-        id=cluster_id, tenant_id=tenant_id, name=cluster_id,
-        created_at=now, updated_at=now,
+        id=cluster_id,
+        tenant_id=tenant_id,
+        name=cluster_id,
+        created_at=now,
+        updated_at=now,
     )
     owner_db.commit()
 
 
-def _seed_backend(owner_db: Any, *, cluster_id: str, name: str, is_default: bool, status: str) -> str:
+def _seed_backend(
+    owner_db: Any, *, cluster_id: str, name: str, is_default: bool, status: str
+) -> str:
     now = datetime.now(timezone.utc)
     backend_id = str(uuid.uuid4())
     owner_db.storage_backends.insert(
-        id=backend_id, cluster_id=cluster_id, name=name, kind="longhorn",
-        is_default=is_default, config_json={}, status=status,
-        created_at=now, updated_at=now,
+        id=backend_id,
+        cluster_id=cluster_id,
+        name=name,
+        kind="longhorn",
+        is_default=is_default,
+        config_json={},
+        status=status,
+        created_at=now,
+        updated_at=now,
     )
     owner_db.commit()
     return backend_id
 
 
-_ADMIN_SCOPE = "gough.cluster.read gough.cluster.admin gough.storage.read gough.storage.configure"
+_ADMIN_SCOPE = (
+    "gough.cluster.read gough.cluster.admin gough.storage.read gough.storage.configure"
+)
 _SUPERADMIN_SCOPE = "gough.cluster.read gough.cluster.superadmin"
 
 
@@ -126,27 +147,46 @@ _SUPERADMIN_SCOPE = "gough.cluster.read gough.cluster.superadmin"
 
 
 class TestSwitchPrimaryStorageExecution:
-    async def test_execution_success(self, pg_db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_execution_success(
+        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Flag ON + all stages succeed: DB flips primary, history
         recorded, 200 with completed_stages."""
         cluster_id = str(uuid.uuid4())
         _seed_cluster(pg_db, cluster_id=cluster_id, tenant_id="tenant-a")
         current_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="current", is_default=True, status="ready",
+            pg_db,
+            cluster_id=cluster_id,
+            name="current",
+            is_default=True,
+            status="ready",
         )
         target_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="target", is_default=False, status="standby",
+            pg_db,
+            cluster_id=cluster_id,
+            name="target",
+            is_default=False,
+            status="standby",
         )
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_ADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_ADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         async def _fake_execute_stage(**kwargs: Any) -> Any:
-            return clusters_mod.storage_orchestrator.StageResult(stage=kwargs["stage"], ok=True)
+            return clusters_mod.storage_orchestrator.StageResult(
+                stage=kwargs["stage"], ok=True
+            )
 
-        monkeypatch.setattr(clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage)
+        monkeypatch.setattr(
+            clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -157,7 +197,11 @@ class TestSwitchPrimaryStorageExecution:
         data = await response.get_json()
         assert data["status"] == "success"
         assert data["data"]["completed_stages"] == [
-            "preflight", "drain_writes", "snapshot_sync", "promote", "demote_old",
+            "preflight",
+            "drain_writes",
+            "snapshot_sync",
+            "promote",
+            "demote_old",
         ]
         assert data["data"]["rollback_performed"] is False
         assert data["data"]["current_primary"]["id"] == target_id
@@ -167,16 +211,22 @@ class TestSwitchPrimaryStorageExecution:
         assert old.is_default is False and old.status == "standby"
         assert new.is_default is True and new.status == "ready"
 
-        history = pg_db(
-            (pg_db.cluster_config.cluster_id == cluster_id)
-            & (pg_db.cluster_config.key == "storage_primary_switch_history")
-        ).select().first()
+        history = (
+            pg_db(
+                (pg_db.cluster_config.cluster_id == cluster_id)
+                & (pg_db.cluster_config.key == "storage_primary_switch_history")
+            )
+            .select()
+            .first()
+        )
         assert history is not None
         assert len(history.value_json) == 1
         assert history.value_json[0]["to"] == target_id
 
     async def test_execution_rollback_on_demote_failure(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Failure AFTER promote (at demote_old) reverts the DB flip -- the
         caller gets rollback_performed=True and backends end up exactly
@@ -184,23 +234,42 @@ class TestSwitchPrimaryStorageExecution:
         cluster_id = str(uuid.uuid4())
         _seed_cluster(pg_db, cluster_id=cluster_id, tenant_id="tenant-a")
         current_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="current", is_default=True, status="ready",
+            pg_db,
+            cluster_id=cluster_id,
+            name="current",
+            is_default=True,
+            status="ready",
         )
         target_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="target", is_default=False, status="standby",
+            pg_db,
+            cluster_id=cluster_id,
+            name="target",
+            is_default=False,
+            status="standby",
         )
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_ADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_ADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         async def _fake_execute_stage(**kwargs: Any) -> Any:
             if kwargs["stage"] == "demote_old":
-                raise clusters_mod.storage_orchestrator.StorageOrchestratorUnavailable("orchestrator down")
-            return clusters_mod.storage_orchestrator.StageResult(stage=kwargs["stage"], ok=True)
+                raise clusters_mod.storage_orchestrator.StorageOrchestratorUnavailable(
+                    "orchestrator down"
+                )
+            return clusters_mod.storage_orchestrator.StageResult(
+                stage=kwargs["stage"], ok=True
+            )
 
-        monkeypatch.setattr(clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage)
+        monkeypatch.setattr(
+            clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -219,28 +288,47 @@ class TestSwitchPrimaryStorageExecution:
         assert new.is_default is False and new.status == "standby"
 
     async def test_execution_failure_before_promote_no_rollback(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Failure at preflight (before any DB write) needs no rollback --
         backends are untouched and rollback_performed is False."""
         cluster_id = str(uuid.uuid4())
         _seed_cluster(pg_db, cluster_id=cluster_id, tenant_id="tenant-a")
         current_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="current", is_default=True, status="ready",
+            pg_db,
+            cluster_id=cluster_id,
+            name="current",
+            is_default=True,
+            status="ready",
         )
         target_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="target", is_default=False, status="standby",
+            pg_db,
+            cluster_id=cluster_id,
+            name="target",
+            is_default=False,
+            status="standby",
         )
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_ADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_ADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         async def _fake_execute_stage(**kwargs: Any) -> Any:
-            raise clusters_mod.storage_orchestrator.StorageOrchestratorUnavailable("unreachable")
+            raise clusters_mod.storage_orchestrator.StorageOrchestratorUnavailable(
+                "unreachable"
+            )
 
-        monkeypatch.setattr(clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage)
+        monkeypatch.setattr(
+            clusters_mod.storage_orchestrator, "execute_stage", _fake_execute_stage
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -259,7 +347,9 @@ class TestSwitchPrimaryStorageExecution:
         assert new.is_default is False
 
     async def test_execution_schema_unavailable_fails_closed(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Flag ON but no storage backend resolves (target not seeded):
         the existing target_not_found 404 still applies -- M2 never
@@ -268,9 +358,14 @@ class TestSwitchPrimaryStorageExecution:
         _seed_cluster(pg_db, cluster_id=cluster_id, tenant_id="tenant-a")
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_ADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_ADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -281,19 +376,30 @@ class TestSwitchPrimaryStorageExecution:
         data = await response.get_json()
         assert data["error"] == "target_not_found"
 
-    async def test_flag_off_still_preview(self, pg_db: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_flag_off_still_preview(
+        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Regression: flag OFF on this same real-Postgres setup still
         returns the unchanged M1 preview, never attempts execution."""
         cluster_id = str(uuid.uuid4())
         _seed_cluster(pg_db, cluster_id=cluster_id, tenant_id="tenant-a")
         target_id = _seed_backend(
-            pg_db, cluster_id=cluster_id, name="target", is_default=False, status="standby",
+            pg_db,
+            cluster_id=cluster_id,
+            name="target",
+            is_default=False,
+            status="standby",
         )
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_ADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_ADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=False)
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -315,25 +421,40 @@ class TestSwitchPrimaryStorageExecution:
 
 class TestAdoptClusterExecution:
     async def test_execution_success_creates_cluster_and_inventory(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Flag ON + discovery succeeds: a new clusters row is created
         (status ready) and the member inventory lands in cluster_config."""
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         members = [
             clusters_mod.cluster_discovery.DiscoveredMember(
-                name="node-a", address="10.0.0.1", role="leader", status="online",
+                name="node-a",
+                address="10.0.0.1",
+                role="leader",
+                status="online",
             ),
             clusters_mod.cluster_discovery.DiscoveredMember(
-                name="node-b", address="10.0.0.2", role=None, status="online",
+                name="node-b",
+                address="10.0.0.2",
+                role=None,
+                status="online",
             ),
         ]
         monkeypatch.setattr(
-            clusters_mod.cluster_discovery, "discover_inventory", AsyncMock(return_value=members),
+            clusters_mod.cluster_discovery,
+            "discover_inventory",
+            AsyncMock(return_value=members),
         )
 
         client = app.test_client()
@@ -356,26 +477,42 @@ class TestAdoptClusterExecution:
         assert row is not None
         assert row.status == "ready"
 
-        doc = pg_db(
-            (pg_db.cluster_config.cluster_id == "newcluster")
-            & (pg_db.cluster_config.key == "adopted_inventory")
-        ).select().first()
+        doc = (
+            pg_db(
+                (pg_db.cluster_config.cluster_id == "newcluster")
+                & (pg_db.cluster_config.key == "adopted_inventory")
+            )
+            .select()
+            .first()
+        )
         assert doc is not None
         assert doc.value_json["member_count"] == 2
         assert doc.value_json["members"][0]["name"] == "node-a"
 
     async def test_execution_rollback_deletes_freshly_created_cluster(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Discovery fails on a brand-new cluster_id: the clusters row this
         request created is rolled back (deleted)."""
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
         monkeypatch.setattr(
-            clusters_mod.cluster_discovery, "discover_inventory",
-            AsyncMock(side_effect=clusters_mod.cluster_discovery.ClusterDiscoveryUnavailable("unreachable")),
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        monkeypatch.setattr(
+            clusters_mod.cluster_discovery,
+            "discover_inventory",
+            AsyncMock(
+                side_effect=clusters_mod.cluster_discovery.ClusterDiscoveryUnavailable(
+                    "unreachable"
+                )
+            ),
         )
 
         client = app.test_client()
@@ -392,19 +529,31 @@ class TestAdoptClusterExecution:
         assert row is None
 
     async def test_execution_failure_preserves_preexisting_cluster(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Discovery fails on a re-adopt of an already-known cluster: the
         pre-existing row is untouched, never deleted by the rollback path."""
         _seed_cluster(pg_db, cluster_id="known", tenant_id="tenant-a")
 
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
         monkeypatch.setattr(
-            clusters_mod.cluster_discovery, "discover_inventory",
-            AsyncMock(side_effect=clusters_mod.cluster_discovery.ClusterDiscoveryUnavailable("unreachable")),
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
+        monkeypatch.setattr(
+            clusters_mod.cluster_discovery,
+            "discover_inventory",
+            AsyncMock(
+                side_effect=clusters_mod.cluster_discovery.ClusterDiscoveryUnavailable(
+                    "unreachable"
+                )
+            ),
         )
 
         client = app.test_client()
@@ -420,28 +569,43 @@ class TestAdoptClusterExecution:
         assert row is not None
 
     async def test_execution_missing_endpoint_422(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         client = app.test_client()
         response = await client.post(
-            "/api/v1/clusters/newcluster/adopt", json={"kind": "lxd"},
+            "/api/v1/clusters/newcluster/adopt",
+            json={"kind": "lxd"},
         )
         assert response.status_code == 422
         data = await response.get_json()
         assert data["details"]["violations"][0]["code"] == "missing_endpoint"
 
     async def test_execution_invalid_kind_422(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=True))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=True)
+        )
 
         client = app.test_client()
         response = await client.post(
@@ -453,14 +617,21 @@ class TestAdoptClusterExecution:
         assert data["details"]["violations"][0]["code"] == "invalid_kind"
 
     async def test_flag_off_still_m1_request_only(
-        self, pg_db: Any, monkeypatch: pytest.MonkeyPatch,
+        self,
+        pg_db: Any,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Regression: flag OFF on this same real-Postgres setup still only
         emits the M1 request event, never touches the DB."""
         app, clusters_mod = _build_app(
-            monkeypatch=monkeypatch, dal_db=pg_db, tenant="tenant-a", scope=_SUPERADMIN_SCOPE,
+            monkeypatch=monkeypatch,
+            dal_db=pg_db,
+            tenant="tenant-a",
+            scope=_SUPERADMIN_SCOPE,
         )
-        monkeypatch.setattr(clusters_mod, "feature_enabled", AsyncMock(return_value=False))
+        monkeypatch.setattr(
+            clusters_mod, "feature_enabled", AsyncMock(return_value=False)
+        )
 
         client = app.test_client()
         response = await client.post(

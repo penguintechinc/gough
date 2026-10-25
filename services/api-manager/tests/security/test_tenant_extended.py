@@ -8,12 +8,12 @@ Coverage targets:
 
 import pytest
 from app.security.tenant import (
-    TenantContext,
+    DEFAULT_TENANT,
+    TENANT_CLAIM_NAME,
     TenantClaimMissingError,
+    TenantContext,
     TenantMismatchError,
     extract_tenant_from_jwt,
-    TENANT_CLAIM_NAME,
-    DEFAULT_TENANT,
 )
 
 

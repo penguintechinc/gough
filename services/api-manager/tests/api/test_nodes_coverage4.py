@@ -16,16 +16,12 @@ Targets:
 
 from __future__ import annotations
 
-import asyncio
-import base64
 import importlib
-import json
 import sys
 import threading
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, Mock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -34,7 +30,10 @@ def _passthrough_decorator(*dargs, **dkwargs):
     """Pass-through decorator that doesn't wrap the function."""
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         return dargs[0]
-    def _wrap(fn): return fn
+
+    def _wrap(fn):
+        return fn
+
     return _wrap
 
 
@@ -236,10 +235,11 @@ async def test_audit_log_missing_audit_table(app_nodes, monkeypatch):
     mock_db = MagicMock(spec=[])
     monkeypatch.setattr(nodes_mod, "get_db", lambda: mock_db)
 
-    async with app.test_client() as client:
+    async with app.test_client():
         async with app.app_context():
             # Should not raise; logs and returns early (hasattr returns False)
             from quart import g
+
             g.current_user = {"id": 1, "_jwt_payload": {"sub": "admin"}}
             result = _audit_log("test.action", "resource_id", before={"a": 1})
             # Should be None (early return due to missing table)
@@ -257,9 +257,10 @@ async def test_audit_log_commit_exception(app_nodes, monkeypatch):
     mock_db.commit.side_effect = RuntimeError("DB locked")
     monkeypatch.setattr(nodes_mod, "get_db", lambda: mock_db)
 
-    async with app.test_client() as client:
+    async with app.test_client():
         async with app.app_context():
-            from quart import g, request
+            from quart import g
+
             g.current_user = {"id": 1, "_jwt_payload": {"sub": "admin"}}
             # Should not raise; logs warning instead
             _audit_log("test.action", "node_123")
@@ -275,9 +276,10 @@ async def test_audit_log_insert_exception(app_nodes, monkeypatch):
     mock_db.audit_events.insert.side_effect = RuntimeError("Invalid field")
     monkeypatch.setattr(nodes_mod, "get_db", lambda: mock_db)
 
-    async with app.test_client() as client:
+    async with app.test_client():
         async with app.app_context():
             from quart import g
+
             g.current_user = {"id": 1, "_jwt_payload": {"sub": "admin"}}
             # Should not raise; gracefully handles exception
             _audit_log("test.action", "resource_id", after={"state": "ready"})

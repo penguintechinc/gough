@@ -37,36 +37,39 @@ has these and a blind add_column would fail with "duplicate column".
 """
 
 import sqlalchemy as sa
-
 from alembic import op
 
-revision = '20260821_1900_missing_cols'
-down_revision = '20260821_1600_merge_cloud_schema'
+revision = "20260821_1900_missing_cols"
+down_revision = "20260821_1600_merge_cloud_schema"
 branch_labels = None
 depends_on = None
 
 
 def _columns(table: str) -> set:
-    return {c['name'] for c in sa.inspect(op.get_bind()).get_columns(table)}
+    return {c["name"] for c in sa.inspect(op.get_bind()).get_columns(table)}
 
 
 def upgrade() -> None:
-    biome_columns = _columns('biomes')
-    if 'lxd_image_url' not in biome_columns:
-        op.add_column('biomes', sa.Column('lxd_image_url', sa.String(1024), nullable=True))
-    if 'biome_type' not in biome_columns:
-        op.add_column('biomes', sa.Column('biome_type', sa.String(64), nullable=True))
+    biome_columns = _columns("biomes")
+    if "lxd_image_url" not in biome_columns:
+        op.add_column(
+            "biomes", sa.Column("lxd_image_url", sa.String(1024), nullable=True)
+        )
+    if "biome_type" not in biome_columns:
+        op.add_column("biomes", sa.Column("biome_type", sa.String(64), nullable=True))
 
-    if 'enrolled_at' not in _columns('access_agents'):
-        op.add_column('access_agents', sa.Column('enrolled_at', sa.DateTime(), nullable=True))
+    if "enrolled_at" not in _columns("access_agents"):
+        op.add_column(
+            "access_agents", sa.Column("enrolled_at", sa.DateTime(), nullable=True)
+        )
 
 
 def downgrade() -> None:
-    if 'enrolled_at' in _columns('access_agents'):
-        op.drop_column('access_agents', 'enrolled_at')
+    if "enrolled_at" in _columns("access_agents"):
+        op.drop_column("access_agents", "enrolled_at")
 
-    biome_columns = _columns('biomes')
-    if 'biome_type' in biome_columns:
-        op.drop_column('biomes', 'biome_type')
-    if 'lxd_image_url' in biome_columns:
-        op.drop_column('biomes', 'lxd_image_url')
+    biome_columns = _columns("biomes")
+    if "biome_type" in biome_columns:
+        op.drop_column("biomes", "biome_type")
+    if "lxd_image_url" in biome_columns:
+        op.drop_column("biomes", "lxd_image_url")

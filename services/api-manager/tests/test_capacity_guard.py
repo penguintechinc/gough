@@ -12,12 +12,11 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from pydantic import ValidationError
-from sqlalchemy import create_engine, select
-
 from app import capacity_guard as cg
 from app.models_m1 import RESERVATION_ACTIVE, RESERVATION_EXPIRED, RESERVATION_RELEASED
 from app.models_sqlalchemy import Base
+from pydantic import ValidationError
+from sqlalchemy import create_engine, select
 
 GIB = 1024**3
 NOW = datetime(2026, 10, 22, 12, 0, 0, tzinfo=UTC)
@@ -47,9 +46,16 @@ def _cap(**overrides: Any) -> cg.HostCapacity:
     return cg.HostCapacity(**base)
 
 
-def _req(cpu: float = 0.0, mem_gib: float = 0.0, disk_gib: float = 0.0, pool: str = "default") -> cg.FitRequest:
+def _req(
+    cpu: float = 0.0, mem_gib: float = 0.0, disk_gib: float = 0.0, pool: str = "default"
+) -> cg.FitRequest:
     """Build a FitRequest with GiB-sized memory and disk."""
-    return cg.FitRequest(cpu_cores=cpu, memory_bytes=int(mem_gib * GIB), disk_bytes=int(disk_gib * GIB), pool=pool)
+    return cg.FitRequest(
+        cpu_cores=cpu,
+        memory_bytes=int(mem_gib * GIB),
+        disk_bytes=int(disk_gib * GIB),
+        pool=pool,
+    )
 
 
 def _snapshot_dict(collected: datetime, **overrides: Any) -> dict[str, Any]:
@@ -57,14 +63,32 @@ def _snapshot_dict(collected: datetime, **overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "schema": "gough.host_resources.v1",
         "collected_at": collected.isoformat(),
-        "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
-        "memory": {"total_bytes": 64 * GIB, "available_bytes": 40 * GIB, "swap_total_bytes": 0, "swap_used_bytes": 0},
+        "cpu": {
+            "logical_cores": 16,
+            "usage_pct": 10.0,
+            "load1": 1.0,
+            "load5": 1.0,
+            "load15": 1.0,
+        },
+        "memory": {
+            "total_bytes": 64 * GIB,
+            "available_bytes": 40 * GIB,
+            "swap_total_bytes": 0,
+            "swap_used_bytes": 0,
+        },
         "pressure": {
             "cpu": {"some_avg10": 1.0, "some_avg60": 1.0},
             "memory": {"some_avg10": 0.0, "some_avg60": 1.0, "full_avg60": 0.0},
             "io": {"some_avg60": 0.0, "full_avg60": 0.5},
         },
-        "storage_pools": [{"name": "default", "driver": "zfs", "total_bytes": 1000 * GIB, "used_bytes": 100 * GIB}],
+        "storage_pools": [
+            {
+                "name": "default",
+                "driver": "zfs",
+                "total_bytes": 1000 * GIB,
+                "used_bytes": 100 * GIB,
+            }
+        ],
         "host_root_fs": {"total_bytes": 100 * GIB, "free_bytes": 60 * GIB},
         "committed": {
             "cpu_cores": 0.0,
@@ -92,7 +116,11 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
     ]
     Base.metadata.create_all(eng, tables=tables)
     with eng.begin() as conn:
-        conn.execute(Base.metadata.tables["nodes"].insert().values(id=1, name="host-a", tenant_id="__default__", state="ready"))
+        conn.execute(
+            Base.metadata.tables["nodes"]
+            .insert()
+            .values(id=1, name="host-a", tenant_id="__default__", state="ready")
+        )
     return eng
 
 
@@ -114,11 +142,17 @@ def engine(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         (_req(disk_gib=850.0), cg.Load(), None),  # 1000 - 15% reserve
         (_req(disk_gib=851.0), cg.Load(), "insufficient_disk:default"),
         (_req(disk_gib=10.0), cg.Load(disk_bytes={"default": 840 * GIB}), None),
-        (_req(disk_gib=11.0), cg.Load(disk_bytes={"default": 840 * GIB}), "insufficient_disk:default"),
+        (
+            _req(disk_gib=11.0),
+            cg.Load(disk_bytes={"default": 840 * GIB}),
+            "insufficient_disk:default",
+        ),
         (_req(pool="fast"), cg.Load(), "unknown_pool:fast"),
     ],
 )
-def test_fit_dimensions_table(request_: cg.FitRequest, committed: cg.Load, expected_reason: str | None) -> None:
+def test_fit_dimensions_table(
+    request_: cg.FitRequest, committed: cg.Load, expected_reason: str | None
+) -> None:
     """Each dimension admits exactly up to allocatable and refuses one step past it."""
     result = cg.evaluate_fit(_cap(committed=committed), request_, cg.Load(), _policy())
     if expected_reason is None:
@@ -154,17 +188,23 @@ def test_cpu_reserve_min_vs_pct(logical_cores: int, expected_cpu_alloc: float) -
 def test_memory_reserve_min_vs_pct(total_gib: int, expected_reserve_gib: float) -> None:
     """Memory reserve is max(4 GiB, 10% of total)."""
     result = cg.evaluate_fit(
-        _cap(memory_total_bytes=total_gib * GIB, memory_available_bytes=total_gib * GIB),
+        _cap(
+            memory_total_bytes=total_gib * GIB, memory_available_bytes=total_gib * GIB
+        ),
         _req(),
         cg.Load(),
         _policy(),
     )
-    assert result.allocatable["memory_bytes"] == pytest.approx((total_gib - expected_reserve_gib) * GIB)
+    assert result.allocatable["memory_bytes"] == pytest.approx(
+        (total_gib - expected_reserve_gib) * GIB
+    )
 
 
 def test_overcommit_ratio_applies_to_cpu_and_memory() -> None:
     """Overcommit ratios scale allocatable; cpu defaults to 4.0 and memory to 1.0."""
-    result = cg.evaluate_fit(_cap(), _req(), cg.Load(), _policy(cpu_overcommit=1.0, memory_overcommit=2.0))
+    result = cg.evaluate_fit(
+        _cap(), _req(), cg.Load(), _policy(cpu_overcommit=1.0, memory_overcommit=2.0)
+    )
     assert result.allocatable["cpu_cores"] == pytest.approx(14.0)
     assert result.allocatable["memory_bytes"] == pytest.approx(2 * (64 - 6.4) * GIB)
 
@@ -190,13 +230,17 @@ def test_missing_snapshot_refuses() -> None:
 
 def test_stale_snapshot_refuses() -> None:
     """A snapshot older than the max age refuses with the stale reason."""
-    result = cg.evaluate_fit(_cap(age_s=61.0), _req(), cg.Load(), _policy(snapshot_max_age_s=60.0))
+    result = cg.evaluate_fit(
+        _cap(age_s=61.0), _req(), cg.Load(), _policy(snapshot_max_age_s=60.0)
+    )
     assert result.reasons == ("stale_or_missing_snapshot",)
 
 
 def test_fresh_boundary_passes() -> None:
     """Exactly at the max age is still fresh."""
-    result = cg.evaluate_fit(_cap(age_s=60.0), _req(), cg.Load(), _policy(snapshot_max_age_s=60.0))
+    result = cg.evaluate_fit(
+        _cap(age_s=60.0), _req(), cg.Load(), _policy(snapshot_max_age_s=60.0)
+    )
     assert result.ok
 
 
@@ -230,14 +274,18 @@ def test_failed_section_refuses(errors: tuple[str, ...], expected_reason: str) -
 def test_lxd_unavailable_refuses_even_with_zero_committed() -> None:
     """lxd_unavailable reports committed=0; that zero must not pass as real headroom."""
     cap = _cap(committed=cg.Load(), section_errors=("lxd_unavailable",))
-    result = cg.evaluate_fit(cap, _req(cpu=1.0, mem_gib=1.0, disk_gib=1.0), cg.Load(), _policy())
+    result = cg.evaluate_fit(
+        cap, _req(cpu=1.0, mem_gib=1.0, disk_gib=1.0), cg.Load(), _policy()
+    )
     assert not result.ok
     assert "snapshot_section_failed:lxd" in result.reasons
 
 
 def test_section_failure_is_reported_alongside_capacity_reasons() -> None:
     """Capacity figures stay visible when a section failed, so operators see both causes."""
-    result = cg.evaluate_fit(_cap(section_errors=("host_error",)), _req(cpu=100.0), cg.Load(), _policy())
+    result = cg.evaluate_fit(
+        _cap(section_errors=("host_error",)), _req(cpu=100.0), cg.Load(), _policy()
+    )
     assert "snapshot_section_failed:host" in result.reasons
     assert "insufficient_cpu" in result.reasons
 
@@ -266,13 +314,17 @@ def test_pressure_gate_trips(overrides: dict[str, Any], signal: str) -> None:
 
 def test_pressure_at_threshold_does_not_trip() -> None:
     """Gates are strictly greater-than; exactly at the threshold passes."""
-    result = cg.evaluate_fit(_cap(psi_memory_some_avg60=10.0), _req(), cg.Load(), _policy())
+    result = cg.evaluate_fit(
+        _cap(psi_memory_some_avg60=10.0), _req(), cg.Load(), _policy()
+    )
     assert result.ok
 
 
 def test_psi_null_is_warning_not_failure() -> None:
     """PSI unsupported (all null, no error) skips PSI gates and warns only."""
-    cap = _cap(psi_memory_some_avg60=None, psi_io_full_avg60=None, psi_cpu_some_avg60=None)
+    cap = _cap(
+        psi_memory_some_avg60=None, psi_io_full_avg60=None, psi_cpu_some_avg60=None
+    )
     result = cg.evaluate_fit(cap, _req(cpu=1.0), cg.Load(), _policy())
     assert result.ok
     assert "psi_unavailable" in result.warnings
@@ -280,16 +332,26 @@ def test_psi_null_is_warning_not_failure() -> None:
 
 def test_memory_headroom_still_gated_when_psi_null() -> None:
     """With PSI null, the memory-below-reserve gate still applies."""
-    cap = _cap(psi_memory_some_avg60=None, psi_io_full_avg60=None, psi_cpu_some_avg60=None, memory_available_bytes=1 * GIB)
+    cap = _cap(
+        psi_memory_some_avg60=None,
+        psi_io_full_avg60=None,
+        psi_cpu_some_avg60=None,
+        memory_available_bytes=1 * GIB,
+    )
     result = cg.evaluate_fit(cap, _req(), cg.Load(), _policy())
     assert "node_pressured" in result.reasons
 
 
-@pytest.mark.parametrize(("fail", "expected_in"), [(False, "warnings"), (True, "reasons")])
+@pytest.mark.parametrize(
+    ("fail", "expected_in"), [(False, "warnings"), (True, "reasons")]
+)
 def test_unaccounted_instances_warn_or_fail(fail: bool, expected_in: str) -> None:
     """Instances without limits warn by default and hard-fail when configured."""
     result = cg.evaluate_fit(
-        _cap(instances_without_limits=2), _req(), cg.Load(), _policy(unaccounted_instances_fail=fail)
+        _cap(instances_without_limits=2),
+        _req(),
+        cg.Load(),
+        _policy(unaccounted_instances_fail=fail),
     )
     target = result.reasons if expected_in == "reasons" else result.warnings
     assert "unaccounted_instances" in target
@@ -319,7 +381,15 @@ def test_unknown_schema_version_rejected() -> None:
     [
         {"cpu": {"logical_cores": 0}},
         {"memory": {"total_bytes": -1, "available_bytes": 0}},
-        {"committed": {"cpu_cores": 1.0, "memory_bytes": 0, "disk_bytes": {}, "instances": 0, "instances_without_limits": -1}},
+        {
+            "committed": {
+                "cpu_cores": 1.0,
+                "memory_bytes": 0,
+                "disk_bytes": {},
+                "instances": 0,
+                "instances_without_limits": -1,
+            }
+        },
         {"collected_at": "not-a-date"},
     ],
 )
@@ -340,7 +410,18 @@ def test_null_pressure_accepted() -> None:
 def test_record_snapshot_ignores_older_and_upserts_newer(engine: Any) -> None:
     """Latest collected_at wins; an out-of-order older snapshot is refused."""
     newer = cg.parse_snapshot(_snapshot_dict(NOW))
-    older = cg.parse_snapshot(_snapshot_dict(NOW - timedelta(seconds=30), cpu={"logical_cores": 4, "usage_pct": 1.0, "load1": 0.0, "load5": 0.0, "load15": 0.0}))
+    older = cg.parse_snapshot(
+        _snapshot_dict(
+            NOW - timedelta(seconds=30),
+            cpu={
+                "logical_cores": 4,
+                "usage_pct": 1.0,
+                "load1": 0.0,
+                "load5": 0.0,
+                "load15": 0.0,
+            },
+        )
+    )
     with engine.begin() as conn:
         assert cg.record_snapshot(conn, 1, newer, NOW) is cg.SnapshotOutcome.STORED
     with engine.begin() as conn:
@@ -434,11 +515,15 @@ def test_reservation_expires_after_ttl(engine: Any) -> None:
     assert result.fit.ok
     with engine.connect() as conn:
         table = cg.CapacityReservation.__table__
-        status = conn.execute(select(table.c.status).where(table.c.public_id == held.reservation_id)).scalar_one()
+        status = conn.execute(
+            select(table.c.status).where(table.c.public_id == held.reservation_id)
+        ).scalar_one()
     assert status == RESERVATION_EXPIRED
 
 
-def test_snapshot_absorbs_confirmed_reservation_when_committed_grew(engine: Any) -> None:
+def test_snapshot_absorbs_confirmed_reservation_when_committed_grew(
+    engine: Any,
+) -> None:
     """A confirmed reservation is released by a later snapshot whose committed grew by its size."""
     _seed_snapshot(engine, collected=NOW - timedelta(seconds=30))
     held = cg.reserve(engine, 1, _req(cpu=4.0, mem_gib=8.0), now=NOW, policy=_policy())
@@ -446,15 +531,24 @@ def test_snapshot_absorbs_confirmed_reservation_when_committed_grew(engine: Any)
     assert cg.confirm(engine, held.reservation_id, now=NOW, policy=_policy())
     grown = _snapshot_dict(
         NOW + timedelta(seconds=10),
-        committed={"cpu_cores": 4.0, "memory_bytes": 8 * GIB, "disk_bytes": {"default": 0},
-                   "instances": 1, "instances_without_limits": 0},
+        committed={
+            "cpu_cores": 4.0,
+            "memory_bytes": 8 * GIB,
+            "disk_bytes": {"default": 0},
+            "instances": 1,
+            "instances_without_limits": 0,
+        },
     )
     with engine.begin() as conn:
-        out = cg.record_snapshot(conn, 1, cg.parse_snapshot(grown), NOW + timedelta(seconds=10))
+        out = cg.record_snapshot(
+            conn, 1, cg.parse_snapshot(grown), NOW + timedelta(seconds=10)
+        )
     assert out is cg.SnapshotOutcome.STORED
     with engine.connect() as conn:
         table = cg.CapacityReservation.__table__
-        status = conn.execute(select(table.c.status).where(table.c.public_id == held.reservation_id)).scalar_one()
+        status = conn.execute(
+            select(table.c.status).where(table.c.public_id == held.reservation_id)
+        ).scalar_one()
     assert status == RESERVATION_RELEASED
 
 
@@ -469,11 +563,17 @@ def test_kill_switch_off_by_default_keeps_guard_on(engine: Any) -> None:
     assert not result.ok
 
 
-def test_kill_switch_on_restores_legacy_and_warns(engine: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+def test_kill_switch_on_restores_legacy_and_warns(
+    engine: Any, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
     """Flag ON: legacy pass-through, loud WARNING, gauge set to 1."""
-    monkeypatch.setattr(cg, "_feature_enabled_sync", lambda flag, _d="": flag == cg.KILL_SWITCH_FLAG)
+    monkeypatch.setattr(
+        cg, "_feature_enabled_sync", lambda flag, _d="": flag == cg.KILL_SWITCH_FLAG
+    )
     with caplog.at_level("WARNING"):
-        result = cg.check_fit_sync(engine, 1, _req(cpu=999.0), now=NOW, policy=_policy())
+        result = cg.check_fit_sync(
+            engine, 1, _req(cpu=999.0), now=NOW, policy=_policy()
+        )
         granted = cg.reserve(engine, 1, _req(cpu=999.0), now=NOW, policy=_policy())
     assert result.ok and "guard_disabled" in result.warnings
     assert granted.fit.ok and granted.reservation_id is None
@@ -512,7 +612,12 @@ def test_free_percentages_fail_closed_on_section_error(engine: Any) -> None:
 def test_free_percentages_missing_snapshot(engine: Any) -> None:
     """No snapshot returns zero free and fresh=False."""
     free = cg.free_percentages(engine, 1, now=NOW, policy=_policy())
-    assert (free.cpu_free_pct, free.mem_free_pct, free.disk_free_pct, free.fresh) == (0.0, 0.0, 0.0, False)
+    assert (free.cpu_free_pct, free.mem_free_pct, free.disk_free_pct, free.fresh) == (
+        0.0,
+        0.0,
+        0.0,
+        False,
+    )
 
 
 def test_free_percentages_healthy(engine: Any) -> None:

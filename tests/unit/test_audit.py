@@ -9,31 +9,28 @@ Tests for:
 - Audit logging functions
 """
 
-import json
+import importlib
 import sys
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import MagicMock, patch, Mock
-from io import StringIO
+from unittest.mock import MagicMock, patch
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = "/home/penguin/code/gough/services/api-manager"
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
-    if _mod == 'app' or _mod.startswith('app.'):
+    if _mod == "app" or _mod.startswith("app."):
         del sys.modules[_mod]
 
-from app.audit import (
-    AuditEventType,
-    AuditSeverity,
-    AuditEvent,
-    AuditLogger,
-    audit_action,
-    get_audit_logger,
-    init_audit_logger,
-)
+_mod_app_audit = importlib.import_module("app.audit")
+AuditEvent = _mod_app_audit.AuditEvent
+AuditEventType = _mod_app_audit.AuditEventType
+AuditLogger = _mod_app_audit.AuditLogger
+AuditSeverity = _mod_app_audit.AuditSeverity
+audit_action = _mod_app_audit.audit_action
+get_audit_logger = _mod_app_audit.get_audit_logger
+init_audit_logger = _mod_app_audit.init_audit_logger
 
 
 class TestAuditEventType:
@@ -166,27 +163,27 @@ class TestAuditLogger:
     def test_audit_logger_has_required_attributes(self):
         """Test AuditLogger has required attributes."""
         logger = AuditLogger()
-        assert hasattr(logger, 'app')
-        assert hasattr(logger, 'init_app')
-        assert hasattr(logger, 'log')
-        assert hasattr(logger, '_get_request_context')
+        assert hasattr(logger, "app")
+        assert hasattr(logger, "init_app")
+        assert hasattr(logger, "log")
+        assert hasattr(logger, "_get_request_context")
 
     def test_audit_logger_has_logging_methods(self):
         """Test AuditLogger has specialized logging methods."""
         logger = AuditLogger()
-        assert hasattr(logger, 'log_shell_session_create')
-        assert hasattr(logger, 'log_shell_session_terminate')
-        assert hasattr(logger, 'log_csr_submit')
-        assert hasattr(logger, 'log_cert_issued')
-        assert hasattr(logger, 'log_cert_revoked')
-        assert hasattr(logger, 'log_agent_enroll')
-        assert hasattr(logger, 'log_agent_heartbeat')
-        assert hasattr(logger, 'log_agent_disconnect')
+        assert hasattr(logger, "log_shell_session_create")
+        assert hasattr(logger, "log_shell_session_terminate")
+        assert hasattr(logger, "log_csr_submit")
+        assert hasattr(logger, "log_cert_issued")
+        assert hasattr(logger, "log_cert_revoked")
+        assert hasattr(logger, "log_agent_enroll")
+        assert hasattr(logger, "log_agent_heartbeat")
+        assert hasattr(logger, "log_agent_disconnect")
 
     def test_save_session_recording_method_exists(self):
         """Test save_session_recording method is defined."""
         logger = AuditLogger()
-        assert hasattr(logger, 'save_session_recording')
+        assert hasattr(logger, "save_session_recording")
         assert callable(logger.save_session_recording)
 
     def test_save_session_recording_raises_when_not_configured(self):
@@ -215,7 +212,7 @@ class TestAuditLogger:
     def test_log_to_app_logger_method_exists(self):
         """Test _log_to_app_logger method is defined."""
         logger = AuditLogger()
-        assert hasattr(logger, '_log_to_app_logger')
+        assert hasattr(logger, "_log_to_app_logger")
         assert callable(logger._log_to_app_logger)
 
     def test_log_to_app_logger_without_app(self):
@@ -238,6 +235,7 @@ class TestAuditDecorator:
 
     def test_audit_action_decorator_wraps_function(self):
         """Test audit_action decorator wraps function correctly."""
+
         @audit_action(
             AuditEventType.USER_CREATE,
             "Created user {user_id}",
@@ -251,12 +249,13 @@ class TestAuditDecorator:
 
     def test_audit_action_decorator_preserves_function_name(self):
         """Test audit_action decorator preserves function name."""
+
         @audit_action(AuditEventType.USER_CREATE, "Test")
         def my_function():
             pass
 
         # functools.wraps preserves the function name
-        assert my_function.__name__ == 'my_function'
+        assert my_function.__name__ == "my_function"
 
 
 class TestGetAuditLogger:
@@ -638,6 +637,7 @@ class TestAuditActionDecorator:
 
     def test_audit_action_decorator_signature(self):
         """Test audit_action decorator can be applied."""
+
         @audit_action(
             AuditEventType.USER_CREATE,
             "Created user {user_id}",
@@ -648,11 +648,12 @@ class TestAuditActionDecorator:
             return {"id": user_id, "created": True}
 
         # Verify the decorator is applied
-        assert hasattr(create_user, '__wrapped__') or callable(create_user)
+        assert hasattr(create_user, "__wrapped__") or callable(create_user)
 
     def test_audit_action_preserves_return_value(self):
         """Test audit_action decorator preserves function return value."""
         with patch("app.audit.get_audit_logger", return_value=None):
+
             @audit_action(AuditEventType.USER_CREATE, "Created user")
             def create_user(user_id):
                 return {"id": user_id}

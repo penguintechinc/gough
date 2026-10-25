@@ -2,12 +2,11 @@
 
 from __future__ import annotations
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
-from httpx import Response
 
+import pytest
 from app.clients.prometheus import PrometheusClient
-from app.workers.capacity_predictor import ClusterUsageSnapshot, NodeUsageSnapshot
+from app.workers.capacity_predictor import ClusterUsageSnapshot
 
 
 @pytest.fixture
@@ -26,53 +25,61 @@ async def test_snapshot_node_usage_success(prometheus_client):
         # Mock responses for all metric queries
         mock_client.get.side_effect = [
             # CPU response
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {
-                    "result": [
-                        {
-                            "metric": {"instance": "192.168.1.42:9100"},
-                            "value": [1234567890, "25.5"],
-                        },
-                    ]
-                },
-            }),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"instance": "192.168.1.42:9100"},
+                                "value": [1234567890, "25.5"],
+                            },
+                        ]
+                    },
+                }
+            ),
             # RAM response
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {
-                    "result": [
-                        {
-                            "metric": {"instance": "192.168.1.42:9100"},
-                            "value": [1234567890, "50.0"],
-                        },
-                    ]
-                },
-            }),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"instance": "192.168.1.42:9100"},
+                                "value": [1234567890, "50.0"],
+                            },
+                        ]
+                    },
+                }
+            ),
             # Disk response
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {
-                    "result": [
-                        {
-                            "metric": {"instance": "192.168.1.42:9100"},
-                            "value": [1234567890, "60.0"],
-                        },
-                    ]
-                },
-            }),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"instance": "192.168.1.42:9100"},
+                                "value": [1234567890, "60.0"],
+                            },
+                        ]
+                    },
+                }
+            ),
             # Network response
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {
-                    "result": [
-                        {
-                            "metric": {"instance": "192.168.1.42:9100"},
-                            "value": [1234567890, "1000000"],
-                        },
-                    ]
-                },
-            }),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {
+                        "result": [
+                            {
+                                "metric": {"instance": "192.168.1.42:9100"},
+                                "value": [1234567890, "1000000"],
+                            },
+                        ]
+                    },
+                }
+            ),
         ]
 
         mock_client_class.return_value = mock_client
@@ -105,18 +112,24 @@ async def test_snapshot_cluster_usage_success(prometheus_client):
 
         # Mock scalar responses
         mock_client.get.side_effect = [
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {"type": "scalar", "value": [1234567890, "35.2"]},
-            }),
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {"type": "scalar", "value": [1234567890, "45.3"]},
-            }),
-            MagicMock(json=lambda: {
-                "status": "success",
-                "data": {"type": "scalar", "value": [1234567890, "55.4"]},
-            }),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {"type": "scalar", "value": [1234567890, "35.2"]},
+                }
+            ),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {"type": "scalar", "value": [1234567890, "45.3"]},
+                }
+            ),
+            MagicMock(
+                json=lambda: {
+                    "status": "success",
+                    "data": {"type": "scalar", "value": [1234567890, "55.4"]},
+                }
+            ),
         ]
 
         mock_client_class.return_value = mock_client

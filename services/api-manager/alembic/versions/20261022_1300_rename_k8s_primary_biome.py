@@ -14,7 +14,6 @@ accepting the old name for one release.
 import logging
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20261022_1300_rename_k8s_primary_biome"
@@ -42,7 +41,9 @@ def upgrade() -> None:
         return
 
     canonical_rows = bind.execute(
-        sa.select(sa.func.count()).select_from(biomes).where(biomes.c.name == _CANONICAL)
+        sa.select(sa.func.count())
+        .select_from(biomes)
+        .where(biomes.c.name == _CANONICAL)
     ).scalar_one()
     if canonical_rows:
         _log.warning(
@@ -56,7 +57,9 @@ def upgrade() -> None:
         sa.update(biomes).where(biomes.c.name == _LEGACY).values(name=_CANONICAL)
     )
     op.execute(
-        sa.update(biomes).where(biomes.c.egg_kind == _LEGACY).values(egg_kind=_CANONICAL)
+        sa.update(biomes)
+        .where(biomes.c.egg_kind == _LEGACY)
+        .values(egg_kind=_CANONICAL)
     )
 
 
@@ -71,5 +74,7 @@ def downgrade() -> None:
         sa.update(biomes).where(biomes.c.name == _CANONICAL).values(name=_LEGACY)
     )
     op.execute(
-        sa.update(biomes).where(biomes.c.egg_kind == _CANONICAL).values(egg_kind=_LEGACY)
+        sa.update(biomes)
+        .where(biomes.c.egg_kind == _CANONICAL)
+        .values(egg_kind=_LEGACY)
     )

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import pytest
-
-from app.security.scope_policy import assert_policy_well_formed, SCOPE_POLICY, ANONYMOUS_PATHS
+from app.security.scope_policy import (
+    ANONYMOUS_PATHS,
+    SCOPE_POLICY,
+    assert_policy_well_formed,
+)
 from app.security.tenant import (
-    extract_tenant_from_jwt,
-    assert_tenant_match,
     TenantClaimMissingError,
-    TenantMismatchError,
     TenantContext,
+    TenantMismatchError,
+    assert_tenant_match,
+    extract_tenant_from_jwt,
 )
 
 
@@ -29,6 +32,7 @@ class TestScopePolicyValidation:
         # This is called at module load time (line 210), so if we got here,
         # the policy is well-formed.
         from app.security.scope_policy import KNOWN_SCOPES
+
         for path_key, scopes in SCOPE_POLICY.items():
             if scopes is not None:
                 unknown = scopes - KNOWN_SCOPES

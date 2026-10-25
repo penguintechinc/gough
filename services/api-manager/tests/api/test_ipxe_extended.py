@@ -11,22 +11,18 @@ Focuses on:
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Any
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-
 from app.api import ipxe as ipxe_module
 from app.api.ipxe import (
-    _get_machine_by_id,
-    _get_image_by_id,
-    _get_boot_config_by_id,
     _create_deployment_job,
+    _get_boot_config_by_id,
+    _get_image_by_id,
+    _get_machine_by_id,
     _log_boot_event,
     _validate_required_fields,
 )
-
 
 # =============================================================================
 # Fixtures
@@ -62,8 +58,11 @@ def client(quart_app):
 
 
 def _make_machine_record(
-    *, machine_id: int = 1, mac: str = "aa:bb:cc:dd:ee:ff",
-    system_id: str = "sys-1", status: str = "ready"
+    *,
+    machine_id: int = 1,
+    mac: str = "aa:bb:cc:dd:ee:ff",
+    system_id: str = "sys-1",
+    status: str = "ready",
 ) -> dict:
     return {
         "id": machine_id,
@@ -88,9 +87,7 @@ def _make_image_record(
     }
 
 
-def _make_boot_config_record(
-    *, config_id: int = 1, name: str = "default-boot"
-) -> dict:
+def _make_boot_config_record(*, config_id: int = 1, name: str = "default-boot") -> dict:
     return {
         "id": config_id,
         "name": name,
@@ -112,8 +109,7 @@ class TestValidateRequiredFields:
     async def test_no_missing_fields_returns_none(self, quart_app) -> None:
         async with quart_app.app_context():
             result = _validate_required_fields(
-                {"field1": "value1", "field2": "value2"},
-                ["field1", "field2"]
+                {"field1": "value1", "field2": "value2"}, ["field1", "field2"]
             )
             assert result is None
 
@@ -121,8 +117,7 @@ class TestValidateRequiredFields:
     async def test_missing_single_field_returns_error(self, quart_app) -> None:
         async with quart_app.app_context():
             result = _validate_required_fields(
-                {"field1": "value1"},
-                ["field1", "field2"]
+                {"field1": "value1"}, ["field1", "field2"]
             )
             assert result is not None
             response, status = result
@@ -132,8 +127,7 @@ class TestValidateRequiredFields:
     async def test_empty_field_treated_as_missing(self, quart_app) -> None:
         async with quart_app.app_context():
             result = _validate_required_fields(
-                {"field1": "value1", "field2": ""},
-                ["field1", "field2"]
+                {"field1": "value1", "field2": ""}, ["field1", "field2"]
             )
             assert result is not None
             response, status = result
@@ -143,8 +137,7 @@ class TestValidateRequiredFields:
     async def test_missing_multiple_fields_lists_all(self, quart_app) -> None:
         async with quart_app.app_context():
             result = _validate_required_fields(
-                {"field1": "value1"},
-                ["field1", "field2", "field3"]
+                {"field1": "value1"}, ["field1", "field2", "field3"]
             )
             assert result is not None
             response, status = result
@@ -183,7 +176,9 @@ class TestGetMachineById:
         mock_get_db.return_value = mock_db
 
         machine_record = MagicMock()
-        machine_record.as_dict.return_value = _make_machine_record(system_id="sys-test-123")
+        machine_record.as_dict.return_value = _make_machine_record(
+            system_id="sys-test-123"
+        )
 
         query_result = MagicMock()
         query_result.first.return_value = machine_record
@@ -298,7 +293,7 @@ class TestCreateDeploymentJob:
             image_id=2,
             boot_config_id=3,
             biomes_to_deploy=[10, 20],
-            user_id=100
+            user_id=100,
         )
 
         assert job_id.startswith("deploy-")
@@ -316,7 +311,7 @@ class TestCreateDeploymentJob:
             image_id=2,
             boot_config_id=None,
             biomes_to_deploy=[],
-            user_id=100
+            user_id=100,
         )
 
         assert job_id.startswith("deploy-")
@@ -332,7 +327,7 @@ class TestCreateDeploymentJob:
             image_id=2,
             boot_config_id=None,
             biomes_to_deploy=[],
-            user_id=None
+            user_id=None,
         )
 
         assert job_id.startswith("deploy-")
@@ -359,7 +354,7 @@ class TestLogBootEvent:
             event_type="boot_start",
             details={"key": "value"},
             status="started",
-            ip_address="192.168.1.100"
+            ip_address="192.168.1.100",
         )
 
         mock_db.boot_events.insert.assert_called_once()
@@ -371,9 +366,7 @@ class TestLogBootEvent:
         mock_get_db.return_value = mock_db
 
         _log_boot_event(
-            machine_id=None,
-            mac_address="aa:bb:cc:dd:ee:ff",
-            event_type="discovery"
+            machine_id=None, mac_address="aa:bb:cc:dd:ee:ff", event_type="discovery"
         )
 
         call_args = mock_db.boot_events.insert.call_args
@@ -389,7 +382,7 @@ class TestLogBootEvent:
             machine_id=1,
             mac_address="aa:bb:cc:dd:ee:ff",
             event_type="boot_start",
-            details=None
+            details=None,
         )
 
         call_args = mock_db.boot_events.insert.call_args
@@ -409,31 +402,35 @@ class TestMachineEndpoints:
         machine = _make_machine_record(status="ready")
         image = _make_image_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe._get_boot_config_by_id", return_value=None), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe._create_deployment_job", return_value="job-123"), \
-             patch("app.api.ipxe._log_boot_event"), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe._get_image_by_id", return_value=image
+        ), patch("app.api.ipxe._get_boot_config_by_id", return_value=None), patch(
+            "app.api.ipxe.get_db"
+        ), patch(
+            "app.api.ipxe._create_deployment_job", return_value="job-123"
+        ), patch(
+            "app.api.ipxe._log_boot_event"
+        ), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             resp = await client.post(
                 "/api/v1/ipxe/machines/1/deploy",
-                json={"image_id": 1, "biomes": [10, 20]}
+                json={"image_id": 1, "biomes": [10, 20]},
             )
             # Expected: 200 on success
             assert resp.status_code in (200, 401, 403)
 
     @pytest.mark.asyncio
     async def test_deploy_machine_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_machine_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post(
-                "/api/v1/ipxe/machines/999/deploy",
-                json={"image_id": 1}
+                "/api/v1/ipxe/machines/999/deploy", json={"image_id": 1}
             )
             assert resp.status_code in (404, 401, 403)
 
@@ -441,13 +438,12 @@ class TestMachineEndpoints:
     async def test_deploy_machine_invalid_state(self, client) -> None:
         machine = _make_machine_record(status="deploying")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post(
-                "/api/v1/ipxe/machines/1/deploy",
-                json={"image_id": 1}
+                "/api/v1/ipxe/machines/1/deploy", json={"image_id": 1}
             )
             # Expected: 400 for invalid state
             assert resp.status_code in (400, 401, 403)
@@ -456,13 +452,12 @@ class TestMachineEndpoints:
     async def test_deploy_missing_image_id(self, client) -> None:
         machine = _make_machine_record(status="ready")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post(
-                "/api/v1/ipxe/machines/1/deploy",
-                json={"biomes": []}
+                "/api/v1/ipxe/machines/1/deploy", json={"biomes": []}
             )
             # Expected: 400 for missing required field
             assert resp.status_code in (400, 401, 403)
@@ -471,14 +466,14 @@ class TestMachineEndpoints:
     async def test_deploy_image_not_found(self, client) -> None:
         machine = _make_machine_record(status="ready")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe._get_image_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe._get_image_by_id", return_value=None
+        ), patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             resp = await client.post(
-                "/api/v1/ipxe/machines/1/deploy",
-                json={"image_id": 999}
+                "/api/v1/ipxe/machines/1/deploy", json={"image_id": 999}
             )
             # Expected: 404 for image not found
             assert resp.status_code in (404, 401, 403)
@@ -488,15 +483,17 @@ class TestMachineEndpoints:
         machine = _make_machine_record(status="ready")
         image = _make_image_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe._get_boot_config_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe._get_image_by_id", return_value=image
+        ), patch("app.api.ipxe._get_boot_config_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             resp = await client.post(
                 "/api/v1/ipxe/machines/1/deploy",
-                json={"image_id": 1, "boot_config_id": 999}
+                json={"image_id": 1, "boot_config_id": 999},
             )
             # Expected: 404 for missing boot config
             assert resp.status_code in (404, 401, 403)
@@ -505,9 +502,9 @@ class TestMachineEndpoints:
     async def test_deploy_without_body(self, client) -> None:
         machine = _make_machine_record(status="ready")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post("/api/v1/ipxe/machines/1/deploy", json=None)
             assert resp.status_code in (400, 401, 403)
@@ -516,20 +513,22 @@ class TestMachineEndpoints:
     async def test_release_machine_happy_path(self, client) -> None:
         machine = _make_machine_record(status="deployed")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe._log_boot_event"), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db"
+        ), patch("app.api.ipxe._log_boot_event"), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             resp = await client.post("/api/v1/ipxe/machines/1/release")
             assert resp.status_code in (200, 401, 403)
 
     @pytest.mark.asyncio
     async def test_release_machine_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_machine_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post("/api/v1/ipxe/machines/999/release")
             assert resp.status_code in (404, 401, 403)
@@ -538,9 +537,9 @@ class TestMachineEndpoints:
     async def test_release_machine_invalid_state(self, client) -> None:
         machine = _make_machine_record(status="ready")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.post("/api/v1/ipxe/machines/1/release")
             # Expected: 400 for invalid state
@@ -550,11 +549,13 @@ class TestMachineEndpoints:
     async def test_power_control_endpoint_exists(self, client) -> None:
         machine = _make_machine_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe._log_boot_event"), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db"
+        ), patch("app.api.ipxe._log_boot_event"), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             # Test that power control endpoint exists and responds
             resp = await client.post("/api/v1/ipxe/machines/1/power/on")
@@ -565,18 +566,18 @@ class TestMachineEndpoints:
     async def test_update_biomes_happy_path(self, client) -> None:
         machine = _make_machine_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db") as mock_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db"
+        ) as mock_db, patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.maintainer_or_admin_required", lambda f: f
+        ):
 
             # Mock the update query
             update_result = MagicMock()
             mock_db.return_value.return_value = update_result
 
             resp = await client.put(
-                "/api/v1/ipxe/machines/1/biomes",
-                json={"biomes": [1, 2, 3]}
+                "/api/v1/ipxe/machines/1/biomes", json={"biomes": [1, 2, 3]}
             )
             assert resp.status_code in (200, 201, 401, 403)
 
@@ -584,13 +585,12 @@ class TestMachineEndpoints:
     async def test_update_biomes_invalid_list(self, client) -> None:
         machine = _make_machine_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.put(
-                "/api/v1/ipxe/machines/1/biomes",
-                json={"biomes": "not-a-list"}
+                "/api/v1/ipxe/machines/1/biomes", json={"biomes": "not-a-list"}
             )
             # Expected: 400 for invalid type
             assert resp.status_code in (400, 401, 403)
@@ -599,22 +599,21 @@ class TestMachineEndpoints:
     async def test_update_biomes_without_body(self, client) -> None:
         machine = _make_machine_record()
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.put("/api/v1/ipxe/machines/1/biomes", json=None)
             assert resp.status_code in (400, 401, 403)
 
     @pytest.mark.asyncio
     async def test_update_biomes_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_machine_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.maintainer_or_admin_required", lambda f: f):
 
             resp = await client.put(
-                "/api/v1/ipxe/machines/999/biomes",
-                json={"biomes": [1, 2]}
+                "/api/v1/ipxe/machines/999/biomes", json={"biomes": [1, 2]}
             )
             assert resp.status_code in (404, 401, 403)
 
@@ -622,19 +621,20 @@ class TestMachineEndpoints:
     async def test_delete_machine_happy_path(self, client) -> None:
         machine = _make_machine_record(status="ready")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.get_db"), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.get_db"
+        ), patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.admin_required", lambda f: f
+        ):
 
             resp = await client.delete("/api/v1/ipxe/machines/1")
             assert resp.status_code in (200, 201, 401, 403)
 
     @pytest.mark.asyncio
     async def test_delete_machine_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_machine_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             resp = await client.delete("/api/v1/ipxe/machines/999")
             assert resp.status_code in (404, 401, 403)
@@ -643,9 +643,9 @@ class TestMachineEndpoints:
     async def test_delete_deployed_machine_fails(self, client) -> None:
         machine = _make_machine_record(status="deployed")
 
-        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_machine_by_id", return_value=machine), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             resp = await client.delete("/api/v1/ipxe/machines/1")
             # Expected: 400 for deployed machine
@@ -662,8 +662,9 @@ class TestBootImageEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_images_no_filters(self, client) -> None:
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
             mock_db.ipxe_images.id = 1  # int so `id > 0` works in Python 3.14
@@ -683,14 +684,17 @@ class TestBootImageEndpoints:
 
     @pytest.mark.asyncio
     async def test_list_images_with_architecture_filter(self, client) -> None:
-        with patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe.get_db") as mock_get_db, patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
             mock_db.ipxe_images.id = 1  # int so `id > 0` works in Python 3.14
             mock_get_db.return_value = mock_db
 
-            images = [MagicMock(as_dict=lambda: _make_image_record(architecture="arm64"))]
+            images = [
+                MagicMock(as_dict=lambda: _make_image_record(architecture="arm64"))
+            ]
             query_result = MagicMock()
             query_result.select.return_value.as_list.return_value = images
             mock_db.return_value = query_result
@@ -711,10 +715,11 @@ class TestBootConfigEndpoints:
     async def test_update_boot_config_happy_path(self, client) -> None:
         config = _make_boot_config_record()
 
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), \
-             patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), patch(
+            "app.api.ipxe.get_db"
+        ) as mock_get_db, patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.admin_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -728,20 +733,18 @@ class TestBootConfigEndpoints:
             mock_db.return_value = query_result
 
             resp = await client.put(
-                "/api/v1/ipxe/boot-configs/1",
-                json={"description": "New description"}
+                "/api/v1/ipxe/boot-configs/1", json={"description": "New description"}
             )
             assert resp.status_code in (200, 401, 403)
 
     @pytest.mark.asyncio
     async def test_update_boot_config_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             resp = await client.put(
-                "/api/v1/ipxe/boot-configs/999",
-                json={"description": "New"}
+                "/api/v1/ipxe/boot-configs/999", json={"description": "New"}
             )
             assert resp.status_code in (404, 401, 403)
 
@@ -749,9 +752,9 @@ class TestBootConfigEndpoints:
     async def test_update_boot_config_without_body(self, client) -> None:
         config = _make_boot_config_record()
 
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             resp = await client.put("/api/v1/ipxe/boot-configs/1", json=None)
             assert resp.status_code in (400, 401, 403)
@@ -760,10 +763,11 @@ class TestBootConfigEndpoints:
     async def test_delete_boot_config_happy_path(self, client) -> None:
         config = _make_boot_config_record()
 
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), \
-             patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), patch(
+            "app.api.ipxe.get_db"
+        ) as mock_get_db, patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.admin_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -780,10 +784,11 @@ class TestBootConfigEndpoints:
     async def test_delete_boot_config_in_use(self, client) -> None:
         config = _make_boot_config_record()
 
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), \
-             patch("app.api.ipxe.get_db") as mock_get_db, \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), patch(
+            "app.api.ipxe.get_db"
+        ) as mock_get_db, patch("app.api.ipxe.auth_required", lambda f: f), patch(
+            "app.api.ipxe.admin_required", lambda f: f
+        ):
 
             mock_db = MagicMock()
             mock_get_db.return_value = mock_db
@@ -799,9 +804,9 @@ class TestBootConfigEndpoints:
 
     @pytest.mark.asyncio
     async def test_delete_boot_config_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f), \
-             patch("app.api.ipxe.admin_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ), patch("app.api.ipxe.admin_required", lambda f: f):
 
             resp = await client.delete("/api/v1/ipxe/boot-configs/999")
             assert resp.status_code in (404, 401, 403)
@@ -811,17 +816,18 @@ class TestBootConfigEndpoints:
         config = _make_boot_config_record()
         image = _make_image_record()
 
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), \
-             patch("app.api.ipxe._get_image_by_id", return_value=image), \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=config), patch(
+            "app.api.ipxe._get_image_by_id", return_value=image
+        ), patch("app.api.ipxe.auth_required", lambda f: f):
 
             resp = await client.get("/api/v1/ipxe/boot-configs/1/preview")
             assert resp.status_code in (200, 401)
 
     @pytest.mark.asyncio
     async def test_preview_boot_config_not_found(self, client) -> None:
-        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), \
-             patch("app.api.ipxe.auth_required", lambda f: f):
+        with patch("app.api.ipxe._get_boot_config_by_id", return_value=None), patch(
+            "app.api.ipxe.auth_required", lambda f: f
+        ):
 
             resp = await client.get("/api/v1/ipxe/boot-configs/999/preview")
             assert resp.status_code in (404, 401)

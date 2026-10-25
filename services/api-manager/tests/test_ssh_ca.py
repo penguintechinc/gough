@@ -3,13 +3,9 @@
 Covers SSHCertificateAuthority class, key generation, signing, and database integration.
 """
 
-import os
+from unittest.mock import MagicMock, patch
+
 import pytest
-import tempfile
-import asyncio
-from pathlib import Path
-from unittest.mock import MagicMock, patch, AsyncMock, call
-from datetime import datetime, timezone
 
 # ============================================================================
 # Tests for app/ssh_ca.py
@@ -63,14 +59,14 @@ class TestSSHCertificateAuthority:
         ca.init_app(mock_app)
 
         assert ca.app is mock_app
-        assert mock_app.extensions['ssh_ca'] is ca
+        assert mock_app.extensions["ssh_ca"] is ca
 
     @pytest.mark.asyncio
     async def test_ensure_ca_initialized_db_none(self):
         """Test ensure_ca_initialized() handles None database gracefully."""
         from app.ssh_ca import SSHCertificateAuthority
 
-        with patch('app.ssh_ca.get_db', return_value=None):
+        with patch("app.ssh_ca.get_db", return_value=None):
             ca = SSHCertificateAuthority()
             # Should not raise
             await ca.ensure_ca_initialized()
@@ -84,7 +80,7 @@ class TestSSHCertificateAuthority:
         mock_config.public_key = "ssh-rsa AAAA... gough-ca"
         mock_db.return_value.select.return_value.first.return_value = mock_config
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
             ca = SSHCertificateAuthority()
             public_key = ca.get_ca_public_key()
 
@@ -97,7 +93,7 @@ class TestSSHCertificateAuthority:
         mock_db = MagicMock()
         mock_db.return_value.select.return_value.first.return_value = None
 
-        with patch('app.ssh_ca.get_db', return_value=mock_db):
+        with patch("app.ssh_ca.get_db", return_value=mock_db):
             ca = SSHCertificateAuthority()
 
             with pytest.raises(RuntimeError, match="SSH CA not initialized"):
@@ -157,7 +153,7 @@ class TestSSHCAAPI:
         # API endpoint tests require complex async context setup
         # These are covered by integration tests with disks_app fixture
         # Focus here is on unit testing the module imports and structure
-        from app.api.ssh_ca import ssh_ca_bp, initialize_ca, get_public_key
+        from app.api.ssh_ca import get_public_key, initialize_ca, ssh_ca_bp
 
         assert ssh_ca_bp is not None
         assert initialize_ca is not None

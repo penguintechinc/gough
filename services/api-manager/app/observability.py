@@ -87,7 +87,9 @@ def _ensure_initialized() -> None:
             return
 
         endpoint = os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "")
-        headers = _parse_kv_csv(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")) or None
+        headers = (
+            _parse_kv_csv(os.environ.get("OTEL_EXPORTER_OTLP_HEADERS", "")) or None
+        )
         resource = _build_resource()
 
         tracer_provider = TracerProvider(resource=resource)
@@ -97,7 +99,9 @@ def _ensure_initialized() -> None:
         if endpoint:
             try:
                 tracer_provider.add_span_processor(
-                    BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, headers=headers))
+                    BatchSpanProcessor(
+                        OTLPSpanExporter(endpoint=endpoint, headers=headers)
+                    )
                 )
                 metric_readers.append(
                     PeriodicExportingMetricReader(
@@ -105,7 +109,9 @@ def _ensure_initialized() -> None:
                     )
                 )
                 logger_provider.add_log_record_processor(
-                    BatchLogRecordProcessor(OTLPLogExporter(endpoint=endpoint, headers=headers))
+                    BatchLogRecordProcessor(
+                        OTLPLogExporter(endpoint=endpoint, headers=headers)
+                    )
                 )
             except Exception:  # noqa: BLE001 - exporter wiring must never crash startup
                 _bootstrap_log.warning(
@@ -120,7 +126,9 @@ def _ensure_initialized() -> None:
 
         trace.set_tracer_provider(tracer_provider)
         metrics.set_meter_provider(meter_provider)
-        _log_handler = LoggingHandler(level=logging.NOTSET, logger_provider=logger_provider)
+        _log_handler = LoggingHandler(
+            level=logging.NOTSET, logger_provider=logger_provider
+        )
         _initialized = True
 
 

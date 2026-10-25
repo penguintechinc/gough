@@ -3,17 +3,15 @@
 Tests for user endpoint functions using mocks.
 """
 
-import json
 import sys
-from unittest.mock import MagicMock, AsyncMock, patch, Mock
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = "/home/penguin/code/gough/services/api-manager"
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
-    if _mod == 'app' or _mod.startswith('app.'):
+    if _mod == "app" or _mod.startswith("app."):
         del sys.modules[_mod]
 
 
@@ -22,19 +20,19 @@ class TestUserEndpointHelpers:
 
     def test_valid_roles_expected(self):
         """Test that expected roles are admin, maintainer, viewer."""
-        expected_roles = ['admin', 'maintainer', 'viewer']
-        assert 'admin' in expected_roles
-        assert 'maintainer' in expected_roles
-        assert 'viewer' in expected_roles
+        expected_roles = ["admin", "maintainer", "viewer"]
+        assert "admin" in expected_roles
+        assert "maintainer" in expected_roles
+        assert "viewer" in expected_roles
 
     @pytest.mark.asyncio
     async def test_get_users_pagination_bounds(self):
         """Test get_users enforces pagination bounds."""
         # Test that per_page is clamped between 1 and 100
         test_cases = [
-            (0, 1),      # Below minimum
-            (1, 1),      # At minimum
-            (50, 50),    # In range
+            (0, 1),  # Below minimum
+            (1, 1),  # At minimum
+            (50, 50),  # In range
             (100, 100),  # At maximum
             (101, 100),  # Above maximum
         ]
@@ -68,16 +66,16 @@ class TestUserEndpointHelpers:
 
     def test_role_validation_valid_roles(self):
         """Test role validation against valid roles."""
-        valid_roles = ['admin', 'maintainer', 'viewer']
+        valid_roles = ["admin", "maintainer", "viewer"]
 
-        test_roles = ['admin', 'maintainer', 'viewer']
+        test_roles = ["admin", "maintainer", "viewer"]
         for role in test_roles:
             assert role in valid_roles
 
     def test_role_validation_invalid_role(self):
         """Test role validation rejects invalid role."""
-        valid_roles = ['admin', 'maintainer', 'viewer']
-        invalid_role = 'superuser'
+        valid_roles = ["admin", "maintainer", "viewer"]
+        invalid_role = "superuser"
 
         assert invalid_role not in valid_roles
 
@@ -212,7 +210,9 @@ class TestUserDataManipulation:
 
         assert "users" in response
         assert "pagination" in response
-        assert all(k in response["pagination"] for k in ["page", "per_page", "total", "pages"])
+        assert all(
+            k in response["pagination"] for k in ["page", "per_page", "total", "pages"]
+        )
 
 
 class TestUserValidation:
@@ -228,7 +228,10 @@ class TestUserValidation:
         assert is_duplicate
 
         # Different email should not be duplicate
-        is_duplicate = existing_user is not None and existing_user["email"] == "different@example.com"
+        is_duplicate = (
+            existing_user is not None
+            and existing_user["email"] == "different@example.com"
+        )
         assert not is_duplicate
 
     def test_new_email_same_as_current(self):
@@ -244,15 +247,15 @@ class TestUserValidation:
 
     def test_role_change_validation(self):
         """Test role change validation."""
-        valid_roles = ['admin', 'maintainer', 'viewer']
+        valid_roles = ["admin", "maintainer", "viewer"]
 
         test_cases = [
-            ('admin', True),
-            ('maintainer', True),
-            ('viewer', True),
-            ('superuser', False),
-            ('user', False),
-            ('', False),
+            ("admin", True),
+            ("maintainer", True),
+            ("viewer", True),
+            ("superuser", False),
+            ("user", False),
+            ("", False),
         ]
 
         for role, expected_valid in test_cases:
@@ -265,11 +268,11 @@ class TestRoleDefinitions:
 
     def test_role_descriptions_complete(self):
         """Test all roles have descriptions."""
-        roles = ['admin', 'maintainer', 'viewer']
+        roles = ["admin", "maintainer", "viewer"]
         descriptions = {
-            'admin': 'Full access: user CRUD, settings, all features',
-            'maintainer': 'Read/write access to resources, no user management',
-            'viewer': 'Read-only access to resources',
+            "admin": "Full access: user CRUD, settings, all features",
+            "maintainer": "Read/write access to resources, no user management",
+            "viewer": "Read-only access to resources",
         }
 
         for role in roles:
@@ -281,12 +284,12 @@ class TestRoleDefinitions:
         """Test role permissions hierarchy."""
         # Admin > Maintainer > Viewer in terms of permissions
         permissions = {
-            'admin': ['read', 'write', 'delete', 'manage_users'],
-            'maintainer': ['read', 'write'],
-            'viewer': ['read'],
+            "admin": ["read", "write", "delete", "manage_users"],
+            "maintainer": ["read", "write"],
+            "viewer": ["read"],
         }
 
         # Admin has more permissions than maintainer
-        assert len(permissions['admin']) > len(permissions['maintainer'])
+        assert len(permissions["admin"]) > len(permissions["maintainer"])
         # Maintainer has more permissions than viewer
-        assert len(permissions['maintainer']) > len(permissions['viewer'])
+        assert len(permissions["maintainer"]) > len(permissions["viewer"])

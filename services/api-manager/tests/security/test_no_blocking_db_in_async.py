@@ -128,16 +128,18 @@ class _AsyncBlockingCallFinder(ast.NodeVisitor):
         if isinstance(node, (ast.FunctionDef, ast.Lambda, ast.AsyncFunctionDef)):
             return
 
-        if isinstance(node, ast.Assign) and _is_handle_producing_expr(node.value, handles):
+        if isinstance(node, ast.Assign) and _is_handle_producing_expr(
+            node.value, handles
+        ):
             for tgt in node.targets:
                 if isinstance(tgt, ast.Name):
                     handles.add(tgt.id)
 
         if isinstance(node, (ast.With, ast.AsyncWith)):
             for item in node.items:
-                if isinstance(item.optional_vars, ast.Name) and _is_handle_producing_expr(
-                    item.context_expr, handles
-                ):
+                if isinstance(
+                    item.optional_vars, ast.Name
+                ) and _is_handle_producing_expr(item.context_expr, handles):
                     handles.add(item.optional_vars.id)
 
         if isinstance(node, ast.Call):
@@ -146,7 +148,10 @@ class _AsyncBlockingCallFinder(ast.NodeVisitor):
                 root = _root_name(func.value)
                 if root in handles:
                     self.violations.append(
-                        (node.lineno, f"{root}....{func.attr}(...) outside run_db()/to_thread()")
+                        (
+                            node.lineno,
+                            f"{root}....{func.attr}(...) outside run_db()/to_thread()",
+                        )
                     )
 
         for child in ast.iter_child_nodes(node):

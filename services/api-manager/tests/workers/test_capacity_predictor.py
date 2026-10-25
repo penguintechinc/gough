@@ -15,11 +15,9 @@ Coverage:
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
-
 from app.clients.waddleai import (
     ClusterAggregate,
     ForecastBundle,
@@ -33,7 +31,6 @@ from app.workers.capacity_predictor import (
     ClusterUsageSnapshot,
     NodeUsageSnapshot,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fixtures
@@ -95,9 +92,7 @@ def predictor_with_cache(mock_prometheus, mock_waddleai, mock_redis):
 
 class TestComputeForecast:
     @pytest.mark.asyncio
-    async def test_forecast_waddleai_success(
-        self, predictor_no_cache, mock_waddleai
-    ):
+    async def test_forecast_waddleai_success(self, predictor_no_cache, mock_waddleai):
         """WaddleAI 200 → ForecastBundle returned."""
         bundle = ForecastBundle(
             horizon_days=7,
@@ -189,17 +184,19 @@ class TestComputeForecast:
             horizon_days=7,
             generated_at=datetime.now(timezone.utc),
             cluster=ClusterAggregate(
-                cpu_used_pct=0, cpu_predicted_pct=0, ram_used_pct=0,
-                ram_predicted_pct=0, disk_used_pct=0, disk_predicted_pct=0,
+                cpu_used_pct=0,
+                cpu_predicted_pct=0,
+                ram_used_pct=0,
+                ram_predicted_pct=0,
+                disk_used_pct=0,
+                disk_predicted_pct=0,
             ),
         )
         mock_waddleai.forecast.return_value = bundle
 
         await predictor_no_cache.compute_forecast(horizon_days=7, node_ids=[1, 2])
 
-        mock_waddleai.forecast.assert_called_once_with(
-            horizon_days=7, node_ids=[1, 2]
-        )
+        mock_waddleai.forecast.assert_called_once_with(horizon_days=7, node_ids=[1, 2])
 
     @pytest.mark.asyncio
     async def test_forecast_cache_hit(self, predictor_with_cache, mock_waddleai):
@@ -209,8 +206,12 @@ class TestComputeForecast:
             generated_at=datetime.now(timezone.utc),
             confidence="high",
             cluster=ClusterAggregate(
-                cpu_used_pct=10, cpu_predicted_pct=10, ram_used_pct=10,
-                ram_predicted_pct=10, disk_used_pct=10, disk_predicted_pct=10,
+                cpu_used_pct=10,
+                cpu_predicted_pct=10,
+                ram_used_pct=10,
+                ram_predicted_pct=10,
+                disk_used_pct=10,
+                disk_predicted_pct=10,
             ),
         )
         import json
@@ -236,16 +237,24 @@ class TestComputeForecast:
     @pytest.mark.asyncio
     async def test_forecast_horizon_1_7_30(self, predictor_no_cache, mock_waddleai):
         """All valid horizons {1,7,30} are accepted."""
+
         def make_bundle(h):
             return ForecastBundle(
                 horizon_days=h,
                 generated_at=datetime.now(timezone.utc),
                 cluster=ClusterAggregate(
-                    cpu_used_pct=0, cpu_predicted_pct=0, ram_used_pct=0,
-                    ram_predicted_pct=0, disk_used_pct=0, disk_predicted_pct=0,
+                    cpu_used_pct=0,
+                    cpu_predicted_pct=0,
+                    ram_used_pct=0,
+                    ram_predicted_pct=0,
+                    disk_used_pct=0,
+                    disk_predicted_pct=0,
                 ),
             )
-        mock_waddleai.forecast.side_effect = lambda horizon_days=7, node_ids=None: make_bundle(horizon_days)
+
+        mock_waddleai.forecast.side_effect = (
+            lambda horizon_days=7, node_ids=None: make_bundle(horizon_days)
+        )
 
         for h in [1, 7, 30]:
             result, _ = await predictor_no_cache.compute_forecast(horizon_days=h)
@@ -276,9 +285,7 @@ class TestComputeRisks:
         assert confidence == "high"
 
     @pytest.mark.asyncio
-    async def test_risks_waddleai_402_degraded(
-        self, predictor_no_cache, mock_waddleai
-    ):
+    async def test_risks_waddleai_402_degraded(self, predictor_no_cache, mock_waddleai):
         """WaddleAI 402 → empty list, low confidence."""
         degraded = WaddleAIDegradedResponse(
             status_code=402, waddleai_message="license required"
@@ -339,9 +346,7 @@ class TestComputeRisks:
         mock_waddleai.risks.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_risks_sorted_desc_by_score(
-        self, predictor_no_cache, mock_waddleai
-    ):
+    async def test_risks_sorted_desc_by_score(self, predictor_no_cache, mock_waddleai):
         """Results are sorted descending by risk_score."""
         risks = [
             NodeRiskScore(node_id=3, risk_score=0.2),
@@ -371,12 +376,18 @@ class TestSynthesizeForecast:
         """Synthesized forecast includes per-node data from Prometheus."""
         mock_prometheus.snapshot_node_usage.return_value = [
             NodeUsageSnapshot(
-                node_id=1, cpu_used_pct=50.0, ram_used_pct=40.0,
-                disk_used_pct=70.0, net_used_bps=1024.0,
+                node_id=1,
+                cpu_used_pct=50.0,
+                ram_used_pct=40.0,
+                disk_used_pct=70.0,
+                net_used_bps=1024.0,
             ),
             NodeUsageSnapshot(
-                node_id=2, cpu_used_pct=20.0, ram_used_pct=30.0,
-                disk_used_pct=60.0, net_used_bps=512.0,
+                node_id=2,
+                cpu_used_pct=20.0,
+                ram_used_pct=30.0,
+                disk_used_pct=60.0,
+                net_used_bps=512.0,
             ),
         ]
         mock_prometheus.snapshot_cluster_usage.return_value = ClusterUsageSnapshot(
@@ -386,9 +397,7 @@ class TestSynthesizeForecast:
         unavailable = WaddleAIUnavailableResponse(status_code=503)
         predictor_no_cache._waddleai.forecast.return_value = unavailable
 
-        bundle, raw_result = await predictor_no_cache.compute_forecast(
-            horizon_days=7
-        )
+        bundle, raw_result = await predictor_no_cache.compute_forecast(horizon_days=7)
 
         assert bundle.confidence == "low"
         assert len(bundle.per_node) == 2
@@ -424,8 +433,11 @@ class TestSynthesizeForecast:
         """Percentages are clamped to [0,100] range."""
         mock_prometheus.snapshot_node_usage.return_value = [
             NodeUsageSnapshot(
-                node_id=1, cpu_used_pct=150.0, ram_used_pct=-10.0,
-                disk_used_pct=float('nan'), net_used_bps=1024.0,
+                node_id=1,
+                cpu_used_pct=150.0,
+                ram_used_pct=-10.0,
+                disk_used_pct=float("nan"),
+                net_used_bps=1024.0,
             ),
         ]
         mock_prometheus.snapshot_cluster_usage.return_value = ClusterUsageSnapshot(

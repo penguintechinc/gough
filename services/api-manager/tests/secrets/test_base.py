@@ -3,14 +3,12 @@
 from __future__ import annotations
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock
-
 from app.secrets.base import (
     BaseSecretsManager,
     SecretAccessError,
     SecretNotFoundError,
-    SecretValidationError,
     SecretsManagerError,
+    SecretValidationError,
 )
 
 

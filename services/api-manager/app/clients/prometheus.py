@@ -71,7 +71,7 @@ class PrometheusClient(PrometheusClientProtocol):
             async with httpx.AsyncClient(timeout=self._timeout) as client:
                 # Fetch CPU usage (100 - idle percentage)
                 cpu_query = (
-                    '100 - (avg by (instance) '
+                    "100 - (avg by (instance) "
                     '(irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)'
                 )
                 cpu_resp = await client.get(
@@ -82,8 +82,8 @@ class PrometheusClient(PrometheusClientProtocol):
 
                 # Fetch RAM usage
                 ram_query = (
-                    '(1 - (node_memory_MemAvailable_bytes / '
-                    'node_memory_MemTotal_bytes)) * 100'
+                    "(1 - (node_memory_MemAvailable_bytes / "
+                    "node_memory_MemTotal_bytes)) * 100"
                 )
                 ram_resp = await client.get(
                     f"{self._endpoint}/api/v1/query",
@@ -103,9 +103,7 @@ class PrometheusClient(PrometheusClientProtocol):
                 disk_data = self._parse_query_response(disk_resp)
 
                 # Fetch Network usage (receive bytes/sec)
-                net_query = (
-                    'irate(node_network_receive_bytes_total[5m])'
-                )
+                net_query = "irate(node_network_receive_bytes_total[5m])"
                 net_resp = await client.get(
                     f"{self._endpoint}/api/v1/query",
                     params={"query": net_query},
@@ -132,6 +130,7 @@ class PrometheusClient(PrometheusClientProtocol):
                     else:
                         # Hostname: try to extract trailing digits (e.g., "node-42" → 42)
                         import re
+
                         match = re.search(r"(\d+)$", host_part)
                         node_id = int(match.group(1)) if match else 0
                     if node_id == 0:
@@ -185,8 +184,8 @@ class PrometheusClient(PrometheusClientProtocol):
 
                 # Cluster-wide RAM
                 ram_query = (
-                    '(1 - (sum(node_memory_MemAvailable_bytes) / '
-                    'sum(node_memory_MemTotal_bytes))) * 100'
+                    "(1 - (sum(node_memory_MemAvailable_bytes) / "
+                    "sum(node_memory_MemTotal_bytes))) * 100"
                 )
                 ram_resp = await client.get(
                     f"{self._endpoint}/api/v1/query",
@@ -218,7 +217,6 @@ class PrometheusClient(PrometheusClientProtocol):
                 disk_used_pct=0.0,
             )
 
-
     def _parse_query_response(self, resp: httpx.Response) -> dict[str, dict]:
         """Parse Prometheus /api/v1/query response into {instance: {instance, value}}."""
         try:
@@ -230,7 +228,11 @@ class PrometheusClient(PrometheusClientProtocol):
             for result in results:
                 metric = result.get("metric", {})
                 instance = metric.get("instance", "unknown")
-                value = float(result.get("value", [0, 0])[1]) if result.get("value") else 0.0
+                value = (
+                    float(result.get("value", [0, 0])[1])
+                    if result.get("value")
+                    else 0.0
+                )
                 output[instance] = {"instance": instance, "value": value}
             return output
         except Exception as exc:

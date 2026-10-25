@@ -5,10 +5,8 @@ Focus on unit-testable functions without complex Quart context requirements.
 
 from __future__ import annotations
 
-import time
 from unittest.mock import patch
 
-import jwt as pyjwt
 import pytest
 
 # ============================================================================
@@ -28,10 +26,11 @@ class TestMiddlewareGetCurrentUser:
     def test_get_current_user_when_set(self):
         """Return user when g.current_user is set (lines 72-75)."""
         from app.middleware import get_current_user
-        from quart import g, Quart
+        from quart import Quart, g
 
         app = Quart(__name__)
         import asyncio
+
         async def test_async():
             async with app.test_request_context("/"):
                 g.current_user = {"id": 1, "email": "test@example.com"}
@@ -47,6 +46,7 @@ class TestMiddlewareGetCurrentUser:
 
         app = Quart(__name__)
         import asyncio
+
         async def test_async():
             async with app.test_request_context("/"):
                 user = get_current_user()
@@ -57,10 +57,11 @@ class TestMiddlewareGetCurrentUser:
     def test_user_has_role_when_user_exists(self):
         """Return True when user has role."""
         from app.middleware import user_has_role
-        from quart import g, Quart
+        from quart import Quart, g
 
         app = Quart(__name__)
         import asyncio
+
         async def test_async():
             async with app.test_request_context("/"):
                 g.current_user = {"id": 1, "role": "admin"}
@@ -76,6 +77,7 @@ class TestMiddlewareGetCurrentUser:
 
         app = Quart(__name__)
         import asyncio
+
         async def test_async():
             async with app.test_request_context("/"):
                 assert user_has_role("admin") is False
@@ -146,10 +148,7 @@ class TestScopeExtractionAndValidation:
 
     def test_check_scopes_insufficient(self):
         """Raise when provided scopes insufficient."""
-        from app.security.scope_enforcement import (
-            check_scopes,
-            InsufficientScopeError,
-        )
+        from app.security.scope_enforcement import InsufficientScopeError, check_scopes
 
         provided = frozenset({"read"})
         required = frozenset({"read", "write"})
@@ -197,10 +196,13 @@ class TestPathNormalization:
         """Lookup finds exact (method, path) match in policy."""
         from app.security.scope_enforcement import lookup_required_scopes
 
-        with patch("app.security.scope_enforcement.SCOPE_POLICY", {
-            ("GET", "/api/v1/users"): frozenset({"read"}),
-            ("POST", "/api/v1/users"): frozenset({"write"}),
-        }):
+        with patch(
+            "app.security.scope_enforcement.SCOPE_POLICY",
+            {
+                ("GET", "/api/v1/users"): frozenset({"read"}),
+                ("POST", "/api/v1/users"): frozenset({"write"}),
+            },
+        ):
             result = lookup_required_scopes("GET", "/api/v1/users")
             assert result == frozenset({"read"})
 
@@ -246,7 +248,9 @@ class TestTeamAccessValidation:
         """check_shell_access calls check_resource_permission with 'shell'."""
         from app.permissions import check_shell_access
 
-        with patch("app.permissions.check_resource_permission", return_value=True) as mock_check:
+        with patch(
+            "app.permissions.check_resource_permission", return_value=True
+        ) as mock_check:
             result = check_shell_access(user_id=1, resource_type="lxd", resource_id=5)
             assert result is True
             # Verify it was called with permission="shell"
@@ -273,20 +277,14 @@ class TestTenantExtraction:
 
     def test_extract_tenant_missing_raises(self):
         """Missing tenant claim raises TenantClaimMissingError."""
-        from app.security.tenant import (
-            extract_tenant_from_jwt,
-            TenantClaimMissingError,
-        )
+        from app.security.tenant import TenantClaimMissingError, extract_tenant_from_jwt
 
         with pytest.raises(TenantClaimMissingError):
             extract_tenant_from_jwt({})
 
     def test_extract_tenant_empty_string_raises(self):
         """Empty tenant claim raises TenantClaimMissingError."""
-        from app.security.tenant import (
-            extract_tenant_from_jwt,
-            TenantClaimMissingError,
-        )
+        from app.security.tenant import TenantClaimMissingError, extract_tenant_from_jwt
 
         with pytest.raises(TenantClaimMissingError):
             extract_tenant_from_jwt({"tenant": ""})
@@ -325,10 +323,7 @@ class TestTenantExtraction:
 
     def test_assert_tenant_match_mismatch_raises(self):
         """Mismatched tenants raise TenantMismatchError."""
-        from app.security.tenant import (
-            assert_tenant_match,
-            TenantMismatchError,
-        )
+        from app.security.tenant import TenantMismatchError, assert_tenant_match
 
         with pytest.raises(TenantMismatchError):
             assert_tenant_match("tenant-1", "tenant-2")

@@ -26,9 +26,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 import app.api.biomes as biomes_mod
+import pytest
 from app import metrics as app_metrics
 
 pytestmark = pytest.mark.asyncio
@@ -52,11 +51,36 @@ def sample_eggs(dal_with_eggs):
     """
     biomes = []
     specs = [
-        {"name": "k8s-controller", "biome_kind": "k8s", "phase": "phase2_initial", "workload_type": "lxc"},
-        {"name": "nest-agent", "biome_kind": "storage", "phase": "post_deploy", "workload_type": "lxc"},
-        {"name": "prometheus", "biome_kind": "monitoring", "phase": "post_deploy", "workload_type": "lxc"},
-        {"name": "vault-leader", "biome_kind": "infrastructure", "phase": "post_deploy", "workload_type": "vm"},
-        {"name": "app-workload", "biome_kind": "user_workload", "phase": "post_deploy", "workload_type": "lxc"},
+        {
+            "name": "k8s-controller",
+            "biome_kind": "k8s",
+            "phase": "phase2_initial",
+            "workload_type": "lxc",
+        },
+        {
+            "name": "nest-agent",
+            "biome_kind": "storage",
+            "phase": "post_deploy",
+            "workload_type": "lxc",
+        },
+        {
+            "name": "prometheus",
+            "biome_kind": "monitoring",
+            "phase": "post_deploy",
+            "workload_type": "lxc",
+        },
+        {
+            "name": "vault-leader",
+            "biome_kind": "infrastructure",
+            "phase": "post_deploy",
+            "workload_type": "vm",
+        },
+        {
+            "name": "app-workload",
+            "biome_kind": "user_workload",
+            "phase": "post_deploy",
+            "workload_type": "lxc",
+        },
     ]
 
     for i, spec in enumerate(specs):
@@ -123,7 +147,9 @@ def _fake_storage(monkeypatch):
     return _fake_get_storage_service
 
 
-def _cosign_subprocess_double(monkeypatch, *, fail_sign=False, fail_verify=False, digest=_DIGEST):
+def _cosign_subprocess_double(
+    monkeypatch, *, fail_sign=False, fail_verify=False, digest=_DIGEST
+):
     """Install a fake cosign/syft subprocess boundary and return its call log."""
     calls: list[list[str]] = []
 
@@ -132,14 +158,18 @@ def _cosign_subprocess_double(monkeypatch, *, fail_sign=False, fail_verify=False
         binary = argv[0]
         if binary == biomes_mod._COSIGN_BIN and "sign" in argv:
             if fail_sign:
-                raise biomes_mod.CosignError("cosign sign exited 1: simulated signing failure")
+                raise biomes_mod.CosignError(
+                    "cosign sign exited 1: simulated signing failure"
+                )
             return "", ""
         if binary == biomes_mod._COSIGN_BIN and "verify" in argv:
             if fail_verify:
                 raise biomes_mod.CosignError(
                     "cosign verify exited 1: no matching signatures (tamper/unsigned)"
                 )
-            payload = json.dumps([{"critical": {"image": {"docker-manifest-digest": digest}}}])
+            payload = json.dumps(
+                [{"critical": {"image": {"docker-manifest-digest": digest}}}]
+            )
             return payload, ""
         if binary == biomes_mod._SYFT_BIN:
             return _SBOM_DOC, ""
@@ -150,13 +180,17 @@ def _cosign_subprocess_double(monkeypatch, *, fail_sign=False, fail_verify=False
 
 
 def _metric_value(environment: str = "alpha") -> float:
-    return app_metrics.biome_signature_verification_failed.labels(environment=environment)._value.get()
+    return app_metrics.biome_signature_verification_failed.labels(
+        environment=environment
+    )._value.get()
 
 
 class TestSignBiomeFlagOff:
     """Flag-OFF regression guard — the pipeline must not change default behaviour."""
 
-    async def test_sign_unchanged_when_flag_off(self, app_client, sample_eggs, monkeypatch, _flag_off):
+    async def test_sign_unchanged_when_flag_off(
+        self, app_client, sample_eggs, monkeypatch, _flag_off
+    ):
         calls = _cosign_subprocess_double(monkeypatch)
         biome_id = sample_eggs[0][0]
         body = {"key_id": "my-signing-key", "reason": "flag-off regression"}
@@ -173,7 +207,13 @@ class TestSignBiomeFlagOn:
     """Flag-ON: the real cosign + syft pipeline."""
 
     async def test_sign_success_persists_signed_and_verified(
-        self, app_client, sample_eggs, dal_with_eggs, monkeypatch, _flag_on, _fake_storage
+        self,
+        app_client,
+        sample_eggs,
+        dal_with_eggs,
+        monkeypatch,
+        _flag_on,
+        _fake_storage,
     ):
         calls = _cosign_subprocess_double(monkeypatch)
         biome_id = sample_eggs[0][0]
@@ -206,7 +246,13 @@ class TestSignBiomeFlagOn:
         assert "--key" in calls[0] and "hashivault://biome-signing-key" in calls[0]
 
     async def test_sign_failure_rejects_fail_closed_and_increments_metric(
-        self, app_client, sample_eggs, dal_with_eggs, monkeypatch, _flag_on, _fake_storage
+        self,
+        app_client,
+        sample_eggs,
+        dal_with_eggs,
+        monkeypatch,
+        _flag_on,
+        _fake_storage,
     ):
         _cosign_subprocess_double(monkeypatch, fail_sign=True)
         biome_id = sample_eggs[0][0]
@@ -245,11 +291,15 @@ class TestUpgradeDeployVerificationGate:
         self, app_client, sample_eggs, monkeypatch, _flag_on
     ):
         calls = _cosign_subprocess_double(monkeypatch)
-        biome_id = sample_eggs[4][0]  # user_workload -- no cluster.admin/approval needed
+        biome_id = sample_eggs[4][
+            0
+        ]  # user_workload -- no cluster.admin/approval needed
 
         before = _metric_value()
         body = {"target_version": "1.1.0", "rollout_plan": "auto"}
-        response = await app_client.post(f"/api/v1/biomes/{biome_id}/upgrade", json=body)
+        response = await app_client.post(
+            f"/api/v1/biomes/{biome_id}/upgrade", json=body
+        )
 
         assert response.status_code == 409
         data = await response.get_json()
@@ -272,7 +322,9 @@ class TestUpgradeDeployVerificationGate:
         dal_with_eggs.commit()
 
         body = {"target_version": "1.1.0", "rollout_plan": "auto"}
-        response = await app_client.post(f"/api/v1/biomes/{biome_id}/upgrade", json=body)
+        response = await app_client.post(
+            f"/api/v1/biomes/{biome_id}/upgrade", json=body
+        )
 
         assert response.status_code == 409
         row = dal_with_eggs(dal_with_eggs.biomes.id == biome_id).select().first()
@@ -296,7 +348,9 @@ class TestUpgradeDeployVerificationGate:
         dal_with_eggs.commit()
 
         body = {"target_version": "1.1.0", "rollout_plan": "auto"}
-        response = await app_client.post(f"/api/v1/biomes/{biome_id}/upgrade", json=body)
+        response = await app_client.post(
+            f"/api/v1/biomes/{biome_id}/upgrade", json=body
+        )
 
         assert response.status_code == 202
         data = await response.get_json()
@@ -313,7 +367,9 @@ class TestUpgradeDeployVerificationGate:
         biome_id = sample_eggs[4][0]  # unsigned, no registry_url
 
         body = {"target_version": "1.1.0", "rollout_plan": "auto"}
-        response = await app_client.post(f"/api/v1/biomes/{biome_id}/upgrade", json=body)
+        response = await app_client.post(
+            f"/api/v1/biomes/{biome_id}/upgrade", json=body
+        )
 
         assert response.status_code == 202
         assert calls == []
@@ -326,10 +382,15 @@ class TestCosignHelpers:
         assert biomes_mod._cosign_key_ref("my-key") == "hashivault://my-key"
 
     def test_key_ref_passes_through_explicit_scheme(self):
-        assert biomes_mod._cosign_key_ref("awskms://alias/my-key") == "awskms://alias/my-key"
+        assert (
+            biomes_mod._cosign_key_ref("awskms://alias/my-key")
+            == "awskms://alias/my-key"
+        )
 
     def test_parse_cosign_digest_valid(self):
-        stdout = json.dumps([{"critical": {"image": {"docker-manifest-digest": _DIGEST}}}])
+        stdout = json.dumps(
+            [{"critical": {"image": {"docker-manifest-digest": _DIGEST}}}]
+        )
         assert biomes_mod._parse_cosign_digest(stdout, "ref") == _DIGEST
 
     @pytest.mark.parametrize(
@@ -338,7 +399,9 @@ class TestCosignHelpers:
             "not json",
             "{}",
             json.dumps([{"critical": {"image": {}}}]),
-            json.dumps([{"critical": {"image": {"docker-manifest-digest": "not-a-digest"}}}]),
+            json.dumps(
+                [{"critical": {"image": {"docker-manifest-digest": "not-a-digest"}}}]
+            ),
         ],
     )
     def test_parse_cosign_digest_rejects_malformed_output(self, stdout):

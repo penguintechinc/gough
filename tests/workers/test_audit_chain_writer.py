@@ -7,11 +7,7 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session, sessionmaker
-
-from app.models_m1 import Base, AuditEvent as AuditEventModel
-from app.security.audit_chain import AuditEvent, verify_chain
+from app.models_m1 import Base
 from app.workers import leader_lease as ll
 from app.workers.audit_chain_writer import (
     LEASE_NAME,
@@ -22,6 +18,8 @@ from app.workers.audit_chain_writer import (
     OffsiteMirrorConfig,
     OffsiteMirrorError,
 )
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
 
 @pytest.fixture
@@ -39,9 +37,7 @@ def sqlite_session():
 def audit_events_table(sqlite_session):
     """Ensure audit_events table exists (created by bootstrap)."""
     try:
-        sqlite_session.execute(
-            text(
-                """
+        sqlite_session.execute(text("""
             CREATE TABLE IF NOT EXISTS audit_events (
                 id TEXT PRIMARY KEY,
                 ts TIMESTAMP NOT NULL,
@@ -61,9 +57,7 @@ def audit_events_table(sqlite_session):
                 hash BLOB NOT NULL,
                 signature BLOB
             )
-        """
-            )
-        )
+        """))
         sqlite_session.commit()
     except Exception:
         pass
@@ -74,17 +68,13 @@ def audit_events_table(sqlite_session):
 def mirror_state_table(sqlite_session):
     """Create audit_events_mirror_state table."""
     try:
-        sqlite_session.execute(
-            text(
-                """
+        sqlite_session.execute(text("""
             CREATE TABLE IF NOT EXISTS audit_events_mirror_state (
                 id INTEGER PRIMARY KEY,
                 last_shipped_id TEXT,
                 updated_at TIMESTAMP
             )
-        """
-            )
-        )
+        """))
         sqlite_session.commit()
     except Exception:
         pass
@@ -102,15 +92,19 @@ def mock_vault_client():
 @pytest.fixture
 def mock_nats_publisher():
     """Mock NATS publisher async function."""
+
     async def publisher(subject: str, payload: dict):
         return None
+
     return publisher
 
 
 class TestAuditChainWriterAppendEvent:
     """Test append_event under leader-only enforcement."""
 
-    def test_append_event_as_leader(self, audit_events_table, mirror_state_table, mock_vault_client):
+    def test_append_event_as_leader(
+        self, audit_events_table, mirror_state_table, mock_vault_client
+    ):
         """Leader replica appends successfully."""
         writer = AuditChainWriter(
             audit_events_table,
@@ -138,7 +132,9 @@ class TestAuditChainWriterAppendEvent:
         assert event.action == "create"
         audit_events_table.commit()
 
-    def test_append_event_as_non_leader_raises(self, audit_events_table, mock_vault_client):
+    def test_append_event_as_non_leader_raises(
+        self, audit_events_table, mock_vault_client
+    ):
         """Non-leader replica raises NotLeaderError."""
         writer = AuditChainWriter(
             audit_events_table,
@@ -152,7 +148,9 @@ class TestAuditChainWriterAppendEvent:
                 resource_kind="node",
             )
 
-    def test_append_event_increments_counter(self, audit_events_table, mock_vault_client):
+    def test_append_event_increments_counter(
+        self, audit_events_table, mock_vault_client
+    ):
         """Append increments gough_audit_append_total counter."""
         from app.workers.audit_chain_writer import APPEND_COUNTER
 
@@ -180,7 +178,9 @@ class TestAuditChainWriterAppendEvent:
 
         assert APPEND_COUNTER._value.get() > initial_value
 
-    def test_append_event_with_before_after(self, audit_events_table, mock_vault_client):
+    def test_append_event_with_before_after(
+        self, audit_events_table, mock_vault_client
+    ):
         """Append with before/after JSON payloads."""
         writer = AuditChainWriter(
             audit_events_table,
@@ -211,7 +211,9 @@ class TestAuditChainWriterAppendEvent:
 class TestAuditChainWriterLeadershipManagement:
     """Test acquire/release leadership."""
 
-    def test_try_acquire_leadership_success(self, audit_events_table, mock_vault_client):
+    def test_try_acquire_leadership_success(
+        self, audit_events_table, mock_vault_client
+    ):
         """try_acquire_leadership succeeds on fresh lease."""
         mock_lease_client = MagicMock()
         mock_lease_client.acquire.return_value = ll.LeaderLeaseHandle(
@@ -232,7 +234,9 @@ class TestAuditChainWriterLeadershipManagement:
         assert ok is True
         assert writer.is_leader() is True
 
-    def test_try_acquire_leadership_failure(self, audit_events_table, mock_vault_client):
+    def test_try_acquire_leadership_failure(
+        self, audit_events_table, mock_vault_client
+    ):
         """try_acquire_leadership returns False on lease held elsewhere."""
         mock_lease_client = MagicMock()
         mock_lease_client.acquire.return_value = None
@@ -307,13 +311,11 @@ class TestAuditChainWriterOffsiteMirror:
         # Insert a test row
         event_id = uuid.uuid4()
         audit_events_table.execute(
-            text(
-                """
+            text("""
             INSERT INTO audit_events
             (id, ts, cluster_id, actor_sub, action, resource_kind, prev_hash, hash)
             VALUES (:id, :ts, :cluster_id, :actor_sub, :action, :kind, :prev_hash, :hash)
-        """
-            ),
+        """),
             {
                 "id": str(event_id),
                 "ts": datetime.now(timezone.utc),
@@ -326,8 +328,6 @@ class TestAuditChainWriterOffsiteMirror:
             },
         )
         audit_events_table.commit()
-
-        mock_s3_client = AsyncMock()
 
         async def s3_factory(cfg):
             return AsyncMock()
@@ -371,6 +371,7 @@ class TestAuditChainWriterOffsiteMirror:
         self, audit_events_table, mirror_state_table, mock_vault_client
     ):
         """start_offsite_mirror respects stop_event."""
+
         async def s3_factory(cfg):
             return AsyncMock()
 
@@ -396,7 +397,9 @@ class TestAuditChainWriterOffsiteMirror:
 class TestAuditChainWriterVerifyChainScheduled:
     """Test scheduled verify_chain with NATS event emission."""
 
-    def test_verify_chain_scheduled_no_breaks(self, audit_events_table, mock_vault_client):
+    def test_verify_chain_scheduled_no_breaks(
+        self, audit_events_table, mock_vault_client
+    ):
         """verify_chain_scheduled with no breaks returns clean result."""
         writer = AuditChainWriter(
             audit_events_table,
@@ -415,13 +418,11 @@ class TestAuditChainWriterVerifyChainScheduled:
         """verify_chain_scheduled detects a break and emits NATS event."""
         # Insert genesis + normal row
         audit_events_table.execute(
-            text(
-                """
+            text("""
             INSERT INTO audit_events
             (id, ts, cluster_id, actor_sub, action, resource_kind, prev_hash, hash)
             VALUES (:id, :ts, :cluster_id, :actor_sub, :action, :kind, :prev_hash, :hash)
-        """
-            ),
+        """),
             {
                 "id": "00000000-0000-7000-8000-000000000000",
                 "ts": datetime.now(timezone.utc),
@@ -436,13 +437,11 @@ class TestAuditChainWriterVerifyChainScheduled:
 
         event_id = uuid.uuid4()
         audit_events_table.execute(
-            text(
-                """
+            text("""
             INSERT INTO audit_events
             (id, ts, cluster_id, actor_sub, action, resource_kind, prev_hash, hash)
             VALUES (:id, :ts, :cluster_id, :actor_sub, :action, :kind, :prev_hash, :hash)
-        """
-            ),
+        """),
             {
                 "id": str(event_id),
                 "ts": datetime.now(timezone.utc),
@@ -547,7 +546,6 @@ class TestAuditChainWriterInternals:
 
     def test_update_lag_gauge(self, audit_events_table, mock_vault_client):
         """_update_lag_gauge computes and sets lag metric."""
-        from app.workers.audit_chain_writer import MIRROR_LAG_GAUGE
 
         writer = AuditChainWriter(
             audit_events_table,

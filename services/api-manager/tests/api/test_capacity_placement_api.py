@@ -17,10 +17,9 @@ from typing import Any
 
 import jwt
 import pytest
-from quart import Quart, g
-
 from app import capacity_guard as cg
 from app.clouds.base import Machine, MachineState
+from quart import Quart, g
 
 GIB = 1024**3
 SECRET = "test-secret-key"
@@ -38,16 +37,30 @@ def _snapshot_body(collected: datetime, **overrides: Any) -> dict[str, Any]:
     body: dict[str, Any] = {
         "schema": "gough.host_resources.v1",
         "collected_at": collected.isoformat(),
-        "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+        "cpu": {
+            "logical_cores": 16,
+            "usage_pct": 10.0,
+            "load1": 1.0,
+            "load5": 1.0,
+            "load15": 1.0,
+        },
         "memory": {"total_bytes": 64 * GIB, "available_bytes": 40 * GIB},
         "pressure": None,
         "storage_pools": [
-            {"name": "default", "driver": "dir", "total_bytes": 1000 * GIB, "used_bytes": 100 * GIB}
+            {
+                "name": "default",
+                "driver": "dir",
+                "total_bytes": 1000 * GIB,
+                "used_bytes": 100 * GIB,
+            }
         ],
         "host_root_fs": {"total_bytes": 100 * GIB, "free_bytes": 60 * GIB},
         "committed": {
-            "cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0},
-            "instances": 0, "instances_without_limits": 0,
+            "cpu_cores": 0.0,
+            "memory_bytes": 0,
+            "disk_bytes": {"default": 0},
+            "instances": 0,
+            "instances_without_limits": 0,
         },
         "errors": [],
     }
@@ -90,41 +103,68 @@ def guard_app(dal, monkeypatch):
         migrate=True,
     )
     dal.define_table(
-        "ssh_ca_config", Field("is_active", "boolean", default=True),
-        Field("public_key", "string"), Field("private_key_vault_path", "string"),
-        Field("created_at", "datetime"), migrate=True,
+        "ssh_ca_config",
+        Field("is_active", "boolean", default=True),
+        Field("public_key", "string"),
+        Field("private_key_vault_path", "string"),
+        Field("created_at", "datetime"),
+        migrate=True,
     )
     dal.define_table(
         "cloud_providers",
-        Field("name", "string"), Field("provider_type", "string"), Field("config_data", "json"),
-        Field("is_active", "boolean", default=True), Field("status", "string"),
+        Field("name", "string"),
+        Field("provider_type", "string"),
+        Field("config_data", "json"),
+        Field("is_active", "boolean", default=True),
+        Field("status", "string"),
         migrate=True,
     )
     dal.define_table(
         "cloud_machines",
-        Field("provider_id", "integer"), Field("external_id", "string"), Field("hostname", "string"),
-        Field("status", "string"), Field("zone", "string"), Field("os_image", "string"),
-        Field("machine_type", "string"), Field("public_ips", "json"), Field("private_ips", "json"),
-        Field("ip_address", "string"), Field("private_ip", "string"), Field("tags", "json"),
-        Field("metadata", "json"), migrate=True,
+        Field("provider_id", "integer"),
+        Field("external_id", "string"),
+        Field("hostname", "string"),
+        Field("status", "string"),
+        Field("zone", "string"),
+        Field("os_image", "string"),
+        Field("machine_type", "string"),
+        Field("public_ips", "json"),
+        Field("private_ips", "json"),
+        Field("ip_address", "string"),
+        Field("private_ip", "string"),
+        Field("tags", "json"),
+        Field("metadata", "json"),
+        migrate=True,
     )
     dal.define_table(
         "biomes",
-        Field("name", "string"), Field("version", "string"),
-        Field("biome_kind", "string", default="custom"), Field("phase", "string", default="post_deploy"),
+        Field("name", "string"),
+        Field("version", "string"),
+        Field("biome_kind", "string", default="custom"),
+        Field("phase", "string", default="post_deploy"),
         Field("lock_to_host", "boolean", default=False),
-        Field("requires_hardware_tags", "json"), Field("forbids_hardware_tags", "json"),
-        Field("min_ram_mb", "integer"), Field("min_disk_gb", "integer"),
-        Field("tenant_id", "string", default="__default__"), migrate=True,
+        Field("requires_hardware_tags", "json"),
+        Field("forbids_hardware_tags", "json"),
+        Field("min_ram_mb", "integer"),
+        Field("min_disk_gb", "integer"),
+        Field("tenant_id", "string", default="__default__"),
+        migrate=True,
     )
     dal.define_table(
         "node_egg_assignments",
-        Field("node_id", "integer", notnull=True), Field("egg_id", "integer", notnull=True),
-        Field("tenant_id", "string", default="__default__"), Field("phase", "string"),
-        Field("status", "string", default="pending"), Field("depends_on_egg_instance_id", "integer"),
+        Field("node_id", "integer", notnull=True),
+        Field("egg_id", "integer", notnull=True),
+        Field("tenant_id", "string", default="__default__"),
+        Field("phase", "string"),
+        Field("status", "string", default="pending"),
+        Field("depends_on_egg_instance_id", "integer"),
         Field("readiness_probe_state", "string", default="not_started"),
-        Field("assigned_at", "datetime"), Field("deployed_at", "datetime"), Field("removed_at", "datetime"),
-        Field("created_at", "datetime"), Field("updated_at", "datetime"), migrate=True,
+        Field("assigned_at", "datetime"),
+        Field("deployed_at", "datetime"),
+        Field("removed_at", "datetime"),
+        Field("created_at", "datetime"),
+        Field("updated_at", "datetime"),
+        migrate=True,
     )
     dal.commit()
 
@@ -164,7 +204,9 @@ def guard_app(dal, monkeypatch):
     monkeypatch.setattr(clouds_mod, "node_allowance", _unlimited)
     monkeypatch.setattr(nodes_mod, "node_allowance", _unlimited)
     monkeypatch.setattr(nodes_mod, "feature_enabled", lambda *_a, **_k: _flag_off())
-    monkeypatch.setattr(agents_mod, "get_current_user", lambda: {"id": 1, "username": "admin"})
+    monkeypatch.setattr(
+        agents_mod, "get_current_user", lambda: {"id": 1, "username": "admin"}
+    )
 
     app = Quart(__name__)
     app.config["TESTING"] = True
@@ -177,13 +219,21 @@ def guard_app(dal, monkeypatch):
     @app.before_request
     async def _identity() -> None:
         g.current_user = {
-            "id": 1, "username": "admin", "role": "admin",
-            "_jwt_payload": {"sub": "admin", "tenant": "default", "scope": "gough.nodes.read"},
+            "id": 1,
+            "username": "admin",
+            "role": "admin",
+            "_jwt_payload": {
+                "sub": "admin",
+                "tenant": "default",
+                "scope": "gough.nodes.read",
+            },
         }
         g.tenant_context = SimpleNamespace(tenant_id="default", cross_tenant=False)
         g.nats_client = None
 
-    return SimpleNamespace(app=app, dal=dal, agents=agents_mod, nodes=nodes_mod, clouds=clouds_mod)
+    return SimpleNamespace(
+        app=app, dal=dal, agents=agents_mod, nodes=nodes_mod, clouds=clouds_mod
+    )
 
 
 async def _flag_off() -> bool:
@@ -203,24 +253,42 @@ def _seed(dal: Any, node_id: int, *, age_s: float = 0.0, **overrides: Any) -> No
     when = datetime.now(timezone.utc) - timedelta(seconds=age_s)
     snap = cg.parse_snapshot(_snapshot_body(when, **overrides))
     with dal.engine.begin() as conn:
-        assert cg.record_snapshot(conn, node_id, snap, when) is cg.SnapshotOutcome.STORED
+        assert (
+            cg.record_snapshot(conn, node_id, snap, when) is cg.SnapshotOutcome.STORED
+        )
 
 
 def _agent_token(agent_id: str) -> str:
     """Mint an agent access JWT the way enrollment does."""
     return jwt.encode(
-        {"sub": f"agent:{agent_id}", "type": "agent_access", "exp": datetime.utcnow() + timedelta(hours=1)},
+        {
+            "sub": f"agent:{agent_id}",
+            "type": "agent_access",
+            "exp": datetime.utcnow() + timedelta(hours=1),
+        },
         SECRET,
         algorithm="HS256",
     )
 
 
-def _add_agent(dal: Any, agent_id: str, *, node_id: int | None, status: str = "active",
-               hostname: str = "self-reported", tenant: str | None = "default") -> None:
+def _add_agent(
+    dal: Any,
+    agent_id: str,
+    *,
+    node_id: int | None,
+    status: str = "active",
+    hostname: str = "self-reported",
+    tenant: str | None = "default",
+) -> None:
     """Insert an enrolled agent with an optional server-side node link."""
-    dal.access_agents.insert(agent_id=agent_id, hostname=hostname, node_id=node_id, status=status,
-                             tenant_id=tenant,
-                             enrolled_at=datetime.utcnow())
+    dal.access_agents.insert(
+        agent_id=agent_id,
+        hostname=hostname,
+        node_id=node_id,
+        status=status,
+        tenant_id=tenant,
+        enrolled_at=datetime.utcnow(),
+    )
     dal.commit()
 
 
@@ -228,8 +296,13 @@ async def _heartbeat(client: Any, agent_id: str, snapshot: dict[str, Any]) -> An
     """POST a heartbeat carrying ``snapshot`` as the agent."""
     return await client.post(
         "/api/v1/agents/heartbeat",
-        data=json.dumps({"agent_id": agent_id, "status": "active", "resource_snapshot": snapshot}),
-        headers={"Authorization": f"Bearer {_agent_token(agent_id)}", "Content-Type": "application/json"},
+        data=json.dumps(
+            {"agent_id": agent_id, "status": "active", "resource_snapshot": snapshot}
+        ),
+        headers={
+            "Authorization": f"Bearer {_agent_token(agent_id)}",
+            "Content-Type": "application/json",
+        },
     )
 
 
@@ -245,12 +318,19 @@ async def test_enroll_heartbeat_capacity_end_to_end(guard_app):
     dal.enrollment_keys.insert(
         key_hash=hashlib.sha256(key.encode()).hexdigest(),
         expires_at=datetime.utcnow() + timedelta(hours=1),
-        metadata=json.dumps({"purpose": "node-join", "intended_hostname": "host-a", "tenant_id": "default"}),
+        metadata=json.dumps(
+            {
+                "purpose": "node-join",
+                "intended_hostname": "host-a",
+                "tenant_id": "default",
+            }
+        ),
     )
     dal.commit()
     async with guard_app.app.test_client() as client:
         enrolled = await client.post(
-            "/api/v1/agents/enroll", headers={"X-Enrollment-Key": key},
+            "/api/v1/agents/enroll",
+            headers={"X-Enrollment-Key": key},
             json={"hostname": "host-a", "capabilities": ["ssh"]},
         )
         assert enrolled.status_code == 201
@@ -260,8 +340,16 @@ async def test_enroll_heartbeat_capacity_end_to_end(guard_app):
 
         beat = await client.post(
             "/api/v1/agents/heartbeat",
-            data=json.dumps({"status": "active", "resource_snapshot": _snapshot_body(datetime.now(timezone.utc))}),
-            headers={"Authorization": f"Bearer {body['access_token']}", "Content-Type": "application/json"},
+            data=json.dumps(
+                {
+                    "status": "active",
+                    "resource_snapshot": _snapshot_body(datetime.now(timezone.utc)),
+                }
+            ),
+            headers={
+                "Authorization": f"Bearer {body['access_token']}",
+                "Content-Type": "application/json",
+            },
         )
         assert beat.status_code == 200
 
@@ -286,8 +374,11 @@ async def test_enroll_refused_when_hostname_differs_from_key_intent(guard_app):
     )
     dal.commit()
     async with guard_app.app.test_client() as client:
-        resp = await client.post("/api/v1/agents/enroll", headers={"X-Enrollment-Key": key},
-                                 json={"hostname": "host-b"})
+        resp = await client.post(
+            "/api/v1/agents/enroll",
+            headers={"X-Enrollment-Key": key},
+            json={"hostname": "host-b"},
+        )
     assert resp.status_code == 403
 
 
@@ -299,11 +390,16 @@ async def test_spoofed_hostname_cannot_write_another_nodes_snapshot(guard_app):
     node_b = _add_node(dal, "host-b")
     _add_agent(dal, "ag-1", node_id=node_a, hostname="host-b")
     async with guard_app.app.test_client() as client:
-        resp = await _heartbeat(client, "ag-1", _snapshot_body(datetime.now(timezone.utc)))
+        resp = await _heartbeat(
+            client, "ag-1", _snapshot_body(datetime.now(timezone.utc))
+        )
     assert resp.status_code == 200
     table = cg.NodeResourceSnapshot.__table__
     with dal.engine.connect() as conn:
-        nodes_with_snapshot = {r[0] for r in conn.execute(table.select().with_only_columns(table.c.node_id))}
+        nodes_with_snapshot = {
+            r[0]
+            for r in conn.execute(table.select().with_only_columns(table.c.node_id))
+        }
     assert nodes_with_snapshot == {node_a} and node_b not in nodes_with_snapshot
 
 
@@ -328,7 +424,9 @@ async def test_ingest_refusals_return_400_and_store_nothing(guard_app, setup, ne
         _add_agent(dal, "ag-1", node_id=node_id)
         _add_agent(dal, "ag-2", node_id=node_id)
     async with guard_app.app.test_client() as client:
-        resp = await _heartbeat(client, "ag-1", _snapshot_body(datetime.now(timezone.utc)))
+        resp = await _heartbeat(
+            client, "ag-1", _snapshot_body(datetime.now(timezone.utc))
+        )
     assert resp.status_code == 400
     assert needle in (await resp.get_json())["error"]
     with dal.engine.connect() as conn:
@@ -343,7 +441,9 @@ async def test_inactive_agent_cannot_reactivate_itself_via_heartbeat(guard_app):
     _add_agent(dal, "ag-1", node_id=node_id, status="revoked")
     async with guard_app.app.test_client() as client:
         await _heartbeat(client, "ag-1", _snapshot_body(datetime.now(timezone.utc)))
-    assert dal(dal.access_agents.agent_id == "ag-1").select().first().status == "revoked"
+    assert (
+        dal(dal.access_agents.agent_id == "ag-1").select().first().status == "revoked"
+    )
 
 
 @pytest.mark.asyncio
@@ -353,10 +453,14 @@ async def test_future_dated_snapshot_rejected_via_route(guard_app):
     node_id = _add_node(dal, "host-a")
     _add_agent(dal, "ag-1", node_id=node_id)
     async with guard_app.app.test_client() as client:
-        ok = await _heartbeat(client, "ag-1", _snapshot_body(datetime.now(timezone.utc)))
+        ok = await _heartbeat(
+            client, "ag-1", _snapshot_body(datetime.now(timezone.utc))
+        )
         assert ok.status_code == 200
         bad = await _heartbeat(
-            client, "ag-1", _snapshot_body(datetime.now(timezone.utc) + timedelta(hours=1))
+            client,
+            "ag-1",
+            _snapshot_body(datetime.now(timezone.utc) + timedelta(hours=1)),
         )
     assert bad.status_code == 400
     assert "future_dated" in (await bad.get_json())["error"]
@@ -370,10 +474,18 @@ async def test_admin_link_endpoint(guard_app):
     _add_agent(dal, "ag-1", node_id=None)
     _add_agent(dal, "ag-2", node_id=None)
     async with guard_app.app.test_client() as client:
-        assert (await client.put("/api/v1/agents/ag-1/node", json={"node_id": node_id})).status_code == 200
-        assert (await client.put("/api/v1/agents/ag-1/node", json={"node_id": 999})).status_code == 404
-        assert (await client.put("/api/v1/agents/ag-2/node", json={"node_id": node_id})).status_code == 409
-        assert (await client.put("/api/v1/agents/ag-2/node", json={"node_id": "x"})).status_code == 400
+        assert (
+            await client.put("/api/v1/agents/ag-1/node", json={"node_id": node_id})
+        ).status_code == 200
+        assert (
+            await client.put("/api/v1/agents/ag-1/node", json={"node_id": 999})
+        ).status_code == 404
+        assert (
+            await client.put("/api/v1/agents/ag-2/node", json={"node_id": node_id})
+        ).status_code == 409
+        assert (
+            await client.put("/api/v1/agents/ag-2/node", json={"node_id": "x"})
+        ).status_code == 400
     assert dal(dal.access_agents.agent_id == "ag-1").select().first().node_id == node_id
 
 
@@ -397,8 +509,15 @@ class _FakeLXD:
     def create_machine(self, spec: Any) -> Machine:
         """Record the spec and return a machine."""
         type(self).created.append(spec)
-        return Machine(id=spec.name, name=spec.name, state=MachineState.RUNNING, provider="lxd",
-                       provider_id="1", size=spec.size, image=spec.image)
+        return Machine(
+            id=spec.name,
+            name=spec.name,
+            state=MachineState.RUNNING,
+            provider="lxd",
+            provider_id="1",
+            size=spec.size,
+            image=spec.image,
+        )
 
 
 @pytest.fixture()
@@ -406,8 +525,12 @@ def lxd_provider(guard_app, monkeypatch):
     """Register an LXD provider row and route get_cloud_provider to the fake."""
     _FakeLXD.created = []
     _FakeLXD.members = (["host-a", "host-b"], True)
-    monkeypatch.setattr(guard_app.clouds, "get_cloud_provider", lambda *_a, **_k: _FakeLXD())
-    pid = guard_app.dal.cloud_providers.insert(name="lxd1", provider_type="lxd", config_data={}, is_active=True)
+    monkeypatch.setattr(
+        guard_app.clouds, "get_cloud_provider", lambda *_a, **_k: _FakeLXD()
+    )
+    pid = guard_app.dal.cloud_providers.insert(
+        name="lxd1", provider_type="lxd", config_data={}, is_active=True
+    )
     guard_app.dal.commit()
     return int(pid)
 
@@ -423,16 +546,22 @@ async def test_lxd_create_fits_and_targets_chosen_member(guard_app, lxd_provider
     _seed(dal, a)
     _seed(dal, b, memory={"total_bytes": 64 * GIB, "available_bytes": 60 * GIB})
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines",
-                                 json={**_CREATE, "extra": {"target": "host-a"}})
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines",
+            json={**_CREATE, "extra": {"target": "host-a"}},
+        )
     assert resp.status_code == 201
     (spec,) = _FakeLXD.created
-    assert spec.extra["target"] == "host-b"  # client-supplied target discarded; roomiest member
+    assert (
+        spec.extra["target"] == "host-b"
+    )  # client-supplied target discarded; roomiest member
     assert spec.extra["capacity_guarded"] is True
     table = cg.CapacityReservation.__table__
     with dal.engine.connect() as conn:
         rows = conn.execute(table.select()).mappings().all()
-    assert len(rows) == 1 and rows[0]["node_id"] == b and rows[0]["status"] == 4  # CONFIRMED
+    assert (
+        len(rows) == 1 and rows[0]["node_id"] == b and rows[0]["status"] == 4
+    )  # CONFIRMED
 
 
 @pytest.mark.asyncio
@@ -442,7 +571,10 @@ async def test_lxd_create_no_fit_returns_409_with_reasons(guard_app, lxd_provide
     _seed(dal, _add_node(dal, "host-a"))
     _seed(dal, _add_node(dal, "host-b"))
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json={**_CREATE, "size": "64/4GiB"})
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines",
+            json={**_CREATE, "size": "64/4GiB"},
+        )
     assert resp.status_code == 409
     body = await resp.get_json()
     assert body["error"] == "insufficient_capacity"
@@ -457,7 +589,9 @@ async def test_lxd_create_stale_snapshot_returns_409(guard_app, lxd_provider):
     _seed(dal, _add_node(dal, "host-a"), age_s=600)
     _seed(dal, _add_node(dal, "host-b"), age_s=600)
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE)
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE
+        )
     assert resp.status_code == 409
     assert "stale_or_missing_snapshot" in (await resp.get_json())["reasons"]["host-a"]
     assert _FakeLXD.created == []
@@ -468,7 +602,9 @@ async def test_lxd_create_unmapped_members_refused(guard_app, lxd_provider):
     """Cluster members the hub has no node row for can never be placed on."""
     _FakeLXD.members = (["ghost-1"], True)
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE)
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE
+        )
     assert resp.status_code == 409
     assert (await resp.get_json())["reasons"] == {"": ["no_candidate_nodes"]}
 
@@ -478,12 +614,16 @@ async def test_lxd_create_unmapped_members_refused(guard_app, lxd_provider):
 async def test_lxd_create_unparseable_limits_400(guard_app, lxd_provider, size):
     """Limits the guard cannot account for are a 400, not a guess."""
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json={**_CREATE, "size": size})
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines", json={**_CREATE, "size": size}
+        )
     assert resp.status_code == 400
 
 
 @pytest.mark.asyncio
-async def test_lxd_create_failure_releases_reservation(guard_app, lxd_provider, monkeypatch):
+async def test_lxd_create_failure_releases_reservation(
+    guard_app, lxd_provider, monkeypatch
+):
     """If LXD creation raises, the reservation is released so headroom returns."""
     dal = guard_app.dal
     node_id = _add_node(dal, "host-a")
@@ -499,7 +639,9 @@ async def test_lxd_create_failure_releases_reservation(guard_app, lxd_provider, 
             await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE)
     table = cg.CapacityReservation.__table__
     with dal.engine.connect() as conn:
-        statuses = [r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))]
+        statuses = [
+            r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))
+        ]
     assert statuses == [2]  # RELEASED
 
 
@@ -510,7 +652,9 @@ async def test_standalone_lxd_omits_target(guard_app, lxd_provider):
     _FakeLXD.members = (["host-a"], False)
     _seed(dal, _add_node(dal, "host-a"))
     async with guard_app.app.test_client() as client:
-        resp = await client.post(f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE)
+        resp = await client.post(
+            f"/api/v1/clouds/{lxd_provider}/machines", json=_CREATE
+        )
     assert resp.status_code == 201
     assert "target" not in _FakeLXD.created[0].extra
 
@@ -520,7 +664,9 @@ async def test_standalone_lxd_omits_target(guard_app, lxd_provider):
 
 def _add_biome(dal: Any, *, ram_mb: int, disk_gb: int) -> int:
     """Insert a biome with declared minimums and return its id."""
-    biome_id = dal.biomes.insert(name="b1", version="1", min_ram_mb=ram_mb, min_disk_gb=disk_gb)
+    biome_id = dal.biomes.insert(
+        name="b1", version="1", min_ram_mb=ram_mb, min_disk_gb=disk_gb
+    )
     dal.commit()
     return int(biome_id)
 
@@ -560,7 +706,9 @@ async def test_deploy_no_fit_409_with_reasons_and_no_assignment(guard_app):
     async with guard_app.app.test_client() as client:
         resp = await _deploy(client, node_id, biome_id)
     assert resp.status_code == 409
-    assert "insufficient_memory" in (await resp.get_json())["error"]["details"]["reasons"]
+    assert (
+        "insufficient_memory" in (await resp.get_json())["error"]["details"]["reasons"]
+    )
     assert dal(dal.node_egg_assignments.id > 0).select().first() is None
 
 
@@ -575,7 +723,9 @@ async def test_deploy_stale_or_missing_snapshot_409(guard_app):
         for node_id in (stale, missing):
             resp = await _deploy(client, node_id, biome_id)
             assert resp.status_code == 409
-            assert (await resp.get_json())["error"]["details"]["reasons"] == ["stale_or_missing_snapshot"]
+            assert (await resp.get_json())["error"]["details"]["reasons"] == [
+                "stale_or_missing_snapshot"
+            ]
 
 
 @pytest.mark.asyncio
@@ -594,7 +744,9 @@ async def test_deploy_assignment_failure_releases_reservation(guard_app):
     assert resp.status_code == 404
     table = cg.CapacityReservation.__table__
     with dal.engine.connect() as conn:
-        assert [r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))] == [2]
+        assert [
+            r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))
+        ] == [2]
 
 
 # --- biome eligibility (real guard) ------------------------------------------------
@@ -602,14 +754,17 @@ async def test_deploy_assignment_failure_releases_reservation(guard_app):
 
 def test_biome_eligibility_real_guard(dal):
     """Eligibility is true with a fresh fitting snapshot, false with reasons otherwise."""
+    from app.api.biomes import _eval_node_eligibility
     from penguin_dal import Field
 
-    from app.api.biomes import _eval_node_eligibility
-
     dal.define_table(
-        "biomes", Field("name", "string"), Field("min_ram_mb", "integer"),
-        Field("min_disk_gb", "integer"), Field("requires_hardware_tags", "json"),
-        Field("forbids_hardware_tags", "json"), migrate=True,
+        "biomes",
+        Field("name", "string"),
+        Field("min_ram_mb", "integer"),
+        Field("min_disk_gb", "integer"),
+        Field("requires_hardware_tags", "json"),
+        Field("forbids_hardware_tags", "json"),
+        migrate=True,
     )
     fit = _add_node(dal, "fit")
     big = _add_node(dal, "big")
@@ -618,22 +773,43 @@ def test_biome_eligibility_real_guard(dal):
     _seed(dal, fit)
     _seed(dal, big)
     _seed(dal, stale, age_s=600)
-    biome = SimpleNamespace(id=1, name="b", min_ram_mb=2048, min_disk_gb=10, required_architecture=None,
-                            requires_hardware_tags=[], forbids_hardware_tags=[])
-    huge = SimpleNamespace(id=2, name="h", min_ram_mb=60 * 1024, min_disk_gb=10, required_architecture=None,
-                           requires_hardware_tags=[], forbids_hardware_tags=[])
+    biome = SimpleNamespace(
+        id=1,
+        name="b",
+        min_ram_mb=2048,
+        min_disk_gb=10,
+        required_architecture=None,
+        requires_hardware_tags=[],
+        forbids_hardware_tags=[],
+    )
+    huge = SimpleNamespace(
+        id=2,
+        name="h",
+        min_ram_mb=60 * 1024,
+        min_disk_gb=10,
+        required_architecture=None,
+        requires_hardware_tags=[],
+        forbids_hardware_tags=[],
+    )
 
     def _eval(b: Any, node_id: int) -> Any:
-        return _eval_node_eligibility(dal, b, dal(dal.nodes.id == node_id).select().first())
+        return _eval_node_eligibility(
+            dal, b, dal(dal.nodes.id == node_id).select().first()
+        )
 
     assert _eval(biome, fit).eligible is True
     refused = _eval(huge, big)
     assert refused.eligible is False
-    assert any(v.get("reason") == "insufficient_memory" for v in refused.resource_violations)
+    assert any(
+        v.get("reason") == "insufficient_memory" for v in refused.resource_violations
+    )
     for node_id in (stale, none):
         res = _eval(biome, node_id)
         assert res.eligible is False
-        assert any(v.get("reason") == "stale_or_missing_snapshot" for v in res.resource_violations)
+        assert any(
+            v.get("reason") == "stale_or_missing_snapshot"
+            for v in res.resource_violations
+        )
 
 
 # --- tenant scoping of the agent<->node link --------------------------------------
@@ -652,11 +828,16 @@ def _enroll_key(dal: Any, key: str, meta: dict[str, Any]) -> None:
 async def _enroll(guard_app: Any, key: str, hostname: str) -> Any:
     """Enroll an agent with ``key`` and return its stored access_agents row."""
     async with guard_app.app.test_client() as client:
-        resp = await client.post("/api/v1/agents/enroll", headers={"X-Enrollment-Key": key},
-                                 json={"hostname": hostname})
+        resp = await client.post(
+            "/api/v1/agents/enroll",
+            headers={"X-Enrollment-Key": key},
+            json={"hostname": hostname},
+        )
         assert resp.status_code == 201
         agent_id = (await resp.get_json())["agent_id"]
-    return guard_app.dal(guard_app.dal.access_agents.agent_id == agent_id).select().first()
+    return (
+        guard_app.dal(guard_app.dal.access_agents.agent_id == agent_id).select().first()
+    )
 
 
 @pytest.mark.asyncio
@@ -675,11 +856,25 @@ async def test_cross_tenant_name_collision_links_only_own_tenant(guard_app):
     dal = guard_app.dal
     mine = _add_node(dal, "host-a", tenant="tenant-a")
     theirs = _add_node(dal, "host-a", tenant="tenant-b")
-    _enroll_key(dal, "ENROLL-TENANT-A-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-a"})
-    _enroll_key(dal, "ENROLL-TENANT-B-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-b"})
-    _enroll_key(dal, "ENROLL-TENANT-C-0001", {"intended_hostname": "host-a", "tenant_id": "tenant-c"})
+    _enroll_key(
+        dal,
+        "ENROLL-TENANT-A-0001",
+        {"intended_hostname": "host-a", "tenant_id": "tenant-a"},
+    )
+    _enroll_key(
+        dal,
+        "ENROLL-TENANT-B-0001",
+        {"intended_hostname": "host-a", "tenant_id": "tenant-b"},
+    )
+    _enroll_key(
+        dal,
+        "ENROLL-TENANT-C-0001",
+        {"intended_hostname": "host-a", "tenant_id": "tenant-c"},
+    )
     assert (await _enroll(guard_app, "ENROLL-TENANT-A-0001", "host-a")).node_id == mine
-    assert (await _enroll(guard_app, "ENROLL-TENANT-B-0001", "host-a")).node_id == theirs
+    assert (
+        await _enroll(guard_app, "ENROLL-TENANT-B-0001", "host-a")
+    ).node_id == theirs
     assert (await _enroll(guard_app, "ENROLL-TENANT-C-0001", "host-a")).node_id is None
 
 
@@ -716,7 +911,9 @@ def _reservation_statuses(dal: Any) -> list[int]:
     """Return every reservation's status code."""
     table = cg.CapacityReservation.__table__
     with dal.engine.connect() as conn:
-        return [r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))]
+        return [
+            r[0] for r in conn.execute(table.select().with_only_columns(table.c.status))
+        ]
 
 
 @pytest.mark.asyncio
@@ -742,8 +939,11 @@ async def test_duplicate_deploy_not_refused_for_capacity(guard_app):
     async with guard_app.app.test_client() as client:
         assert (await _deploy(client, node_id, biome_id)).status_code == 202
     with dal.engine.begin() as conn:  # snapshot goes stale afterwards
-        conn.execute(cg.NodeResourceSnapshot.__table__.update().values(
-            received_at=datetime.now(timezone.utc) - timedelta(hours=1)))
+        conn.execute(
+            cg.NodeResourceSnapshot.__table__.update().values(
+                received_at=datetime.now(timezone.utc) - timedelta(hours=1)
+            )
+        )
     async with guard_app.app.test_client() as client:
         assert (await _deploy(client, node_id, biome_id)).status_code == 202
 
@@ -788,7 +988,11 @@ async def test_legacy_null_tenant_agent_needs_super_admin(guard_app, monkeypatch
     node_id = _add_node(dal, "host-a")
     _add_agent(dal, "ag-old", node_id=None, tenant=None)
     async with guard_app.app.test_client() as client:
-        assert (await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})).status_code == 404
+        assert (
+            await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})
+        ).status_code == 404
     monkeypatch.setattr(guard_app.agents, "request_is_cross_tenant", lambda: True)
     async with guard_app.app.test_client() as client:
-        assert (await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})).status_code == 200
+        assert (
+            await client.put("/api/v1/agents/ag-old/node", json={"node_id": node_id})
+        ).status_code == 200

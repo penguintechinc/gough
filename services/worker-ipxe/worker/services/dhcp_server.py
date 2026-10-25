@@ -6,11 +6,11 @@ Uses dnsmasq wrapper for production-grade DHCP service.
 """
 
 import asyncio
-import structlog
 import tempfile
 from pathlib import Path
 from typing import Optional
 
+import structlog
 from worker.config import WorkerConfig
 
 logger = structlog.get_logger()
@@ -102,7 +102,8 @@ pid-file=/tmp/dnsmasq.pid
         try:
             self.process = await asyncio.create_subprocess_exec(
                 "dnsmasq",
-                "--conf-file", str(self.config_file),
+                "--conf-file",
+                str(self.config_file),
                 "--no-daemon",
                 "--log-facility=-",  # Log to stderr
                 stdout=asyncio.subprocess.PIPE,
@@ -125,7 +126,10 @@ pid-file=/tmp/dnsmasq.pid
             await self.process.wait()
 
             if self.running:
-                logger.error("dhcp_server_exited_unexpectedly", returncode=self.process.returncode)
+                logger.error(
+                    "dhcp_server_exited_unexpectedly",
+                    returncode=self.process.returncode,
+                )
 
         except FileNotFoundError:
             logger.error("dnsmasq_not_found", message="Install dnsmasq package")

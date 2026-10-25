@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import json
-import pytest
 from datetime import datetime, timezone
+
+import pytest
 
 pytestmark = pytest.mark.asyncio
 
@@ -12,7 +12,9 @@ pytestmark = pytest.mark.asyncio
 class TestSwitchPrimaryStorage:
     """Tests for switch_primary_storage endpoint."""
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_happy_path(self, authed_client, db):
         """POST /api/v1/clusters/{id}/storage/switch-primary returns 200 or 501."""
@@ -48,7 +50,9 @@ class TestSwitchPrimaryStorage:
         data = await response.get_json()
         assert "status" in data or "error" in data  # 2
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_validation_failure(self, authed_client, db):
         """Missing body field → 400/422."""
@@ -70,12 +74,14 @@ class TestSwitchPrimaryStorage:
         data = await response.get_json()
         assert "error" in data or "status" in data  # 2
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_unauthorized(self, db):
         """No token → 401 or 403."""
-        from quart import Quart
         from app.api.clusters import clusters_bp
+        from quart import Quart
 
         app = Quart(__name__)
         app.register_blueprint(clusters_bp, url_prefix="/api/v1/clusters")
@@ -103,7 +109,9 @@ class TestSwitchPrimaryStorage:
 class TestLXDJoin:
     """Tests for lxd/join endpoint."""
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_happy_path(self, authed_client, db):
         """POST /api/v1/clusters/{id}/lxd/join returns 2xx."""
@@ -139,7 +147,9 @@ class TestLXDJoin:
         data = await response.get_json()
         assert "status" in data or "error" in data  # 2
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_invalid_cluster(self, authed_client, db):
         """Unknown cluster → 202 (NATS event emitted regardless)."""
@@ -185,7 +195,9 @@ class TestClusterAdopt:
 
         assert response.status_code in (200, 201, 404, 501)  # 1
 
-    @pytest.mark.skip(reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed")
+    @pytest.mark.skip(
+        reason="gh-16: Phase 3 test harness rework — scope-gated auth fixture scenarios needed"
+    )
     @pytest.mark.asyncio
     async def test_existing_cluster_rejected(self, authed_superadmin_client, db):
         """Adopting existing cluster → 409."""

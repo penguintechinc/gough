@@ -30,7 +30,11 @@ def upgrade() -> None:
         with op.batch_alter_table("access_agents") as batch:
             batch.add_column(sa.Column("node_id", sa.Integer(), nullable=True))
             batch.create_foreign_key(
-                "fk_access_agents_node_id", "nodes", ["node_id"], ["id"], ondelete="SET NULL"
+                "fk_access_agents_node_id",
+                "nodes",
+                ["node_id"],
+                ["id"],
+                ondelete="SET NULL",
             )
             batch.create_index("ix_access_agents_node_id", ["node_id"])
     if "confirmed_at" not in _columns("capacity_reservations"):

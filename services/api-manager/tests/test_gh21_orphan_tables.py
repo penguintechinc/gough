@@ -25,17 +25,25 @@ from penguin_dal import DB
 def _seed_cluster(owner_db: DB, *, cluster_id: str) -> str:
     now = datetime.now(timezone.utc)
     owner_db.clusters.insert(
-        id=cluster_id, tenant_id="acme", name=cluster_id, created_at=now, updated_at=now,
+        id=cluster_id,
+        tenant_id="acme",
+        name=cluster_id,
+        created_at=now,
+        updated_at=now,
     )
     return cluster_id
 
 
 class TestClusterConfig:
-    def test_insert_and_select_as_scoped_role(self, pg_db: DB, pg_db_scoped: DB) -> None:
+    def test_insert_and_select_as_scoped_role(
+        self, pg_db: DB, pg_db_scoped: DB
+    ) -> None:
         cluster_id = _seed_cluster(pg_db, cluster_id="cc-cluster")
 
         row_id = pg_db_scoped.cluster_config.insert(
-            cluster_id=cluster_id, key="network_pools", value_json=[{"name": "mgmt"}],
+            cluster_id=cluster_id,
+            key="network_pools",
+            value_json=[{"name": "mgmt"}],
         )
         rows = pg_db_scoped(pg_db_scoped.cluster_config.id == row_id).select()
 
@@ -45,21 +53,31 @@ class TestClusterConfig:
         assert rows[0].value_json == [{"name": "mgmt"}]
         assert rows[0].created_at is not None
 
-    def test_unique_constraint_on_cluster_id_and_key(self, pg_db: DB, pg_db_scoped: DB) -> None:
+    def test_unique_constraint_on_cluster_id_and_key(
+        self, pg_db: DB, pg_db_scoped: DB
+    ) -> None:
         from sqlalchemy.exc import IntegrityError
 
         cluster_id = _seed_cluster(pg_db, cluster_id="cc-cluster-2")
-        pg_db_scoped.cluster_config.insert(cluster_id=cluster_id, key="k1", value_json={})
+        pg_db_scoped.cluster_config.insert(
+            cluster_id=cluster_id, key="k1", value_json={}
+        )
 
         with pytest.raises(IntegrityError):
-            pg_db_scoped.cluster_config.insert(cluster_id=cluster_id, key="k1", value_json={})
+            pg_db_scoped.cluster_config.insert(
+                cluster_id=cluster_id, key="k1", value_json={}
+            )
 
 
 class TestIpxeImages:
     def test_insert_and_select_as_scoped_role(self, pg_db_scoped: DB) -> None:
         image_id = pg_db_scoped.ipxe_images.insert(
-            name="ubuntu-24.04", display_name="Ubuntu 24.04", os_version="24.04",
-            architecture="amd64", kernel_path="minio://kernel", initrd_path="minio://initrd",
+            name="ubuntu-24.04",
+            display_name="Ubuntu 24.04",
+            os_version="24.04",
+            architecture="amd64",
+            kernel_path="minio://kernel",
+            initrd_path="minio://initrd",
         )
         rows = pg_db_scoped(pg_db_scoped.ipxe_images.id == image_id).select()
 
@@ -72,8 +90,12 @@ class TestIpxeImages:
 
     def test_delete_as_scoped_role(self, pg_db_scoped: DB) -> None:
         image_id = pg_db_scoped.ipxe_images.insert(
-            name="delete-me", display_name="Delete Me", os_version="24.04",
-            architecture="amd64", kernel_path="k", initrd_path="i",
+            name="delete-me",
+            display_name="Delete Me",
+            os_version="24.04",
+            architecture="amd64",
+            kernel_path="k",
+            initrd_path="i",
         )
         pg_db_scoped(pg_db_scoped.ipxe_images.id == image_id).delete()
         rows = pg_db_scoped(pg_db_scoped.ipxe_images.id == image_id).select()
@@ -85,8 +107,12 @@ class TestIpxeBootConfigs:
         from app.db.rls import install_rls_events, set_current_tenant
 
         image_id = pg_db_scoped.ipxe_images.insert(
-            name="img-for-bootcfg", display_name="Img", os_version="24.04",
-            architecture="amd64", kernel_path="k", initrd_path="i",
+            name="img-for-bootcfg",
+            display_name="Img",
+            os_version="24.04",
+            architecture="amd64",
+            kernel_path="k",
+            initrd_path="i",
         )
         # biome_groups is RLS-enabled; current handlers never set tenant_id
         # (server_default='__default__'), so seeding it here needs the GUC
@@ -96,12 +122,16 @@ class TestIpxeBootConfigs:
         set_current_tenant("__default__")
         try:
             group_id = pg_db_scoped.biome_groups.insert(
-                name="bg-for-bootcfg", display_name="BG", biomes=[],
+                name="bg-for-bootcfg",
+                display_name="BG",
+                biomes=[],
             )
         finally:
             set_current_tenant(None)
         cfg_id = pg_db_scoped.ipxe_boot_configs.insert(
-            name="default-boot", boot_order=[], default_image_id=image_id,
+            name="default-boot",
+            boot_order=[],
+            default_image_id=image_id,
             assigned_biome_group_id=group_id,
         )
         rows = pg_db_scoped(pg_db_scoped.ipxe_boot_configs.id == cfg_id).select()
@@ -114,9 +144,13 @@ class TestIpxeBootConfigs:
 
 class TestIpxeMachines:
     def test_insert_and_select_as_scoped_role(self, pg_db_scoped: DB) -> None:
-        cfg_id = pg_db_scoped.ipxe_boot_configs.insert(name="mach-boot-cfg", boot_order=[])
+        cfg_id = pg_db_scoped.ipxe_boot_configs.insert(
+            name="mach-boot-cfg", boot_order=[]
+        )
         machine_id = pg_db_scoped.ipxe_machines.insert(
-            system_id="sys-gh21-1", mac_address="deadbeef0001", status="unknown",
+            system_id="sys-gh21-1",
+            mac_address="deadbeef0001",
+            status="unknown",
             boot_config_id=cfg_id,
         )
         rows = pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).select()
@@ -128,14 +162,19 @@ class TestIpxeMachines:
 
     def test_update_and_delete_as_scoped_role(self, pg_db_scoped: DB) -> None:
         machine_id = pg_db_scoped.ipxe_machines.insert(
-            system_id="sys-gh21-2", mac_address="deadbeef0002", status="unknown",
+            system_id="sys-gh21-2",
+            mac_address="deadbeef0002",
+            status="unknown",
         )
         pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).update(status="ready")
         row = pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).select().first()
         assert row.status == "ready"
 
         pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).delete()
-        assert pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).select().first() is None
+        assert (
+            pg_db_scoped(pg_db_scoped.ipxe_machines.id == machine_id).select().first()
+            is None
+        )
 
 
 class TestIpxeConfig:
@@ -153,11 +192,15 @@ class TestIpxeConfig:
 class TestBootEvents:
     def test_insert_and_select_as_scoped_role(self, pg_db_scoped: DB) -> None:
         machine_id = pg_db_scoped.ipxe_machines.insert(
-            system_id="sys-gh21-be", mac_address="deadbeef0003", status="unknown",
+            system_id="sys-gh21-be",
+            mac_address="deadbeef0003",
+            status="unknown",
         )
         event_id = pg_db_scoped.boot_events.insert(
-            machine_id=machine_id, mac_address="deadbeef0003",
-            event_type="dhcp_request", details={"action": "discover"},
+            machine_id=machine_id,
+            mac_address="deadbeef0003",
+            event_type="dhcp_request",
+            details={"action": "discover"},
         )
         rows = pg_db_scoped(pg_db_scoped.boot_events.id == event_id).select()
 
@@ -172,8 +215,10 @@ class TestBootEvents:
     def test_discovery_event_with_no_machine_id(self, pg_db_scoped: DB) -> None:
         """Discovery events fire before a machine is registered -- machine_id nullable."""
         event_id = pg_db_scoped.boot_events.insert(
-            machine_id=None, mac_address="deadbeef0004",
-            event_type="dhcp_request", details={},
+            machine_id=None,
+            mac_address="deadbeef0004",
+            event_type="dhcp_request",
+            details={},
         )
         row = pg_db_scoped(pg_db_scoped.boot_events.id == event_id).select().first()
         assert row is not None
@@ -181,21 +226,31 @@ class TestBootEvents:
 
 
 class TestDeploymentLogs:
-    def test_insert_and_select_as_scoped_role(self, pg_db: DB, pg_db_scoped: DB) -> None:
+    def test_insert_and_select_as_scoped_role(
+        self, pg_db: DB, pg_db_scoped: DB
+    ) -> None:
         now = datetime.now(timezone.utc)
         biome_id = int(pg_db.biomes.insert(name="probe-biome-dl", tenant_id="acme"))
         node_id = int(
             pg_db.nodes.insert(
-                name="probe-node-dl", tenant_id="acme", created_at=now, updated_at=now,
+                name="probe-node-dl",
+                tenant_id="acme",
+                created_at=now,
+                updated_at=now,
             )
         )
         pg_db.deployments.insert(
-            id="dep-gh21-dl", biome_id=biome_id, node_id=node_id,
-            created_at=now, updated_at=now,
+            id="dep-gh21-dl",
+            biome_id=biome_id,
+            node_id=node_id,
+            created_at=now,
+            updated_at=now,
         )
 
         log_id = pg_db_scoped.deployment_logs.insert(
-            deployment_id="dep-gh21-dl", message="starting deploy", level="info",
+            deployment_id="dep-gh21-dl",
+            message="starting deploy",
+            level="info",
         )
         rows = pg_db_scoped(pg_db_scoped.deployment_logs.id == log_id).select()
 
@@ -206,7 +261,9 @@ class TestDeploymentLogs:
 
 
 class TestResourcePermissions:
-    def test_insert_and_select_as_scoped_role(self, pg_db: DB, pg_db_scoped: DB) -> None:
+    def test_insert_and_select_as_scoped_role(
+        self, pg_db: DB, pg_db_scoped: DB
+    ) -> None:
         user_id = int(
             pg_db.auth_user.insert(
                 email="gh21-rp-probe@example.com",
@@ -216,7 +273,9 @@ class TestResourcePermissions:
         )
 
         rp_id = pg_db_scoped.resource_permissions.insert(
-            user_id=user_id, resource_type="lxd_cluster", resource_id=1,
+            user_id=user_id,
+            resource_type="lxd_cluster",
+            resource_id=1,
             permission="read,write",
         )
         rows = pg_db_scoped(pg_db_scoped.resource_permissions.id == rp_id).select()
@@ -225,7 +284,9 @@ class TestResourcePermissions:
         assert rows[0].permission == "read,write"
 
     def test_unique_constraint_user_resource_type_resource_id(
-        self, pg_db: DB, pg_db_scoped: DB,
+        self,
+        pg_db: DB,
+        pg_db_scoped: DB,
     ) -> None:
         from sqlalchemy.exc import IntegrityError
 
@@ -237,11 +298,16 @@ class TestResourcePermissions:
             )
         )
         pg_db_scoped.resource_permissions.insert(
-            user_id=user_id, resource_type="lxd_cluster", resource_id=5, permission="read",
+            user_id=user_id,
+            resource_type="lxd_cluster",
+            resource_id=5,
+            permission="read",
         )
 
         with pytest.raises(IntegrityError):
             pg_db_scoped.resource_permissions.insert(
-                user_id=user_id, resource_type="lxd_cluster", resource_id=5,
+                user_id=user_id,
+                resource_type="lxd_cluster",
+                resource_id=5,
                 permission="write",
             )

@@ -43,9 +43,7 @@ MAX_MESSAGE_BYTES = 64 * 1024
 MAX_DIM = 1000
 VALID_MESSAGE_TYPES = frozenset({"input", "resize"})
 
-_UUID_RE = re.compile(
-    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-)
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 _PRE_AUTH_PLACEHOLDER = "unauthenticated"
 PRE_AUTH_AUDIT_LIMIT = 10  # audited pre-auth denials per source IP per window
 PRE_AUTH_AUDIT_WINDOW = 60.0
@@ -119,7 +117,11 @@ def _pre_auth_audit_allowed(source: str) -> bool:
     now = time.monotonic()
     with _pre_auth_lock:
         if len(_pre_auth_hits) > 4096:
-            for k in [k for k, (t, _) in _pre_auth_hits.items() if now - t > PRE_AUTH_AUDIT_WINDOW]:
+            for k in [
+                k
+                for k, (t, _) in _pre_auth_hits.items()
+                if now - t > PRE_AUTH_AUDIT_WINDOW
+            ]:
                 del _pre_auth_hits[k]
         start, count = _pre_auth_hits.get(source, (now, 0))
         if now - start > PRE_AUTH_AUDIT_WINDOW:
@@ -150,7 +152,13 @@ def _audit_attach(
             audit.log_shell_attach(session_id, user_id, outcome, reason, details)
     except Exception:  # noqa: BLE001
         log.exception("shell attach audit failed")
-    log.info("shell attach %s session=%s user=%s reason=%s", outcome, session_id, user_id, reason)
+    log.info(
+        "shell attach %s session=%s user=%s reason=%s",
+        outcome,
+        session_id,
+        user_id,
+        reason,
+    )
 
 
 async def run_session(transport: ShellTransport) -> None:
@@ -253,9 +261,13 @@ def init_websocket(app: Quart) -> None:
             if transport is None:
                 _audit_attach(session_id, claims.user_id, "deny", "proxy unavailable")
                 await websocket.send(
-                    json.dumps({"type": "error", "message": "shell proxy not yet available"})
+                    json.dumps(
+                        {"type": "error", "message": "shell proxy not yet available"}
+                    )
                 )
-                await websocket.close(CLOSE_UNAVAILABLE, "shell proxy not yet available")
+                await websocket.close(
+                    CLOSE_UNAVAILABLE, "shell proxy not yet available"
+                )
                 return
             _audit_attach(session_id, claims.user_id, "attach", "ok")
             await run_session(transport)

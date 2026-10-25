@@ -37,7 +37,6 @@ from pydantic import BaseModel, Field, model_validator
 from ..catalog import CILIUM_IMAGE_DIGESTS, CILIUM_VERSION, canonical_biome_name
 from ..mirrors import MirrorConfig, MirrorConfigError, load_mirror_config
 
-
 # ---------------------------------------------------------------------------
 # Public error types
 # ---------------------------------------------------------------------------
@@ -116,7 +115,11 @@ class PlanRequest(BaseModel):
     @classmethod
     def _remap_egg_fields(cls, data: Any) -> Any:
         """Backward-compat: accept egg_assignments and remap to biome_assignments."""
-        if isinstance(data, dict) and "egg_assignments" in data and "biome_assignments" not in data:
+        if (
+            isinstance(data, dict)
+            and "egg_assignments" in data
+            and "biome_assignments" not in data
+        ):
             data = dict(data)
             data["biome_assignments"] = data.pop("egg_assignments")
         return data
@@ -255,10 +258,16 @@ def _node_has_forbidden_tag(node_tags: list[str], forbidden: list[str]) -> list[
 _LUKS_KEY_NAME_DEV = "gough-luks-dev"
 
 
-def _seal_luks_key_dev(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key_dev(
+    raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Seal a LUKS key via Vault transit (dev tier — M1)."""
     resp = vault_client.transit_encrypt(_LUKS_KEY_NAME_DEV, raw_key)
-    sealed = resp.ciphertext.encode() if isinstance(resp.ciphertext, str) else resp.ciphertext
+    sealed = (
+        resp.ciphertext.encode()
+        if isinstance(resp.ciphertext, str)
+        else resp.ciphertext
+    )
     provenance: dict[str, Any] = {
         "tier": "dev",
         "vault_key_name": _LUKS_KEY_NAME_DEV,
@@ -268,7 +277,9 @@ def _seal_luks_key_dev(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[s
     return sealed, provenance
 
 
-def _seal_luks_key_tpm2(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key_tpm2(
+    raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Seal a LUKS key via Vault transit + TPM2 unsealing.
 
     TPM2-only tier uses Clevis binding to PCR7 (secure boot state).
@@ -276,7 +287,11 @@ def _seal_luks_key_tpm2(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[
     and TPM2 attestation at boot time.
     """
     resp = vault_client.transit_encrypt(_LUKS_KEY_NAME_DEV, raw_key)
-    sealed = resp.ciphertext.encode() if isinstance(resp.ciphertext, str) else resp.ciphertext
+    sealed = (
+        resp.ciphertext.encode()
+        if isinstance(resp.ciphertext, str)
+        else resp.ciphertext
+    )
     provenance: dict[str, Any] = {
         "tier": "tpm2",
         "method": "clevis-luks-bind",
@@ -288,14 +303,20 @@ def _seal_luks_key_tpm2(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[
     return sealed, provenance
 
 
-def _seal_luks_key_tpm2_pin(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key_tpm2_pin(
+    raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Seal a LUKS key via Vault transit + TPM2+PIN unsealing.
 
     TPM2+PIN tier requires both TPM2 attestation (PCR7) and an operator-supplied PIN.
     The sealed key is stored in Vault; unsealing requires the PIN at boot time.
     """
     resp = vault_client.transit_encrypt(_LUKS_KEY_NAME_DEV, raw_key)
-    sealed = resp.ciphertext.encode() if isinstance(resp.ciphertext, str) else resp.ciphertext
+    sealed = (
+        resp.ciphertext.encode()
+        if isinstance(resp.ciphertext, str)
+        else resp.ciphertext
+    )
     provenance: dict[str, Any] = {
         "tier": "tpm2-pin",
         "method": "clevis-luks-bind-with-pin",
@@ -307,7 +328,9 @@ def _seal_luks_key_tpm2_pin(raw_key: bytes, vault_client: Any) -> tuple[bytes, d
     return sealed, provenance
 
 
-def _seal_luks_key_tang(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key_tang(
+    raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Seal a LUKS key via Vault transit + Tang (network-bound) unsealing.
 
     Network-bound tier uses Clevis + Tang for unsealing. The sealed key is stored
@@ -316,7 +339,11 @@ def _seal_luks_key_tang(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[
     plane and passed via joiner secrets.
     """
     resp = vault_client.transit_encrypt(_LUKS_KEY_NAME_DEV, raw_key)
-    sealed = resp.ciphertext.encode() if isinstance(resp.ciphertext, str) else resp.ciphertext
+    sealed = (
+        resp.ciphertext.encode()
+        if isinstance(resp.ciphertext, str)
+        else resp.ciphertext
+    )
     provenance: dict[str, Any] = {
         "tier": "tang",
         "method": "clevis-luks-bind-tang",
@@ -331,7 +358,9 @@ def _seal_luks_key_tang(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[
     return sealed, provenance
 
 
-def _seal_luks_key_cloud_kms(raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key_cloud_kms(
+    raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Seal a LUKS key via the cloud VM's native KMS (AWS/GCP/Azure).
 
     Cloud VMs have no TPM, so the TPM2/TPM2+PIN/Tang Clevis-binding tiers
@@ -354,7 +383,8 @@ def _seal_luks_key_cloud_kms(raw_key: bytes, vault_client: Any) -> tuple[bytes, 
         client = CloudKMSClient.from_env()
     except CloudKMSError as exc:
         _metrics.cloud_kms_luks_seal_total.labels(
-            provider=os.getenv("GOUGH_CLOUD_KMS_PROVIDER", "unconfigured") or "unconfigured",
+            provider=os.getenv("GOUGH_CLOUD_KMS_PROVIDER", "unconfigured")
+            or "unconfigured",
             result="error",
         ).inc()
         raise LUKSValidationError(f"cloud-kms LUKS sealing failed: {exc}") from exc
@@ -382,7 +412,9 @@ def _seal_luks_key_cloud_kms(raw_key: bytes, vault_client: Any) -> tuple[bytes, 
     return result.ciphertext, provenance
 
 
-def _seal_luks_key(tier: str, raw_key: bytes, vault_client: Any) -> tuple[bytes, dict[str, Any]]:
+def _seal_luks_key(
+    tier: str, raw_key: bytes, vault_client: Any
+) -> tuple[bytes, dict[str, Any]]:
     """Dispatch to the correct tier sealing function.
 
     Supported tiers:
@@ -505,7 +537,9 @@ def _fetch_verified_cmd(url: str, sha256: str, dest: str) -> str:
     )
 
 
-def _render_registry_mirror_files(mirrors: MirrorConfig) -> tuple[list[dict[str, Any]], list[str]]:
+def _render_registry_mirror_files(
+    mirrors: MirrorConfig,
+) -> tuple[list[dict[str, Any]], list[str]]:
     """Render containerd hosts.toml files routing each upstream registry through the mirror.
 
     Returns (write_files, runcmds). The runcmd fails loudly if containerd does not
@@ -514,15 +548,17 @@ def _render_registry_mirror_files(mirrors: MirrorConfig) -> tuple[list[dict[str,
     write_files: list[dict[str, Any]] = []
     for registry in mirrors.mirrored_registries:
         upstream = "registry-1.docker.io" if registry == "docker.io" else registry
-        write_files.append({
-            "path": f"/etc/containerd/certs.d/{registry}/hosts.toml",
-            "content": (
-                f'server = "https://{upstream}"\n\n'
-                f'[host."{mirrors.registry_mirror}"]\n'
-                '  capabilities = ["pull", "resolve"]\n'
-            ),
-            "permissions": "0644",
-        })
+        write_files.append(
+            {
+                "path": f"/etc/containerd/certs.d/{registry}/hosts.toml",
+                "content": (
+                    f'server = "https://{upstream}"\n\n'
+                    f'[host."{mirrors.registry_mirror}"]\n'
+                    '  capabilities = ["pull", "resolve"]\n'
+                ),
+                "permissions": "0644",
+            }
+        )
     runcmds = [
         "# Fail loudly unless containerd reads per-registry mirror config",
         "grep -q 'config_path = \"/etc/containerd/certs.d\"' /etc/containerd/config.toml "
@@ -611,11 +647,13 @@ def _render_cni_install(
     # Generate cilium-values.yaml with templated service host and mirror-pinned images
     cilium_yaml = _render_cilium_values(service_host, mirrors)
 
-    write_files.append({
-        "path": "/etc/gough/cilium-values.yaml",
-        "content": cilium_yaml,
-        "permissions": "0644",
-    })
+    write_files.append(
+        {
+            "path": "/etc/gough/cilium-values.yaml",
+            "content": cilium_yaml,
+            "permissions": "0644",
+        }
+    )
 
     # Airgap: route every upstream registry through the operator mirror.
     registry_files, registry_cmds = _render_registry_mirror_files(mirrors)
@@ -629,9 +667,15 @@ def _render_cni_install(
     chart_path = f"/var/lib/gough/airgap/cilium-{version}.tgz"
 
     # Gateway API CRDs first: gatewayAPI is enabled in the values, so TLSRoute must be served.
-    runcmds.append("# Fetch + verify Gateway API CRDs from the mirror (gatewayAPI is enabled)")
     runcmds.append(
-        _fetch_verified_cmd(mirrors.gateway_api_crds_url, mirrors.gateway_api_crds_sha256, gateway_crd_path)
+        "# Fetch + verify Gateway API CRDs from the mirror (gatewayAPI is enabled)"
+    )
+    runcmds.append(
+        _fetch_verified_cmd(
+            mirrors.gateway_api_crds_url,
+            mirrors.gateway_api_crds_sha256,
+            gateway_crd_path,
+        )
     )
     runcmds.append(f"kubectl apply -f {shlex.quote(gateway_crd_path)} || exit 1")
     runcmds.append(
@@ -640,13 +684,25 @@ def _render_cni_install(
     )
 
     # Pre-apply the Cilium CRD bundle (single verified file) before the operator starts.
-    runcmds.append("# Fetch + verify + pre-apply Cilium CRD bundle (prevents operator stuck-on-CRDs deadlock)")
-    runcmds.append(_fetch_verified_cmd(mirrors.cilium_crds_url, mirrors.cilium_crds_sha256, crd_bundle_path))
+    runcmds.append(
+        "# Fetch + verify + pre-apply Cilium CRD bundle (prevents operator stuck-on-CRDs deadlock)"
+    )
+    runcmds.append(
+        _fetch_verified_cmd(
+            mirrors.cilium_crds_url, mirrors.cilium_crds_sha256, crd_bundle_path
+        )
+    )
     runcmds.append(f"kubectl apply -f {shlex.quote(crd_bundle_path)} || exit 1")
 
     # Chart from the mirror, verified, installed from the local tarball (no helm repo).
-    runcmds.append("# Fetch + verify Cilium chart from the mirror, then helm install from the local tarball")
-    runcmds.append(_fetch_verified_cmd(mirrors.cilium_chart_url(version), mirrors.cilium_chart_sha256, chart_path))
+    runcmds.append(
+        "# Fetch + verify Cilium chart from the mirror, then helm install from the local tarball"
+    )
+    runcmds.append(
+        _fetch_verified_cmd(
+            mirrors.cilium_chart_url(version), mirrors.cilium_chart_sha256, chart_path
+        )
+    )
     runcmds.append(
         f"helm install cilium {shlex.quote(chart_path)} "
         f"--namespace kube-system --create-namespace "
@@ -666,10 +722,12 @@ def _render_cni_install(
     )
 
     # Final CRD verification (exact check from dal2-beta incident)
-    runcmds.append("# Verify critical Cilium CRDs are present (dal2-beta deadlock prevention)")
+    runcmds.append(
+        "# Verify critical Cilium CRDs are present (dal2-beta deadlock prevention)"
+    )
     runcmds.append(
         "for crd in ciliumenvoyconfigs.cilium.io ciliumclusterwideenvoyconfigs.cilium.io; do "
-        "kubectl get crd \"$crd\" > /dev/null || (echo \"Critical CRD $crd missing\" && exit 1); done"
+        'kubectl get crd "$crd" > /dev/null || (echo "Critical CRD $crd missing" && exit 1); done'
     )
 
     # Apply CiliumLoadBalancerIPPool for L2 announcements (default: 10.2.0.50-10.2.0.250 for external baseline)
@@ -684,12 +742,16 @@ def _render_cni_install(
         f"  cidrs:\n"
         f"  - cidr: {lb_pool_cidr}\n"
     )
-    write_files.append({
-        "path": "/etc/gough/cilium-lb-pool.yaml",
-        "content": pool_yaml,
-        "permissions": "0644",
-    })
-    runcmds.append("# Apply CiliumLoadBalancerIPPool for type=LoadBalancer services (Cilium replaces MetalLB)")
+    write_files.append(
+        {
+            "path": "/etc/gough/cilium-lb-pool.yaml",
+            "content": pool_yaml,
+            "permissions": "0644",
+        }
+    )
+    runcmds.append(
+        "# Apply CiliumLoadBalancerIPPool for type=LoadBalancer services (Cilium replaces MetalLB)"
+    )
     runcmds.append("kubectl apply -f /etc/gough/cilium-lb-pool.yaml || exit 1")
 
     return (write_files, runcmds, errors)
@@ -706,7 +768,9 @@ def _render_control_plane_frontend(
     node_name: str,
     cluster_id: str,
     joiner_secrets_existing: list[dict[str, Any]],
-) -> tuple[list[dict[str, Any]], list[str], list[dict[str, Any]], list[PlanValidationError]]:
+) -> tuple[
+    list[dict[str, Any]], list[str], list[dict[str, Any]], list[PlanValidationError]
+]:
     """Render control-plane frontend (kube-vip, external, none) artifacts.
 
     Returns (write_files, runcmds, joiner_secrets_to_emit, validation_errors).
@@ -778,8 +842,10 @@ def _render_control_plane_frontend(
     if mode == "kube-vip":
         # kube-vip: render static pod manifest + populate init/join
         interface = params.get("interface", "eth0")
-        kube_vip_digest = params.get("kube_vip_image_digest",
-            "sha256:840305b94ef2a89abb3b7fd2b09edfbde690d90052020da4dff90679fe892da2")
+        kube_vip_digest = params.get(
+            "kube_vip_image_digest",
+            "sha256:840305b94ef2a89abb3b7fd2b09edfbde690d90052020da4dff90679fe892da2",
+        )
 
         # Static pod manifest (ARP mode, single NIC)
         kube_vip_manifest = f"""apiVersion: v1
@@ -824,11 +890,13 @@ spec:
       path: /etc/kubernetes
     name: etc-kubernetes
 """
-        write_files.append({
-            "path": "/etc/kubernetes/manifests/kube-vip.yaml",
-            "content": kube_vip_manifest,
-            "permissions": "0644",
-        })
+        write_files.append(
+            {
+                "path": "/etc/kubernetes/manifests/kube-vip.yaml",
+                "content": kube_vip_manifest,
+                "permissions": "0644",
+            }
+        )
 
     # Both kube-vip and external: emit kubeadm init/join with endpoint
     if is_bootstrap:
@@ -845,7 +913,9 @@ spec:
         # Install CNI (get mode from params, default: cilium)
         cni_mode = params.get("cni", "cilium")
         cni_params = params.get("cni_params", {})
-        cni_write_files, cni_runcmds, cni_errors = _render_cni_install(cni_mode, cni_params, endpoint)
+        cni_write_files, cni_runcmds, cni_errors = _render_cni_install(
+            cni_mode, cni_params, endpoint
+        )
         write_files.extend(cni_write_files)
         runcmds.extend(cni_runcmds)
         errors.extend(cni_errors)
@@ -936,44 +1006,61 @@ spec:
               LOG_FN "watchdog check complete" "ok"
           restartPolicy: OnFailure
 """
-        write_files.append({
-            "path": "/etc/gough/core-agent-watchdog-cronjob.yaml",
-            "content": watchdog_yaml,
-            "permissions": "0644",
-        })
+        write_files.append(
+            {
+                "path": "/etc/gough/core-agent-watchdog-cronjob.yaml",
+                "content": watchdog_yaml,
+                "permissions": "0644",
+            }
+        )
         runcmds.append("# Install gough core-agents watchdog CronJob (self-healing)")
-        runcmds.append("kubectl apply -f /etc/gough/core-agent-watchdog-cronjob.yaml || exit 1")
+        runcmds.append(
+            "kubectl apply -f /etc/gough/core-agent-watchdog-cronjob.yaml || exit 1"
+        )
 
         # Emit joiner secrets (placeholder extraction; real impl uses kubeadm hooks)
-        joiner_secrets.append({
-            "cluster_id": cluster_id,
-            "egg_kind": "k8s-controller",
-            "extractor_name": "control_plane_endpoint",
-            "scope": "cluster",
-            "value": endpoint,
-        })
-        joiner_secrets.append({
-            "cluster_id": cluster_id,
-            "egg_kind": "k8s-controller",
-            "extractor_name": "kubeadm_certificate_key",
-            "scope": "cluster",
-            "value": f"<cert-key-from-init>",  # Real impl extracts from kubeadm
-        })
+        joiner_secrets.append(
+            {
+                "cluster_id": cluster_id,
+                "egg_kind": "k8s-controller",
+                "extractor_name": "control_plane_endpoint",
+                "scope": "cluster",
+                "value": endpoint,
+            }
+        )
+        joiner_secrets.append(
+            {
+                "cluster_id": cluster_id,
+                "egg_kind": "k8s-controller",
+                "extractor_name": "kubeadm_certificate_key",
+                "scope": "cluster",
+                "value": "<cert-key-from-init>",  # Real impl extracts from kubeadm
+            }
+        )
     else:
         # Join-as-control-plane: consume token, ca-hash, cert-key from secrets
         token_secret = next(
-            (s for s in joiner_secrets_existing
-             if s.get("extractor_name") == "kubeadm_join_token"),
+            (
+                s
+                for s in joiner_secrets_existing
+                if s.get("extractor_name") == "kubeadm_join_token"
+            ),
             None,
         )
         ca_hash_secret = next(
-            (s for s in joiner_secrets_existing
-             if s.get("extractor_name") == "kubeadm_ca_hash"),
+            (
+                s
+                for s in joiner_secrets_existing
+                if s.get("extractor_name") == "kubeadm_ca_hash"
+            ),
             None,
         )
         cert_key_secret = next(
-            (s for s in joiner_secrets_existing
-             if s.get("extractor_name") == "kubeadm_certificate_key"),
+            (
+                s
+                for s in joiner_secrets_existing
+                if s.get("extractor_name") == "kubeadm_certificate_key"
+            ),
             None,
         )
 
@@ -982,7 +1069,11 @@ spec:
                 PlanValidationError(
                     code="cloud_init_validation_error",
                     message="Join-as-control-plane requires kubeadm_join_token, kubeadm_ca_hash, and kubeadm_certificate_key joiner secrets",
-                    details={"has_token": bool(token_secret), "has_ca_hash": bool(ca_hash_secret), "has_cert_key": bool(cert_key_secret)},
+                    details={
+                        "has_token": bool(token_secret),
+                        "has_ca_hash": bool(ca_hash_secret),
+                        "has_cert_key": bool(cert_key_secret),
+                    },
                 )
             )
             return (write_files, runcmds, joiner_secrets, errors)
@@ -1082,7 +1173,7 @@ def _merge_cloud_init(biomes_in_order: list[dict[str, Any]]) -> tuple[str, list[
         biome_name = biome.get("name", f"biome-{biome.get('id', '?')}")
 
         # Handle write_files
-        for wf in (ci.get("write_files") or []):
+        for wf in ci.get("write_files") or []:
             path = wf.get("path", "")
             if path in merged_write_files:
                 collision_errors.append(
@@ -1096,7 +1187,7 @@ def _merge_cloud_init(biomes_in_order: list[dict[str, Any]]) -> tuple[str, list[
                 merged_write_files[path] = biome_name
 
         # Handle runcmd
-        for cmd in (ci.get("runcmd") or []):
+        for cmd in ci.get("runcmd") or []:
             merged_runcmds.append(cmd)
 
     if collision_errors:
@@ -1129,7 +1220,7 @@ def _merge_cloud_init_with_errors(
         ci = biome.get("cloud_init") or {}
         biome_name = biome.get("name", f"biome-{biome.get('id', '?')}")
 
-        for wf in (ci.get("write_files") or []):
+        for wf in ci.get("write_files") or []:
             path = wf.get("path", "")
             if path in merged_write_files:
                 errors.append(
@@ -1149,7 +1240,7 @@ def _merge_cloud_init_with_errors(
             else:
                 merged_write_files[path] = biome_name
 
-        for cmd in (ci.get("runcmd") or []):
+        for cmd in ci.get("runcmd") or []:
             merged_runcmds.append(cmd)
 
     if errors:
@@ -1252,9 +1343,7 @@ def _topo_sort(
             in_degree[eid] += 1
             adj[dep_id].append(eid)
 
-    queue: deque[int] = deque(
-        eid for eid, deg in in_degree.items() if deg == 0
-    )
+    queue: deque[int] = deque(eid for eid, deg in in_degree.items() if deg == 0)
     sorted_ids: list[int] = []
 
     while queue:
@@ -1287,7 +1376,9 @@ def _topo_sort(
     return sorted_ids, []
 
 
-def _find_cycle(start: int, nodes: dict[int, _BiomeNode], max_len: int = 20) -> list[int]:
+def _find_cycle(
+    start: int, nodes: dict[int, _BiomeNode], max_len: int = 20
+) -> list[int]:
     """DFS cycle finder; returns the cycle path bounded to max_len entries."""
     path: list[int] = []
     on_stack: set[int] = set()
@@ -1357,7 +1448,9 @@ def _check_vram_requirements(
     device_count_min = needs_gpu.get("device_count_min", 1)
     device_count_max = needs_gpu.get("device_count_max", 9999)
     shared_memory_acceptable = needs_gpu.get("shared_memory_acceptable", False)
-    free_ram_gb: float | None = None if free_ram_bytes is None else free_ram_bytes / 1024.0**3
+    free_ram_gb: float | None = (
+        None if free_ram_bytes is None else free_ram_bytes / 1024.0**3
+    )
     shared_memory_buffer_gb: float = hw.get("shared_memory_buffer_gb", 2.0)
     interconnect = needs_gpu.get("interconnect")
     min_compute = needs_gpu.get("min_compute_capability")
@@ -1374,7 +1467,10 @@ def _check_vram_requirements(
         # Integrated GPU: disqualify unless shared_memory_acceptable
         if dbus == "integrated":
             if not shared_memory_acceptable:
-                return False, "integrated GPU not acceptable (shared_memory_acceptable=false)"
+                return (
+                    False,
+                    "integrated GPU not acceptable (shared_memory_acceptable=false)",
+                )
             # Check free RAM headroom
             needed = vram_per_device_min_gb + shared_memory_buffer_gb
             if free_ram_gb is None:
@@ -1390,7 +1486,10 @@ def _check_vram_requirements(
         # External GPU: disqualify by default
         if dbus == "external":
             if not needs_gpu.get("external_accelerator_allowed", False):
-                return False, "external GPU not allowed (external_accelerator_allowed=false)"
+                return (
+                    False,
+                    "external GPU not allowed (external_accelerator_allowed=false)",
+                )
         # VRAM check (skip for integrated with shared_memory_acceptable)
         if dbus != "integrated":
             dev_vram = dev.get("vram_gb", 0)
@@ -1496,7 +1595,9 @@ def _resolve_joiner_secrets(
     for consume_spec in egg_node.consumes_joiner_secrets_from:
         # Backward-compat: accept egg_kind or biome_kind
         biome_kind = consume_spec.get("biome_kind", consume_spec.get("egg_kind", ""))
-        extractor = consume_spec.get("extractor_name", consume_spec.get("extractor", ""))
+        extractor = consume_spec.get(
+            "extractor_name", consume_spec.get("extractor", "")
+        )
         scope = consume_spec.get("scope", "cluster")
         optional = consume_spec.get("mode", "hard") == "soft"
 
@@ -1626,7 +1727,9 @@ class PlanCompiler:
     # Public interface
     # ------------------------------------------------------------------
 
-    def validate(self, plan_request: PlanRequest, node: Any) -> list[PlanValidationError]:
+    def validate(
+        self, plan_request: PlanRequest, node: Any
+    ) -> list[PlanValidationError]:
         """Pre-flight validation — collects ALL errors without raising.
 
         Checks:
@@ -1751,7 +1854,9 @@ class PlanCompiler:
         ordered_eggs = [biome_nodes[eid].raw for eid in sorted_ids]
 
         # Step 6: cloud-init merge
-        cloud_init_b64, ci_warnings, ci_errors = _merge_cloud_init_with_errors(ordered_eggs)
+        cloud_init_b64, ci_warnings, ci_errors = _merge_cloud_init_with_errors(
+            ordered_eggs
+        )
         warnings.extend(ci_warnings)
         if ci_errors:
             raise PlanCompilationError(ci_errors)
@@ -1876,7 +1981,9 @@ class PlanCompiler:
                 consumes_list: list[dict[str, Any]] = []
                 for c in consumes:
                     if isinstance(c, str):
-                        consumes_list.append({"biome_kind": c, "extractor_name": "", "scope": "cluster"})
+                        consumes_list.append(
+                            {"biome_kind": c, "extractor_name": "", "scope": "cluster"}
+                        )
                     elif isinstance(c, dict):
                         # Backward-compat: remap egg_kind → biome_kind if needed
                         c_compat = dict(c)
@@ -1982,11 +2089,17 @@ class PlanCompiler:
             elif isinstance(hw_tags_raw, str):
                 try:
                     parsed = json.loads(hw_tags_raw)
-                    hw_tags = parsed if isinstance(parsed, list) else list(parsed.keys() if isinstance(parsed, dict) else [])
+                    hw_tags = (
+                        parsed
+                        if isinstance(parsed, list)
+                        else list(parsed.keys() if isinstance(parsed, dict) else [])
+                    )
                 except (json.JSONDecodeError, TypeError):
                     hw_tags = []
 
-        node_id = getattr(node, "id", None) or (node[0] if hasattr(node, "__getitem__") else "?")
+        node_id = getattr(node, "id", None) or (
+            node[0] if hasattr(node, "__getitem__") else "?"
+        )
 
         for eid, egg_node in biome_nodes.items():
             required = egg_node.requires_hardware_tags
@@ -2051,8 +2164,12 @@ class PlanCompiler:
 
         try:
             node_id = int(getattr(node, "id"))
-            return capacity_guard.fresh_available_memory_bytes(self.db_session.engine, node_id)
-        except Exception:  # noqa: BLE001 -- fail closed: unverifiable memory means ineligible
+            return capacity_guard.fresh_available_memory_bytes(
+                self.db_session.engine, node_id
+            )
+        except (
+            Exception
+        ):  # noqa: BLE001 -- fail closed: unverifiable memory means ineligible
             logging.getLogger(__name__).warning(
                 "capacity snapshot lookup failed for GPU check", exc_info=True
             )

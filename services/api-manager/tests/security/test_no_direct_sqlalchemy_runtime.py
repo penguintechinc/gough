@@ -5,17 +5,18 @@ schema-authority + engine-construction + RLS files may touch SQLAlchemy
 directly. If this test fails, you reintroduced a direct-SQLAlchemy runtime
 call -- route it through penguin-dal (db(...).select()/.executesql()/.transaction()).
 """
+
 import pathlib
 import re
 
 # Files legitimately allowed to use SQLAlchemy directly:
 #  - schema authority (models + Alembic), engine construction, and RLS pool wiring.
 ALLOW_FILES = {
-    "models_sqlalchemy.py",   # declarative models (schema authority)
-    "models_m1.py",           # declarative models
-    "init_db.py",             # schema init / engine construction
-    "rls.py",                 # RLS pool-checkout event (engine-level SQL, by design)
-    "database.py",            # penguin-dal DB() engine construction
+    "models_sqlalchemy.py",  # declarative models (schema authority)
+    "models_m1.py",  # declarative models
+    "init_db.py",  # schema init / engine construction
+    "rls.py",  # RLS pool-checkout event (engine-level SQL, by design)
+    "database.py",  # penguin-dal DB() engine construction
 }
 ALLOW_DIR_PARTS = {"alembic"}  # migrations
 # app/models/__init__.py constructs the engine + startup COUNT; allow it too.
@@ -26,6 +27,7 @@ BAD = re.compile(
     r"\bdb\.query\(|\.execute\(\s*text\(|\bsessionmaker\("
 )
 
+
 def _is_in_docstring(lines: list[str], line_num: int) -> bool:
     """Heuristic: check if line_num is inside a triple-quoted docstring."""
     in_triple_double = False
@@ -35,12 +37,14 @@ def _is_in_docstring(lines: list[str], line_num: int) -> bool:
         in_triple_single ^= line.count("'''") % 2 == 1
     return in_triple_double or in_triple_single
 
+
 def _strip_comment(line: str) -> str:
     # drop everything after a '#'; skip docstring markers.
     stripped = line.split("#", 1)[0]
     if '"""' in stripped or "'''" in stripped:
         return ""
     return stripped
+
 
 def test_no_direct_sqlalchemy_runtime():
     # tests/security/test_no_direct_sqlalchemy_runtime.py -> parents[2] is

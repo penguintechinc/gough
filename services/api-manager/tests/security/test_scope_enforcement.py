@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import pytest
-
 from app.security.scope_enforcement import (
     InsufficientScopeError,
     check_scopes,
@@ -178,10 +177,11 @@ class TestRequiresScopesDecorator:
     async def test_require_scopes_pass(self) -> None:
         """Decorator passes when scopes are sufficient."""
         from unittest.mock import AsyncMock
+
         from quart import Quart, g
 
         app = Quart(__name__)
-        async with app.test_request_context('/'):
+        async with app.test_request_context("/"):
             handler = AsyncMock(return_value="success")
             decorated = require_scopes("gough.biomes.read")(handler)
             g.current_user = {
@@ -197,10 +197,11 @@ class TestRequiresScopesDecorator:
     async def test_require_scopes_fail_insufficient(self) -> None:
         """Decorator returns 403 when scopes insufficient."""
         from unittest.mock import AsyncMock
+
         from quart import Quart, g
 
         app = Quart(__name__)
-        async with app.test_request_context('/'):
+        async with app.test_request_context("/"):
             handler = AsyncMock()
             decorated = require_scopes("gough.biomes.author", "gough.cluster.admin")(
                 handler
@@ -208,7 +209,9 @@ class TestRequiresScopesDecorator:
             g.current_user = {
                 "id": 1,
                 "email": "test@example.com",
-                "_jwt_payload": {"scope": "gough.biomes.read"},  # Missing author and admin
+                "_jwt_payload": {
+                    "scope": "gough.biomes.read"
+                },  # Missing author and admin
             }
             response = await decorated()
             assert isinstance(response, tuple)
@@ -220,10 +223,11 @@ class TestRequiresScopesDecorator:
     async def test_require_scopes_no_user(self) -> None:
         """Decorator returns 401 when no user authenticated."""
         from unittest.mock import AsyncMock
+
         from quart import Quart, g
 
         app = Quart(__name__)
-        async with app.test_request_context('/'):
+        async with app.test_request_context("/"):
             handler = AsyncMock()
             decorated = require_scopes("gough.biomes.read")(handler)
             # g.current_user not set

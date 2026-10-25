@@ -6,13 +6,6 @@ They test response codes for missing CA, invalid input, and permission denial sc
 
 from __future__ import annotations
 
-from unittest.mock import MagicMock
-
-import pytest
-
-from app.ssh_ca import SSHCAException
-
-
 # ============================================================================
 # initialize_ca endpoint tests (lines 33-112)
 # ============================================================================

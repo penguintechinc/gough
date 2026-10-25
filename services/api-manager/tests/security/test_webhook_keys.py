@@ -11,19 +11,18 @@ from __future__ import annotations
 
 import base64
 import datetime as _dt
-from unittest.mock import patch
 
 import pytest
-
 from app.security.webhook_keys import (
     ECDSA_P256_SHA256,
     ED25519,
     GRACE_PERIOD_DAYS,
     HMAC_SHA256,
-    KeyId,
     VALID_MODES,
+    KeyId,
     WebhookKeyManager,
 )
+
 from tests._webhook_fakes import FakeVaultClient
 
 
@@ -68,7 +67,10 @@ class TestEnsureKeysAsymmetric:
         self, mgr: WebhookKeyManager, vault: FakeVaultClient
     ) -> None:
         kid = mgr.ensure_keys_for_tenant("acme", ECDSA_P256_SHA256)
-        assert vault.secrets.transit.keys["acme/webhook-ecdsa_p256_sha256"].key_type == "ecdsa-p256"
+        assert (
+            vault.secrets.transit.keys["acme/webhook-ecdsa_p256_sha256"].key_type
+            == "ecdsa-p256"
+        )
         assert kid.kid.startswith("ecdsa_p256_sha256-v")
 
     def test_idempotent(self, mgr: WebhookKeyManager, vault: FakeVaultClient) -> None:

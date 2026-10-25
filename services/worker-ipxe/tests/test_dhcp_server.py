@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from worker.config import WorkerConfig
 from worker.services.dhcp_server import DHCPFullServer
 
@@ -54,8 +53,13 @@ class FakeStderr:
 class FakeProcess:
     """Stand-in for asyncio.subprocess.Process with scripted exit behaviour."""
 
-    def __init__(self, returncode: int = 0, *, hang_until_killed: bool = False,
-                 stderr: list[bytes] | None = None) -> None:
+    def __init__(
+        self,
+        returncode: int = 0,
+        *,
+        hang_until_killed: bool = False,
+        stderr: list[bytes] | None = None
+    ) -> None:
         """Configure exit code, whether terminate() is ignored, and stderr content."""
         self.pid = 4242
         self.returncode = returncode
@@ -80,8 +84,12 @@ class FakeProcess:
         return self.returncode
 
 
-def _install_subprocess(monkeypatch: pytest.MonkeyPatch, proc: FakeProcess | None,
-                        calls: list[tuple[Any, ...]], error: Exception | None = None) -> None:
+def _install_subprocess(
+    monkeypatch: pytest.MonkeyPatch,
+    proc: FakeProcess | None,
+    calls: list[tuple[Any, ...]],
+    error: Exception | None = None,
+) -> None:
     """Replace create_subprocess_exec, recording argv and returning the fake process or raising."""
 
     async def fake_exec(*args: Any, **kwargs: Any) -> FakeProcess:
@@ -107,7 +115,10 @@ def test_generated_config_contains_range_gateway_dns_and_boot_options() -> None:
     assert "tftp-root=/srv/tftp" in text
     assert "dhcp-boot=tag:bios,undionly.kpxe" in text
     assert "dhcp-boot=tag:efi-x86_64,ipxe.efi" in text
-    assert 'dhcp-option=tag:!bios,tag:!efi-x86_64,67,"http://10.1.1.5:8080/boot.ipxe"' in text
+    assert (
+        'dhcp-option=tag:!bios,tag:!efi-x86_64,67,"http://10.1.1.5:8080/boot.ipxe"'
+        in text
+    )
     assert "port=0" in text  # DNS disabled: DHCP/TFTP only
 
 
@@ -121,7 +132,9 @@ def test_config_matches_both_bios_and_efi_arch_codes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_start_writes_config_and_launches_dnsmasq(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_start_writes_config_and_launches_dnsmasq(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """start() writes the rendered config to a temp file and execs dnsmasq pointing at it."""
     calls: list[tuple[Any, ...]] = []
     proc = FakeProcess(returncode=0)
@@ -135,7 +148,9 @@ async def test_start_writes_config_and_launches_dnsmasq(monkeypatch: pytest.Monk
     assert argv[0] == "dnsmasq"
     assert argv[1:3] == ("--conf-file", str(server.config_file))
     assert "--no-daemon" in argv
-    assert server.running is True  # process exited, but running flag only drops on stop()
+    assert (
+        server.running is True
+    )  # process exited, but running flag only drops on stop()
 
     written = server.config_file.read_text()
     assert written == server._generate_dnsmasq_config()
@@ -143,10 +158,14 @@ async def test_start_writes_config_and_launches_dnsmasq(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_unexpected_exit_is_logged_and_start_returns(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_unexpected_exit_is_logged_and_start_returns(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """If dnsmasq exits on its own, start() returns (so the supervisor can react) rather than hanging."""
     calls: list[tuple[Any, ...]] = []
-    proc = FakeProcess(returncode=2, stderr=[b"dnsmasq: failed to bind\n", b"   \n", b"\xff\n"])
+    proc = FakeProcess(
+        returncode=2, stderr=[b"dnsmasq: failed to bind\n", b"   \n", b"\xff\n"]
+    )
     _install_subprocess(monkeypatch, proc, calls)
     server = DHCPFullServer(_cfg())
 
@@ -159,7 +178,9 @@ async def test_unexpected_exit_is_logged_and_start_returns(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
-async def test_missing_dnsmasq_binary_is_reraised(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_missing_dnsmasq_binary_is_reraised(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A missing dnsmasq executable surfaces as FileNotFoundError to the caller."""
     _install_subprocess(monkeypatch, None, [], error=FileNotFoundError("dnsmasq"))
     server = DHCPFullServer(_cfg())
@@ -224,7 +245,9 @@ async def test_monitor_output_stream_error_is_logged() -> None:
 
 
 @pytest.mark.asyncio
-async def test_stop_terminates_cleanly_and_removes_config(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_terminates_cleanly_and_removes_config(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """stop() sends SIGTERM, waits for exit, and deletes the generated config file."""
     calls: list[tuple[Any, ...]] = []
     proc = FakeProcess(returncode=0)
@@ -243,7 +266,9 @@ async def test_stop_terminates_cleanly_and_removes_config(monkeypatch: pytest.Mo
 
 
 @pytest.mark.asyncio
-async def test_stop_escalates_to_kill_when_terminate_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_escalates_to_kill_when_terminate_ignored(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A dnsmasq that ignores SIGTERM is SIGKILLed after the grace timeout and reaped."""
     calls: list[tuple[Any, ...]] = []
     proc = FakeProcess(returncode=-9, hang_until_killed=True)
@@ -259,7 +284,9 @@ async def test_stop_escalates_to_kill_when_terminate_ignored(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
-async def test_stop_swallows_unexpected_stop_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_stop_swallows_unexpected_stop_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A failure during termination is logged and stop() still completes and cleans up."""
     calls: list[tuple[Any, ...]] = []
     proc = FakeProcess(returncode=0)

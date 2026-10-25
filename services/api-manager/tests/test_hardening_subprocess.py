@@ -5,12 +5,13 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from app.safe_names import validate_rfc1123_name, validate_spiffe_id
 from quart import Quart
 
-from app.safe_names import validate_rfc1123_name, validate_spiffe_id
 
-
-@pytest.mark.parametrize("bad", ["--target=x", "-rf", "a b", "a/b", "A", "", "a;b", "x" * 300])
+@pytest.mark.parametrize(
+    "bad", ["--target=x", "-rf", "a b", "a/b", "A", "", "a;b", "x" * 300]
+)
 def test_rfc1123_rejects_injection(bad):
     """Flag-like / path-like / oversize names are rejected."""
     with pytest.raises(ValueError):
@@ -77,7 +78,7 @@ async def test_control_plane_ops_never_pretend(monkeypatch, flag, code, status):
         assert st == status
         assert (await resp.get_json())["error"]["code"] == code
     src = open(primary.__file__).read()
-    assert "kubectl\", \"cordon" not in src and "etcdctl\", " not in src
+    assert 'kubectl", "cordon' not in src and 'etcdctl", ' not in src
 
 
 def test_biomes_no_subprocess_shellout():
@@ -121,7 +122,9 @@ def _install(monkeypatch, node, agents):
 
 def test_non_node_resource_denied(monkeypatch):
     """Only nodes may get host-scoped certs."""
-    m = _install(monkeypatch, SimpleNamespace(tenant_id="t1"), [SimpleNamespace(agent_id="a")])
+    m = _install(
+        monkeypatch, SimpleNamespace(tenant_id="t1"), [SimpleNamespace(agent_id="a")]
+    )
     with pytest.raises(m.AgentResolutionError) as e:
         m.resolve_agent_id("vm", "1", "t1")
     assert e.value.status == 403
@@ -137,11 +140,15 @@ def test_hostname_spoof_does_not_bind(monkeypatch):
 
 def test_cross_tenant_node_denied(monkeypatch):
     """Other tenant's node is denied; super-admin may cross."""
-    m = _install(monkeypatch, SimpleNamespace(tenant_id="t2"), [SimpleNamespace(agent_id="a")])
+    m = _install(
+        monkeypatch, SimpleNamespace(tenant_id="t2"), [SimpleNamespace(agent_id="a")]
+    )
     with pytest.raises(m.AgentResolutionError) as e:
         m.resolve_agent_id("node", "1", "t1")
     assert e.value.status == 404
-    m = _install(monkeypatch, SimpleNamespace(tenant_id="t2"), [SimpleNamespace(agent_id="a")])
+    m = _install(
+        monkeypatch, SimpleNamespace(tenant_id="t2"), [SimpleNamespace(agent_id="a")]
+    )
     assert m.resolve_agent_id("node", "1", "t1", True) == "a"
 
 
@@ -159,5 +166,7 @@ def test_two_agents_denied_409(monkeypatch):
 
 def test_single_agent_ok(monkeypatch):
     """Exactly one linked active agent resolves."""
-    m = _install(monkeypatch, SimpleNamespace(tenant_id="t1"), [SimpleNamespace(agent_id="a")])
+    m = _install(
+        monkeypatch, SimpleNamespace(tenant_id="t1"), [SimpleNamespace(agent_id="a")]
+    )
     assert m.resolve_agent_id("node", "1", "t1") == "a"

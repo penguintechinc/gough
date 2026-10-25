@@ -7,16 +7,16 @@ import re
 import subprocess
 from datetime import datetime, timezone
 from time import sleep
-from typing import Any
 
 try:
-    from pyspiffe.workloadapi.default_workload_api_client import DefaultWorkloadApiClient
+    from pyspiffe.workloadapi.default_workload_api_client import (
+        DefaultWorkloadApiClient,
+    )
 except ImportError:
     DefaultWorkloadApiClient = None  # type: ignore[assignment,misc]
 
-from pydantic import BaseModel, Field
-
 from app.safe_names import validate_spiffe_id
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
 
@@ -88,12 +88,11 @@ class SpireClient:
         Raises:
             ValueError: If socket or server address invalid.
         """
-        self.workload_api_socket = (
-            workload_api_socket
-            or os.getenv("SPIRE_AGENT_SOCKET", "unix:///tmp/spire-agent/public/api.sock")
+        self.workload_api_socket = workload_api_socket or os.getenv(
+            "SPIRE_AGENT_SOCKET", "unix:///tmp/spire-agent/public/api.sock"
         )
-        self.server_address = (
-            server_address or os.getenv("SPIRE_SERVER_ADDRESS", "localhost:8081")
+        self.server_address = server_address or os.getenv(
+            "SPIRE_SERVER_ADDRESS", "localhost:8081"
         )
 
         if not self.workload_api_socket.startswith("unix://"):
@@ -135,7 +134,9 @@ class SpireClient:
             x509_context = client.fetch_x509_context()
         except Exception as e:
             logger.error(f"Workload API error: {e}")
-            raise SpireWorkloadApiUnavailable(f"Failed to fetch X.509 context: {e}") from e
+            raise SpireWorkloadApiUnavailable(
+                f"Failed to fetch X.509 context: {e}"
+            ) from e
 
         if not x509_context or not x509_context.svid_list:
             raise SpireSvidUnavailable("No SVIDs returned from agent")
@@ -235,7 +236,9 @@ class SpireClient:
         match = re.search(r"Entry ID\s*:\s*([a-f0-9\-]+)", result.stdout)
         if not match:
             logger.error(f"spire-server stdout: {result.stdout}")
-            raise SpireRegistrationFailed("Could not parse entry ID from spire-server output")
+            raise SpireRegistrationFailed(
+                "Could not parse entry ID from spire-server output"
+            )
 
         entry_id = match.group(1)
         logger.info(f"Registered workload entry: {entry_id}")
@@ -310,7 +313,9 @@ class SpireClient:
         logger.info(f"Generated SPIRE join token for spiffeID: {spiffe_id}")
         return token
 
-    def list_registrations(self, parent_id: str | None = None) -> list[SpireRegistrationEntry]:
+    def list_registrations(
+        self, parent_id: str | None = None
+    ) -> list[SpireRegistrationEntry]:
         """List registration entries, optionally filtered by parent.
 
         Uses subprocess to invoke spire-server entry show.
@@ -356,7 +361,9 @@ class SpireClient:
             raise SpireError(f"spire-server entry show failed: {result.stderr}")
 
         try:
-            data = json.loads(result.stdout) if result.stdout.strip() else {"entries": []}
+            data = (
+                json.loads(result.stdout) if result.stdout.strip() else {"entries": []}
+            )
         except json.JSONDecodeError as e:
             logger.error(f"JSON parse error: {e}")
             raise SpireError(f"Failed to parse spire-server JSON output: {e}") from e
@@ -367,8 +374,7 @@ class SpireClient:
                 spiffe_id=entry_data.get("spiffeID", ""),
                 parent_id=entry_data.get("parentID", ""),
                 selectors={
-                    sel["type"]: sel["value"]
-                    for sel in entry_data.get("selectors", [])
+                    sel["type"]: sel["value"] for sel in entry_data.get("selectors", [])
                 },
                 ttl_seconds=entry_data.get("ttl", 3600),
             )
@@ -396,6 +402,4 @@ class SpireClient:
                 elapsed += 1
                 sleep(1)
 
-        raise SpireWorkloadApiUnavailable(
-            f"Workload API not ready after {timeout}s"
-        )
+        raise SpireWorkloadApiUnavailable(f"Workload API not ready after {timeout}s")

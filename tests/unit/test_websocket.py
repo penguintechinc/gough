@@ -7,27 +7,24 @@ Tests for:
 """
 
 import asyncio
-import json
-import os
+import importlib
 import subprocess
 import sys
-from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock, patch, Mock, call
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = "/home/penguin/code/gough/services/api-manager"
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
-    if _mod == 'app' or _mod.startswith('app.'):
+    if _mod == "app" or _mod.startswith("app."):
         del sys.modules[_mod]
 
-from app.websocket import (
-    _get_shell_command,
-    ShellSessionManager,
-    init_websocket,
-)
+_mod_app_websocket = importlib.import_module("app.websocket")
+ShellSessionManager = _mod_app_websocket.ShellSessionManager
+_get_shell_command = _mod_app_websocket._get_shell_command
+init_websocket = _mod_app_websocket.init_websocket
 
 
 class TestGetShellCommand:
@@ -204,8 +201,6 @@ class TestShellSessionManagerResize:
         manager = ShellSessionManager("session_test")
         manager.master_fd = 10
 
-        import struct
-
         with patch("fcntl.ioctl") as mock_ioctl:
             await manager.resize(rows=24, cols=80)
 
@@ -303,6 +298,7 @@ class TestShellSessionManagerCleanup:
     async def test_cleanup_cancels_reader_task(self):
         """Test cleanup() cancels reader task if running."""
         manager = ShellSessionManager("session_test")
+
         # Create a real task that we can cancel
         async def dummy_task():
             await asyncio.sleep(10)
@@ -319,6 +315,7 @@ class TestShellSessionManagerCleanup:
     async def test_cleanup_skips_done_reader_task(self):
         """Test cleanup() skips canceling completed reader task."""
         manager = ShellSessionManager("session_test")
+
         # Create a completed task
         async def completed_task():
             pass
@@ -495,11 +492,9 @@ class TestShellSessionManagerIntegration:
 
         with patch("app.websocket.pty.openpty") as mock_openpty, patch(
             "app.websocket.subprocess.Popen"
-        ) as mock_popen, patch.object(
-            manager, "resize", new_callable=AsyncMock
-        ), patch(
+        ) as mock_popen, patch.object(manager, "resize", new_callable=AsyncMock), patch(
             "app.websocket.os.close"
-        ) as mock_close:
+        ):
             mock_openpty.return_value = (mock_master_fd, mock_slave_fd)
             mock_process = MagicMock(pid=9999)
             mock_popen.return_value = mock_process

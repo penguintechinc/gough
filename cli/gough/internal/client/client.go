@@ -205,12 +205,12 @@ func (c *Client) doWithRetry(ctx context.Context, method, endpoint string, bodyB
 			// If we haven't exhausted retries, sleep and retry.
 			if attempt < maxRetries {
 				// Calculate backoff: min(base * 2^attempt, 30s) + jitter.
-				delayMs := baseDelay * time.Duration(1<<uint(attempt))
-				if delayMs > maxDelay {
-					delayMs = maxDelay
+				delay := baseDelay * time.Duration(1<<uint(attempt))
+				if delay > maxDelay {
+					delay = maxDelay
 				}
 				jitter := time.Duration(rand.Int63n(1000)) * time.Millisecond
-				totalDelay := delayMs + jitter
+				totalDelay := delay + jitter
 
 				// Check context before sleeping.
 				select {
@@ -260,7 +260,7 @@ func (c *Client) do(req *http.Request) (*APIResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("http: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

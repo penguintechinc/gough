@@ -9,7 +9,9 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import NameOID
 
 
-def make_cert(common_name: str, san_ip: str | None = None) -> tuple[bytes, bytes, bytes]:
+def make_cert(
+    common_name: str, san_ip: str | None = None
+) -> tuple[bytes, bytes, bytes]:
     """Return (cert PEM, private key PEM, cert DER) for a throwaway self-signed certificate."""
     key = ec.generate_private_key(ec.SECP256R1())
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])

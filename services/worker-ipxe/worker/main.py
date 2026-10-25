@@ -7,18 +7,18 @@ Starts all services (DHCP, TFTP, HTTP) and manages lifecycle.
 import asyncio
 import signal
 import sys
+
+import structlog
 from penguintechinc_utils import get_logger
 from prometheus_client import start_http_server
-import structlog
-
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
 from worker.heartbeat import HeartbeatManager
-from worker.services.tftp_server import TFTPServer
-from worker.services.http_server import HTTPBootServer
-from worker.services.dhcp_proxy import DHCPProxyServer
 from worker.observations import ObservedClients
+from worker.services.dhcp_proxy import DHCPProxyServer
 from worker.services.dhcp_server import DHCPFullServer
+from worker.services.http_server import HTTPBootServer
+from worker.services.tftp_server import TFTPServer
 
 logger = get_logger(__name__)
 
@@ -70,7 +70,9 @@ class WorkerIPXE:
             logger.info("tftp_server_started", port=self.config.tftp_port)
 
         # Start HTTP boot server
-        self.http_server = HTTPBootServer(self.config, self.enrollment, observed=self.observed)
+        self.http_server = HTTPBootServer(
+            self.config, self.enrollment, observed=self.observed
+        )
         http_task = asyncio.create_task(self.http_server.start())
         self.tasks.append(http_task)
         logger.info("http_boot_server_started", port=self.config.http_port)

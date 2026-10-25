@@ -13,6 +13,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Rust (required for infisical-python compilation)
+# pipefail so a failed curl download fails the build instead of piping nothing into sh
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 ENV PATH="/root/.cargo/bin:$PATH"
 
@@ -27,7 +29,7 @@ COPY --from=penguin-libs packages/python-secrets /tmp/penguin-libs/python-secret
 # Create virtual environment and install dependencies
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir --upgrade pip && \
+RUN pip install --no-cache-dir --upgrade pip==26.2.2 && \
     pip install --no-cache-dir \
         /tmp/penguin-libs/python-libs \
         /tmp/penguin-libs/python-licensing \

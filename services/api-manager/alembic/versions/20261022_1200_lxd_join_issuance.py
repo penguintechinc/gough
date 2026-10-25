@@ -19,7 +19,6 @@ import ast
 import json
 
 import sqlalchemy as sa
-
 from alembic import op
 
 revision = "20261022_1200_lxd_join_issuance"
@@ -53,11 +52,17 @@ def _backfill_bootstrap_tombstones() -> None:
     """Write a tombstone for every existing bootstrap-purpose key that has none."""
     bind = op.get_bind()
     keys = sa.table("enrollment_keys", sa.column("key_hash"), sa.column("metadata"))
-    seeds = sa.table("bootstrap_token_seeds", sa.column("token_hash"), sa.column("seeded_at"))
+    seeds = sa.table(
+        "bootstrap_token_seeds", sa.column("token_hash"), sa.column("seeded_at")
+    )
     existing = {row[0] for row in bind.execute(sa.select(seeds.c.token_hash))}
-    for key_hash, metadata in bind.execute(sa.select(keys.c.key_hash, keys.c.metadata)).fetchall():
+    for key_hash, metadata in bind.execute(
+        sa.select(keys.c.key_hash, keys.c.metadata)
+    ).fetchall():
         if _metadata_purpose(metadata) == "bootstrap" and key_hash not in existing:
-            bind.execute(seeds.insert().values(token_hash=key_hash, seeded_at=sa.func.now()))
+            bind.execute(
+                seeds.insert().values(token_hash=key_hash, seeded_at=sa.func.now())
+            )
 
 
 def upgrade() -> None:

@@ -8,8 +8,8 @@ import ipaddress
 import os
 from dataclasses import dataclass, field
 from typing import Optional
-from decouple import config
 
+from decouple import config
 
 MIN_WORKER_API_KEY_LENGTH = 32
 
@@ -84,10 +84,14 @@ class WorkerConfig:
                 "REDIS_URL must be set: per-boot tokens and rate limits are kept in a "
                 "shared store so multiple worker replicas agree."
             )
-        worker_id = config("WORKER_ID", default=os.environ.get("HOSTNAME", "worker-ipxe-1"))
+        worker_id = config(
+            "WORKER_ID", default=os.environ.get("HOSTNAME", "worker-ipxe-1")
+        )
 
         trusted_proxies = tuple(
-            c.strip() for c in config("TRUSTED_PROXIES", default="").split(",") if c.strip()
+            c.strip()
+            for c in config("TRUSTED_PROXIES", default="").split(",")
+            if c.strip()
         )
         for cidr in trusted_proxies:
             ipaddress.ip_network(cidr)  # ValueError names the bad CIDR; fail at startup
@@ -95,7 +99,9 @@ class WorkerConfig:
         # DHCP settings
         dhcp_mode = config("DHCP_MODE", default="proxy")
         if dhcp_mode not in ["full", "proxy", "disabled"]:
-            raise ValueError(f"Invalid DHCP_MODE: {dhcp_mode}. Must be full, proxy, or disabled.")
+            raise ValueError(
+                f"Invalid DHCP_MODE: {dhcp_mode}. Must be full, proxy, or disabled."
+            )
 
         dhcp_interface = config("DHCP_INTERFACE", default="eth0")
 
@@ -127,13 +133,17 @@ class WorkerConfig:
         storage_endpoint = config("STORAGE_ENDPOINT", default=None)
         storage_access_key = config("STORAGE_ACCESS_KEY", default=None)
         storage_secret_key = config("STORAGE_SECRET_KEY", default=None)
-        storage_bucket_boot = config("STORAGE_BUCKET_BOOT_IMAGES", default="boot-images")
+        storage_bucket_boot = config(
+            "STORAGE_BUCKET_BOOT_IMAGES", default="boot-images"
+        )
         storage_bucket_biomes = config("STORAGE_BUCKET_BIOMES", default="biomes")
         storage_use_ssl = config("STORAGE_USE_SSL", default=False, cast=bool)
 
         # Worker behavior
         heartbeat_interval = config("HEARTBEAT_INTERVAL", default=30, cast=int)
-        enrollment_retry_interval = config("ENROLLMENT_RETRY_INTERVAL", default=10, cast=int)
+        enrollment_retry_interval = config(
+            "ENROLLMENT_RETRY_INTERVAL", default=10, cast=int
+        )
         max_enrollment_retries = config("MAX_ENROLLMENT_RETRIES", default=60, cast=int)
 
         # Logging
@@ -183,9 +193,10 @@ class WorkerConfig:
         # Construct from interface IP if possible
         try:
             import netifaces
+
             addrs = netifaces.ifaddresses(self.dhcp_interface)
             if netifaces.AF_INET in addrs:
-                ip = addrs[netifaces.AF_INET][0]['addr']
+                ip = addrs[netifaces.AF_INET][0]["addr"]
                 return f"http://{ip}:{self.http_port}"
         except Exception:
             pass

@@ -8,7 +8,6 @@ import base64
 import ctypes
 import ipaddress
 import os
-from penguintechinc_utils import get_logger
 import pty
 import pwd
 import re
@@ -25,6 +24,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import paramiko
 from paramiko import RSAKey, ServerInterface, Transport
+from penguintechinc_utils import get_logger
 
 from .cert_validator import CertificateInfo, CertificateValidator
 from .config import AgentConfig
@@ -54,7 +54,9 @@ _SAFE_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 _TERM_RE = re.compile(r"^[A-Za-z0-9._+-]{1,64}$")
 
 
-LOCKING_SHELLS = frozenset({"/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"})
+LOCKING_SHELLS = frozenset(
+    {"/usr/sbin/nologin", "/sbin/nologin", "/bin/false", "/usr/bin/false"}
+)
 SHELLS_FILE = "/etc/shells"
 
 
@@ -136,7 +138,9 @@ def pam_service_name() -> str:
     return PAM_FALLBACK_SERVICE
 
 
-def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str] = None) -> bool:
+def account_permitted(
+    username: str, peer_ip: Optional[str], ruser: Optional[str] = None
+) -> bool:
     """Run PAM account management (``pam_acct_mgmt``) for ``username``.
 
     Covers locked, expired, time/host-restricted and NSS/LDAP/SSSD accounts. Anything
@@ -159,7 +163,9 @@ def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str
         libpam = _load_libpam()
         start = libpam.pam_start
         start.argtypes = [
-            ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(_PamConv),
+            ctypes.c_char_p,
+            ctypes.c_char_p,
+            ctypes.POINTER(_PamConv),
             ctypes.POINTER(ctypes.c_void_p),
         ]
         start.restype = ctypes.c_int
@@ -178,8 +184,12 @@ def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str
 
     conv = _PamConv(_CONV_FUNC(_no_prompt_conv), None)
     handle = ctypes.c_void_p()
-    rc = start(pam_service_name().encode(), username.encode(), ctypes.byref(conv),
-               ctypes.byref(handle))
+    rc = start(
+        pam_service_name().encode(),
+        username.encode(),
+        ctypes.byref(conv),
+        ctypes.byref(handle),
+    )
     if rc != PAM_SUCCESS:
         log.error(f"pam_start failed rc={rc}, failing closed")
         return False
@@ -191,7 +201,9 @@ def account_permitted(username: str, peer_ip: Optional[str], ruser: Optional[str
         for item_type, value in items:
             item_rc = set_item(handle, item_type, value.encode())
             if item_rc != PAM_SUCCESS:
-                log.error(f"pam_set_item({item_type}) failed rc={item_rc}, failing closed")
+                log.error(
+                    f"pam_set_item({item_type}) failed rc={item_rc}, failing closed"
+                )
                 return False
         rc = acct(handle, 0)
     finally:
@@ -348,13 +360,18 @@ class SSHServerInterface(ServerInterface):
         if info.cert_type != "user":
             log.warning(f"Rejecting non-user certificate (type={info.cert_type})")
             return False
-        if username.startswith(HOST_PRINCIPAL_PREFIX) or username == ALLOW_ROOT_PRINCIPAL:
+        if (
+            username.startswith(HOST_PRINCIPAL_PREFIX)
+            or username == ALLOW_ROOT_PRINCIPAL
+        ):
             return False
 
         options = info.critical_options or {}
         unknown = set(options) - SUPPORTED_CRITICAL_OPTIONS
         if unknown:
-            log.warning(f"Rejecting certificate with unsupported critical options {sorted(unknown)}")
+            log.warning(
+                f"Rejecting certificate with unsupported critical options {sorted(unknown)}"
+            )
             return False
         if "source-address" in options:
             peer_ip = self.client_addr[0] if self.client_addr else None
@@ -606,10 +623,12 @@ class RSSHServer:
             if not channel.recv_ready():
                 # Give time for shell request
                 import time
+
                 time.sleep(0.5)
 
             # Generate session ID
             import uuid
+
             session_id = str(uuid.uuid4())
 
             # Create session
@@ -677,7 +696,9 @@ class RSSHServer:
         session.master_fd = master_fd
         session.slave_fd = slave_fd
 
-        pw = pwd.getpwnam(username)  # KeyError -> session aborted, never a root fallback
+        pw = pwd.getpwnam(
+            username
+        )  # KeyError -> session aborted, never a root fallback
 
         if os.geteuid() == 0:
             # Hand the slave to the target user so the shell owns its terminal.
@@ -694,7 +715,9 @@ class RSSHServer:
         self._set_window_size(master_fd, height, width)
 
         # Minimal environment: nothing from the agent's own env (tokens, keys) is inherited.
-        shell = pw.pw_shell or "/bin/sh"  # validated in _authorize; /bin/sh only if unset
+        shell = (
+            pw.pw_shell or "/bin/sh"
+        )  # validated in _authorize; /bin/sh only if unset
         env = {
             "TERM": term,
             "USER": username,
@@ -704,7 +727,11 @@ class RSSHServer:
             "PATH": _SAFE_PATH,
             "LANG": os.environ.get("LANG", "C.UTF-8"),
         }
-        argv = [shell, "-c", session.force_command] if session.force_command else [shell, "-l"]
+        argv = (
+            [shell, "-c", session.force_command]
+            if session.force_command
+            else [shell, "-l"]
+        )
 
         # Drop privileges (setgroups -> setgid -> setuid) to the target account.
         priv: Dict[str, Any] = {}
@@ -808,6 +835,7 @@ class RSSHServer:
         """
         try:
             import fcntl
+
             winsize = struct.pack("HHHH", rows, cols, 0, 0)
             fcntl.ioctl(fd, termios.TIOCSWINSZ, winsize)
         except Exception as e:

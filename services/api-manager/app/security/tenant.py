@@ -7,8 +7,8 @@ Layer 4: Postgres GUC (app.current_tenant) for RLS policies.
 from __future__ import annotations
 
 from typing import Optional
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ==============================================================================
 # Constants
@@ -22,23 +22,25 @@ DEFAULT_TENANT: str = "__default__"
 # Data Models
 # ==============================================================================
 
+
 class TenantContext(BaseModel):
     """Tenant context extracted from JWT + current request."""
 
     tenant_id: str = Field(..., min_length=1, description="Tenant ID from JWT claim")
     cross_tenant: bool = Field(
-        default=False,
-        description="Super-admin override to access cross-tenant data"
+        default=False, description="Super-admin override to access cross-tenant data"
     )
 
     class Config:
         """Pydantic config."""
+
         frozen = True
 
 
 # ==============================================================================
 # Exceptions
 # ==============================================================================
+
 
 class TenantClaimMissingError(Exception):
     """Raised when tenant claim is missing from JWT payload."""
@@ -55,6 +57,7 @@ class TenantMismatchError(Exception):
 # ==============================================================================
 # Tenant Extraction & Validation
 # ==============================================================================
+
 
 def extract_tenant_from_jwt(payload: dict) -> TenantContext:
     """Extract and validate tenant context from JWT payload.

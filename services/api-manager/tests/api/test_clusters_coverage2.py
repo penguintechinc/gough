@@ -4,11 +4,10 @@ Tests error paths, validation failures, decorator logic, and edge cases
 in scope/MFA enforcement, credential redaction, and baseline topology validation.
 """
 
-import pytest
 import json
 import uuid
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
+
+import pytest
 
 
 @pytest.mark.asyncio
@@ -18,8 +17,6 @@ async def test_scope_required_decorator_allows_admin(client):
     assert response.status_code == 200
     data = await response.get_json()
     assert data["status"] == "success"
-
-
 
 
 @pytest.mark.asyncio
@@ -66,11 +63,13 @@ async def test_patch_storage_inline_secret_forbidden(client):
     """Test PATCH /storage rejects inline secrets (must be vault: paths) (lines 322-340)."""
     response = await client.patch(
         "/api/v1/clusters/default/storage",
-        data=json.dumps({
-            "name": "test",
-            "kind": "ceph",
-            "config": {"ceph_secret": "plaintext_secret"}
-        }),
+        data=json.dumps(
+            {
+                "name": "test",
+                "kind": "ceph",
+                "config": {"ceph_secret": "plaintext_secret"},
+            }
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
@@ -84,11 +83,13 @@ async def test_patch_storage_vault_path_allowed(client):
     """Test PATCH /storage accepts vault: prefixed secrets (lines 328-340)."""
     response = await client.patch(
         "/api/v1/clusters/default/storage",
-        data=json.dumps({
-            "name": "test",
-            "kind": "ceph",
-            "config": {"ceph_secret": "vault:secret/data/ceph"}
-        }),
+        data=json.dumps(
+            {
+                "name": "test",
+                "kind": "ceph",
+                "config": {"ceph_secret": "vault:secret/data/ceph"},
+            }
+        ),
         headers={"Content-Type": "application/json"},
     )
     # Should accept the vault path
@@ -216,17 +217,9 @@ async def test_validate_baseline_topology_invalid_service_type(client):
     """Test baseline topology validation rejects non-dict services (lines 629-635)."""
     response = await client.patch(
         "/api/v1/clusters/default/network-baseline-topology",
-        data=json.dumps({
-            "topology": {
-                "networks": {
-                    "mgmt": {
-                        "services": {
-                            "dhcp": "not-a-dict"
-                        }
-                    }
-                }
-            }
-        }),
+        data=json.dumps(
+            {"topology": {"networks": {"mgmt": {"services": {"dhcp": "not-a-dict"}}}}}
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
@@ -237,17 +230,15 @@ async def test_validate_baseline_topology_invalid_provider(client):
     """Test baseline topology validation rejects invalid provider (lines 637-642)."""
     response = await client.patch(
         "/api/v1/clusters/default/network-baseline-topology",
-        data=json.dumps({
-            "topology": {
-                "networks": {
-                    "mgmt": {
-                        "services": {
-                            "dhcp": {"provider": "invalid_provider"}
-                        }
+        data=json.dumps(
+            {
+                "topology": {
+                    "networks": {
+                        "mgmt": {"services": {"dhcp": {"provider": "invalid_provider"}}}
                     }
                 }
             }
-        }),
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
@@ -258,15 +249,9 @@ async def test_validate_baseline_topology_invalid_fallback_mode(client):
     """Test baseline topology validation rejects invalid fallback_mode (lines 644-649)."""
     response = await client.patch(
         "/api/v1/clusters/default/network-baseline-topology",
-        data=json.dumps({
-            "topology": {
-                "networks": {
-                    "mgmt": {
-                        "fallback_mode": "invalid_mode"
-                    }
-                }
-            }
-        }),
+        data=json.dumps(
+            {"topology": {"networks": {"mgmt": {"fallback_mode": "invalid_mode"}}}}
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
@@ -277,15 +262,13 @@ async def test_validate_baseline_topology_invalid_qos_share(client):
     """Test baseline topology validation rejects invalid qos_share (lines 651-657)."""
     response = await client.patch(
         "/api/v1/clusters/default/network-baseline-topology",
-        data=json.dumps({
-            "topology": {
-                "networks": {
-                    "mgmt": {
-                        "qos_share": 150  # Out of range [0, 100]
-                    }
+        data=json.dumps(
+            {
+                "topology": {
+                    "networks": {"mgmt": {"qos_share": 150}}  # Out of range [0, 100]
                 }
             }
-        }),
+        ),
         headers={"Content-Type": "application/json"},
     )
     assert response.status_code == 422
@@ -442,17 +425,11 @@ async def test_patch_baseline_topology_no_topology_in_body(client):
     """Test PATCH baseline-topology merges networks into body (lines 677-679)."""
     response = await client.patch(
         "/api/v1/clusters/default/network-baseline-topology",
-        data=json.dumps({
-            "networks": {
-                "mgmt": {
-                    "services": {"dhcp": {"provider": "builtin"}}
-                }
-            }
-        }),
+        data=json.dumps(
+            {"networks": {"mgmt": {"services": {"dhcp": {"provider": "builtin"}}}}}
+        ),
         headers={"Content-Type": "application/json"},
     )
     # Should accept networks at top level
     # no cluster_config table in this fixture -> fails loudly (503), never a fake "accepted"
     assert response.status_code in (200, 422, 503)
-
-

@@ -8,13 +8,13 @@ Coverage targets:
 
 import pytest
 from app.security.credentials import (
-    CredentialType,
-    Principal,
     CredentialError,
-    MissingCredentialError,
-    InvalidCredentialError,
+    CredentialType,
     ExpiredCredentialError,
+    InvalidCredentialError,
+    MissingCredentialError,
     OneTimeTokenReplayError,
+    Principal,
 )
 
 

@@ -19,7 +19,9 @@ import pytest
 pytestmark = pytest.mark.asyncio
 
 
-def _seed_node(db: Any, *, name: str, state: str = "ready", hardware_json: dict | None = None) -> int:
+def _seed_node(
+    db: Any, *, name: str, state: str = "ready", hardware_json: dict | None = None
+) -> int:
     now = datetime.now(timezone.utc)
     node_id = db.nodes.insert(
         tenant_id="acme",
@@ -53,9 +55,9 @@ class TestLoadClusterStatePg:
         run_db()-wrapped closure must still return one NodeSnapshot per row,
         with the right free-capacity fields, not a truncated/empty result.
         """
-        import app.api.migration as migration_mod
         from datetime import datetime, timezone
 
+        import app.api.migration as migration_mod
         from app import capacity_guard
 
         monkeypatch.setattr(migration_mod, "get_db", lambda: pg_db)
@@ -86,12 +88,31 @@ def _healthy_snapshot_body(now: Any, usage_pct: float) -> dict[str, Any]:
     return {
         "schema": "gough.host_resources.v1",
         "collected_at": now.isoformat(),
-        "cpu": {"logical_cores": 16, "usage_pct": usage_pct, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+        "cpu": {
+            "logical_cores": 16,
+            "usage_pct": usage_pct,
+            "load1": 1.0,
+            "load5": 1.0,
+            "load15": 1.0,
+        },
         "memory": {"total_bytes": 64 * gib, "available_bytes": 40 * gib},
         "pressure": None,
-        "storage_pools": [{"name": "default", "driver": "dir", "total_bytes": 1000 * gib, "used_bytes": 100 * gib}],
+        "storage_pools": [
+            {
+                "name": "default",
+                "driver": "dir",
+                "total_bytes": 1000 * gib,
+                "used_bytes": 100 * gib,
+            }
+        ],
         "host_root_fs": {"total_bytes": 100 * gib, "free_bytes": 60 * gib},
-        "committed": {"cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0}, "instances": 0, "instances_without_limits": 0},
+        "committed": {
+            "cpu_cores": 0.0,
+            "memory_bytes": 0,
+            "disk_bytes": {"default": 0},
+            "instances": 0,
+            "instances_without_limits": 0,
+        },
         "errors": [],
     }
 

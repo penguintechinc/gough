@@ -271,8 +271,8 @@ func TestResolveClient_ContextNotFound(t *testing.T) {
 	t.Setenv("GOUGH_CLUSTER_URL", "")
 	t.Cleanup(func() {
 		_ = rootCmd.PersistentFlags().Set("context", "")
-		os.Unsetenv("GOUGH_TOKEN")
-		os.Unsetenv("GOUGH_CLUSTER_URL")
+		_ = os.Unsetenv("GOUGH_TOKEN")
+		_ = os.Unsetenv("GOUGH_CLUSTER_URL")
 	})
 
 	// Try to use a nonexistent context with a command that needs auth
@@ -339,7 +339,7 @@ func TestClusterFlag_OverridesConfig(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", dir)
 	t.Setenv("GOUGH_TOKEN", "test-token")
 	t.Cleanup(func() {
-		os.Unsetenv("GOUGH_TOKEN")
+		_ = os.Unsetenv("GOUGH_TOKEN")
 	})
 
 	srv, cleanup := setupTestEnv(t, jsonResponse(t, 200, apiSuccessResponse(map[string]string{})))

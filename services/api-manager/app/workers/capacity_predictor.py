@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Optional, Protocol, Sequence
 
@@ -38,12 +38,9 @@ from ..clients.waddleai import (
     ALLOWED_HORIZON_DAYS,
     ClusterAggregate,
     ForecastBundle,
-    MetricSample,
     NodeForecast,
     NodeRiskScore,
     WaddleAIClient,
-    WaddleAIDegradedResponse,
-    WaddleAIUnavailableResponse,
 )
 
 log = logging.getLogger(__name__)
@@ -73,11 +70,9 @@ class PrometheusClientProtocol(Protocol):
 class RedisCacheProtocol(Protocol):
     """Minimal Redis interface — set/get JSON values with TTL."""
 
-    async def get(self, key: str) -> Optional[str]:
-        ...
+    async def get(self, key: str) -> Optional[str]: ...
 
-    async def set(self, key: str, value: str, ex: Optional[int] = None) -> Any:
-        ...
+    async def set(self, key: str, value: str, ex: Optional[int] = None) -> Any: ...
 
 
 class DBSessionProtocol(Protocol):
@@ -175,7 +170,9 @@ class CapacityPredictor:
 
         cache_key = _FORECAST_CACHE_KEY.format(
             horizon=horizon_days,
-            nodes=("all" if not node_ids else ",".join(str(n) for n in sorted(node_ids))),
+            nodes=(
+                "all" if not node_ids else ",".join(str(n) for n in sorted(node_ids))
+            ),
         )
         cached = await self._cache_get(cache_key)
         if cached is not None:
@@ -313,7 +310,11 @@ class CapacityPredictor:
         )
 
     async def _forecast_metric(
-        self, node_id: Optional[int], metric: str, current_value: float, horizon_days: int
+        self,
+        node_id: Optional[int],
+        metric: str,
+        current_value: float,
+        horizon_days: int,
     ) -> tuple[float, str]:
         """Forecast a single metric via linear regression over 30-day history.
 

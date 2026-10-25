@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import importlib
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch, call
+from unittest.mock import MagicMock, patch
 
 import pytest
 from quart import Quart, g
@@ -15,8 +14,10 @@ def _passthrough_decorator(*dargs, **dkwargs):
     """Decorator passthrough for auth/scope decorators."""
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         return dargs[0]
+
     def _wrap(fn):
         return fn
+
     return _wrap
 
 
@@ -71,8 +72,8 @@ def clouds_app(monkeypatch):
             "_jwt_payload": {
                 "sub": "admin",
                 "tenant": "default",
-                "scope": "gough.clouds.read gough.clouds.admin gough.clouds.write"
-            }
+                "scope": "gough.clouds.read gough.clouds.admin gough.clouds.write",
+            },
         }
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
@@ -106,10 +107,9 @@ async def test_update_provider_with_config_validation_success(clouds_app):
             mock_get_provider.return_value = mock_cloud
 
             client = app.test_client()
-            response = await client.put("/1", json={
-                "name": "aws-prod",
-                "config": {"region": "us-east-1"}
-            })
+            response = await client.put(
+                "/1", json={"name": "aws-prod", "config": {"region": "us-east-1"}}
+            )
 
     assert response.status_code == 200
 
@@ -136,9 +136,7 @@ async def test_update_provider_config_auth_fails(clouds_app):
             mock_get_provider.return_value = mock_cloud
 
             client = app.test_client()
-            response = await client.put("/1", json={
-                "config": {"invalid": "config"}
-            })
+            response = await client.put("/1", json={"config": {"invalid": "config"}})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -168,7 +166,7 @@ async def test_list_machines_refresh_success(clouds_app):
             mock_cloud.list_machines.return_value = [mock_machine]
             mock_get_provider.return_value = mock_cloud
 
-            with patch.object(clouds_mod, "_sync_machines_to_db") as mock_sync:
+            with patch.object(clouds_mod, "_sync_machines_to_db"):
                 client = app.test_client()
                 response = await client.get("/1/machines?refresh=true")
 
@@ -227,10 +225,10 @@ async def test_create_machine_invalid_spec_returns_400(clouds_app):
 
     with patch.object(clouds_mod, "get_db", return_value=mock_db):
         client = app.test_client()
-        response = await client.post("/1/machines", json={
-            "name": "test",
-            "invalid_field": "value"  # Extra field
-        })
+        response = await client.post(
+            "/1/machines",
+            json={"name": "test", "invalid_field": "value"},  # Extra field
+        )
 
     assert response.status_code == 400
 
@@ -256,15 +254,16 @@ async def test_create_machine_quota_exceeded(clouds_app):
         with patch.object(clouds_mod, "get_cloud_provider") as mock_get_provider:
             mock_cloud = MagicMock()
             mock_cloud.authenticate = MagicMock()
-            mock_cloud.create_machine = MagicMock(side_effect=CloudQuotaError("Quota full"))
+            mock_cloud.create_machine = MagicMock(
+                side_effect=CloudQuotaError("Quota full")
+            )
             mock_get_provider.return_value = mock_cloud
 
             client = app.test_client()
-            response = await client.post("/1/machines", json={
-                "name": "test",
-                "image": "ubuntu-20.04",
-                "size": "t2.micro"
-            })
+            response = await client.post(
+                "/1/machines",
+                json={"name": "test", "image": "ubuntu-20.04", "size": "t2.micro"},
+            )
 
     assert response.status_code == 429
     data = await response.get_json()
@@ -292,15 +291,15 @@ async def test_create_machine_cloud_error(clouds_app):
         with patch.object(clouds_mod, "get_cloud_provider") as mock_get_provider:
             mock_cloud = MagicMock()
             mock_cloud.authenticate = MagicMock()
-            mock_cloud.create_machine = MagicMock(side_effect=CloudError("Network error"))
+            mock_cloud.create_machine = MagicMock(
+                side_effect=CloudError("Network error")
+            )
             mock_get_provider.return_value = mock_cloud
 
             client = app.test_client()
-            response = await client.post("/1/machines", json={
-                "name": "test",
-                "image": "ubuntu",
-                "size": "small"
-            })
+            response = await client.post(
+                "/1/machines", json={"name": "test", "image": "ubuntu", "size": "small"}
+            )
 
     assert response.status_code == 500
 
@@ -329,7 +328,9 @@ async def test_get_machine_not_found(clouds_app):
         with patch.object(clouds_mod, "get_cloud_provider") as mock_get_provider:
             mock_cloud = MagicMock()
             mock_cloud.authenticate = MagicMock()
-            mock_cloud.get_machine = MagicMock(side_effect=CloudNotFoundError("Not found"))
+            mock_cloud.get_machine = MagicMock(
+                side_effect=CloudNotFoundError("Not found")
+            )
             mock_get_provider.return_value = mock_cloud
 
             client = app.test_client()

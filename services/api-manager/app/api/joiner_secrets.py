@@ -22,11 +22,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional, cast
 
-from penguin_dal import Row
-from quart import Blueprint, current_app, g, jsonify, request
-
 from app import metrics as _metrics
-
 from app.security.audit_chain import AuditEventWriter
 from app.security.credentials import (
     CredentialError,
@@ -39,6 +35,8 @@ from app.workers.joiner_secret_emitter import (
     ExtractedMaterial,
     persist_extracted_material,
 )
+from penguin_dal import Row
+from quart import Blueprint, current_app, g, jsonify, request
 
 from ..db.run_db import run_db
 from ..models import get_db
@@ -201,9 +199,7 @@ def _serialize_joiner_secret(row: Any) -> dict[str, Any]:
         "created_at": row.created_at.isoformat() if row.created_at else None,
         "rotated_at": row.rotated_at.isoformat() if row.rotated_at else None,
         "revoked_at": row.revoked_at.isoformat() if row.revoked_at else None,
-        "audit_event_id": (
-            str(row.audit_event_id) if row.audit_event_id else None
-        ),
+        "audit_event_id": (str(row.audit_event_id) if row.audit_event_id else None),
         "status": status,
         "expiring_soon": expiring_soon,
     }
@@ -214,9 +210,7 @@ def _serialize_joiner_secret(row: Any) -> dict[str, Any]:
 # =============================================================================
 
 
-@joiner_secrets_bp.route(
-    "/clusters/<uuid:cluster_id>/joiner-secrets", methods=["GET"]
-)
+@joiner_secrets_bp.route("/clusters/<uuid:cluster_id>/joiner-secrets", methods=["GET"])
 @require_scopes("gough.joiner.read")
 async def list_joiner_secrets(cluster_id: uuid.UUID):
     """List joiner secrets for a cluster (metadata only).
@@ -345,9 +339,7 @@ async def rotate_joiner_secret(cluster_id: uuid.UUID, js_id: uuid.UUID):
             409,
         )
 
-    new_plaintext_provider = current_app.config.get(
-        "JOINER_ROTATE_MATERIAL_PROVIDER"
-    )
+    new_plaintext_provider = current_app.config.get("JOINER_ROTATE_MATERIAL_PROVIDER")
     if new_plaintext_provider is None:
         return (
             jsonify(

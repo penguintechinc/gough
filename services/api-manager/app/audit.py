@@ -208,9 +208,7 @@ class AuditLogger:
             if request:
                 # Get real IP address (handle proxies)
                 x_forwarded = (
-                    request.headers.get("X-Forwarded-For", "")
-                    .split(",")[0]
-                    .strip()
+                    request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
                 )
                 context["ip_address"] = (
                     x_forwarded
@@ -291,6 +289,7 @@ class AuditLogger:
         """Publish audit entry-written event to NATS (fire-and-forget)."""
         try:
             import asyncio
+
             from quart import current_app
 
             # Try to get NATS client
@@ -429,7 +428,9 @@ class AuditLogger:
                 if denied
                 else AuditEventType.SHELL_SESSION_ATTACH
             ),
-            message=f"Shell session {session_id} attach {outcome}: {reason}".rstrip(": "),
+            message=f"Shell session {session_id} attach {outcome}: {reason}".rstrip(
+                ": "
+            ),
             severity=AuditSeverity.WARNING if denied else AuditSeverity.INFO,
             resource_type="shell_session",
             resource_id=session_id,

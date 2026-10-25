@@ -11,17 +11,16 @@ Target uncovered lines in:
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
-from unittest.mock import MagicMock, Mock, AsyncMock, patch
-import pytest
-import jwt as pyjwt
-from quart import Quart, g, jsonify, request as quart_request
-import json
+from unittest.mock import Mock, patch
 
+import jwt as pyjwt
+import pytest
+from quart import Quart, g, jsonify
 
 # ==============================================================================
 # Fixtures & Helpers
 # ==============================================================================
+
 
 def _make_app() -> Quart:
     """Create a test Quart app with JWT config."""
@@ -51,9 +50,7 @@ def _make_token(
     }
     if extra:
         payload.update(extra)
-    return pyjwt.encode(
-        payload, app.config["JWT_SECRET_KEY"], algorithm="HS256"
-    )
+    return pyjwt.encode(payload, app.config["JWT_SECRET_KEY"], algorithm="HS256")
 
 
 def _make_expired_token(app: Quart) -> str:
@@ -66,14 +63,13 @@ def _make_expired_token(app: Quart) -> str:
         "iat": int(time.time()) - 7200,
         "exp": int(time.time()) - 3600,
     }
-    return pyjwt.encode(
-        payload, app.config["JWT_SECRET_KEY"], algorithm="HS256"
-    )
+    return pyjwt.encode(payload, app.config["JWT_SECRET_KEY"], algorithm="HS256")
 
 
 # ==============================================================================
 # Test app/middleware.py — role_required decorator and safe imports
 # ==============================================================================
+
 
 class TestRoleRequiredDecorator:
     """Tests for the ``role_required`` scope-bundle decorator (regression: gh-31).
@@ -196,19 +192,24 @@ class TestRoleRequiredDecorator:
 # Test app/security/credentials.py — credential detection & validation
 # ==============================================================================
 
+
 class TestDetectCredentialType:
     """Tests for credential type detection."""
 
     def test_detect_service_svid_from_peer_cert(self):
         """SERVICE_SVID when peer_cert_pem provided."""
-        from app.security.credentials import detect_credential_type, CredentialType
+        from app.security.credentials import CredentialType, detect_credential_type
+
         headers = {}
-        result = detect_credential_type(headers, peer_cert_pem="-----BEGIN CERTIFICATE-----\n...")
+        result = detect_credential_type(
+            headers, peer_cert_pem="-----BEGIN CERTIFICATE-----\n..."
+        )
         assert result == CredentialType.SERVICE_SVID
 
     def test_detect_one_time_bootstrap_from_phase_claim(self):
         """ONE_TIME_BOOTSTRAP when phase:helper claim present."""
-        from app.security.credentials import detect_credential_type, CredentialType
+        from app.security.credentials import CredentialType, detect_credential_type
+
         # Create token with phase:helper
         payload = {"phase": "helper", "sub": "bootstrap:mac"}
         token = pyjwt.encode(payload, "secret", algorithm="HS256")
@@ -218,7 +219,8 @@ class TestDetectCredentialType:
 
     def test_detect_machine_jwt_from_sub_prefix(self):
         """MACHINE_JWT when sub starts with 'machine:'."""
-        from app.security.credentials import detect_credential_type, CredentialType
+        from app.security.credentials import CredentialType, detect_credential_type
+
         payload = {"sub": "machine:api-server"}
         token = pyjwt.encode(payload, "secret", algorithm="HS256")
         headers = {"Authorization": f"Bearer {token}"}
@@ -227,7 +229,8 @@ class TestDetectCredentialType:
 
     def test_detect_user_jwt_default(self):
         """USER_JWT as fallback when no other claims match."""
-        from app.security.credentials import detect_credential_type, CredentialType
+        from app.security.credentials import CredentialType, detect_credential_type
+
         payload = {"sub": "user:123"}
         token = pyjwt.encode(payload, "secret", algorithm="HS256")
         headers = {"Authorization": f"Bearer {token}"}
@@ -237,9 +240,10 @@ class TestDetectCredentialType:
     def test_detect_missing_credential_error(self):
         """Raise MissingCredentialError when no token or cert."""
         from app.security.credentials import (
-            detect_credential_type,
             MissingCredentialError,
+            detect_credential_type,
         )
+
         headers = {}
         with pytest.raises(MissingCredentialError):
             detect_credential_type(headers)
@@ -247,9 +251,10 @@ class TestDetectCredentialType:
     def test_detect_invalid_jwt_raises_error(self):
         """Raise InvalidCredentialError when JWT is malformed."""
         from app.security.credentials import (
-            detect_credential_type,
             InvalidCredentialError,
+            detect_credential_type,
         )
+
         headers = {"Authorization": "Bearer malformed...token"}
         with pytest.raises(InvalidCredentialError):
             detect_credential_type(headers)
@@ -260,7 +265,7 @@ class TestValidateUserJwt:
 
     def test_validate_user_jwt_success(self):
         """Valid user JWT returns Principal."""
-        from app.security.credentials import validate_user_jwt, CredentialType
+        from app.security.credentials import validate_user_jwt
 
         # Create a valid token
         secret = "test-secret"
@@ -289,10 +294,8 @@ class TestValidateUserJwt:
 
     def test_validate_user_jwt_no_jwks_raises_error(self):
         """Raise error when JWKS keys empty."""
-        from app.security.credentials import (
-            validate_user_jwt,
-            InvalidCredentialError,
-        )
+        from app.security.credentials import InvalidCredentialError, validate_user_jwt
+
         token = "dummy.token.here"
         with pytest.raises(InvalidCredentialError, match="No JWKS keys"):
             validate_user_jwt(token, [], "gough-api", "https://auth.example.com")
@@ -304,9 +307,10 @@ class TestValidateServiceSvid:
     def test_validate_service_svid_no_spiffe_uri_error(self):
         """Raise error when cert has no SPIFFE URI in SAN."""
         from app.security.credentials import (
-            validate_service_svid,
             InvalidCredentialError,
+            validate_service_svid,
         )
+
         # Minimal cert without SPIFFE URI
         cert_pem = """-----BEGIN CERTIFICATE-----
 MIIBkTCB+wIJAKHHCgVZXHiVMA0GCSqGSIb3DQEBBQUAMBMxETAPBgNVBAMMCHRl
@@ -318,9 +322,10 @@ MIIBkTCB+wIJAKHHCgVZXHiVMA0GCSqGSIb3DQEBBQUAMBMxETAPBgNVBAMMCHRl
     def test_validate_service_svid_invalid_cert_error(self):
         """Raise error when cert is unparseable."""
         from app.security.credentials import (
-            validate_service_svid,
             InvalidCredentialError,
+            validate_service_svid,
         )
+
         with pytest.raises(InvalidCredentialError, match="Cannot parse"):
             validate_service_svid("not a cert", "", frozenset())
 
@@ -331,9 +336,10 @@ class TestValidateOneTimeBootstrapToken:
     def test_validate_bootstrap_token_missing_nonce(self):
         """Raise error when nonce claim absent."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             InvalidCredentialError,
+            validate_one_time_bootstrap_token,
         )
+
         payload = {"mac": "abc123"}  # Missing nonce
         token = pyjwt.encode(payload, "secret", algorithm="HS256")
 
@@ -341,14 +347,17 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="missing nonce"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
+            validate_one_time_bootstrap_token(
+                token, vault_mock, redis_mock, signing_secret="secret"
+            )
 
     def test_validate_bootstrap_token_missing_mac(self):
         """Raise error when mac claim absent."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             InvalidCredentialError,
+            validate_one_time_bootstrap_token,
         )
+
         payload = {"nonce": "nonce123"}  # Missing mac
         token = pyjwt.encode(payload, "secret", algorithm="HS256")
 
@@ -356,14 +365,17 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="missing mac"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
+            validate_one_time_bootstrap_token(
+                token, vault_mock, redis_mock, signing_secret="secret"
+            )
 
     def test_validate_bootstrap_token_mac_mismatch(self):
         """Raise error when provided MAC doesn't match token MAC."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             InvalidCredentialError,
+            validate_one_time_bootstrap_token,
         )
+
         payload = {
             "nonce": "nonce123",
             "mac": "mac456",
@@ -387,9 +399,10 @@ class TestValidateOneTimeBootstrapToken:
     def test_validate_bootstrap_token_ttl_exceeded(self):
         """Raise error when TTL exceeds 10 minutes."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             InvalidCredentialError,
+            validate_one_time_bootstrap_token,
         )
+
         payload = {
             "nonce": "nonce123",
             "mac": "mac456",
@@ -402,17 +415,20 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(InvalidCredentialError, match="TTL exceeds"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
+            validate_one_time_bootstrap_token(
+                token, vault_mock, redis_mock, signing_secret="secret"
+            )
 
     def test_validate_bootstrap_token_expired(self):
         """Raise ExpiredCredentialError when token is in the past."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             ExpiredCredentialError,
+            validate_one_time_bootstrap_token,
         )
+
         # Token with TTL within limit but already expired
         iat_time = int(time.time()) - 600  # 10 min ago
-        exp_time = int(time.time()) - 60   # Expired 1 minute ago
+        exp_time = int(time.time()) - 60  # Expired 1 minute ago
         payload = {
             "nonce": "nonce123",
             "mac": "mac456",
@@ -425,14 +441,17 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock = Mock()
 
         with pytest.raises(ExpiredCredentialError, match="expired"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
+            validate_one_time_bootstrap_token(
+                token, vault_mock, redis_mock, signing_secret="secret"
+            )
 
     def test_validate_bootstrap_token_replay_error(self):
         """Raise OneTimeTokenReplayError when nonce already used."""
         from app.security.credentials import (
-            validate_one_time_bootstrap_token,
             OneTimeTokenReplayError,
+            validate_one_time_bootstrap_token,
         )
+
         payload = {
             "nonce": "nonce123",
             "mac": "mac456",
@@ -446,12 +465,15 @@ class TestValidateOneTimeBootstrapToken:
         redis_mock.set.return_value = False  # Nonce already exists
 
         with pytest.raises(OneTimeTokenReplayError, match="already used"):
-            validate_one_time_bootstrap_token(token, vault_mock, redis_mock, signing_secret="secret")
+            validate_one_time_bootstrap_token(
+                token, vault_mock, redis_mock, signing_secret="secret"
+            )
 
 
 # ==============================================================================
 # Test app/security/tenant.py — tenant extraction and validation
 # ==============================================================================
+
 
 class TestExtractTenantFromJwt:
     """Tests for tenant extraction from JWT."""
@@ -481,7 +503,7 @@ class TestExtractTenantFromJwt:
 
     def test_extract_tenant_missing_raises_error(self):
         """Raise TenantClaimMissingError when tenant claim absent."""
-        from app.security.tenant import extract_tenant_from_jwt, TenantClaimMissingError
+        from app.security.tenant import TenantClaimMissingError, extract_tenant_from_jwt
 
         payload = {"sub": "user:123"}
         with pytest.raises(TenantClaimMissingError):
@@ -489,7 +511,7 @@ class TestExtractTenantFromJwt:
 
     def test_extract_tenant_empty_string_raises_error(self):
         """Raise TenantClaimMissingError when tenant is empty string."""
-        from app.security.tenant import extract_tenant_from_jwt, TenantClaimMissingError
+        from app.security.tenant import TenantClaimMissingError, extract_tenant_from_jwt
 
         payload = {"tenant": ""}
         with pytest.raises(TenantClaimMissingError):
@@ -515,7 +537,7 @@ class TestAssertTenantMatch:
 
     def test_assert_tenant_match_mismatch_raises_error(self):
         """Raise TenantMismatchError when tenants don't match."""
-        from app.security.tenant import assert_tenant_match, TenantMismatchError
+        from app.security.tenant import TenantMismatchError, assert_tenant_match
 
         with pytest.raises(TenantMismatchError, match="does not match"):
             assert_tenant_match("tenant-1", "tenant-2")
@@ -524,6 +546,7 @@ class TestAssertTenantMatch:
 # ==============================================================================
 # Test app/security/scope_enforcement.py — scope checking
 # ==============================================================================
+
 
 class TestExtractScopesFromJwt:
     """Tests for scope extraction from JWT."""
@@ -583,10 +606,7 @@ class TestCheckScopes:
 
     def test_check_scopes_insufficient_raises_error(self):
         """Raise InsufficientScopeError when scopes missing."""
-        from app.security.scope_enforcement import (
-            check_scopes,
-            InsufficientScopeError,
-        )
+        from app.security.scope_enforcement import InsufficientScopeError, check_scopes
 
         provided = frozenset({"read"})
         required = frozenset({"read", "write", "admin"})
@@ -604,9 +624,12 @@ class TestLookupRequiredScopes:
         from app.security.scope_enforcement import lookup_required_scopes
 
         # Mock SCOPE_POLICY
-        with patch("app.security.scope_enforcement.SCOPE_POLICY", {
-            ("GET", "/api/v1/nodes"): frozenset({"gough.nodes.read"}),
-        }):
+        with patch(
+            "app.security.scope_enforcement.SCOPE_POLICY",
+            {
+                ("GET", "/api/v1/nodes"): frozenset({"gough.nodes.read"}),
+            },
+        ):
             result = lookup_required_scopes("GET", "/api/v1/nodes")
             assert result == frozenset({"gough.nodes.read"})
 
@@ -614,9 +637,12 @@ class TestLookupRequiredScopes:
         """Find scopes for template path match."""
         from app.security.scope_enforcement import lookup_required_scopes
 
-        with patch("app.security.scope_enforcement.SCOPE_POLICY", {
-            ("GET", "/api/v1/nodes/<int:id>"): frozenset({"gough.nodes.read"}),
-        }):
+        with patch(
+            "app.security.scope_enforcement.SCOPE_POLICY",
+            {
+                ("GET", "/api/v1/nodes/<int:id>"): frozenset({"gough.nodes.read"}),
+            },
+        ):
             result = lookup_required_scopes("GET", "/api/v1/nodes/123")
             assert result == frozenset({"gough.nodes.read"})
 
@@ -658,12 +684,14 @@ class TestNormalizePath:
 # Test app/permissions.py — permission checking and decorators
 # ==============================================================================
 
+
 class TestCheckTeamAccess:
     """Tests for team access checking."""
 
     def test_check_team_access_role_hierarchy(self):
         """Test role hierarchy checking works correctly."""
         from app.permissions import TEAM_ROLES
+
         # Just verify the role hierarchy is defined
         assert TEAM_ROLES == ["owner", "admin", "member", "viewer"]
 
@@ -687,6 +715,7 @@ class TestCheckResourcePermission:
     def test_check_resource_permission_constants(self):
         """Verify resource permission types are defined."""
         from app.permissions import RESOURCE_PERMISSIONS
+
         expected = ["read", "write", "execute", "admin", "shell"]
         assert RESOURCE_PERMISSIONS == expected
 

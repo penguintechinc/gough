@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """seed-smart.py — Generate synthetic smartmontools fixtures per pattern."""
 
-import json
 import argparse
-from pathlib import Path
-from datetime import datetime, timedelta
+import json
 import random
+from pathlib import Path
 
 SMART_HEALTHY = {
     "smartctl": {
@@ -13,23 +12,18 @@ SMART_HEALTHY = {
         "svn_revision": "5555",
         "smartctl_exit_status": 0,
         "argv": ["smartctl", "-a", "-json"],
-        "exit_status": 0
+        "exit_status": 0,
     },
     "device": {
         "name": "/dev/sda",
         "info_name": "/dev/sda",
         "type": "sat",
-        "protocol": "SATA"
+        "protocol": "SATA",
     },
-    "smart_status": {
-        "passed": True
-    },
+    "smart_status": {"passed": True},
     "ata_smart_data": {
         "offline_data_collection": {
-            "status": {
-                "value": 0,
-                "string": "was never started"
-            }
+            "status": {"value": 0, "string": "was never started"}
         }
     },
     "ata_smart_attributes": {
@@ -41,7 +35,7 @@ SMART_HEALTHY = {
                 "worst": 100,
                 "thresh": 10,
                 "when_failed": "",
-                "raw": {"value": 0, "string": "0"}
+                "raw": {"value": 0, "string": "0"},
             },
             {
                 "number": 9,
@@ -50,7 +44,7 @@ SMART_HEALTHY = {
                 "worst": 99,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 1234, "string": "1234"}
+                "raw": {"value": 1234, "string": "1234"},
             },
             {
                 "number": 197,
@@ -59,7 +53,7 @@ SMART_HEALTHY = {
                 "worst": 100,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 0, "string": "0"}
+                "raw": {"value": 0, "string": "0"},
             },
             {
                 "number": 199,
@@ -68,18 +62,16 @@ SMART_HEALTHY = {
                 "worst": 100,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 0, "string": "0"}
-            }
+                "raw": {"value": 0, "string": "0"},
+            },
         ]
-    }
+    },
 }
 
 SMART_WARNING = {
     "smartctl": SMART_HEALTHY["smartctl"].copy(),
     "device": SMART_HEALTHY["device"].copy(),
-    "smart_status": {
-        "passed": False
-    },
+    "smart_status": {"passed": False},
     "ata_smart_data": SMART_HEALTHY["ata_smart_data"].copy(),
     "ata_smart_attributes": {
         "table": [
@@ -90,7 +82,7 @@ SMART_WARNING = {
                 "worst": 80,
                 "thresh": 10,
                 "when_failed": "",
-                "raw": {"value": 50, "string": "50 (threshold: 10)"}
+                "raw": {"value": 50, "string": "50 (threshold: 10)"},
             },
             {
                 "number": 9,
@@ -99,7 +91,7 @@ SMART_WARNING = {
                 "worst": 99,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 10234, "string": "10234"}
+                "raw": {"value": 10234, "string": "10234"},
             },
             {
                 "number": 197,
@@ -108,7 +100,7 @@ SMART_WARNING = {
                 "worst": 85,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 10, "string": "10"}
+                "raw": {"value": 10, "string": "10"},
             },
             {
                 "number": 199,
@@ -117,18 +109,20 @@ SMART_WARNING = {
                 "worst": 100,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 0, "string": "0"}
-            }
+                "raw": {"value": 0, "string": "0"},
+            },
         ]
-    }
+    },
 }
 
 SMART_FAILING = {
-    "smartctl": {**SMART_HEALTHY["smartctl"], "smartctl_exit_status": 4, "exit_status": 4},
-    "device": SMART_HEALTHY["device"].copy(),
-    "smart_status": {
-        "passed": False
+    "smartctl": {
+        **SMART_HEALTHY["smartctl"],
+        "smartctl_exit_status": 4,
+        "exit_status": 4,
     },
+    "device": SMART_HEALTHY["device"].copy(),
+    "smart_status": {"passed": False},
     "ata_smart_data": SMART_HEALTHY["ata_smart_data"].copy(),
     "ata_smart_attributes": {
         "table": [
@@ -139,7 +133,7 @@ SMART_FAILING = {
                 "worst": 10,
                 "thresh": 10,
                 "when_failed": "NOW",
-                "raw": {"value": 500, "string": "500 FAILING"}
+                "raw": {"value": 500, "string": "500 FAILING"},
             },
             {
                 "number": 9,
@@ -148,7 +142,7 @@ SMART_FAILING = {
                 "worst": 99,
                 "thresh": 0,
                 "when_failed": "",
-                "raw": {"value": 50000, "string": "50000"}
+                "raw": {"value": 50000, "string": "50000"},
             },
             {
                 "number": 197,
@@ -157,7 +151,7 @@ SMART_FAILING = {
                 "worst": 1,
                 "thresh": 0,
                 "when_failed": "NOW",
-                "raw": {"value": 1000, "string": "1000 FAILING"}
+                "raw": {"value": 1000, "string": "1000 FAILING"},
             },
             {
                 "number": 199,
@@ -166,34 +160,39 @@ SMART_FAILING = {
                 "worst": 50,
                 "thresh": 0,
                 "when_failed": "NOW",
-                "raw": {"value": 9999, "string": "9999 FAILING"}
-            }
+                "raw": {"value": 9999, "string": "9999 FAILING"},
+            },
         ]
-    }
+    },
 }
+
 
 def main():
     parser = argparse.ArgumentParser(description="Generate smartmontools JSON fixtures")
-    parser.add_argument("--pattern", choices=["healthy", "warning", "failing"], default="healthy")
+    parser.add_argument(
+        "--pattern", choices=["healthy", "warning", "failing"], default="healthy"
+    )
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
 
     patterns = {
         "healthy": SMART_HEALTHY,
         "warning": SMART_WARNING,
-        "failing": SMART_FAILING
+        "failing": SMART_FAILING,
     }
 
     fixture = patterns[args.pattern]
     fixture["smartctl"]["execution_time_ms"] = random.randint(100, 500)
-    fixture["ata_smart_data"]["offline_data_collection"]["completion_time_min"] = \
+    fixture["ata_smart_data"]["offline_data_collection"]["completion_time_min"] = (
         random.randint(0, 60)
+    )
 
     args.output.parent.mkdir(parents=True, exist_ok=True)
     with open(args.output, "w") as f:
         json.dump(fixture, f, indent=2)
 
     print(f"[seed-smart] Generated {args.pattern} fixture: {args.output}")
+
 
 if __name__ == "__main__":
     main()

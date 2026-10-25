@@ -11,19 +11,15 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch
 
 import pytest
-
 from app.clients import ipmi as ipmi_mod
 from app.clients.ipmi import (
+    REQUIRED_CIPHER_SUITE,
     BMCAuthFailure,
     BMCDefaultCredentialsDetected,
-    BMCError,
     BMCOperationFailed,
     BMCUnreachable,
-    DEFAULT_TIMEOUT_SEC,
-    REQUIRED_CIPHER_SUITE,
     IpmiClient,
     IpmiInsecureCipherRefused,
     SelEntry,
@@ -32,7 +28,6 @@ from app.clients.ipmi import (
     _parse_endpoint,
     _stringify,
 )
-
 
 # ---------------------------------------------------------------------------
 # Fakes
@@ -98,7 +93,9 @@ class _FakePyghmiCommand:
             raise ipmi_mod._PyghmiIpmiException(self.fail_reason)
         return f"power state: {state}"
 
-    def set_bootdev(self, dev: str, persist: bool = False, uefiboot: bool = False) -> str:
+    def set_bootdev(
+        self, dev: str, persist: bool = False, uefiboot: bool = False
+    ) -> str:
         if self.fail_reason:
             raise ipmi_mod._PyghmiIpmiException(self.fail_reason)
         return f"boot device set to {dev}"
@@ -217,7 +214,9 @@ def test_ipmi_client_init_cipher_suite_only_17_allowed(
         )
 
 
-def test_ipmi_client_init_missing_endpoint(vault: _FakeVault, node_bmc: _FakeNodeBmc) -> None:
+def test_ipmi_client_init_missing_endpoint(
+    vault: _FakeVault, node_bmc: _FakeNodeBmc
+) -> None:
     """Constructor rejects empty endpoint."""
     with pytest.raises(ValueError, match="endpoint is required"):
         IpmiClient(
@@ -243,7 +242,9 @@ def test_ipmi_kv_lookup_success(vault: _FakeVault, node_bmc: _FakeNodeBmc) -> No
     assert cred == "ipmi_admin"
 
 
-def test_ipmi_kv_lookup_missing_field(vault: _FakeVault, node_bmc: _FakeNodeBmc) -> None:
+def test_ipmi_kv_lookup_missing_field(
+    vault: _FakeVault, node_bmc: _FakeNodeBmc
+) -> None:
     """_kv_lookup raises BMCAuthFailure if field not in Vault response."""
     client = IpmiClient(
         endpoint="ipmi://bmc.test",
@@ -254,7 +255,9 @@ def test_ipmi_kv_lookup_missing_field(vault: _FakeVault, node_bmc: _FakeNodeBmc)
         client._kv_lookup("secret/gough/c1/nodes/42/bmc#missing")
 
 
-def test_ipmi_kv_lookup_empty_credential(vault: _FakeVault, node_bmc: _FakeNodeBmc) -> None:
+def test_ipmi_kv_lookup_empty_credential(
+    vault: _FakeVault, node_bmc: _FakeNodeBmc
+) -> None:
     """_kv_lookup raises BMCAuthFailure if credential is empty."""
     vault._mapping["secret/gough/c1/nodes/42/bmc"]["empty"] = ""
     client = IpmiClient(
@@ -291,7 +294,9 @@ def test_ipmi_first_connect_default_creds_detected(
 ) -> None:
     """first_connect() raises BMCDefaultCredentialsDetected if any pair succeeds."""
 
-    def factory(bmc: str, userid: str, password: str, **kwargs: Any) -> _FakePyghmiCommand:
+    def factory(
+        bmc: str, userid: str, password: str, **kwargs: Any
+    ) -> _FakePyghmiCommand:
         # First pair (root/calvin) succeeds; audit + NATS event fired
         if userid == "root" and password == "calvin":
             cmd = _FakePyghmiCommand()
@@ -597,7 +602,9 @@ def test_ipmi_auth_failure_mapped(
     """pyghmi auth exceptions mapped to BMCAuthFailure."""
 
     def factory(**kwargs: Any) -> _FakePyghmiCommand:
-        raise ipmi_mod._PyghmiIpmiException("Authentication failed (password incorrect)")
+        raise ipmi_mod._PyghmiIpmiException(
+            "Authentication failed (password incorrect)"
+        )
 
     client = IpmiClient(
         endpoint="ipmi://bmc.test",

@@ -151,9 +151,9 @@ class Config:
 
     # Audit Logging
     AUDIT_ENABLED = os.getenv("AUDIT_ENABLED", "true").lower() == "true"
-    AUDIT_RECORDING_ENABLED = os.getenv(
-        "AUDIT_RECORDING_ENABLED", "true"
-    ).lower() == "true"
+    AUDIT_RECORDING_ENABLED = (
+        os.getenv("AUDIT_RECORDING_ENABLED", "true").lower() == "true"
+    )
     AUDIT_RECORDING_PATH = os.getenv("AUDIT_RECORDING_PATH", "/var/gough/recordings")
 
     @classmethod

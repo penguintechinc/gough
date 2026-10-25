@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Iterator
 from typing import Any
 from unittest.mock import MagicMock
 
 import jwt
 import pytest
-
 from agent.auth import AgentAuth, AuthError
 from agent.config import AgentConfig
 from agent.enrollment import AgentEnrollment, EnrollmentError
@@ -33,7 +31,9 @@ def make_token(exp_offset_s: float | None, sub: str | None = "agent:abc-123") ->
     return jwt.encode(claims, "test-secret", algorithm="HS256")
 
 
-def build_auth(token: str | None, refresh_sets: str | None = None) -> tuple[AgentAuth, MagicMock]:
+def build_auth(
+    token: str | None, refresh_sets: str | None = None
+) -> tuple[AgentAuth, MagicMock]:
     """Create an AgentAuth whose enrollment refresh is a recording fake.
 
     Args:
@@ -141,12 +141,18 @@ def test_validate_access_token_states() -> None:
 
 def test_get_agent_id_strips_agent_prefix() -> None:
     """Agent subjects of the form agent:<uuid> yield the bare uuid."""
-    assert build_auth(make_token(3600, sub="agent:abc-123"))[0].get_agent_id_from_token() == "abc-123"
+    assert (
+        build_auth(make_token(3600, sub="agent:abc-123"))[0].get_agent_id_from_token()
+        == "abc-123"
+    )
 
 
 def test_get_agent_id_returns_plain_subject_unchanged() -> None:
     """Subjects without the agent: prefix are returned verbatim."""
-    assert build_auth(make_token(3600, sub="user-9"))[0].get_agent_id_from_token() == "user-9"
+    assert (
+        build_auth(make_token(3600, sub="user-9"))[0].get_agent_id_from_token()
+        == "user-9"
+    )
 
 
 def test_get_agent_id_empty_subject_returns_empty_string() -> None:
@@ -158,4 +164,3 @@ def test_get_agent_id_none_without_token_or_when_malformed() -> None:
     """Missing or malformed tokens yield None."""
     assert build_auth(None)[0].get_agent_id_from_token() is None
     assert build_auth("garbage")[0].get_agent_id_from_token() is None
-

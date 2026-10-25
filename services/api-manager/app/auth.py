@@ -3,12 +3,11 @@
 import hashlib
 import json
 import secrets
-import string
 from datetime import datetime, timedelta
 
 import bcrypt
 import jwt
-from quart import Blueprint, current_app, jsonify, request, Response
+from quart import Blueprint, Response, current_app, jsonify, request
 
 from .middleware import auth_required, get_current_user
 from .models import (
@@ -96,18 +95,25 @@ async def login():
     access_token = create_access_token(user["id"], user["role"])
     refresh_token, refresh_expires = create_refresh_token(user["id"])
 
-    return jsonify({
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "Bearer",
-        "expires_in": int(current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "access_token": access_token,
+                "refresh_token": refresh_token,
+                "token_type": "Bearer",
+                "expires_in": int(
+                    current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                ),
+                "user": {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "full_name": user.get("full_name", ""),
+                    "role": user["role"],
+                },
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/refresh", methods=["POST"])
@@ -157,12 +163,19 @@ async def refresh():
     access_token = create_access_token(user["id"], user["role"])
     new_refresh_token, refresh_expires = create_refresh_token(user["id"])
 
-    return jsonify({
-        "access_token": access_token,
-        "refresh_token": new_refresh_token,
-        "token_type": "Bearer",
-        "expires_in": int(current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-    }), 200
+    return (
+        jsonify(
+            {
+                "access_token": access_token,
+                "refresh_token": new_refresh_token,
+                "token_type": "Bearer",
+                "expires_in": int(
+                    current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                ),
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/logout", methods=["POST"])
@@ -174,10 +187,15 @@ async def logout():
     # Revoke all user's refresh tokens
     revoked_count = revoke_all_user_tokens(user["id"])
 
-    return jsonify({
-        "message": "Successfully logged out",
-        "tokens_revoked": revoked_count,
-    }), 200
+    return (
+        jsonify(
+            {
+                "message": "Successfully logged out",
+                "tokens_revoked": revoked_count,
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/me", methods=["GET"])
@@ -186,14 +204,21 @@ async def get_me():
     """Get current user profile."""
     user = get_current_user()
 
-    return jsonify({
-        "id": user["id"],
-        "email": user["email"],
-        "full_name": user.get("full_name", ""),
-        "role": user["role"],
-        "is_active": user["is_active"],
-        "created_at": user["created_at"].isoformat() if user.get("created_at") else None,
-    }), 200
+    return (
+        jsonify(
+            {
+                "id": user["id"],
+                "email": user["email"],
+                "full_name": user.get("full_name", ""),
+                "role": user["role"],
+                "is_active": user["is_active"],
+                "created_at": (
+                    user["created_at"].isoformat() if user.get("created_at") else None
+                ),
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/register", methods=["POST"])
@@ -229,15 +254,20 @@ async def register():
         role="viewer",  # Default role for self-registration
     )
 
-    return jsonify({
-        "message": "Registration successful",
-        "user": {
-            "id": user["id"],
-            "email": user["email"],
-            "full_name": user.get("full_name", ""),
-            "role": user["role"],
-        },
-    }), 201
+    return (
+        jsonify(
+            {
+                "message": "Registration successful",
+                "user": {
+                    "id": user["id"],
+                    "email": user["email"],
+                    "full_name": user.get("full_name", ""),
+                    "role": user["role"],
+                },
+            }
+        ),
+        201,
+    )
 
 
 # Device code flow constants and helpers
@@ -290,10 +320,23 @@ async def device_authorization():
     scope = data.get("scope", "openid offline_access gough.operator").strip()
 
     if not client_id:
-        return jsonify({"error": "invalid_request", "error_description": "client_id required"}), 400
+        return (
+            jsonify(
+                {"error": "invalid_request", "error_description": "client_id required"}
+            ),
+            400,
+        )
 
     if client_id != "gough-cli":
-        return jsonify({"error": "unauthorized_client", "error_description": "Unsupported client"}), 400
+        return (
+            jsonify(
+                {
+                    "error": "unauthorized_client",
+                    "error_description": "Unsupported client",
+                }
+            ),
+            400,
+        )
 
     # Generate codes
     device_code = secrets.token_urlsafe(32)
@@ -306,7 +349,9 @@ async def device_authorization():
             "user_code": user_code,
             "client_id": client_id,
             "scope": scope,
-            "expires_at": (datetime.utcnow() + timedelta(seconds=_DEVICE_CODE_TTL)).isoformat(),
+            "expires_at": (
+                datetime.utcnow() + timedelta(seconds=_DEVICE_CODE_TTL)
+            ).isoformat(),
             "authorized": False,
         }
         try:
@@ -321,14 +366,19 @@ async def device_authorization():
 
     base_url = current_app.config.get("BASE_URL", "http://localhost:8080")
 
-    return jsonify({
-        "device_code": device_code,
-        "user_code": user_code,
-        "verification_uri": f"{base_url}/device",
-        "verification_uri_complete": f"{base_url}/device?user_code={user_code}",
-        "expires_in": _DEVICE_CODE_TTL,
-        "interval": _DEVICE_POLL_INTERVAL,
-    }), 200
+    return (
+        jsonify(
+            {
+                "device_code": device_code,
+                "user_code": user_code,
+                "verification_uri": f"{base_url}/device",
+                "verification_uri_complete": f"{base_url}/device?user_code={user_code}",
+                "expires_in": _DEVICE_CODE_TTL,
+                "interval": _DEVICE_POLL_INTERVAL,
+            }
+        ),
+        200,
+    )
 
 
 @auth_bp.route("/token", methods=["POST"])
@@ -405,13 +455,22 @@ async def token_endpoint():
         except Exception as e:
             current_app.logger.warning("Failed to delete device code: %s", e)
 
-        return jsonify({
-            "access_token": access_token,
-            "refresh_token": refresh_token,
-            "token_type": "Bearer",
-            "expires_in": int(current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-            "scope": device_data.get("scope", "openid offline_access gough.operator"),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "access_token": access_token,
+                    "refresh_token": refresh_token,
+                    "token_type": "Bearer",
+                    "expires_in": int(
+                        current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                    ),
+                    "scope": device_data.get(
+                        "scope", "openid offline_access gough.operator"
+                    ),
+                }
+            ),
+            200,
+        )
 
     # Handle refresh token grant
     elif grant_type == "refresh_token":
@@ -453,12 +512,19 @@ async def token_endpoint():
         new_access_token = create_access_token(user["id"], user["role"])
         new_refresh_token, _ = create_refresh_token(user["id"])
 
-        return jsonify({
-            "access_token": new_access_token,
-            "refresh_token": new_refresh_token,
-            "token_type": "Bearer",
-            "expires_in": int(current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()),
-        }), 200
+        return (
+            jsonify(
+                {
+                    "access_token": new_access_token,
+                    "refresh_token": new_refresh_token,
+                    "token_type": "Bearer",
+                    "expires_in": int(
+                        current_app.config["JWT_ACCESS_TOKEN_EXPIRES"].total_seconds()
+                    ),
+                }
+            ),
+            200,
+        )
 
     else:
         return jsonify({"error": "unsupported_grant_type"}), 400
@@ -536,7 +602,9 @@ async def device_approve():
                 if data_str:
                     data = json.loads(data_str)
                     if data.get("user_code") == user_code:
-                        device_code_found = key.decode() if isinstance(key, bytes) else key
+                        device_code_found = (
+                            key.decode() if isinstance(key, bytes) else key
+                        )
                         device_code_found = device_code_found.replace("device:", "")
                         break
             except Exception:
@@ -576,7 +644,9 @@ async def device_approve():
                     status=500,
                 )
 
-            access_token, refresh_token = _mint_device_tokens(user_id, device_data.get("scope", ""))
+            access_token, refresh_token = _mint_device_tokens(
+                user_id, device_data.get("scope", "")
+            )
 
             device_data["authorized"] = True
             device_data["access_token"] = access_token

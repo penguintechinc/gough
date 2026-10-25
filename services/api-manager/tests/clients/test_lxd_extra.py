@@ -9,15 +9,12 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 from datetime import datetime, timezone
 from typing import Iterator
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 import requests_mock as rm_module
-
-from app.clients import lxd_extra
 from app.clients.lxd_extra import (
     ClusterMember,
     ClusterStatus,
@@ -37,7 +34,6 @@ from app.clients.lxd_extra import (
 )
 from app.clients.vault import VaultError, VaultKvReadResponse
 
-
 CLUSTER_ID = "test-cluster"
 API_URL = "https://localhost:8443"
 
@@ -47,7 +43,9 @@ def fake_vault() -> MagicMock:
     """Return a MagicMock VaultClient that returns a fake server cert."""
     vault = MagicMock()
     vault.kv_read.return_value = VaultKvReadResponse(
-        data={"certificate": "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"},
+        data={
+            "certificate": "-----BEGIN CERTIFICATE-----\nFAKE\n-----END CERTIFICATE-----\n"
+        },
         metadata={"v": 1},
     )
     vault.kv_write.return_value = None
@@ -166,9 +164,7 @@ class TestMintJoinToken:
         with pytest.raises(LXDConfigError):
             mint_join_token(CLUSTER_ID, vault=empty_vault)
 
-    def test_no_vault_token_configured(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_no_vault_token_configured(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.delenv("VAULT_TOKEN", raising=False)
         with pytest.raises(LXDConfigError):
             mint_join_token(CLUSTER_ID)
@@ -440,9 +436,7 @@ class TestRotateTrustPassword:
         assert "cluster-trust-password" in path_arg
         assert data_arg["password"] == new_pw
 
-    def test_vault_write_failure(
-        self, requests_mock_fixture: rm_module.Mocker
-    ) -> None:
+    def test_vault_write_failure(self, requests_mock_fixture: rm_module.Mocker) -> None:
         bad_vault = MagicMock()
         bad_vault.kv_read.return_value = VaultKvReadResponse(
             data={"certificate": "PEM"}, metadata={}
@@ -451,7 +445,9 @@ class TestRotateTrustPassword:
         with pytest.raises(LXDConfigError):
             rotate_trust_password(cluster_id=CLUSTER_ID, vault=bad_vault)
 
-    def test_missing_cluster_id(self, monkeypatch: pytest.MonkeyPatch, fake_vault: MagicMock) -> None:
+    def test_missing_cluster_id(
+        self, monkeypatch: pytest.MonkeyPatch, fake_vault: MagicMock
+    ) -> None:
         monkeypatch.delenv("LXD_CLUSTER_ID", raising=False)
         with pytest.raises(LXDConfigError):
             rotate_trust_password(vault=fake_vault)

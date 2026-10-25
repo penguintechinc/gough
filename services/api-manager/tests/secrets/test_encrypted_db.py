@@ -1,12 +1,11 @@
 """Tests for EncryptedDBSecretsManager."""
 
-import json
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from cryptography.fernet import Fernet
+from unittest.mock import MagicMock, patch
 
-from app.secrets.encrypted_db import EncryptedDBSecretsManager
+import pytest
 from app.secrets.base import SecretNotFoundError, SecretsManagerError
+from app.secrets.encrypted_db import EncryptedDBSecretsManager
+from cryptography.fernet import Fernet
 
 
 @pytest.fixture

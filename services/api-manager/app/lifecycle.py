@@ -27,12 +27,16 @@ def redis_client_kwargs(config: Mapping[str, Any]) -> dict[str, Any]:
     """
     return {
         "socket_timeout": float(config.get("REDIS_SOCKET_TIMEOUT", 2.0)),
-        "socket_connect_timeout": float(config.get("REDIS_SOCKET_CONNECT_TIMEOUT", 2.0)),
+        "socket_connect_timeout": float(
+            config.get("REDIS_SOCKET_CONNECT_TIMEOUT", 2.0)
+        ),
         "health_check_interval": 30,
     }
 
 
-def build_hypercorn_config(bind: str, graceful_timeout: float | None = None) -> HypercornConfig:
+def build_hypercorn_config(
+    bind: str, graceful_timeout: float | None = None
+) -> HypercornConfig:
     """Build a hypercorn config whose graceful shutdown fits the pod grace period.
 
     Uses ``graceful_timeout`` if given, else GRACEFUL_SHUTDOWN_TIMEOUT from the

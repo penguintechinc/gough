@@ -8,10 +8,9 @@ Tests for:
 - GET /api/v1/migration/safety-envelope
 """
 
-import pytest
 import json
-from datetime import datetime, timezone
-from unittest.mock import Mock, patch, MagicMock
+
+import pytest
 
 
 @pytest.mark.asyncio

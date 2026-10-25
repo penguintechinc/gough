@@ -4,15 +4,9 @@ Tests for decorator branches, async result handling, and edge cases in
 require_team_permission and require_resource_permission decorators.
 """
 
-import pytest
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
-from types import SimpleNamespace
+from unittest.mock import MagicMock, Mock
 
-from app.permissions import (
-    check_team_access,
-    check_resource_permission,
-    TEAM_ROLES,
-)
+from app.permissions import check_resource_permission, check_team_access
 
 
 class TestTeamAccessEdgeCases:

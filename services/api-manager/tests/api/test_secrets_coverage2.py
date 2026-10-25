@@ -5,7 +5,7 @@ from __future__ import annotations
 import importlib
 import sys
 from types import SimpleNamespace
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from quart import Quart, g
@@ -32,6 +32,7 @@ def secrets_app(monkeypatch):
         del sys.modules["app.api.secrets"]
 
     import app.api.secrets as secrets_mod
+
     secrets_mod = importlib.reload(secrets_mod)
 
     app = Quart(__name__)
@@ -59,7 +60,9 @@ async def test_validate_backend_unknown(secrets_app):
 
     with patch.object(secrets_mod, "BACKEND_REGISTRY", {}):
         client = app.test_client()
-        response = await client.post("/backends", json={"backend": "unknown", "config": {}})
+        response = await client.post(
+            "/backends", json={"backend": "unknown", "config": {}}
+        )
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -80,7 +83,9 @@ async def test_validate_backend_connection_error(secrets_app):
 
     with patch.object(secrets_mod, "BACKEND_REGISTRY", {"test": mock_backend}):
         client = app.test_client()
-        response = await client.post("/backends", json={"backend": "test", "config": {}})
+        response = await client.post(
+            "/backends", json={"backend": "test", "config": {}}
+        )
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -100,7 +105,9 @@ async def test_validate_backend_unexpected_error(secrets_app):
 
     with patch.object(secrets_mod, "BACKEND_REGISTRY", {"test": mock_backend}):
         client = app.test_client()
-        response = await client.post("/backends", json={"backend": "test", "config": {}})
+        response = await client.post(
+            "/backends", json={"backend": "test", "config": {}}
+        )
 
     assert response.status_code == 500
     data = await response.get_json()
@@ -119,7 +126,9 @@ async def test_validate_backend_success(secrets_app):
 
     with patch.object(secrets_mod, "BACKEND_REGISTRY", {"test": mock_backend}):
         client = app.test_client()
-        response = await client.post("/backends", json={"backend": "test", "config": {}})
+        response = await client.post(
+            "/backends", json={"backend": "test", "config": {}}
+        )
 
     assert response.status_code == 200
     data = await response.get_json()
@@ -300,7 +309,7 @@ async def test_set_secret_update_existing(secrets_app):
 async def test_set_secret_manager_error(secrets_app):
     """Set secret with manager error should return 500."""
     app, secrets_mod = secrets_app
-    from app.api.secrets import SecretsManagerError, SecretNotFoundError
+    from app.api.secrets import SecretNotFoundError, SecretsManagerError
 
     mock_manager = AsyncMock()
     mock_manager.get_secret.side_effect = SecretNotFoundError("/test/path")
@@ -391,7 +400,13 @@ async def test_list_secrets_success(secrets_app):
     app, secrets_mod = secrets_app
 
     mock_manager = AsyncMock()
-    mock_manager.list_secrets = AsyncMock(return_value=["tenants/default/path1", "tenants/default/path2", "tenants/other/leak"])
+    mock_manager.list_secrets = AsyncMock(
+        return_value=[
+            "tenants/default/path1",
+            "tenants/default/path2",
+            "tenants/other/leak",
+        ]
+    )
 
     with patch.object(secrets_mod, "get_secrets_manager", return_value=mock_manager):
         client = app.test_client()

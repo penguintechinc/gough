@@ -11,13 +11,12 @@ This module tests the /api/v1/agents blueprint including:
 Test cases cover both success and error scenarios.
 """
 
-import json
 import time
 from datetime import datetime, timedelta
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import MagicMock
 
-import pytest
 import jwt
+import pytest
 
 
 class TestAgentEnrollmentAPI:
@@ -35,7 +34,7 @@ class TestAgentEnrollmentAPI:
             "sub": "admin_user",
             "roles": ["admin"],
             "email": "admin@example.com",
-            "exp": datetime.utcnow() + timedelta(hours=24)
+            "exp": datetime.utcnow() + timedelta(hours=24),
         }
         return jwt.encode(payload, jwt_secret, algorithm="HS256")
 
@@ -46,7 +45,7 @@ class TestAgentEnrollmentAPI:
             "sub": "regular_user",
             "roles": ["viewer"],
             "email": "user@example.com",
-            "exp": datetime.utcnow() + timedelta(hours=24)
+            "exp": datetime.utcnow() + timedelta(hours=24),
         }
         return jwt.encode(payload, jwt_secret, algorithm="HS256")
 
@@ -57,7 +56,7 @@ class TestAgentEnrollmentAPI:
             "sub": "agent_12345",
             "type": "agent",
             "agent_id": "agent_12345",
-            "exp": datetime.utcnow() + timedelta(hours=1)
+            "exp": datetime.utcnow() + timedelta(hours=1),
         }
         return jwt.encode(payload, jwt_secret, algorithm="HS256")
 
@@ -79,7 +78,7 @@ class TestAgentEnrollmentAPI:
             "JWT_ALGORITHM": "HS256",
             "AGENT_KEY_EXPIRY_HOURS": 24,
             "AGENT_TOKEN_EXPIRY_MINUTES": 60,
-            "ENROLLMENT_KEY_LENGTH": 32
+            "ENROLLMENT_KEY_LENGTH": 32,
         }
         return app
 
@@ -93,15 +92,13 @@ class TestAgentEnrollmentAPI:
         mock_response = {
             "enrollment_key": "enr_test_key_1234567890abcdef",
             "expires_at": (datetime.utcnow() + timedelta(hours=24)).isoformat(),
-            "expires_in_hours": 24
+            "expires_in_hours": 24,
         }
         client.post.return_value = (mock_response, 201)
 
         # Act
         response, status = client.post(
-            "/api/v1/agents/enrollment-keys",
-            headers=headers,
-            json={}
+            "/api/v1/agents/enrollment-keys", headers=headers, json={}
         )
 
         # Assert
@@ -119,15 +116,13 @@ class TestAgentEnrollmentAPI:
         # Mock forbidden response
         mock_response = {
             "error": "Insufficient permissions",
-            "message": "Only administrators can generate enrollment keys"
+            "message": "Only administrators can generate enrollment keys",
         }
         client.post.return_value = (mock_response, 403)
 
         # Act
         response, status = client.post(
-            "/api/v1/agents/enrollment-keys",
-            headers=headers,
-            json={}
+            "/api/v1/agents/enrollment-keys", headers=headers, json={}
         )
 
         # Assert
@@ -143,7 +138,7 @@ class TestAgentEnrollmentAPI:
             "enrollment_key": "enr_test_key_1234567890abcdef",
             "agent_name": "agent-prod-01",
             "agent_type": "hypervisor",
-            "tags": ["production", "kvm"]
+            "tags": ["production", "kvm"],
         }
 
         mock_response = {
@@ -151,15 +146,12 @@ class TestAgentEnrollmentAPI:
             "agent_token": "agnt_jwt_token_here",
             "token_expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
             "agent_name": "agent-prod-01",
-            "status": "enrolled"
+            "status": "enrolled",
         }
         client.post.return_value = (mock_response, 200)
 
         # Act
-        response, status = client.post(
-            "/api/v1/agents/enroll",
-            json=enroll_data
-        )
+        response, status = client.post("/api/v1/agents/enroll", json=enroll_data)
 
         # Assert
         assert status == 200
@@ -174,20 +166,17 @@ class TestAgentEnrollmentAPI:
         enroll_data = {
             "enrollment_key": "invalid_key_12345",
             "agent_name": "agent-test-01",
-            "agent_type": "hypervisor"
+            "agent_type": "hypervisor",
         }
 
         mock_response = {
             "error": "Invalid enrollment key",
-            "message": "The provided enrollment key is not valid"
+            "message": "The provided enrollment key is not valid",
         }
         client.post.return_value = (mock_response, 400)
 
         # Act
-        response, status = client.post(
-            "/api/v1/agents/enroll",
-            json=enroll_data
-        )
+        response, status = client.post("/api/v1/agents/enroll", json=enroll_data)
 
         # Assert
         assert status == 400
@@ -200,21 +189,18 @@ class TestAgentEnrollmentAPI:
         enroll_data = {
             "enrollment_key": "enr_expired_key_old123456789",
             "agent_name": "agent-test-02",
-            "agent_type": "hypervisor"
+            "agent_type": "hypervisor",
         }
 
         mock_response = {
             "error": "Enrollment key expired",
             "message": "The enrollment key has expired and cannot be used",
-            "expired_at": (datetime.utcnow() - timedelta(hours=1)).isoformat()
+            "expired_at": (datetime.utcnow() - timedelta(hours=1)).isoformat(),
         }
         client.post.return_value = (mock_response, 410)
 
         # Act
-        response, status = client.post(
-            "/api/v1/agents/enroll",
-            json=enroll_data
-        )
+        response, status = client.post("/api/v1/agents/enroll", json=enroll_data)
 
         # Assert
         assert status == 410
@@ -231,21 +217,19 @@ class TestAgentEnrollmentAPI:
             "status": "healthy",
             "memory_usage_mb": 512,
             "cpu_usage_percent": 25.5,
-            "uptime_seconds": 3600
+            "uptime_seconds": 3600,
         }
 
         mock_response = {
             "acknowledged": True,
             "next_heartbeat_interval_seconds": 60,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": datetime.utcnow().isoformat(),
         }
         client.post.return_value = (mock_response, 200)
 
         # Act
         response, status = client.post(
-            "/api/v1/agents/heartbeat",
-            headers=headers,
-            json=heartbeat_data
+            "/api/v1/agents/heartbeat", headers=headers, json=heartbeat_data
         )
 
         # Assert
@@ -256,22 +240,16 @@ class TestAgentEnrollmentAPI:
     def test_agent_heartbeat_unauthorized(self, client):
         """Test agent heartbeat fails without valid agent token."""
         # Arrange
-        heartbeat_data = {
-            "agent_id": "agent_12345",
-            "status": "healthy"
-        }
+        heartbeat_data = {"agent_id": "agent_12345", "status": "healthy"}
 
         mock_response = {
             "error": "Unauthorized",
-            "message": "Valid agent token required"
+            "message": "Valid agent token required",
         }
         client.post.return_value = (mock_response, 401)
 
         # Act
-        response, status = client.post(
-            "/api/v1/agents/heartbeat",
-            json=heartbeat_data
-        )
+        response, status = client.post("/api/v1/agents/heartbeat", json=heartbeat_data)
 
         # Assert
         assert status == 401
@@ -286,7 +264,7 @@ class TestAgentEnrollmentAPI:
         mock_response = {
             "agent_token": "agnt_new_jwt_token_refreshed",
             "token_expires_at": (datetime.utcnow() + timedelta(hours=1)).isoformat(),
-            "expires_in_seconds": 3600
+            "expires_in_seconds": 3600,
         }
         client.post.return_value = (mock_response, 200)
 
@@ -294,7 +272,7 @@ class TestAgentEnrollmentAPI:
         response, status = client.post(
             "/api/v1/agents/token/refresh",
             headers=headers,
-            json={"agent_id": "agent_12345"}
+            json={"agent_id": "agent_12345"},
         )
 
         # Assert
@@ -309,22 +287,19 @@ class TestAgentEnrollmentAPI:
         expired_payload = {
             "sub": "agent_12345",
             "type": "agent",
-            "exp": int(time.time()) - 3600  # Expired 1 hour ago
+            "exp": int(time.time()) - 3600,  # Expired 1 hour ago
         }
         expired_token = jwt.encode(expired_payload, "secret", algorithm="HS256")
         headers = {"Authorization": f"Bearer {expired_token}"}
 
-        mock_response = {
-            "error": "Token expired",
-            "message": "Agent token has expired"
-        }
+        mock_response = {"error": "Token expired", "message": "Agent token has expired"}
         client.post.return_value = (mock_response, 401)
 
         # Act
         response, status = client.post(
             "/api/v1/agents/token/refresh",
             headers=headers,
-            json={"agent_id": "agent_12345"}
+            json={"agent_id": "agent_12345"},
         )
 
         # Assert
@@ -345,28 +320,27 @@ class TestAgentEnrollmentAPI:
                     "type": "hypervisor",
                     "status": "healthy",
                     "last_heartbeat": datetime.utcnow().isoformat(),
-                    "enrolled_at": (datetime.utcnow() - timedelta(days=30)).isoformat()
+                    "enrolled_at": (datetime.utcnow() - timedelta(days=30)).isoformat(),
                 },
                 {
                     "agent_id": "agent_456",
                     "name": "agent-test-01",
                     "type": "connector",
                     "status": "offline",
-                    "last_heartbeat": (datetime.utcnow() - timedelta(hours=2)).isoformat(),
-                    "enrolled_at": (datetime.utcnow() - timedelta(days=15)).isoformat()
-                }
+                    "last_heartbeat": (
+                        datetime.utcnow() - timedelta(hours=2)
+                    ).isoformat(),
+                    "enrolled_at": (datetime.utcnow() - timedelta(days=15)).isoformat(),
+                },
             ],
             "total": 2,
             "page": 1,
-            "per_page": 50
+            "per_page": 50,
         }
         client.get.return_value = (mock_response, 200)
 
         # Act
-        response, status = client.get(
-            "/api/v1/agents",
-            headers=headers
-        )
+        response, status = client.get("/api/v1/agents", headers=headers)
 
         # Assert
         assert status == 200
@@ -382,15 +356,12 @@ class TestAgentEnrollmentAPI:
 
         mock_response = {
             "error": "Insufficient permissions",
-            "message": "Only administrators can list agents"
+            "message": "Only administrators can list agents",
         }
         client.get.return_value = (mock_response, 403)
 
         # Act
-        response, status = client.get(
-            "/api/v1/agents",
-            headers=headers
-        )
+        response, status = client.get("/api/v1/agents", headers=headers)
 
         # Assert
         assert status == 403
@@ -403,22 +374,15 @@ class TestAgentEnrollmentAPI:
 
         mock_response = {
             "agents": [
-                {
-                    "agent_id": "agent_123",
-                    "name": "agent-prod-01",
-                    "status": "healthy"
-                }
+                {"agent_id": "agent_123", "name": "agent-prod-01", "status": "healthy"}
             ],
             "total": 1,
-            "filter": {"status": "healthy"}
+            "filter": {"status": "healthy"},
         }
         client.get.return_value = (mock_response, 200)
 
         # Act
-        response, status = client.get(
-            "/api/v1/agents?status=healthy",
-            headers=headers
-        )
+        response, status = client.get("/api/v1/agents?status=healthy", headers=headers)
 
         # Assert
         assert status == 200
@@ -430,24 +394,20 @@ class TestAgentEnrollmentAPI:
         """Test suspending an agent as administrator."""
         # Arrange
         headers = {"Authorization": f"Bearer {admin_token}"}
-        suspend_data = {
-            "reason": "Maintenance scheduled"
-        }
+        suspend_data = {"reason": "Maintenance scheduled"}
 
         mock_response = {
             "agent_id": "agent_123",
             "status": "suspended",
             "suspended_at": datetime.utcnow().isoformat(),
             "suspended_by": "admin_user",
-            "reason": "Maintenance scheduled"
+            "reason": "Maintenance scheduled",
         }
         client.put.return_value = (mock_response, 200)
 
         # Act
         response, status = client.put(
-            "/api/v1/agents/agent_123/suspend",
-            headers=headers,
-            json=suspend_data
+            "/api/v1/agents/agent_123/suspend", headers=headers, json=suspend_data
         )
 
         # Assert
@@ -463,15 +423,13 @@ class TestAgentEnrollmentAPI:
 
         mock_response = {
             "error": "Insufficient permissions",
-            "message": "Only administrators can suspend agents"
+            "message": "Only administrators can suspend agents",
         }
         client.put.return_value = (mock_response, 403)
 
         # Act
         response, status = client.put(
-            "/api/v1/agents/agent_123/suspend",
-            headers=headers,
-            json={"reason": "Test"}
+            "/api/v1/agents/agent_123/suspend", headers=headers, json={"reason": "Test"}
         )
 
         # Assert
@@ -485,7 +443,7 @@ class TestAgentEnrollmentAPI:
 
         mock_response = {
             "error": "Agent not found",
-            "message": "Agent with ID 'nonexistent' does not exist"
+            "message": "Agent with ID 'nonexistent' does not exist",
         }
         client.put.return_value = (mock_response, 404)
 
@@ -493,7 +451,7 @@ class TestAgentEnrollmentAPI:
         response, status = client.put(
             "/api/v1/agents/nonexistent/suspend",
             headers=headers,
-            json={"reason": "Test"}
+            json={"reason": "Test"},
         )
 
         # Assert

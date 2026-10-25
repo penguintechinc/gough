@@ -12,13 +12,13 @@ from pathlib import Path
 from typing import Literal
 
 import pytest
-from paramiko.message import Message
-
 from agent.cert_validator import (
     CertificateInfo,
     CertificateValidationError,
     CertificateValidator,
 )
+from paramiko.message import Message
+
 from tests.ssh_certs import (
     SSHKeyPair,
     cert_blob_b64,
@@ -126,7 +126,9 @@ def test_certificate_from_wrong_ca_is_rejected(
     """A valid certificate signed by a different CA is rejected by the signature check."""
     rogue_ca = generate_keypair(tmp_path, "rogue_ca")
     cert = sign_user_certificate(rogue_ca, user, ["alice"])
-    with pytest.raises(CertificateValidationError, match="not signed by the configured trusted CA"):
+    with pytest.raises(
+        CertificateValidationError, match="not signed by the configured trusted CA"
+    ):
         validator.validate_certificate(cert)
 
 
@@ -145,7 +147,7 @@ def test_spliced_trusted_ca_key_fails_signature_check(
     cert_blob = base64.b64decode(cert_blob_b64(cert))
     offset = cert_blob.find(rogue_blob)
     assert offset != -1
-    forged = cert_blob[:offset] + trusted_blob + cert_blob[offset + len(trusted_blob):]
+    forged = cert_blob[:offset] + trusted_blob + cert_blob[offset + len(trusted_blob) :]
     forged_line = f"{cert.split()[0]} {base64.b64encode(forged).decode()}"
     # ssh-keygen -L rejects the forged signature first; either layer failing closed is acceptable.
     with pytest.raises(CertificateValidationError):
@@ -169,7 +171,9 @@ def test_tampered_principals_fail_signature_check(
 def test_unparseable_certificate_is_rejected(validator: CertificateValidator) -> None:
     """Garbage input fails at ssh-keygen parsing with a validation error."""
     with pytest.raises(CertificateValidationError, match="Failed to parse"):
-        validator.validate_certificate("ssh-ed25519-cert-v01@openssh.com AAAA-not-a-cert")
+        validator.validate_certificate(
+            "ssh-ed25519-cert-v01@openssh.com AAAA-not-a-cert"
+        )
 
 
 def test_parse_timeout_is_reported(
@@ -185,7 +189,9 @@ def test_parse_timeout_is_reported(
         validator.validate_certificate("ssh-ed25519-cert-v01@openssh.com AAAA")
 
 
-def test_signature_check_rejects_malformed_blob_directly(validator: CertificateValidator) -> None:
+def test_signature_check_rejects_malformed_blob_directly(
+    validator: CertificateValidator,
+) -> None:
     """A certificate line with no key blob fails closed before any crypto runs."""
     with pytest.raises(CertificateValidationError, match="missing key blob"):
         validator._verify_signature("ssh-ed25519-cert-v01@openssh.com")
@@ -198,11 +204,15 @@ def test_signature_check_rejects_unsupported_certificate_type(
     msg = Message()
     msg.add_string("ssh-dss-cert-v01@openssh.com")
     blob = base64.b64encode(msg.asbytes()).decode()
-    with pytest.raises(CertificateValidationError, match="Unsupported certificate type"):
+    with pytest.raises(
+        CertificateValidationError, match="Unsupported certificate type"
+    ):
         validator._verify_signature(f"ssh-dss-cert-v01@openssh.com {blob}")
 
 
-def test_signature_check_wraps_unexpected_parse_errors(validator: CertificateValidator) -> None:
+def test_signature_check_wraps_unexpected_parse_errors(
+    validator: CertificateValidator,
+) -> None:
     """Any non-validation exception during signature parsing is wrapped and fails closed."""
     with pytest.raises(CertificateValidationError, match="verification failed"):
         validator._verify_signature("ssh-ed25519-cert-v01@openssh.com !!!notbase64!!!")
@@ -216,14 +226,18 @@ def test_load_pubkey_rejects_unsupported_ca_type() -> None:
         CertificateValidator._load_pubkey_from_blob(msg.asbytes())
 
 
-def test_ca_key_file_is_written_once_and_reused(validator: CertificateValidator, ca: SSHKeyPair) -> None:
+def test_ca_key_file_is_written_once_and_reused(
+    validator: CertificateValidator, ca: SSHKeyPair
+) -> None:
     """The CA public key is materialised to a temp file once and reused on later calls."""
     first = validator._ensure_ca_key_file()
     assert first.read_text() == ca.public_line
     assert validator._ensure_ca_key_file() == first
 
 
-def test_ca_key_file_is_recreated_after_removal(validator: CertificateValidator) -> None:
+def test_ca_key_file_is_recreated_after_removal(
+    validator: CertificateValidator,
+) -> None:
     """If the temp CA file disappears, a fresh one is written on next use."""
     first = validator._ensure_ca_key_file()
     first.unlink()
@@ -244,7 +258,7 @@ def test_keygen_output_parses_host_certificate_and_bad_serial() -> None:
     """Host-type certs are recognised; a non-numeric serial falls back to zero."""
     output = (
         "  Type: ssh-ed25519-cert-v01@openssh.com host certificate\n"
-        '        Public key: ED25519-CERT SHA256:abc\n'
+        "        Public key: ED25519-CERT SHA256:abc\n"
         "        Signing CA: ED25519 SHA256:def\n"
         '        Key ID: "web-01"\n'
         "        Serial: notanumber\n"

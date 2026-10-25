@@ -6,8 +6,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Color codes
 RED='\033[0;31m'
@@ -70,7 +68,8 @@ test_page_status() {
     echo -n "Testing $name ($path)... "
 
     while [ $attempt -lt $MAX_RETRIES ]; do
-        local status=$(curl -sf --max-time "$WEBUI_TIMEOUT" -w "%{http_code}" -o /dev/null "$WEBUI_URL$path" 2>/dev/null || echo "000")
+        local status
+        status=$(curl -sf --max-time "$WEBUI_TIMEOUT" -w "%{http_code}" -o /dev/null "$WEBUI_URL$path" 2>/dev/null || echo "000")
 
         if [ "$status" = "$expected_code" ]; then
             echo -e "${GREEN}✓ OK${NC} (HTTP $status)"

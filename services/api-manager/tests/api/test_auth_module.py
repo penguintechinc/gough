@@ -13,19 +13,17 @@ OIDC gate to validate a token.
 
 from __future__ import annotations
 
-import importlib
-from datetime import datetime, timedelta
+from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, patch
 
-import jwt
 import pytest
 from quart import Quart
-
 
 # ---------------------------------------------------------------------------
 # Shared passthrough (bypass auth decorators in routes that call require_auth)
 # ---------------------------------------------------------------------------
+
 
 def _passthrough(*dargs, **dkwargs):
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
@@ -39,6 +37,7 @@ JWT_SECRET = "test-secret-long-enough-32-bytes-ok"
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture()
 def app():
@@ -92,10 +91,12 @@ def _make_user_row(**kwargs):
 # Unit tests: hash_password / verify_password
 # =============================================================================
 
+
 class TestHashPassword:
     def test_produces_bcrypt_hash(self):
         import bcrypt
         from app.auth import hash_password
+
         hashed = hash_password("secret123")
         assert isinstance(hashed, str)
         assert hashed.startswith("$2b$")
@@ -103,6 +104,7 @@ class TestHashPassword:
 
     def test_different_hashes_for_same_password(self):
         from app.auth import hash_password
+
         h1 = hash_password("pw")
         h2 = hash_password("pw")
         assert h1 != h2  # salt is random
@@ -111,16 +113,19 @@ class TestHashPassword:
 class TestVerifyPassword:
     def test_correct_password_returns_true(self):
         from app.auth import hash_password, verify_password
+
         h = hash_password("mysecret")
         assert verify_password("mysecret", h) is True
 
     def test_wrong_password_returns_false(self):
         from app.auth import hash_password, verify_password
+
         h = hash_password("mysecret")
         assert verify_password("wrongpw", h) is False
 
     def test_empty_string_does_not_match_non_empty(self):
         from app.auth import hash_password, verify_password
+
         h = hash_password("nonempty")
         assert verify_password("", h) is False
 
@@ -128,6 +133,7 @@ class TestVerifyPassword:
 # =============================================================================
 # Unit tests: _mint_token_set (ES256 via OIDCProvider) -- regression: gh-31
 # =============================================================================
+
 
 class TestMintTokenSet:
     """``_mint_token_set`` mints a REAL ES256 access/id token set.
@@ -188,10 +194,12 @@ class TestMintTokenSet:
 # Unit tests: generate_refresh_token / verify_refresh_token / revoke_refresh_token
 # =============================================================================
 
+
 class TestGenerateRefreshToken:
     @pytest.mark.asyncio
     async def test_returns_urlsafe_string(self, app):
         from app.auth import generate_refresh_token
+
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
         fake_db.auth_refresh_tokens.insert = MagicMock()
@@ -204,8 +212,9 @@ class TestGenerateRefreshToken:
 
     @pytest.mark.asyncio
     async def test_stores_hash_not_plaintext(self, app):
-        from app.auth import generate_refresh_token
         import bcrypt
+        from app.auth import generate_refresh_token
+
         fake_db = MagicMock()
         inserted_data = {}
 
@@ -228,6 +237,7 @@ class TestVerifyRefreshToken:
     @pytest.mark.asyncio
     async def test_no_record_returns_false(self, app):
         from app.auth import verify_refresh_token
+
         # The auth module does: db(
         #   (db.auth_refresh_tokens.user_id == user_id)
         #   & (db.auth_refresh_tokens.revoked == False)
@@ -237,7 +247,9 @@ class TestVerifyRefreshToken:
         # Patch the __gt__ method so the expression evaluates without error.
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
-        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(return_value=MagicMock())
+        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(
+            return_value=MagicMock()
+        )
         query_chain = MagicMock()
         query_chain.select.return_value.first.return_value = None
         fake_db.return_value = query_chain
@@ -251,6 +263,7 @@ class TestRevokeRefreshToken:
     @pytest.mark.asyncio
     async def test_marks_token_revoked(self, app):
         from app.auth import revoke_refresh_token
+
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
         fake_db.return_value = MagicMock()
@@ -264,6 +277,7 @@ class TestRevokeRefreshToken:
     @pytest.mark.asyncio
     async def test_no_match_returns_false(self, app):
         from app.auth import revoke_refresh_token
+
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
         fake_db.return_value = MagicMock()
@@ -279,6 +293,7 @@ class TestRevokeRefreshToken:
 # Route tests: /api/v1/auth/health
 # =============================================================================
 
+
 class TestHealthRoute:
     @pytest.mark.asyncio
     async def test_returns_200(self, client):
@@ -292,12 +307,11 @@ class TestHealthRoute:
 # Route tests: /api/v1/auth/login
 # =============================================================================
 
+
 class TestLoginRoute:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, client):
-        resp = await client.post(
-            "/api/v1/auth/login", json=None
-        )
+        resp = await client.post("/api/v1/auth/login", json=None)
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -324,6 +338,7 @@ class TestLoginRoute:
     @pytest.mark.asyncio
     async def test_wrong_password_returns_401(self, client):
         from app.auth import hash_password
+
         user_row = _make_user_row(password=hash_password("correct"))
         fake_db = MagicMock()
         fake_db.auth_user = MagicMock()
@@ -337,6 +352,7 @@ class TestLoginRoute:
     @pytest.mark.asyncio
     async def test_inactive_user_returns_403(self, client):
         from app.auth import hash_password
+
         user_row = _make_user_row(password=hash_password("secret"), active=False)
         fake_db = MagicMock()
         fake_db.auth_user = MagicMock()
@@ -350,6 +366,7 @@ class TestLoginRoute:
     @pytest.mark.asyncio
     async def test_valid_login_returns_tokens(self, client, app):
         from app.auth import hash_password
+
         pw = "goodpassword"
         user_row = _make_user_row(password=hash_password(pw))
         fake_db = MagicMock()
@@ -377,6 +394,7 @@ class TestLoginRoute:
 # Route tests: /api/v1/auth/refresh
 # =============================================================================
 
+
 class TestRefreshRoute:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, client):
@@ -392,7 +410,9 @@ class TestRefreshRoute:
     async def test_invalid_token_returns_401(self, client):
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
-        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(return_value=MagicMock())
+        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(
+            return_value=MagicMock()
+        )
         # Return empty iterable so the for-loop finds no match
         fake_db.return_value.select.return_value = iter([])
         with patch("app.auth.get_db", return_value=fake_db):
@@ -404,6 +424,7 @@ class TestRefreshRoute:
     @pytest.mark.asyncio
     async def test_valid_token_returns_access_token(self, client, app):
         import bcrypt
+
         token_value = "validtoken123"
         token_hash = bcrypt.hashpw(token_value.encode(), bcrypt.gensalt()).decode()
 
@@ -414,7 +435,9 @@ class TestRefreshRoute:
         user_row = _make_user_row()
         fake_db = MagicMock()
         fake_db.auth_refresh_tokens = MagicMock()
-        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(return_value=MagicMock())
+        fake_db.auth_refresh_tokens.expires_at.__gt__ = MagicMock(
+            return_value=MagicMock()
+        )
         fake_db.auth_user = MagicMock()
         fake_db.commit = MagicMock()
 
@@ -445,6 +468,7 @@ class TestRefreshRoute:
 # Route tests: /api/v1/auth/logout
 # =============================================================================
 
+
 class TestLogoutRoute:
     @pytest.mark.asyncio
     async def test_no_auth_header_returns_401(self, client):
@@ -467,6 +491,7 @@ class TestLogoutRoute:
 # Route tests: /api/v1/auth/request-password-reset
 # =============================================================================
 
+
 class TestRequestPasswordReset:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, client):
@@ -478,9 +503,7 @@ class TestRequestPasswordReset:
 
     @pytest.mark.asyncio
     async def test_missing_email_returns_400(self, client):
-        resp = await client.post(
-            "/api/v1/auth/request-password-reset", json={}
-        )
+        resp = await client.post("/api/v1/auth/request-password-reset", json={})
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -519,17 +542,18 @@ class TestRequestPasswordReset:
 # Route tests: /api/v1/auth/reset-password
 # =============================================================================
 
+
 class TestResetPassword:
     @pytest.mark.asyncio
     async def test_no_body_returns_400(self, client):
-        resp = await client.post(
-            "/api/v1/auth/reset-password", json=None
-        )
+        resp = await client.post("/api/v1/auth/reset-password", json=None)
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
     async def test_missing_fields_returns_400(self, client):
-        resp = await client.post("/api/v1/auth/reset-password", json={"reset_token": "abc"})
+        resp = await client.post(
+            "/api/v1/auth/reset-password", json={"reset_token": "abc"}
+        )
         assert resp.status_code == 400
 
     @pytest.mark.asyncio
@@ -544,7 +568,9 @@ class TestResetPassword:
     async def test_invalid_token_returns_401(self, client):
         fake_db = MagicMock()
         fake_db.auth_password_resets = MagicMock()
-        fake_db.auth_password_resets.expires_at.__gt__ = MagicMock(return_value=MagicMock())
+        fake_db.auth_password_resets.expires_at.__gt__ = MagicMock(
+            return_value=MagicMock()
+        )
         fake_db.return_value.select.return_value = iter([])  # no matching records
         with patch("app.auth.get_db", return_value=fake_db):
             resp = await client.post(
@@ -556,6 +582,7 @@ class TestResetPassword:
     @pytest.mark.asyncio
     async def test_valid_reset_token_updates_password(self, client):
         import bcrypt
+
         token_value = "validresettoken"
         token_hash = bcrypt.hashpw(token_value.encode(), bcrypt.gensalt()).decode()
 
@@ -594,6 +621,7 @@ class TestResetPassword:
 # Route tests: /api/v1/auth/change-password (requires require_auth)
 # =============================================================================
 
+
 class TestChangePassword:
     @pytest.mark.asyncio
     async def test_no_auth_header_returns_401(self, client):
@@ -626,6 +654,7 @@ class TestChangePassword:
 # =============================================================================
 # Route tests: /api/v1/auth/me
 # =============================================================================
+
 
 class TestGetCurrentUser:
     @pytest.mark.asyncio

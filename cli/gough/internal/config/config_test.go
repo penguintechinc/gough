@@ -18,24 +18,24 @@ func setupTestConfig(t *testing.T) (*Config, string) {
 
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 		if oldAppData == "" {
-			os.Unsetenv("APPDATA")
+			_ = os.Unsetenv("APPDATA")
 		} else {
-			os.Setenv("APPDATA", oldAppData)
+			_ = os.Setenv("APPDATA", oldAppData)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 	cfg, _ := New()
 	return cfg, tmpDir
 }
@@ -52,19 +52,19 @@ func TestNewWithBadConfigHome(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
-	os.Unsetenv("XDG_CONFIG_HOME")
-	os.Unsetenv("HOME")
+	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	_ = os.Unsetenv("HOME")
 
 	_, err := New()
 	if err == nil {
@@ -103,7 +103,9 @@ func TestSetCreatesMissingDir(t *testing.T) {
 	configDir := filepath.Join(tmpDir, appName)
 
 	// Remove the config dir to test creation
-	os.RemoveAll(configDir)
+	if err := os.RemoveAll(configDir); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
 
 	err := cfg.Set("test.key", "test_value")
 	if err != nil {
@@ -118,7 +120,9 @@ func TestSetCreatesMissingDir(t *testing.T) {
 
 func TestUnset(t *testing.T) {
 	cfg, _ := setupTestConfig(t)
-	cfg.Set("test.key", "test_value")
+	if err := cfg.Set("test.key", "test_value"); err != nil {
+		t.Fatal(err)
+	}
 	err := cfg.Unset("test.key")
 	if err != nil {
 		t.Fatalf("Unset() failed: %v", err)
@@ -132,8 +136,12 @@ func TestUnset(t *testing.T) {
 
 func TestAll(t *testing.T) {
 	cfg, _ := setupTestConfig(t)
-	cfg.Set("key1", "value1")
-	cfg.Set("key2", "value2")
+	if err := cfg.Set("key1", "value1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Set("key2", "value2"); err != nil {
+		t.Fatal(err)
+	}
 
 	all := cfg.All()
 	if len(all) == 0 {
@@ -182,12 +190,12 @@ func TestPath(t *testing.T) {
 	oldConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 	})
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	_ = os.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	path, err := Path()
 	if err != nil {
@@ -207,19 +215,19 @@ func TestPathWithoutConfigHome(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
-	os.Unsetenv("XDG_CONFIG_HOME")
-	os.Setenv("HOME", tmpDir)
+	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	_ = os.Setenv("HOME", tmpDir)
 
 	path, err := Path()
 	if err != nil {
@@ -235,12 +243,12 @@ func TestEnvVarOverride(t *testing.T) {
 	oldVal := os.Getenv("GOUGH_TEST_KEY")
 	t.Cleanup(func() {
 		if oldVal == "" {
-			os.Unsetenv("GOUGH_TEST_KEY")
+			_ = os.Unsetenv("GOUGH_TEST_KEY")
 		} else {
-			os.Setenv("GOUGH_TEST_KEY", oldVal)
+			_ = os.Setenv("GOUGH_TEST_KEY", oldVal)
 		}
 	})
-	os.Setenv("GOUGH_TEST_KEY", "env_value")
+	_ = os.Setenv("GOUGH_TEST_KEY", "env_value")
 
 	val := cfg.Get("test.key")
 	if val != "env_value" {
@@ -257,20 +265,20 @@ func TestConfigDirWindows(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	t.Cleanup(func() {
 		if oldAppData == "" {
-			os.Unsetenv("APPDATA")
+			_ = os.Unsetenv("APPDATA")
 		} else {
-			os.Setenv("APPDATA", oldAppData)
+			_ = os.Setenv("APPDATA", oldAppData)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
 	tmpDir := t.TempDir()
-	os.Setenv("APPDATA", tmpDir)
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("APPDATA", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 
 	dir, err := configDir()
 	if err != nil {
@@ -291,19 +299,19 @@ func TestConfigDirLinux(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
-	os.Setenv("HOME", tmpDir)
+	_ = os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	_ = os.Setenv("HOME", tmpDir)
 
 	dir, err := configDir()
 	if err != nil {
@@ -315,27 +323,29 @@ func TestConfigDirLinux(t *testing.T) {
 }
 
 func TestSetWithCreateDirError(t *testing.T) {
-	cfg, _ := setupTestConfig(t)
+	_, _ = setupTestConfig(t)
 
 	// Create a file where the config dir should be, so MkdirAll will fail
 	tmpDir := t.TempDir()
 	oldConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 	})
 
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	_ = os.Setenv("XDG_CONFIG_HOME", tmpDir)
 	configPath := filepath.Join(tmpDir, appName)
 
 	// Create a file with the name that should be a directory
 	f, _ := os.Create(configPath)
-	f.Close()
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
-	cfg, _ = New()
+	cfg, _ := New()
 	err := cfg.Set("test.key", "test_value")
 	if err == nil {
 		t.Fatal("Set() expected error when directory cannot be created")
@@ -352,19 +362,19 @@ func TestConfigDirWithBadHome(t *testing.T) {
 	oldHome := os.Getenv("HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 		if oldHome == "" {
-			os.Unsetenv("HOME")
+			_ = os.Unsetenv("HOME")
 		} else {
-			os.Setenv("HOME", oldHome)
+			_ = os.Setenv("HOME", oldHome)
 		}
 	})
 
-	os.Unsetenv("XDG_CONFIG_HOME")
-	os.Unsetenv("HOME")
+	_ = os.Unsetenv("XDG_CONFIG_HOME")
+	_ = os.Unsetenv("HOME")
 
 	// This will trigger the error path in configDir()
 	_, err := configDir()
@@ -377,8 +387,12 @@ func TestMultipleKeysInConfig(t *testing.T) {
 	cfg, _ := setupTestConfig(t)
 
 	// Set multiple keys
-	cfg.Set("db.host", "localhost")
-	cfg.Set("db.port", "5432")
+	if err := cfg.Set("db.host", "localhost"); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Set("db.port", "5432"); err != nil {
+		t.Fatal(err)
+	}
 
 	if cfg.Get("db.host") != "localhost" {
 		t.Errorf("expected db.host=localhost, got %q", cfg.Get("db.host"))
@@ -523,8 +537,12 @@ func TestUseContext(t *testing.T) {
 		TenantID:   "tenant-staging",
 	}
 
-	cfg.SetContext("prod", prodCtx)
-	cfg.SetContext("staging", stagingCtx)
+	if err := cfg.SetContext("prod", prodCtx); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.SetContext("staging", stagingCtx); err != nil {
+		t.Fatal(err)
+	}
 
 	// UseContext should set the active context
 	err := cfg.UseContext("prod")
@@ -578,8 +596,12 @@ func TestActiveContext(t *testing.T) {
 		ClusterURL: "https://example.com",
 		TenantID:   "tenant-abc",
 	}
-	cfg.SetContext("test", ctx)
-	cfg.UseContext("test")
+	if err := cfg.SetContext("test", ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.UseContext("test"); err != nil {
+		t.Fatal(err)
+	}
 
 	// ActiveContext should now return the context
 	name, activeCtx, exists := cfg.ActiveContext()
@@ -597,8 +619,10 @@ func TestActiveContext(t *testing.T) {
 	}
 
 	// Delete the active context and verify ActiveContext returns false
-	cfg.DeleteContext("test")
-	name, _, exists = cfg.ActiveContext()
+	if err := cfg.DeleteContext("test"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, exists = cfg.ActiveContext()
 	if exists {
 		t.Fatal("ActiveContext() should return false after deleting the active context")
 	}
@@ -621,12 +645,12 @@ func TestSetContext_Persistence(t *testing.T) {
 	oldConfigHome := os.Getenv("XDG_CONFIG_HOME")
 	t.Cleanup(func() {
 		if oldConfigHome == "" {
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 		} else {
-			os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
+			_ = os.Setenv("XDG_CONFIG_HOME", oldConfigHome)
 		}
 	})
-	os.Setenv("XDG_CONFIG_HOME", tmpDir)
+	_ = os.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	cfg2, err := New()
 	if err != nil {

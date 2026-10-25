@@ -1,15 +1,15 @@
 """Pytest fixtures for E2E tests."""
 
 import os
-import json
 import subprocess
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
-from typing import Generator, Dict, Any
+from typing import Any, Dict, Generator
+
 import pytest
 import requests
-from datetime import datetime, timedelta
 
 
 @pytest.fixture(scope="session")
@@ -30,29 +30,33 @@ def primary_cluster() -> Generator[Dict[str, Any], None, None]:
 
     # Prepare environment: map CI Postgres vars to api-manager config
     api_env = os.environ.copy()
-    api_env.update({
-        "DB_HOST": os.environ.get("POSTGRES_HOST", "localhost"),
-        "DB_PORT": os.environ.get("POSTGRES_PORT", "5432"),
-        "DB_NAME": os.environ.get("POSTGRES_DB", "gough_test"),
-        "DB_USER": os.environ.get("POSTGRES_USER", "postgres"),
-        "DB_PASS": os.environ.get("POSTGRES_PASSWORD", "test"),
-        "REDIS_URL": f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', '6379')}/0",
-        # Config.DEBUG is read from QUART_DEBUG (not DEBUG) and Config.TESTING is
-        # hard-coded False, so set QUART_DEBUG=true to make validate_secrets() treat
-        # this as dev and permit dev-default secrets. Also pass real (non-default)
-        # secrets as belt-and-suspenders so startup succeeds even if config selection changes.
-        "QUART_DEBUG": "true",
-        "SECRET_KEY": "e2e-test-secret-key-not-for-production-0000000000",
-        "JWT_SECRET_KEY": "e2e-test-jwt-secret-not-for-production-0000000000",
-        "SECURITY_PASSWORD_SALT": "e2e-test-salt-not-for-production-0000000000",
-        # run.py reads QUART_HOST/QUART_PORT; bind where this fixture polls.
-        "QUART_HOST": "127.0.0.1",
-        "QUART_PORT": "8080",
-        "DB_TYPE": "postgres",
-    })
+    api_env.update(
+        {
+            "DB_HOST": os.environ.get("POSTGRES_HOST", "localhost"),
+            "DB_PORT": os.environ.get("POSTGRES_PORT", "5432"),
+            "DB_NAME": os.environ.get("POSTGRES_DB", "gough_test"),
+            "DB_USER": os.environ.get("POSTGRES_USER", "postgres"),
+            "DB_PASS": os.environ.get("POSTGRES_PASSWORD", "test"),
+            "REDIS_URL": f"redis://{os.environ.get('REDIS_HOST', 'localhost')}:{os.environ.get('REDIS_PORT', '6379')}/0",
+            # Config.DEBUG is read from QUART_DEBUG (not DEBUG) and Config.TESTING is
+            # hard-coded False, so set QUART_DEBUG=true to make validate_secrets() treat
+            # this as dev and permit dev-default secrets. Also pass real (non-default)
+            # secrets as belt-and-suspenders so startup succeeds even if config selection changes.
+            "QUART_DEBUG": "true",
+            "SECRET_KEY": "e2e-test-secret-key-not-for-production-0000000000",
+            "JWT_SECRET_KEY": "e2e-test-jwt-secret-not-for-production-0000000000",
+            "SECURITY_PASSWORD_SALT": "e2e-test-salt-not-for-production-0000000000",
+            # run.py reads QUART_HOST/QUART_PORT; bind where this fixture polls.
+            "QUART_HOST": "127.0.0.1",
+            "QUART_PORT": "8080",
+            "DB_TYPE": "postgres",
+        }
+    )
 
     print(f"[primary_cluster] Cluster ID: {cluster_id}")
-    print(f"[primary_cluster] Starting api-manager (hypercorn) from services/api-manager...")
+    print(
+        "[primary_cluster] Starting api-manager (hypercorn) from services/api-manager..."
+    )
 
     # Start api-manager as subprocess using hypercorn
     api_manager_dir = Path(__file__).resolve().parents[2] / "services" / "api-manager"
@@ -64,7 +68,7 @@ def primary_cluster() -> Generator[Dict[str, Any], None, None]:
         env=api_env,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        text=True
+        text=True,
     )
 
     print(f"[primary_cluster] api-manager process PID: {proc.pid}")
@@ -75,7 +79,7 @@ def primary_cluster() -> Generator[Dict[str, Any], None, None]:
         "admin_token": "test-token-" + os.urandom(16).hex(),
         "cluster_config_dir": temp_dir,
         "vault_unseal_keys": [],
-        "primary_ip": "127.0.0.1"
+        "primary_ip": "127.0.0.1",
     }
 
     # Poll /health until ready, with process death detection
@@ -126,6 +130,7 @@ def primary_cluster() -> Generator[Dict[str, Any], None, None]:
         proc.wait()
 
     import shutil
+
     shutil.rmtree(temp_dir, ignore_errors=True)
 
 
@@ -141,7 +146,9 @@ def sim_node_factory(primary_cluster) -> Generator:
     """
     # Check for QEMU/KVM availability on CI
     if os.getenv("GOUGH_TEST_ENV") == "ci" and not os.path.exists("/dev/kvm"):
-        pytest.skip("QEMU/KVM not available on CI (tests 02-16 require hardware simulation)")
+        pytest.skip(
+            "QEMU/KVM not available on CI (tests 02-16 require hardware simulation)"
+        )
 
     sim_nodes = []
 
@@ -190,7 +197,7 @@ def sim_node_factory(primary_cluster) -> Generator:
             "ipv6_mode": kwargs.get("ipv6", "disabled"),
             "smart_pattern": kwargs.get("smart_pattern", "healthy"),
             "with_bmc": kwargs.get("with_bmc", False),
-            "startup_time": time.time()
+            "startup_time": time.time(),
         }
 
         sim_nodes.append(metadata)
@@ -200,7 +207,9 @@ def sim_node_factory(primary_cluster) -> Generator:
 
     # Cleanup
     print("[sim_node_factory] Cleaning up sim nodes...")
-    cleanup_script = Path(__file__).parent.parent.parent / "dev-tools" / "node-sim" / "cleanup.sh"
+    cleanup_script = (
+        Path(__file__).parent.parent.parent / "dev-tools" / "node-sim" / "cleanup.sh"
+    )
     subprocess.run([str(cleanup_script)], capture_output=True)
 
 
@@ -220,15 +229,15 @@ def api_client(primary_cluster, gough_cli_token):
     """
     HTTP client pre-configured with auth headers for API calls.
     """
+
     class GoughAPIClient:
         def __init__(self, base_url: str, token: str):
             self.base_url = base_url.rstrip("/")
             self.token = token
             self.session = requests.Session()
-            self.session.headers.update({
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json"
-            })
+            self.session.headers.update(
+                {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+            )
 
         def get(self, path: str, **kwargs) -> requests.Response:
             return self.session.get(f"{self.base_url}{path}", **kwargs)

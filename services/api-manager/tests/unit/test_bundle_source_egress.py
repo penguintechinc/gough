@@ -13,7 +13,6 @@ from typing import Any
 
 import httpx
 import pytest
-
 from app.services import biome_bundle
 from app.services.biome_bundle import (
     BundleSourceRejected,
@@ -39,7 +38,9 @@ def _fixed_resolver(*addresses: str) -> Any:
     return resolve
 
 
-def _ok_transport(seen: list[httpx.Request], body: bytes = b"data") -> httpx.MockTransport:
+def _ok_transport(
+    seen: list[httpx.Request], body: bytes = b"data"
+) -> httpx.MockTransport:
     """Return a transport that records each request and answers 200 with ``body``."""
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -72,7 +73,9 @@ async def test_host_not_on_allowlist_is_rejected_before_resolution() -> None:
 async def test_empty_allowlist_rejects_every_url_import() -> None:
     """With no allowlist configured, URL imports are refused outright."""
     with pytest.raises(BundleSourceRejected):
-        await vet_source(MIRROR, allowed=frozenset(), resolver=_fixed_resolver("93.184.216.34"))
+        await vet_source(
+            MIRROR, allowed=frozenset(), resolver=_fixed_resolver("93.184.216.34")
+        )
 
 
 @pytest.mark.asyncio
@@ -91,7 +94,11 @@ async def test_allowlist_match_is_exact_not_suffix() -> None:
     """An allowlisted parent domain does not admit a sibling or a suffix-spoofed host."""
     for url in ("https://airgap.test/x", "https://mirror.airgap.test.evil.example/x"):
         with pytest.raises(BundleSourceRejected):
-            await vet_source(url, allowed=frozenset({"mirror.airgap.test"}), resolver=_fixed_resolver("93.184.216.34"))
+            await vet_source(
+                url,
+                allowed=frozenset({"mirror.airgap.test"}),
+                resolver=_fixed_resolver("93.184.216.34"),
+            )
 
 
 def test_default_allowlist_derives_from_mirror_urls() -> None:
@@ -100,12 +107,17 @@ def test_default_allowlist_derives_from_mirror_urls() -> None:
         "GOUGH_CHART_MIRROR_URL": "https://charts.airgap.test/cilium",
         "GOUGH_FILE_MIRROR_URL": "https://files.airgap.test:8443/",
     }
-    assert allowed_bundle_hosts(env) == frozenset({"charts.airgap.test", "files.airgap.test"})
+    assert allowed_bundle_hosts(env) == frozenset(
+        {"charts.airgap.test", "files.airgap.test"}
+    )
 
 
 def test_explicit_blank_allowlist_overrides_mirror_defaults() -> None:
     """A blank GOUGH_BUNDLE_MIRROR_HOSTS means reject all, even when mirror URLs are set."""
-    env = {"GOUGH_BUNDLE_MIRROR_HOSTS": "  ", "GOUGH_CHART_MIRROR_URL": "https://charts.airgap.test"}
+    env = {
+        "GOUGH_BUNDLE_MIRROR_HOSTS": "  ",
+        "GOUGH_CHART_MIRROR_URL": "https://charts.airgap.test",
+    }
     assert allowed_bundle_hosts(env) == frozenset()
 
 
@@ -119,7 +131,9 @@ def test_explicit_blank_allowlist_overrides_mirror_defaults() -> None:
     "blocked",
     ["169.254.169.254", "169.254.10.10", "127.0.0.1", "fe80::1", "::1"],
 )
-async def test_blocked_address_rejected_even_when_host_allowlisted(blocked: str) -> None:
+async def test_blocked_address_rejected_even_when_host_allowlisted(
+    blocked: str,
+) -> None:
     """Loopback, link-local (incl. 169.254/16 and fe80::/10) and metadata are refused always."""
     with pytest.raises(BundleSourceRejected) as info:
         await vet_source(
@@ -209,7 +223,9 @@ async def test_redirect_to_disallowed_host_is_rejected_not_followed() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request)
-        return httpx.Response(302, headers={"Location": "https://evil.example.net/steal"})
+        return httpx.Response(
+            302, headers={"Location": "https://evil.example.net/steal"}
+        )
 
     with pytest.raises(BundleSourceRejected) as info:
         await fetch_vetted(
@@ -229,7 +245,9 @@ async def test_redirect_to_metadata_is_rejected() -> None:
     """A redirect toward the metadata address is refused the same way."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(307, headers={"Location": "https://169.254.169.254/latest/meta-data/"})
+        return httpx.Response(
+            307, headers={"Location": "https://169.254.169.254/latest/meta-data/"}
+        )
 
     with pytest.raises(BundleSourceRejected):
         await fetch_vetted(
@@ -279,7 +297,9 @@ async def test_import_refuses_non_allowlisted_url_without_fetching(
 
 
 @pytest.mark.asyncio
-async def test_rejection_logs_detail_server_side_only(caplog: pytest.LogCaptureFixture) -> None:
+async def test_rejection_logs_detail_server_side_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     """The specific reason is logged for operators; the client sees only the generic message."""
     with caplog.at_level("ERROR", logger=biome_bundle.log.name):
         with pytest.raises(BundleSourceRejected) as info:

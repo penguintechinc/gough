@@ -15,7 +15,6 @@ Covers:
 from __future__ import annotations
 
 import base64
-import importlib
 import json
 import uuid
 from collections.abc import Iterator
@@ -26,8 +25,6 @@ from typing import Any, Optional
 from unittest.mock import MagicMock
 
 import pytest
-from quart import Quart, g
-
 from app.api import audit as audit_module
 from app.api.audit import (
     DEFAULT_MFA_REQUIRED_LANES,
@@ -38,6 +35,7 @@ from app.api.audit import (
 )
 from app.security.credentials import CredentialType, Principal
 from app.security.tenant import TenantContext
+from quart import Quart, g
 
 # =============================================================================
 # Fixtures

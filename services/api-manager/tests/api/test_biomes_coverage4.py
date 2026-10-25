@@ -14,11 +14,9 @@ from __future__ import annotations
 import importlib
 import json
 import sys
-import threading
-import uuid
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -27,8 +25,10 @@ def _passthrough_decorator(*dargs, **dkwargs):
     """Passthrough decorator for auth/scope decorators."""
     if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
         return dargs[0]
+
     def _wrap(fn):
         return fn
+
     return _wrap
 
 
@@ -48,9 +48,12 @@ def biomes_app(monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
     if "app.api.biomes" in sys.modules:
-        monkeypatch.setitem(sys.modules, "app.api.biomes", sys.modules["app.api.biomes"])
+        monkeypatch.setitem(
+            sys.modules, "app.api.biomes", sys.modules["app.api.biomes"]
+        )
 
     import app.api.biomes as biomes_mod
+
     biomes_mod = importlib.reload(biomes_mod)
 
     mock_db = MagicMock()
@@ -61,6 +64,7 @@ def biomes_app(monkeypatch):
     monkeypatch.setattr(biomes_mod, "get_db", lambda: mock_db)
 
     from quart import Quart, g
+
     app = Quart(__name__)
     app.config["TESTING"] = True
     app.config["CLUSTER_ID"] = "test"
@@ -76,8 +80,8 @@ def biomes_app(monkeypatch):
                 "sub": "admin",
                 "tenant": "default",
                 "scope": "gough.biomes.read gough.biomes.admin gough.biomes.write "
-                        "gough.biomes.delete gough.biomes.author gough.cluster.admin"
-            }
+                "gough.biomes.delete gough.biomes.author gough.cluster.admin",
+            },
         }
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
@@ -95,12 +99,14 @@ def biomes_client(biomes_app):
 # Cloud-Init YAML Validation Tests
 # ============================================================================
 
+
 class TestValidateCloudInitYaml:
     """Test cloud-init YAML validation edge cases."""
 
     def test_valid_yaml(self):
         """Test valid cloud-init YAML."""
         import app.api.biomes as biomes_mod
+
         content = """
 packages:
   - git
@@ -115,12 +121,14 @@ runcmd:
     def test_empty_yaml(self):
         """Test empty YAML string."""
         import app.api.biomes as biomes_mod
+
         ok, msg = biomes_mod.validate_cloud_init_yaml("")
         assert ok is True
 
     def test_invalid_yaml(self):
         """Test invalid YAML syntax."""
         import app.api.biomes as biomes_mod
+
         content = "bad: yaml: content: ]["
         ok, msg = biomes_mod.validate_cloud_init_yaml(content)
         assert ok is False
@@ -129,6 +137,7 @@ runcmd:
     def test_yaml_not_dict(self):
         """Test YAML that parses but is not a dict."""
         import app.api.biomes as biomes_mod
+
         content = "- item1\n- item2"
         ok, msg = biomes_mod.validate_cloud_init_yaml(content)
         # YAML is valid, but not a dict; should fail or return False
@@ -138,6 +147,7 @@ runcmd:
     def test_whitespace_only(self):
         """Test whitespace-only YAML."""
         import app.api.biomes as biomes_mod
+
         ok, msg = biomes_mod.validate_cloud_init_yaml("   \n  \n  ")
         assert ok is True
 
@@ -146,18 +156,21 @@ runcmd:
 # Merge Cloud-Init Tests
 # ============================================================================
 
+
 class TestMergeCloudInit:
     """Test merging of cloud-init configs."""
 
     def test_merge_empty_configs(self):
         """Test merging empty list of configs."""
         import app.api.biomes as biomes_mod
+
         result = biomes_mod.merge_cloud_init_configs([])
         assert result  # Should be valid YAML
 
     def test_merge_single_config(self):
         """Test merging single config."""
         import app.api.biomes as biomes_mod
+
         config = "packages:\n  - git"
         result = biomes_mod.merge_cloud_init_configs([config])
         assert result
@@ -166,6 +179,7 @@ class TestMergeCloudInit:
     def test_merge_with_empty_strings(self):
         """Test merging with empty strings in list."""
         import app.api.biomes as biomes_mod
+
         configs = ["packages:\n  - git", "", None]
         result = biomes_mod.merge_cloud_init_configs(configs)
         assert result
@@ -173,6 +187,7 @@ class TestMergeCloudInit:
     def test_merge_list_extension(self):
         """Test merging list fields (packages, runcmd, etc.)."""
         import app.api.biomes as biomes_mod
+
         config1 = "packages:\n  - git"
         config2 = "packages:\n  - curl"
         result = biomes_mod.merge_cloud_init_configs([config1, config2])
@@ -182,6 +197,7 @@ class TestMergeCloudInit:
     def test_merge_dict_update(self):
         """Test merging dict fields."""
         import app.api.biomes as biomes_mod
+
         config1 = "write_files:\n  - path: /etc/file1"
         config2 = "write_files:\n  - path: /etc/file2"
         result = biomes_mod.merge_cloud_init_configs([config1, config2])
@@ -190,6 +206,7 @@ class TestMergeCloudInit:
     def test_merge_scalar_override(self):
         """Test scalar values override."""
         import app.api.biomes as biomes_mod
+
         config1 = "hostname: old-hostname"
         config2 = "hostname: new-hostname"
         result = biomes_mod.merge_cloud_init_configs([config1, config2])
@@ -198,6 +215,7 @@ class TestMergeCloudInit:
     def test_merge_invalid_yaml_skip(self):
         """Test invalid YAML configs are skipped."""
         import app.api.biomes as biomes_mod
+
         config1 = "packages:\n  - git"
         config2 = "bad: yaml: ]]["
         result = biomes_mod.merge_cloud_init_configs([config1, config2])
@@ -208,6 +226,7 @@ class TestMergeCloudInit:
 # ============================================================================
 # Resource Constraint Validation Tests
 # ============================================================================
+
 
 class TestNodeEligibilityResourceConstraints:
     """Test eligibility evaluation with resource constraints."""
@@ -336,12 +355,14 @@ class TestNodeEligibilityResourceConstraints:
 # Parse Bool Helper Tests
 # ============================================================================
 
+
 class TestParseBool:
     """Test _parse_bool() helper function."""
 
     def test_parse_bool_true_variants(self):
         """Test parsing true variants."""
         import app.api.biomes as biomes_mod
+
         assert biomes_mod._parse_bool("true") is True
         assert biomes_mod._parse_bool("True") is True
         assert biomes_mod._parse_bool("TRUE") is True
@@ -352,6 +373,7 @@ class TestParseBool:
     def test_parse_bool_false_variants(self):
         """Test parsing false variants."""
         import app.api.biomes as biomes_mod
+
         assert biomes_mod._parse_bool("false") is False
         assert biomes_mod._parse_bool("0") is False
         assert biomes_mod._parse_bool("no") is False
@@ -361,11 +383,13 @@ class TestParseBool:
     def test_parse_bool_none(self):
         """Test parsing None."""
         import app.api.biomes as biomes_mod
+
         assert biomes_mod._parse_bool(None) is None
 
     def test_parse_bool_with_whitespace(self):
         """Test parsing with whitespace."""
         import app.api.biomes as biomes_mod
+
         assert biomes_mod._parse_bool("  true  ") is True
         assert biomes_mod._parse_bool("  false  ") is False
 
@@ -374,12 +398,14 @@ class TestParseBool:
 # Validate Biome Type and Architecture Tests
 # ============================================================================
 
+
 class TestValidateBiomeType:
     """Test biome type validation."""
 
     def test_valid_biome_types(self):
         """Test valid biome types."""
         import app.api.biomes as biomes_mod
+
         # These should be valid based on the BIOME_TYPES constant
         result = biomes_mod.validate_biome_type("snap")
         assert isinstance(result, bool)
@@ -387,6 +413,7 @@ class TestValidateBiomeType:
     def test_invalid_biome_type(self):
         """Test invalid biome type."""
         import app.api.biomes as biomes_mod
+
         result = biomes_mod.validate_biome_type("invalid_type")
         assert result is False
 
@@ -397,18 +424,21 @@ class TestValidateArchitecture:
     def test_valid_architectures(self):
         """Test valid architectures."""
         import app.api.biomes as biomes_mod
+
         # "any" is always valid
         assert biomes_mod.validate_architecture("any") is True
 
     def test_any_architecture(self):
         """Test 'any' is always valid."""
         import app.api.biomes as biomes_mod
+
         assert biomes_mod.validate_architecture("any") is True
 
 
 # ============================================================================
 # Delete Biome with Complex States
 # ============================================================================
+
 
 class TestDeleteBiomeEdgeCases:
     """Test DELETE biome with various states."""
@@ -420,12 +450,13 @@ class TestDeleteBiomeEdgeCases:
         mock_db.return_value.select.return_value.first.return_value = None
 
         response = await biomes_client.delete("/api/v1/biomes/999")
-        data = await _json(response)
 
         assert response.status_code == 404
 
     @pytest.mark.asyncio
-    async def test_delete_hard_requires_admin_scope(self, biomes_client, biomes_app, monkeypatch):
+    async def test_delete_hard_requires_admin_scope(
+        self, biomes_client, biomes_app, monkeypatch
+    ):
         """Test hard delete requires cluster.admin scope."""
         _, biomes_mod, mock_db = biomes_app
 
@@ -437,7 +468,9 @@ class TestDeleteBiomeEdgeCases:
         # check is ever reached.
         biome.tenant_id = "default"
         mock_db.return_value.select.return_value.first.return_value = biome
-        mock_db.return_value.count.return_value = 0  # int so `count() > 0` works in Python 3.14
+        mock_db.return_value.count.return_value = (
+            0  # int so `count() > 0` works in Python 3.14
+        )
 
         # Mock user without admin scope
         def mock_user():
@@ -447,8 +480,8 @@ class TestDeleteBiomeEdgeCases:
                 "_jwt_payload": {
                     "sub": "user",
                     "tenant": "default",
-                    "scope": "gough.biomes.read"
-                }
+                    "scope": "gough.biomes.read",
+                },
             }
 
         # app.api.biomes did ``from ..middleware import get_current_user``,
@@ -464,6 +497,7 @@ class TestDeleteBiomeEdgeCases:
 # List Biomes with Complex Filters
 # ============================================================================
 
+
 class TestListBiomesFiltering:
     """Test biomes list endpoint with complex filters."""
 
@@ -473,7 +507,6 @@ class TestListBiomesFiltering:
         _, _, mock_db = biomes_app
 
         response = await biomes_client.get("/api/v1/biomes?node_id=not-an-int")
-        data = await _json(response)
 
         assert response.status_code in (400, 422)
 
@@ -484,7 +517,6 @@ class TestListBiomesFiltering:
         mock_db.return_value.select.return_value.first.return_value = None
 
         response = await biomes_client.get("/api/v1/biomes?node_id=999")
-        data = await _json(response)
 
         assert response.status_code == 404
 
@@ -494,7 +526,6 @@ class TestListBiomesFiltering:
         _, _, _ = biomes_app
 
         response = await biomes_client.get("/api/v1/biomes?biome_kind=invalid_kind")
-        data = await _json(response)
 
         assert response.status_code in (400, 422)
 
@@ -504,7 +535,6 @@ class TestListBiomesFiltering:
         _, _, _ = biomes_app
 
         response = await biomes_client.get("/api/v1/biomes?phase=invalid_phase")
-        data = await _json(response)
 
         assert response.status_code in (400, 422)
 
@@ -514,7 +544,6 @@ class TestListBiomesFiltering:
         _, _, _ = biomes_app
 
         response = await biomes_client.get("/api/v1/biomes?workload_type=invalid")
-        data = await _json(response)
 
         assert response.status_code in (400, 422)
 
@@ -524,7 +553,6 @@ class TestListBiomesFiltering:
         _, _, _ = biomes_app
 
         response = await biomes_client.get("/api/v1/biomes?type=invalid_type")
-        data = await _json(response)
 
         assert response.status_code in (400, 422)
 
@@ -532,6 +560,7 @@ class TestListBiomesFiltering:
 # ============================================================================
 # User Scope and MFA Tests
 # ============================================================================
+
 
 class TestUserHasMFA:
     """Test _user_has_mfa() helper."""
@@ -608,6 +637,7 @@ class TestUserHasMFA:
 # ============================================================================
 # Serialize Biome Tests
 # ============================================================================
+
 
 class TestSerializeBiome:
     """Test biome serialization."""

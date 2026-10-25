@@ -51,7 +51,7 @@ import logging
 import time
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -619,7 +619,11 @@ class WaddleAIClient:
                 body = self._safe_json(resp)
                 msg = ""
                 if isinstance(body, dict):
-                    err = body.get("error") if isinstance(body.get("error"), dict) else None
+                    err = (
+                        body.get("error")
+                        if isinstance(body.get("error"), dict)
+                        else None
+                    )
                     if err and isinstance(err.get("message"), str):
                         msg = err["message"]
                     elif isinstance(body.get("message"), str):
@@ -630,7 +634,9 @@ class WaddleAIClient:
                 return WaddleAIDegradedResponse(
                     status_code=402,
                     waddleai_message=msg,
-                    waddleai_body=body if isinstance(body, dict) else {"raw": resp.text},
+                    waddleai_body=(
+                        body if isinstance(body, dict) else {"raw": resp.text}
+                    ),
                 )
 
             if 400 <= status < 500:

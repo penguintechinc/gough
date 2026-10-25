@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import pytest
-import sys
-from unittest.mock import MagicMock, patch, AsyncMock
 
 
 class TestBackendRegistration:
@@ -12,7 +10,7 @@ class TestBackendRegistration:
 
     def test_ensure_backends_early_exit_on_reentry(self, mock_current_app):
         """Test early exit when backends already registered (line 81-82)."""
-        from app.secrets import _ensure_backends_registered, _BACKENDS
+        from app.secrets import _BACKENDS, _ensure_backends_registered
 
         # First call populates backends
         _BACKENDS.clear()
@@ -28,7 +26,7 @@ class TestBackendRegistration:
 
     def test_register_backend_function(self, mock_current_app):
         """Test register_backend function registers a backend."""
-        from app.secrets import register_backend, _BACKENDS
+        from app.secrets import _BACKENDS, register_backend
 
         class DummyBackend:
             pass
@@ -40,15 +38,15 @@ class TestBackendRegistration:
         assert _BACKENDS["test_dummy"] is DummyBackend
 
 
-
-
 class TestGetSecretsManager:
     """Tests for get_secrets_manager function."""
 
     @pytest.mark.asyncio
-    async def test_get_secrets_manager_unknown_backend_error_message(self, mock_current_app):
+    async def test_get_secrets_manager_unknown_backend_error_message(
+        self, mock_current_app
+    ):
         """Test get_secrets_manager error message format (line 70-72)."""
-        from app.secrets import get_secrets_manager, _ensure_backends_registered, _BACKENDS
+        from app.secrets import _ensure_backends_registered, get_secrets_manager
 
         # First populate _BACKENDS so we get the proper error message
         _ensure_backends_registered()
@@ -66,7 +64,7 @@ class TestGetBackendRegistry:
 
     def test_get_backend_registry(self, mock_current_app):
         """Test get_backend_registry returns registry dict."""
-        from app.secrets import get_backend_registry, _BACKENDS
+        from app.secrets import _BACKENDS, get_backend_registry
 
         _BACKENDS.clear()  # Force re-registration
 

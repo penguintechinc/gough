@@ -29,17 +29,8 @@ from ..db.run_db import run_db
 from ..middleware import auth_required
 from ..models import get_db
 from ..security.scope_enforcement import require_scopes
-from ..security.tenant import (
-    TenantClaimMissingError,
-    extract_tenant_from_jwt,
-)
-from ..security.webhook_keys import (
-    ECDSA_P256_SHA256,
-    ED25519,
-    HMAC_SHA256,
-    VALID_MODES,
-    WebhookKeyManager,
-)
+from ..security.tenant import extract_tenant_from_jwt
+from ..security.webhook_keys import ED25519, VALID_MODES, WebhookKeyManager
 from ..workers.webhook_dispatcher import WebhookDispatcher, WebhookEndpoint
 
 log = logging.getLogger(__name__)
@@ -206,12 +197,7 @@ async def create_webhook():
     if signing_mode not in VALID_MODES:
         return (
             jsonify(
-                {
-                    "error": (
-                        f"signing_mode must be one of "
-                        f"{sorted(VALID_MODES)}"
-                    )
-                }
+                {"error": (f"signing_mode must be one of " f"{sorted(VALID_MODES)}")}
             ),
             400,
         )
@@ -281,7 +267,8 @@ async def delete_webhook(webhook_id: str):
     # blocking the request coroutine inline.
     def _delete() -> int:
         return db(
-            (db.webhook_endpoints.id == wid) & (db.webhook_endpoints.tenant_id == tenant_id)
+            (db.webhook_endpoints.id == wid)
+            & (db.webhook_endpoints.tenant_id == tenant_id)
         ).delete()
 
     rowcount = await run_db(_delete)
@@ -304,9 +291,14 @@ async def test_webhook(webhook_id: str):
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     def _fetch() -> Any:
-        return db(
-            (db.webhook_endpoints.id == wid) & (db.webhook_endpoints.tenant_id == tenant_id)
-        ).select().first()
+        return (
+            db(
+                (db.webhook_endpoints.id == wid)
+                & (db.webhook_endpoints.tenant_id == tenant_id)
+            )
+            .select()
+            .first()
+        )
 
     row = await run_db(_fetch)
     if row is None:

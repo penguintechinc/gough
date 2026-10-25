@@ -7,7 +7,6 @@ Validates:
 """
 
 import json
-from pathlib import Path
 
 import pytest
 
@@ -28,10 +27,10 @@ except ImportError as exc:  # pragma: no cover - exercised only when the
     _OPENAPI_SPEC_VALIDATOR_IMPORT_ERROR = exc
 
 from app.openapi_export import (
+    BLUEPRINT_SPECS,
     build_spec,
     import_blueprints,
     write_spec,
-    BLUEPRINT_SPECS,
 )
 
 
@@ -159,6 +158,7 @@ class TestOpenAPIOutputFormats:
     def test_yaml_output_is_valid_yaml(self, tmp_path):
         """Verify YAML output is parseable."""
         import yaml
+
         spec = build_spec()
         _, yaml_path = write_spec(spec, tmp_path)
         content = yaml_path.read_text(encoding="utf-8")

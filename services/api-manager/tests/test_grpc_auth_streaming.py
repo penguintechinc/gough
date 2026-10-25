@@ -15,25 +15,29 @@ from unittest.mock import AsyncMock
 
 import grpc
 import pytest
-
 from app.grpc_auth import GrpcAuthInterceptor
-from tests.test_grpc_auth import (
-    FakeServicerContext,
-    _AbortCalled,
-    _HandlerCallDetails,
-)
 
-MACHINE_CLAIMS = {"sub": "machine:discovery-agent", "tenant": "__default__", "scope": ["nodes:read"]}
+from tests.test_grpc_auth import FakeServicerContext, _AbortCalled, _HandlerCallDetails
+
+MACHINE_CLAIMS = {
+    "sub": "machine:discovery-agent",
+    "tenant": "__default__",
+    "scope": ["nodes:read"],
+}
 
 
 def _verifier(claims: dict[str, Any] | None = None) -> AsyncMock:
     """Return an OIDC verifier stub that accepts any token with ``claims``."""
     verifier = AsyncMock()
-    verifier.verify_token.return_value = claims if claims is not None else MACHINE_CLAIMS
+    verifier.verify_token.return_value = (
+        claims if claims is not None else MACHINE_CLAIMS
+    )
     return verifier
 
 
-async def _resolve(interceptor: GrpcAuthInterceptor, handler: grpc.RpcMethodHandler) -> Any:
+async def _resolve(
+    interceptor: GrpcAuthInterceptor, handler: grpc.RpcMethodHandler
+) -> Any:
     """Run intercept_service against a continuation returning ``handler``."""
 
     async def continuation(_details: Any) -> grpc.RpcMethodHandler:
@@ -56,7 +60,9 @@ async def _stream_unary_body(request_iterator: Any, context: Any) -> str:
     return "+".join(parts)
 
 
-async def _stream_stream_body(request_iterator: Any, context: Any) -> AsyncIterator[str]:
+async def _stream_stream_body(
+    request_iterator: Any, context: Any
+) -> AsyncIterator[str]:
     """Echo each streamed request upper-cased."""
     async for item in request_iterator:
         yield item.upper()
@@ -186,7 +192,9 @@ async def test_missing_handler_passes_through_as_none() -> None:
 
 async def test_handler_without_rpc_shape_is_returned_unwrapped() -> None:
     """A handler with no unary/stream behaviour set is returned as-is (no auth wrapper)."""
-    bare = grpc.unary_unary_rpc_method_handler(_stream_unary_body)._replace(unary_unary=None)
+    bare = grpc.unary_unary_rpc_method_handler(_stream_unary_body)._replace(
+        unary_unary=None
+    )
     resolved = await _resolve(
         GrpcAuthInterceptor(trust_bundle_pem=None, oidc_verifier=None),
         bare,

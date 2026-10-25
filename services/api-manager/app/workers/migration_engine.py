@@ -156,12 +156,14 @@ _INT_RANGES: dict[str, tuple[int, int]] = {
     "rollback_window_seconds": (60, 1800),
 }
 
-_BOOL_FIELDS: frozenset[str] = frozenset({
-    "enabled",
-    "rollback_on_destination_failure",
-    "forbid_migration_during_partition",
-    "forbid_migration_during_maintenance",
-})
+_BOOL_FIELDS: frozenset[str] = frozenset(
+    {
+        "enabled",
+        "rollback_on_destination_failure",
+        "forbid_migration_during_partition",
+        "forbid_migration_during_maintenance",
+    }
+)
 
 _ALLOWED_HORIZON_DAYS: frozenset[int] = frozenset({1, 7, 30})
 
@@ -181,74 +183,90 @@ def validate_policy_patch(patch: dict) -> list[Violation]:
 
     for key, value in patch.items():
         if key not in POLICY_FIELDS:
-            violations.append(Violation(
-                code="unknown_field",
-                message=f"Unknown policy field: {key}",
-                field=key,
-            ))
+            violations.append(
+                Violation(
+                    code="unknown_field",
+                    message=f"Unknown policy field: {key}",
+                    field=key,
+                )
+            )
             continue
 
         if key in _BOOL_FIELDS:
             if not isinstance(value, bool):
-                violations.append(Violation(
-                    code="type_error",
-                    message=f"Field {key} must be boolean",
-                    field=key,
-                ))
+                violations.append(
+                    Violation(
+                        code="type_error",
+                        message=f"Field {key} must be boolean",
+                        field=key,
+                    )
+                )
             continue
 
         if key in _INT_RANGES:
             low, high = _INT_RANGES[key]
             if not isinstance(value, int) or isinstance(value, bool):
-                violations.append(Violation(
-                    code="type_error",
-                    message=f"Field {key} must be integer",
-                    field=key,
-                ))
+                violations.append(
+                    Violation(
+                        code="type_error",
+                        message=f"Field {key} must be integer",
+                        field=key,
+                    )
+                )
                 continue
             if not (low <= value <= high):
-                violations.append(Violation(
-                    code="out_of_range",
-                    message=f"Field {key} must be in [{low}, {high}]",
-                    field=key,
-                    actual=float(value),
-                    required=float(low),
-                ))
+                violations.append(
+                    Violation(
+                        code="out_of_range",
+                        message=f"Field {key} must be in [{low}, {high}]",
+                        field=key,
+                        actual=float(value),
+                        required=float(low),
+                    )
+                )
             continue
 
         if key == "waddleai_risk_threshold":
             if isinstance(value, bool) or not isinstance(value, (int, float)):
-                violations.append(Violation(
-                    code="type_error",
-                    message="waddleai_risk_threshold must be a number",
-                    field=key,
-                ))
+                violations.append(
+                    Violation(
+                        code="type_error",
+                        message="waddleai_risk_threshold must be a number",
+                        field=key,
+                    )
+                )
                 continue
             if not (0.0 <= float(value) <= 1.0):
-                violations.append(Violation(
-                    code="out_of_range",
-                    message="waddleai_risk_threshold must be in [0.0, 1.0]",
-                    field=key,
-                    actual=float(value),
-                ))
+                violations.append(
+                    Violation(
+                        code="out_of_range",
+                        message="waddleai_risk_threshold must be in [0.0, 1.0]",
+                        field=key,
+                        actual=float(value),
+                    )
+                )
             continue
 
         if key == "capacity_forecast_horizon_days":
             # Explicitly reject bool (True == 1 in Python)
             if isinstance(value, bool) or not isinstance(value, int):
-                violations.append(Violation(
-                    code="type_error",
-                    message="capacity_forecast_horizon_days must be integer",
-                    field=key,
-                ))
+                violations.append(
+                    Violation(
+                        code="type_error",
+                        message="capacity_forecast_horizon_days must be integer",
+                        field=key,
+                    )
+                )
                 continue
             if value not in _ALLOWED_HORIZON_DAYS:
-                violations.append(Violation(
-                    code="out_of_range",
-                    message="capacity_forecast_horizon_days must be one of {1, 7, 30}",
-                    field=key,
-                    actual=float(value),
-                ))
+                violations.append(
+                    Violation(
+                        code="out_of_range",
+                        message="capacity_forecast_horizon_days must be one of {1, 7, 30}",
+                        field=key,
+                        actual=float(value),
+                    )
+                )
 
     return violations
 
@@ -267,16 +285,18 @@ def validate_combination(
         mhn = merged.get("min_healthy_nodes")
         if isinstance(mhn, int) and not isinstance(mhn, bool):
             if mhn > cluster_size:
-                violations.append(Violation(
-                    code="impossible_floor",
-                    message=(
-                        f"min_healthy_nodes ({mhn}) exceeds cluster size "
-                        f"({cluster_size})"
-                    ),
-                    field="min_healthy_nodes",
-                    actual=float(mhn),
-                    required=float(cluster_size),
-                ))
+                violations.append(
+                    Violation(
+                        code="impossible_floor",
+                        message=(
+                            f"min_healthy_nodes ({mhn}) exceeds cluster size "
+                            f"({cluster_size})"
+                        ),
+                        field="min_healthy_nodes",
+                        actual=float(mhn),
+                        required=float(cluster_size),
+                    )
+                )
     return violations
 
 
@@ -294,7 +314,8 @@ def _candidate_nodes(
 ) -> tuple[NodeSnapshot, ...]:
     """Filter nodes that could host the biome (excludes source, non-ready, tags)."""
     return tuple(
-        n for n in state.nodes
+        n
+        for n in state.nodes
         if n.state == "ready"
         and n.node_id != plan.biome.src_node_id
         and plan.biome.required_hardware_tags.issubset(n.hardware_tags)
@@ -389,16 +410,18 @@ def evaluate(
     # Step 1: cluster health ---------------------------------------------------
     ready = _ready_nodes(cluster_state)
     if len(ready) < policy.min_healthy_nodes:
-        violations.append(Violation(
-            code="cluster_unhealthy",
-            message=(
-                f"Cluster has {len(ready)} ready nodes; policy requires "
-                f"≥ {policy.min_healthy_nodes}"
-            ),
-            field="min_healthy_nodes",
-            actual=float(len(ready)),
-            required=float(policy.min_healthy_nodes),
-        ))
+        violations.append(
+            Violation(
+                code="cluster_unhealthy",
+                message=(
+                    f"Cluster has {len(ready)} ready nodes; policy requires "
+                    f"≥ {policy.min_healthy_nodes}"
+                ),
+                field="min_healthy_nodes",
+                actual=float(len(ready)),
+                required=float(policy.min_healthy_nodes),
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="cluster_unhealthy",
@@ -409,16 +432,18 @@ def evaluate(
 
     # Step 2: concurrency ------------------------------------------------------
     if cluster_state.in_flight_migrations >= policy.max_concurrent_migrations:
-        violations.append(Violation(
-            code="too_many_concurrent_migrations",
-            message=(
-                f"{cluster_state.in_flight_migrations} migrations in flight; "
-                f"policy max {policy.max_concurrent_migrations}"
-            ),
-            field="max_concurrent_migrations",
-            actual=float(cluster_state.in_flight_migrations),
-            required=float(policy.max_concurrent_migrations),
-        ))
+        violations.append(
+            Violation(
+                code="too_many_concurrent_migrations",
+                message=(
+                    f"{cluster_state.in_flight_migrations} migrations in flight; "
+                    f"policy max {policy.max_concurrent_migrations}"
+                ),
+                field="max_concurrent_migrations",
+                actual=float(cluster_state.in_flight_migrations),
+                required=float(policy.max_concurrent_migrations),
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="too_many_concurrent_migrations",
@@ -428,13 +453,17 @@ def evaluate(
         )
 
     # Step 3: partition/maintenance gates --------------------------------------
-    if (policy.forbid_migration_during_partition
-            and cluster_state.network_partition_active):
-        violations.append(Violation(
-            code="network_partition_active",
-            message="Network partition active; migrations paused by policy",
-            field="forbid_migration_during_partition",
-        ))
+    if (
+        policy.forbid_migration_during_partition
+        and cluster_state.network_partition_active
+    ):
+        violations.append(
+            Violation(
+                code="network_partition_active",
+                message="Network partition active; migrations paused by policy",
+                field="forbid_migration_during_partition",
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="network_partition_active",
@@ -442,13 +471,17 @@ def evaluate(
             chosen_target_node_id=None,
             violations=tuple(violations),
         )
-    if (policy.forbid_migration_during_maintenance
-            and cluster_state.maintenance_window_active):
-        violations.append(Violation(
-            code="maintenance_window_active",
-            message="Tenant maintenance window active; migrations paused",
-            field="forbid_migration_during_maintenance",
-        ))
+    if (
+        policy.forbid_migration_during_maintenance
+        and cluster_state.maintenance_window_active
+    ):
+        violations.append(
+            Violation(
+                code="maintenance_window_active",
+                message="Tenant maintenance window active; migrations paused",
+                field="forbid_migration_during_maintenance",
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="maintenance_window_active",
@@ -459,14 +492,16 @@ def evaluate(
 
     # Step 4: biome lock ---------------------------------------------------------
     if plan.biome.lock_to_host and not plan.ignore_lock:
-        violations.append(Violation(
-            code="biome_locked_to_host",
-            message=(
-                f"Biome {plan.biome.biome_instance_id} is locked to host; "
-                f"set ignore_lock=true with override scope to migrate"
-            ),
-            field="lock_to_host",
-        ))
+        violations.append(
+            Violation(
+                code="biome_locked_to_host",
+                message=(
+                    f"Biome {plan.biome.biome_instance_id} is locked to host; "
+                    f"set ignore_lock=true with override scope to migrate"
+                ),
+                field="lock_to_host",
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="biome_locked_to_host",
@@ -482,16 +517,18 @@ def evaluate(
             n for n in candidates if n.node_id == plan.requested_target_node_id
         )
         if not candidates:
-            violations.append(Violation(
-                code="target_unavailable",
-                message=(
-                    f"Requested target node {plan.requested_target_node_id} is "
-                    f"not a viable candidate (state, source-equality, or "
-                    f"hardware-tag constraints)"
-                ),
-                node_id=plan.requested_target_node_id,
-                field="target_node_id",
-            ))
+            violations.append(
+                Violation(
+                    code="target_unavailable",
+                    message=(
+                        f"Requested target node {plan.requested_target_node_id} is "
+                        f"not a viable candidate (state, source-equality, or "
+                        f"hardware-tag constraints)"
+                    ),
+                    node_id=plan.requested_target_node_id,
+                    field="target_node_id",
+                )
+            )
             return SafetyResult(
                 verdict="rejected",
                 reason="target_unavailable",
@@ -501,13 +538,15 @@ def evaluate(
             )
 
     if not candidates:
-        violations.append(Violation(
-            code="no_viable_candidates",
-            message=(
-                "No nodes satisfy hardware-tag, source-equality, and ready-state "
-                "constraints"
-            ),
-        ))
+        violations.append(
+            Violation(
+                code="no_viable_candidates",
+                message=(
+                    "No nodes satisfy hardware-tag, source-equality, and ready-state "
+                    "constraints"
+                ),
+            )
+        )
         return SafetyResult(
             verdict="rejected",
             reason="no_viable_candidates",
@@ -642,23 +681,21 @@ def _configure_otel() -> None:
             from opentelemetry.sdk.trace import TracerProvider
             from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
-            resource = Resource.create({
-                "service.name": os.environ.get(
-                    "OTEL_SERVICE_NAME", "gough-api-manager"
-                ),
-            })
+            resource = Resource.create(
+                {
+                    "service.name": os.environ.get(
+                        "OTEL_SERVICE_NAME", "gough-api-manager"
+                    ),
+                }
+            )
 
             tracer_provider = TracerProvider(resource=resource)
-            tracer_provider.add_span_processor(
-                BatchSpanProcessor(OTLPSpanExporter())
-            )
+            tracer_provider.add_span_processor(BatchSpanProcessor(OTLPSpanExporter()))
             trace.set_tracer_provider(tracer_provider)
 
             meter_provider = MeterProvider(
                 resource=resource,
-                metric_readers=[
-                    PeriodicExportingMetricReader(OTLPMetricExporter())
-                ],
+                metric_readers=[PeriodicExportingMetricReader(OTLPMetricExporter())],
             )
             metrics.set_meter_provider(meter_provider)
 
@@ -677,13 +714,17 @@ def _configure_otel() -> None:
                 "gough_migration_rollback_total",
                 description="Migration rollbacks triggered after destination failure",
             )
-        except Exception as exc:  # noqa: BLE001 -- telemetry must never break migrations
+        except (
+            Exception
+        ) as exc:  # noqa: BLE001 -- telemetry must never break migrations
             log.warning(
                 "OTel setup for migration lifecycle failed; continuing "
-                "without export: %s", exc,
+                "without export: %s",
+                exc,
             )
             try:
                 from opentelemetry import trace as _trace_noop
+
                 _tracer = _trace_noop.get_tracer("gough.migration")
             except Exception:  # noqa: BLE001
                 _tracer = _NoOpTracer()
@@ -714,15 +755,11 @@ def _record_outcome_metric(outcome: str, duration_seconds: float) -> None:
     _configure_otel()
     try:
         if _migration_duration_histogram is not None:
-            _migration_duration_histogram.record(
-                duration_seconds, {"outcome": outcome}
-            )
+            _migration_duration_histogram.record(duration_seconds, {"outcome": outcome})
         if _migration_outcome_counter is not None:
             _migration_outcome_counter.add(1, {"outcome": outcome})
     except Exception as exc:  # noqa: BLE001
-        log.warning(
-            "Failed to record migration metric (outcome=%s): %s", outcome, exc
-        )
+        log.warning("Failed to record migration metric (outcome=%s): %s", outcome, exc)
 
 
 def _record_rollback_metric() -> None:
@@ -750,6 +787,7 @@ def _resolve_cluster_id() -> str:
     """
     try:
         from quart import current_app, g
+
         cid = getattr(g, "cluster_id", None)
         if cid:
             return str(cid)
@@ -765,7 +803,10 @@ def _resolve_cluster_id() -> str:
 #: evacuating it or resolving a migration target -- mirrors
 #: ``app.api.biomes._deploy_and_health_check``'s target-node derivation.
 _ACTIVE_ASSIGNMENT_STATUSES: tuple[str, ...] = (
-    "pending", "deploying", "ready", "draining",
+    "pending",
+    "deploying",
+    "ready",
+    "draining",
 )
 
 
@@ -780,8 +821,9 @@ def _load_node_biome_snapshots(node_id: int) -> list[BiomeSnapshot]:
     from ..models import get_db
 
     db = get_db()
-    if ("node_egg_assignments" not in getattr(db, "tables", [])
-            or "biomes" not in getattr(db, "tables", [])):
+    if "node_egg_assignments" not in getattr(
+        db, "tables", []
+    ) or "biomes" not in getattr(db, "tables", []):
         return []
 
     rows = db(
@@ -796,17 +838,19 @@ def _load_node_biome_snapshots(node_id: int) -> list[BiomeSnapshot]:
             continue
         requires = frozenset(getattr(biome, "requires_hardware_tags", None) or [])
         sr = getattr(biome, "storage_requirements_json", None) or {}
-        out.append(BiomeSnapshot(
-            biome_instance_id=nba.id,
-            biome_id=biome.id,
-            biome_kind=str(getattr(biome, "biome_kind", "custom")),
-            src_node_id=int(nba.node_id),
-            lock_to_host=bool(getattr(biome, "lock_to_host", False)),
-            required_hardware_tags=requires,
-            expected_cpu_load_pct=float(sr.get("expected_cpu_load_pct", 5.0)),
-            expected_mem_load_pct=float(sr.get("expected_mem_load_pct", 10.0)),
-            expected_disk_load_pct=float(sr.get("expected_disk_load_pct", 2.0)),
-        ))
+        out.append(
+            BiomeSnapshot(
+                biome_instance_id=nba.id,
+                biome_id=biome.id,
+                biome_kind=str(getattr(biome, "biome_kind", "custom")),
+                src_node_id=int(nba.node_id),
+                lock_to_host=bool(getattr(biome, "lock_to_host", False)),
+                required_hardware_tags=requires,
+                expected_cpu_load_pct=float(sr.get("expected_cpu_load_pct", 5.0)),
+                expected_mem_load_pct=float(sr.get("expected_mem_load_pct", 10.0)),
+                expected_disk_load_pct=float(sr.get("expected_disk_load_pct", 2.0)),
+            )
+        )
     return out
 
 
@@ -848,7 +892,8 @@ async def evaluate_safety(node_id: int) -> dict[str, Any]:
         except Exception as exc:  # noqa: BLE001 -- fail closed on any load error
             log.warning(
                 "evaluate_safety: failed to load state for node=%s: %s",
-                node_id, exc,
+                node_id,
+                exc,
             )
             span.record_exception(exc)
             return {
@@ -881,14 +926,16 @@ async def evaluate_safety(node_id: int) -> dict[str, Any]:
                 unsafe_instance_ids.append(biome.biome_instance_id)
                 all_violations.extend(violations_to_dicts(result.violations))
                 if result.reason:
-                    all_violations.append({
-                        "code": result.reason,
-                        "message": (
-                            f"biome_instance_id={biome.biome_instance_id}: "
-                            f"{result.reason}"
-                        ),
-                        "biome_instance_id": biome.biome_instance_id,
-                    })
+                    all_violations.append(
+                        {
+                            "code": result.reason,
+                            "message": (
+                                f"biome_instance_id={biome.biome_instance_id}: "
+                                f"{result.reason}"
+                            ),
+                            "biome_instance_id": biome.biome_instance_id,
+                        }
+                    )
 
         if unsafe_instance_ids:
             span.set_attribute("gough.safe", False)
@@ -969,14 +1016,19 @@ def _emit_migration_nats_event(
         if nats_client is None:
             log.info(
                 "NATS not configured; would emit subject=%s payload=%s",
-                f"gough.cluster.{cluster_id}.{event_name}", payload,
+                f"gough.cluster.{cluster_id}.{event_name}",
+                payload,
             )
             return
         publish = getattr(nats_client, "publish", None)
         if publish is None:
             return
-        publish(f"gough.cluster.{cluster_id}.{event_name}", _json.dumps(payload).encode())
-    except Exception as exc:  # noqa: BLE001 -- telemetry/events must never break a migration
+        publish(
+            f"gough.cluster.{cluster_id}.{event_name}", _json.dumps(payload).encode()
+        )
+    except (
+        Exception
+    ) as exc:  # noqa: BLE001 -- telemetry/events must never break a migration
         log.warning("NATS publish failed event=%s err=%s", event_name, exc)
 
 
@@ -995,7 +1047,10 @@ async def _attempt_rollback(
     try:
         with _tracer.start_as_current_span("gough.migration.rollback"):
             await asyncio.to_thread(
-                lxd_extra.live_migrate, instance_name, src_name, cluster_id=cluster_id,
+                lxd_extra.live_migrate,
+                instance_name,
+                src_name,
+                cluster_id=cluster_id,
             )
         return True, f"rolled back to {src_name}"
     except lxd_extra.LXDError as exc:
@@ -1059,7 +1114,9 @@ async def execute_migration(
     if not await feature_enabled(FLAG_LIVE_MIGRATION, cluster_id):
         log.info(
             "execute_migration: %s disabled for cluster=%s; not executing "
-            "biome_instance_id=%s", FLAG_LIVE_MIGRATION, cluster_id,
+            "biome_instance_id=%s",
+            FLAG_LIVE_MIGRATION,
+            cluster_id,
             biome_instance_id,
         )
         return {
@@ -1089,8 +1146,12 @@ async def execute_migration(
             if "nodes" in getattr(db, "tables", []):
                 dst_row = db(db.nodes.id == dst_node_id).select().first()
                 src_row = db(db.nodes.id == src_node_id).select().first()
-                dst_name = getattr(dst_row, "name", None) if dst_row is not None else None
-                src_name = getattr(src_row, "name", None) if src_row is not None else None
+                dst_name = (
+                    getattr(dst_row, "name", None) if dst_row is not None else None
+                )
+                src_name = (
+                    getattr(src_row, "name", None) if src_row is not None else None
+                )
             return biome_name, dst_name, src_name
 
         biome_name, dst_name, src_name = await run_db(_load_context)
@@ -1103,7 +1164,8 @@ async def execute_migration(
             )
             log.error(
                 "execute_migration: %s (biome_instance_id=%s)",
-                note, biome_instance_id,
+                note,
+                biome_instance_id,
             )
             await _update_migration_event(
                 migration_event_id,
@@ -1122,21 +1184,29 @@ async def execute_migration(
 
         instance_name = f"{biome_name}-{src_node_id}"
 
-        _emit_migration_nats_event(cluster_id, "migration.started", {
-            "migration_event_id": migration_event_id,
-            "biome_instance_id": biome_instance_id,
-            "src_node_id": src_node_id,
-            "dst_node_id": dst_node_id,
-            "reason": reason,
-        })
+        _emit_migration_nats_event(
+            cluster_id,
+            "migration.started",
+            {
+                "migration_event_id": migration_event_id,
+                "biome_instance_id": biome_instance_id,
+                "src_node_id": src_node_id,
+                "dst_node_id": dst_node_id,
+                "reason": reason,
+            },
+        )
 
         # Drain: mark the assignment draining before the move so a
         # concurrent evacuate_node/safety check sees it mid-flight.
-        await run_db(lambda: _set_assignment_fields(
-            biome_instance_id, status="draining",
-        ))
+        await run_db(
+            lambda: _set_assignment_fields(
+                biome_instance_id,
+                status="draining",
+            )
+        )
         await _update_migration_event(
-            migration_event_id, result="executing",
+            migration_event_id,
+            result="executing",
         )
 
         try:
@@ -1155,11 +1225,16 @@ async def execute_migration(
             note = f"LXD move failed: {exc}"
             log.error(
                 "execute_migration: %s instance=%s target=%s",
-                note, instance_name, dst_name,
+                note,
+                instance_name,
+                dst_name,
             )
-            await run_db(lambda: _set_assignment_fields(
-                biome_instance_id, status="ready",
-            ))
+            await run_db(
+                lambda: _set_assignment_fields(
+                    biome_instance_id,
+                    status="ready",
+                )
+            )
             await _update_migration_event(
                 migration_event_id,
                 result="failed",
@@ -1167,11 +1242,15 @@ async def execute_migration(
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=time.monotonic() - start,
             )
-            _emit_migration_nats_event(cluster_id, "migration.failed", {
-                "migration_event_id": migration_event_id,
-                "biome_instance_id": biome_instance_id,
-                "error": note,
-            })
+            _emit_migration_nats_event(
+                cluster_id,
+                "migration.failed",
+                {
+                    "migration_event_id": migration_event_id,
+                    "biome_instance_id": biome_instance_id,
+                    "error": note,
+                },
+            )
             _record_outcome_metric("failed", time.monotonic() - start)
             span.record_exception(exc)
             span.set_attribute("gough.outcome", "failed")
@@ -1186,41 +1265,53 @@ async def execute_migration(
         try:
             with _tracer.start_as_current_span("gough.migration.verify"):
                 status = await asyncio.to_thread(
-                    lxd_extra.get_cluster_status, cluster_id=cluster_id,
+                    lxd_extra.get_cluster_status,
+                    cluster_id=cluster_id,
                 )
             verified = any(
-                m.name == dst_name and m.status == "Online"
-                for m in status.members
+                m.name == dst_name and m.status == "Online" for m in status.members
             )
         except lxd_extra.LXDError as exc:
             log.warning(
                 "execute_migration: post-move verify failed (treating as "
-                "destination failure): %s", exc,
+                "destination failure): %s",
+                exc,
             )
             verified = False
 
         if verified:
-            await run_db(lambda: _set_assignment_fields(
-                biome_instance_id, node_id=dst_node_id, status="ready",
-            ))
+            await run_db(
+                lambda: _set_assignment_fields(
+                    biome_instance_id,
+                    node_id=dst_node_id,
+                    status="ready",
+                )
+            )
             await _update_migration_event(
                 migration_event_id,
                 result="executed",
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=time.monotonic() - start,
             )
-            _emit_migration_nats_event(cluster_id, "migration.completed", {
-                "migration_event_id": migration_event_id,
-                "biome_instance_id": biome_instance_id,
-                "dst_node_id": dst_node_id,
-            })
+            _emit_migration_nats_event(
+                cluster_id,
+                "migration.completed",
+                {
+                    "migration_event_id": migration_event_id,
+                    "biome_instance_id": biome_instance_id,
+                    "dst_node_id": dst_node_id,
+                },
+            )
             duration = time.monotonic() - start
             _record_outcome_metric("executed", duration)
             span.set_attribute("gough.outcome", "executed")
             log.info(
                 "execute_migration: completed biome_instance_id=%s "
                 "src=%s dst=%s duration_s=%.2f",
-                biome_instance_id, src_node_id, dst_node_id, duration,
+                biome_instance_id,
+                src_node_id,
+                dst_node_id,
+                duration,
             )
             return {
                 "status": "executed",
@@ -1239,9 +1330,13 @@ async def execute_migration(
         )
 
         if not rollback_on_failure:
-            await run_db(lambda: _set_assignment_fields(
-                biome_instance_id, node_id=dst_node_id, status="failed",
-            ))
+            await run_db(
+                lambda: _set_assignment_fields(
+                    biome_instance_id,
+                    node_id=dst_node_id,
+                    status="failed",
+                )
+            )
             note = f"Destination node {dst_name} failed post-move verification"
             await _update_migration_event(
                 migration_event_id,
@@ -1250,11 +1345,15 @@ async def execute_migration(
                 completed_at=datetime.now(timezone.utc),
                 duration_seconds=time.monotonic() - start,
             )
-            _emit_migration_nats_event(cluster_id, "migration.failed", {
-                "migration_event_id": migration_event_id,
-                "biome_instance_id": biome_instance_id,
-                "error": note,
-            })
+            _emit_migration_nats_event(
+                cluster_id,
+                "migration.failed",
+                {
+                    "migration_event_id": migration_event_id,
+                    "biome_instance_id": biome_instance_id,
+                    "error": note,
+                },
+            )
             _record_outcome_metric("failed", time.monotonic() - start)
             span.set_attribute("gough.outcome", "failed")
             return {
@@ -1264,14 +1363,18 @@ async def execute_migration(
             }
 
         rolled_back_ok, rollback_detail = await _attempt_rollback(
-            instance_name=instance_name, src_name=src_name, cluster_id=cluster_id,
+            instance_name=instance_name,
+            src_name=src_name,
+            cluster_id=cluster_id,
         )
         _record_rollback_metric()
         final_status = "rolled_back" if rolled_back_ok else "failed"
-        await run_db(lambda: _set_assignment_fields(
-            biome_instance_id,
-            status="ready" if rolled_back_ok else "failed",
-        ))
+        await run_db(
+            lambda: _set_assignment_fields(
+                biome_instance_id,
+                status="ready" if rolled_back_ok else "failed",
+            )
+        )
         await _update_migration_event(
             migration_event_id,
             result=final_status,
@@ -1279,17 +1382,23 @@ async def execute_migration(
             completed_at=datetime.now(timezone.utc),
             duration_seconds=time.monotonic() - start,
         )
-        _emit_migration_nats_event(cluster_id, f"migration.{final_status}", {
-            "migration_event_id": migration_event_id,
-            "biome_instance_id": biome_instance_id,
-            "detail": rollback_detail,
-        })
+        _emit_migration_nats_event(
+            cluster_id,
+            f"migration.{final_status}",
+            {
+                "migration_event_id": migration_event_id,
+                "biome_instance_id": biome_instance_id,
+                "detail": rollback_detail,
+            },
+        )
         _record_outcome_metric(final_status, time.monotonic() - start)
         span.set_attribute("gough.outcome", final_status)
         log.warning(
             "execute_migration: destination verify failed, rollback=%s "
             "biome_instance_id=%s detail=%s",
-            rolled_back_ok, biome_instance_id, rollback_detail,
+            rolled_back_ok,
+            biome_instance_id,
+            rollback_detail,
         )
         return {
             "status": final_status,

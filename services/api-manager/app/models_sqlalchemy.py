@@ -18,8 +18,8 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     create_engine,
-    false as sa_false,
 )
+from sqlalchemy import false as sa_false
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
@@ -36,6 +36,7 @@ Base = declarative_base()
 # =============================================================================
 # Flask-Security-Too Authentication Tables
 # =============================================================================
+
 
 class AuthRole(Base):
     """Roles table for RBAC."""
@@ -130,6 +131,7 @@ class AuthPasswordReset(Base):
 # Secrets Management Tables
 # =============================================================================
 
+
 class SecretsConfig(Base):
     """Secrets backend configuration."""
 
@@ -183,6 +185,7 @@ class BootstrapNonce(Base):
 # Storage Configuration Tables
 # =============================================================================
 
+
 class StorageConfig(Base):
     """S3-compatible storage configurations."""
 
@@ -207,6 +210,7 @@ class StorageConfig(Base):
 # =============================================================================
 # Cloud Provider Tables
 # =============================================================================
+
 
 class CloudProvider(Base):
     """Cloud provider configurations."""
@@ -264,7 +268,7 @@ class CloudMachine(Base):
     # gough-managed marker out of this dict on every allowance count.
     tags = Column(JSONColumn)
     # Provider-specific fields with no column of their own.
-    metadata_json = Column('metadata', JSONColumn)
+    metadata_json = Column("metadata", JSONColumn)
     lxd_cluster_id = Column(Integer, ForeignKey("lxd_clusters.id"))
     fleet_host_id = Column(Integer)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -278,6 +282,7 @@ class CloudMachine(Base):
 # =============================================================================
 # MaaS Integration Tables
 # =============================================================================
+
 
 class MaaSConfig(Base):
     """MaaS Configuration."""
@@ -321,6 +326,7 @@ class Server(Base):
 # =============================================================================
 # LXD Cluster Tables
 # =============================================================================
+
 
 class LXDCluster(Base):
     """LXD Clusters."""
@@ -370,6 +376,7 @@ class LXDClusterMember(Base):
 # Cloud-Init Templates
 # =============================================================================
 
+
 class CloudInitTemplate(Base):
     """Cloud-init templates."""
 
@@ -407,6 +414,7 @@ class PackageConfig(Base):
 # Deployment Jobs
 # =============================================================================
 
+
 class DeploymentJob(Base):
     """Deployment jobs."""
 
@@ -434,6 +442,7 @@ class DeploymentJob(Base):
 # =============================================================================
 # FleetDM Integration Tables
 # =============================================================================
+
 
 class FleetDMConfig(Base):
     """FleetDM Configuration."""
@@ -566,6 +575,7 @@ class OSQueryResult(Base):
 # Elder Integration Tables
 # =============================================================================
 
+
 class ElderConfig(Base):
     """Elder Configuration."""
 
@@ -599,7 +609,7 @@ class ElderHost(Base):
     zone = Column(String(100), default="default")
     pool = Column(String(100), default="default")
     tags = Column(Text)
-    metadata_json = Column('metadata', Text)
+    metadata_json = Column("metadata", Text)
     elder_registered = Column(Boolean, default=False)
     last_sync_at = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -629,6 +639,7 @@ class ElderApp(Base):
 # Resource Teams & Shell Access Tables
 # =============================================================================
 
+
 class ResourceTeam(Base):
     """Resource Teams."""
 
@@ -639,7 +650,7 @@ class ResourceTeam(Base):
     description = Column(Text)
     created_by = Column(Integer, ForeignKey("auth_user.id"), nullable=False)
     is_active = Column(Boolean, default=True)
-    metadata_json = Column('metadata', Text)
+    metadata_json = Column("metadata", Text)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -653,8 +664,12 @@ class TeamMember(Base):
     __tablename__ = "team_members"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    team_id = Column(Integer, ForeignKey("resource_teams.id", ondelete="CASCADE"), nullable=False)
-    user_id = Column(Integer, ForeignKey("auth_user.id", ondelete="CASCADE"), nullable=False)
+    team_id = Column(
+        Integer, ForeignKey("resource_teams.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id = Column(
+        Integer, ForeignKey("auth_user.id", ondelete="CASCADE"), nullable=False
+    )
     role = Column(String(50), nullable=False)
     added_by = Column(Integer, ForeignKey("auth_user.id"), nullable=False)
     added_at = Column(DateTime, default=datetime.utcnow)
@@ -700,7 +715,9 @@ class AccessAgent(Base):
     # Server-side agent<->node link, set at enrollment (from the enrollment key's
     # intended_hostname) or by an admin. The capacity guard trusts ONLY this link,
     # never the agent's self-reported hostname.
-    node_id = Column(Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True)
+    node_id = Column(
+        Integer, ForeignKey("nodes.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     # Tenant stamped from the enrollment key; NULL for legacy agents (super-admin link only).
     tenant_id = Column(String(255), nullable=True, index=True)
     created_at = Column(DateTime, default=datetime.utcnow)
@@ -719,7 +736,7 @@ class EnrollmentKey(Base):
     is_used = Column(Boolean, default=False)
     revoked = Column(Boolean, default=False, nullable=False, server_default=sa_false())
     used_by_agent = Column(Integer, ForeignKey("access_agents.id"))
-    metadata_json = Column('metadata', Text)
+    metadata_json = Column("metadata", Text)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -763,6 +780,7 @@ class ShellSession(Base):
 # System Logs
 # =============================================================================
 
+
 class SystemLog(Base):
     """System logs."""
 
@@ -783,6 +801,7 @@ class SystemLog(Base):
 # =============================================================================
 # LXD cluster join issuance and bootstrap tombstones
 # =============================================================================
+
 
 class LxdJoinTokenIssuance(Base):
     """One row per LXD cluster join token grant; never deleted, expiry enforced by time."""
@@ -818,6 +837,7 @@ class BootstrapTokenSeed(Base):
 # Hub biome bundle cache (verified biomes releases served to instances)
 # =============================================================================
 
+
 class BiomeBundleImport(Base):
     """One verified biomes release; written only after sha256 (and cosign, if configured) pass."""
 
@@ -843,7 +863,9 @@ class BiomeBundleFile(Base):
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    import_id = Column(Integer, ForeignKey("biome_bundle_imports.id"), nullable=False, index=True)
+    import_id = Column(
+        Integer, ForeignKey("biome_bundle_imports.id"), nullable=False, index=True
+    )
     biome = Column(String(64), nullable=False)
     path = Column(String(512), nullable=False)
     sha256 = Column(String(64), nullable=False)
@@ -917,7 +939,10 @@ def create_all_tables(db_uri: str):
         # Create default roles if they don't exist
         default_roles = [
             {"name": "admin", "description": "Full system access"},
-            {"name": "maintainer", "description": "Read/write access, no user management"},
+            {
+                "name": "maintainer",
+                "description": "Read/write access, no user management",
+            },
             {"name": "viewer", "description": "Read-only access"},
         ]
 
@@ -936,7 +961,7 @@ def create_all_tables(db_uri: str):
 
         if not existing_admin:
             # Hash default password 'admin'
-            password_hash = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode('utf-8')
+            password_hash = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode("utf-8")
 
             admin_user = AuthUser(
                 email=admin_email,

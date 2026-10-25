@@ -37,7 +37,6 @@ from typing import Any, Callable, Optional, cast
 
 from quart import g, jsonify, request
 
-
 # ==============================================================================
 # Browser cookie auth (regression: security audit 2026-09-22 -- HIGH)
 # ==============================================================================
@@ -128,9 +127,7 @@ class CookieAuthShimMiddleware:
         headers = scope.get("headers") or []
         has_auth_header = any(k.lower() == b"authorization" for k, _v in headers)
         if not has_auth_header:
-            cookie_header = next(
-                (v for k, v in headers if k.lower() == b"cookie"), b""
-            )
+            cookie_header = next((v for k, v in headers if k.lower() == b"cookie"), b"")
             access_token = _extract_cookie(cookie_header, COOKIE_ACCESS_NAME)
             if access_token:
                 scope["headers"] = [
@@ -198,13 +195,14 @@ def auth_required(f: Callable) -> Callable:
     asserts a principal is present; a request that reached a protected handler
     without one is rejected 401.
     """
+
     @wraps(f)
     async def decorated(*args, **kwargs):
         if get_current_user() is None:
             return jsonify({"error": "Authentication required"}), 401
 
         result = f(*args, **kwargs)
-        if hasattr(result, '__await__'):
+        if hasattr(result, "__await__"):
             return await result
         return result
 
@@ -229,9 +227,9 @@ def role_required(*allowed_roles: str) -> Callable:
     """
     # Lazy import to avoid a circular import with security/scope_enforcement.
     from .security.scope_enforcement import (
+        InsufficientScopeError,
         check_scopes,
         extract_scopes_from_jwt,
-        InsufficientScopeError,
     )
 
     allowed = tuple(allowed_roles)
@@ -344,10 +342,7 @@ async def install_security_middleware(app) -> None:
     from app.db.rls import CROSS_TENANT_SENTINEL, set_current_tenant
     from app.security.scope_enforcement import scope_enforcement_middleware
     from app.security.scope_policy import is_anonymous_request
-    from app.security.tenant import (
-        TenantClaimMissingError,
-        extract_tenant_from_jwt,
-    )
+    from app.security.tenant import TenantClaimMissingError, extract_tenant_from_jwt
 
     from .db.run_db import run_db
     from .models import get_user_by_id
@@ -418,7 +413,9 @@ async def install_security_middleware(app) -> None:
     # (success or exception), so a tenant set by one request can never leak onto
     # a later one that skipped tenant extraction.
     @app.teardown_request
-    async def _tenant_teardown_request(exc: BaseException | None = None) -> None:  # noqa: ARG001
+    async def _tenant_teardown_request(
+        exc: BaseException | None = None,
+    ) -> None:  # noqa: ARG001
         set_current_tenant(None)
 
     # Step 2: principal shim — g.current_user from claims + DB user load.
@@ -493,6 +490,7 @@ async def _record_request_metrics(response):
     response: they are logged at DEBUG and counted in gough_metrics_record_errors_total.
     """
     from quart import current_app, request
+
     from .metrics import (
         api_error_total,
         api_request_latency_seconds,
@@ -511,8 +509,12 @@ async def _record_request_metrics(response):
                 method=method, endpoint=endpoint, status_code=status
             ).observe(elapsed)
         if response.status_code >= 400:
-            api_error_total.labels(method=method, endpoint=endpoint, status_code=status).inc()
+            api_error_total.labels(
+                method=method, endpoint=endpoint, status_code=status
+            ).inc()
     except Exception as exc:  # noqa: BLE001 -- metrics must never fail a response
         metrics_record_errors_total.inc()
-        current_app.logger.debug("request metrics recording failed: %s", exc, exc_info=True)
+        current_app.logger.debug(
+            "request metrics recording failed: %s", exc, exc_info=True
+        )
     return response

@@ -18,11 +18,10 @@ import os
 import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
-from typing import Any, Iterator
+from unittest.mock import MagicMock
 
 import jwt
 import pytest
-from unittest.mock import MagicMock
 
 # Registers the pg_url / pg_db real-Postgres fixtures (tests/pg_fixtures.py)
 # for every test module under tests/, so conversion tasks can depend on
@@ -34,6 +33,7 @@ pytest_plugins = ["tests.pg_fixtures"]
 
 # Ensure penguin-dal singleton points to a per-test sqlite file *before* any
 # app-level import binds get_db results.
+
 
 def _define_table_with_string_id(dal_db, name, *fields):
     """Like ``dal_db.define_table`` but with a VARCHAR(36) string ``id``
@@ -139,7 +139,8 @@ def dal(db_url, monkeypatch):
     from app.models_sqlalchemy import Base
 
     Base.metadata.create_all(
-        db.engine, tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__]
+        db.engine,
+        tables=[NodeResourceSnapshot.__table__, CapacityReservation.__table__],
     )
 
     yield db
@@ -165,14 +166,30 @@ def seed_fresh_snapshot(dal):
         body = {
             "schema": "gough.host_resources.v1",
             "collected_at": now.isoformat(),
-            "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
+            "cpu": {
+                "logical_cores": 16,
+                "usage_pct": 10.0,
+                "load1": 1.0,
+                "load5": 1.0,
+                "load15": 1.0,
+            },
             "memory": {"total_bytes": 64 * 1024**3, "available_bytes": 40 * 1024**3},
             "pressure": None,
-            "storage_pools": [{"name": "default", "driver": "dir", "total_bytes": 1000 * 1024**3, "used_bytes": 100 * 1024**3}],
+            "storage_pools": [
+                {
+                    "name": "default",
+                    "driver": "dir",
+                    "total_bytes": 1000 * 1024**3,
+                    "used_bytes": 100 * 1024**3,
+                }
+            ],
             "host_root_fs": {"total_bytes": 100 * 1024**3, "free_bytes": 60 * 1024**3},
             "committed": {
-                "cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0},
-                "instances": 0, "instances_without_limits": 0,
+                "cpu_cores": 0.0,
+                "memory_bytes": 0,
+                "disk_bytes": {"default": 0},
+                "instances": 0,
+                "instances_without_limits": 0,
             },
             "errors": [],
         }
@@ -188,21 +205,37 @@ def seed_node(dal):
     """Insert a single ready node + two disks for tenant ``acme``."""
     now = datetime.now(timezone.utc)
     node_id = dal.nodes.insert(
-        tenant_id="acme", name="node-1", state="ready",
+        tenant_id="acme",
+        name="node-1",
+        state="ready",
         dmi_uuid="00000000-0000-0000-0000-000000000001",
         primary_nic_mac="aa:bb:cc:dd:ee:01",
     )
     sda = dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sda",
-        serial="SERIAL-A", capacity_bytes=512_000_000_000, rotational=False,
-        smart_status="passed", reserved_for_storage=False, tier="fast",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sda",
+        serial="SERIAL-A",
+        capacity_bytes=512_000_000_000,
+        rotational=False,
+        smart_status="passed",
+        reserved_for_storage=False,
+        tier="fast",
+        created_at=now,
+        updated_at=now,
     )
     sdb = dal.disks.insert(
-        node_id=node_id, tenant_id="acme", device_path="/dev/sdb",
-        serial="SERIAL-B", capacity_bytes=2_000_000_000_000, rotational=True,
-        smart_status="unknown", reserved_for_storage=False, tier="bulk",
-        created_at=now, updated_at=now,
+        node_id=node_id,
+        tenant_id="acme",
+        device_path="/dev/sdb",
+        serial="SERIAL-B",
+        capacity_bytes=2_000_000_000_000,
+        rotational=True,
+        smart_status="unknown",
+        reserved_for_storage=False,
+        tier="bulk",
+        created_at=now,
+        updated_at=now,
     )
     dal.commit()
     return SimpleNamespace(node_id=int(node_id), sda=int(sda), sdb=int(sdb))
@@ -211,6 +244,7 @@ def seed_node(dal):
 @pytest.fixture()
 def disks_app(dal, seed_node, monkeypatch):
     """Build a minimal Quart app exposing the disks blueprint with auth stubbed."""
+
     # Replace decorators with no-op passthroughs at the module level.
     def _passthrough_decorator(*dargs, **dkwargs):
         # Support both styles: @auth_required and @require_scopes("...")
@@ -231,7 +265,9 @@ def disks_app(dal, seed_node, monkeypatch):
     monkeypatch.setattr(scope_mod, "require_scopes", _passthrough_decorator)
 
     import importlib
+
     import app.api.disks as disks_mod
+
     disks_mod = importlib.reload(disks_mod)
     monkeypatch.setattr(disks_mod, "get_db", lambda: dal)
 
@@ -260,6 +296,7 @@ def disks_app(dal, seed_node, monkeypatch):
 # App-factory fixtures used by tests/test_app_factory.py
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture()
 def app(monkeypatch):
     """Minimal Quart app fixture for test_app_factory.py.
@@ -268,8 +305,8 @@ def app(monkeypatch):
     endpoints needed by the factory tests, without booting the full
     production factory (which requires Vault, Postgres, SPIRE, etc.).
     """
-    from quart import Quart, Blueprint, g, Response
-    from prometheus_client import generate_latest, CONTENT_TYPE_LATEST
+    from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
+    from quart import Blueprint, Quart, Response, g
 
     # Stub auth decorators so blueprints that were already imported don't need
     # real JWT validation.
@@ -291,7 +328,12 @@ def app(monkeypatch):
     quart_app.url_map.strict_slashes = False
 
     # Register stub blueprints for the prefixes that factory tests look for.
-    for _prefix in ("/api/v1/auth", "/api/v1/users", "/api/v1/secrets", "/api/v1/clouds"):
+    for _prefix in (
+        "/api/v1/auth",
+        "/api/v1/users",
+        "/api/v1/secrets",
+        "/api/v1/clouds",
+    ):
         _name = _prefix.strip("/").replace("/", "_")
         _bp = Blueprint(_name, __name__)
 
@@ -305,9 +347,14 @@ def app(monkeypatch):
     @quart_app.route("/api/v1/openapi.json")
     async def _openapi():
         from pathlib import Path
-        spec_path = Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+
+        spec_path = (
+            Path(__file__).resolve().parents[3] / "docs" / "api" / "openapi.json"
+        )
         if spec_path.exists():
-            return Response(spec_path.read_text(encoding="utf-8"), mimetype="application/json")
+            return Response(
+                spec_path.read_text(encoding="utf-8"), mimetype="application/json"
+            )
         return {"error": "not found"}, 404
 
     @quart_app.route("/api/v1/version")
@@ -354,6 +401,7 @@ def client(app):
 # ============================================================================
 # Generic pytest configuration (plugins, hooks)
 # ============================================================================
+
 
 def pytest_configure(config):
     """Configure pytest with custom markers."""
@@ -528,6 +576,7 @@ def test_client(dal, monkeypatch):
 
     # Reload modules to pick up stubbed decorators
     import importlib
+
     import app.api.biomes as biomes_mod
     import app.api.clusters as clusters_mod
 
@@ -557,6 +606,7 @@ def test_client(dal, monkeypatch):
 @pytest.fixture()
 def authed_client(test_client, auth_token):
     """Test client that auto-injects Authorization: Bearer <token> with full scopes."""
+
     class AuthedTestClient:
         def __init__(self, client, token):
             self._client = client
@@ -593,6 +643,7 @@ def authed_client(test_client, auth_token):
 @pytest.fixture()
 def authed_viewer_client(test_client, viewer_token):
     """Test client that auto-injects Authorization: Bearer <token> with read-only scopes."""
+
     class AuthedTestClient:
         def __init__(self, client, token):
             self._client = client
@@ -629,6 +680,7 @@ def authed_viewer_client(test_client, viewer_token):
 @pytest.fixture()
 def authed_superadmin_client(test_client, superadmin_token):
     """Test client that auto-injects Authorization: Bearer <token> with superadmin scopes."""
+
     class AuthedTestClient:
         def __init__(self, client, token):
             self._client = client

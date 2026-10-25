@@ -127,6 +127,7 @@ if [[ "$WITH_BMC" == "true" ]]; then
 fi
 
 # Launch QEMU
+# shellcheck disable=SC2086  # QEMU_CMD/QEMU_OPTS are intentionally word-split argument strings
 ${QEMU_CMD} ${QEMU_OPTS} &
 QEMU_PID=$!
 echo "$QEMU_PID" > "${QEMU_PID_FILE}"

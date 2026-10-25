@@ -12,7 +12,6 @@ Covers:
 from __future__ import annotations
 
 import pytest
-
 from app.api._helpers import (
     EligibilityResult,
     _coerce_numeric,
@@ -86,9 +85,9 @@ class TestNormalizeTags:
         assert _normalize_tags(["  a  ", "", None, "b"]) == ["a", "b"]
 
     def test_dict_form_operator_tags(self) -> None:
-        assert _normalize_tags(
-            [{"tag_key": "region", "tag_value": "us-east"}]
-        ) == ["region:us-east"]
+        assert _normalize_tags([{"tag_key": "region", "tag_value": "us-east"}]) == [
+            "region:us-east"
+        ]
         assert _normalize_tags([{"key": "purpose", "value": "gpu-pool"}]) == [
             "purpose:gpu-pool"
         ]
@@ -246,7 +245,9 @@ class TestEligibilityResultSerialization:
             eligible=False,
             missing_tags=["tpm:2.0"],
             forbidden_tags_present=[],
-            resource_violations=[{"resource": "memory_mb", "required": 16, "available": 8}],
+            resource_violations=[
+                {"resource": "memory_mb", "required": 16, "available": 8}
+            ],
         )
         d = r.to_dict()
         assert d == {
@@ -338,9 +339,7 @@ class TestNodeEffectiveTags:
             hardware_tags=["region:us-west", "gpu:nvidia"],
         )
         db = _FakeDb(
-            operator_rows={
-                1: [_FakeRow(tag_key="region", tag_value="us-east")]
-            }
+            operator_rows={1: [_FakeRow(tag_key="region", tag_value="us-east")]}
         )
         merged = node_effective_tags(db, node)
         assert "region:us-east" in merged
@@ -377,10 +376,9 @@ class TestValidateBody:
         # ``request`` work.
         import asyncio
 
-        from quart import Quart
-
         from app.api._biome_schema import BiomeSignRequest
         from app.api._helpers import validate_body
+        from quart import Quart
 
         app = Quart(__name__)
 

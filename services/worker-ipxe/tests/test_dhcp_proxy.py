@@ -11,7 +11,6 @@ import gc
 import pytest
 import structlog
 from prometheus_client import REGISTRY
-
 from worker.config import WorkerConfig
 from worker.services.dhcp_proxy import DHCPProxyServer, _load_max_inflight
 
@@ -47,7 +46,9 @@ async def _drain(server: DHCPProxyServer) -> None:
         await asyncio.sleep(0)
 
 
-def test_load_max_inflight_default_and_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_load_max_inflight_default_and_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """DHCP_MAX_INFLIGHT defaults to 256 and rejects values below 1."""
     monkeypatch.delenv("DHCP_MAX_INFLIGHT", raising=False)
     assert _load_max_inflight() == 256
@@ -84,7 +85,9 @@ async def test_inflight_cap_drops_and_counts(monkeypatch: pytest.MonkeyPatch) ->
 
 
 @pytest.mark.asyncio
-async def test_tasks_strongly_referenced_until_done(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tasks_strongly_referenced_until_done(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """In-flight handlers survive garbage collection and the set empties on completion.
 
     Regression: un-referenced create_task results can be collected mid-flight.

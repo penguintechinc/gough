@@ -6,8 +6,6 @@
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # Color codes
 RED='\033[0;31m'
@@ -45,7 +43,8 @@ check_container() {
         echo -e "${GREEN}✓ Running${NC}"
 
         # Check health status if available
-        local health=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "none")
+        local health
+        health=$(docker inspect --format='{{.State.Health.Status}}' "$container" 2>/dev/null || echo "none")
 
         if [ "$health" = "healthy" ]; then
             echo -e "  └─ Health: ${GREEN}healthy${NC}"

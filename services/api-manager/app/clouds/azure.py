@@ -26,6 +26,11 @@ log = logging.getLogger(__name__)
 
 # Azure SDK imports with graceful handling
 try:
+    from azure.core.exceptions import (
+        AzureError,
+        ClientAuthenticationError,
+        ResourceNotFoundError,
+    )
     from azure.identity import (
         ClientSecretCredential,
         DefaultAzureCredential,
@@ -40,8 +45,8 @@ try:
         ManagedDiskParameters,
         NetworkInterfaceReference,
         NetworkProfile,
-        OSProfile,
         OSDisk,
+        OSProfile,
         SshConfiguration,
         SshPublicKey,
         StorageAccountTypes,
@@ -49,17 +54,14 @@ try:
         VirtualMachine,
     )
     from azure.mgmt.network import NetworkManagementClient
+
     # azure-mgmt-resource >=25 turned ``azure.mgmt.resource`` into a pure
     # namespace package; ResourceManagementClient now lives one level down in
     # ``.resources``. Importing it from the old top-level path raises
     # ImportError("unknown location"), which this block would swallow into
     # AZURE_AVAILABLE=False.
     from azure.mgmt.resource.resources import ResourceManagementClient
-    from azure.core.exceptions import (
-        AzureError,
-        ClientAuthenticationError,
-        ResourceNotFoundError,
-    )
+
     AZURE_AVAILABLE = True
 except ImportError:
     AZURE_AVAILABLE = False
@@ -168,9 +170,7 @@ class AzureCloud(BaseCloud):
                 )
             elif self.client_id:
                 log.info("Authenticating with Azure using managed identity")
-                self._credential = ManagedIdentityCredential(
-                    client_id=self.client_id
-                )
+                self._credential = ManagedIdentityCredential(client_id=self.client_id)
             else:
                 log.info("Authenticating with Azure using default credentials")
                 self._credential = DefaultAzureCredential()
@@ -428,8 +428,7 @@ class AzureCloud(BaseCloud):
                     if "tags" in filters and filters["tags"]:
                         vm_tags = vm.tags or {}
                         if not all(
-                            vm_tags.get(k) == v
-                            for k, v in filters["tags"].items()
+                            vm_tags.get(k) == v for k, v in filters["tags"].items()
                         ):
                             continue
 
@@ -641,16 +640,36 @@ class AzureCloud(BaseCloud):
         # Common image aliases
         IMAGE_ALIASES: dict[str, tuple[str, str, str, str]] = {
             "ubuntu-24.04": ("Canonical", "ubuntu-24_04-lts", "server", "latest"),
-            "ubuntu-22.04": ("Canonical", "0001-com-ubuntu-server-jammy", "22_04-lts", "latest"),
-            "ubuntu-20.04": ("Canonical", "0001-com-ubuntu-server-focal", "20_04-lts", "latest"),
+            "ubuntu-22.04": (
+                "Canonical",
+                "0001-com-ubuntu-server-jammy",
+                "22_04-lts",
+                "latest",
+            ),
+            "ubuntu-20.04": (
+                "Canonical",
+                "0001-com-ubuntu-server-focal",
+                "20_04-lts",
+                "latest",
+            ),
             "ubuntu-18.04": ("Canonical", "UbuntuServer", "18.04-LTS", "latest"),
             "debian-12": ("Debian", "debian-12", "12", "latest"),
             "debian-11": ("Debian", "debian-11", "11", "latest"),
             "rhel-9": ("RedHat", "RHEL", "9-lvm", "latest"),
             "rhel-8": ("RedHat", "RHEL", "8-lvm", "latest"),
             "centos-7": ("OpenLogic", "CentOS", "7.9", "latest"),
-            "windows-2022": ("MicrosoftWindowsServer", "WindowsServer", "2022-Datacenter", "latest"),
-            "windows-2019": ("MicrosoftWindowsServer", "WindowsServer", "2019-Datacenter", "latest"),
+            "windows-2022": (
+                "MicrosoftWindowsServer",
+                "WindowsServer",
+                "2022-Datacenter",
+                "latest",
+            ),
+            "windows-2019": (
+                "MicrosoftWindowsServer",
+                "WindowsServer",
+                "2019-Datacenter",
+                "latest",
+            ),
         }
 
         # Check for alias
@@ -853,7 +872,10 @@ class AzureCloud(BaseCloud):
 
                     pip_ids: list[str] = []
                     for ip_config in nic.ip_configurations or []:
-                        if ip_config.public_ip_address and ip_config.public_ip_address.id:
+                        if (
+                            ip_config.public_ip_address
+                            and ip_config.public_ip_address.id
+                        ):
                             pip_ids.append(ip_config.public_ip_address.id)
 
                     # Delete NIC
@@ -1043,39 +1065,76 @@ class AzureCloud(BaseCloud):
                         offer=offer.name,
                     )
                     for sku in skus:
-                        images.append({
-                            "id": f"{publisher}/{offer.name}/{sku.name}",
-                            "name": f"{offer.name} {sku.name}",
-                            "publisher": publisher,
-                            "offer": offer.name,
-                            "sku": sku.name,
-                        })
+                        images.append(
+                            {
+                                "id": f"{publisher}/{offer.name}/{sku.name}",
+                                "name": f"{offer.name} {sku.name}",
+                                "publisher": publisher,
+                                "offer": offer.name,
+                                "sku": sku.name,
+                            }
+                        )
             else:
                 # Return common image aliases
-                for alias, (pub, offer, sku, _) in self._parse_image_reference.__code__.co_consts:
+                for alias, (
+                    pub,
+                    offer,
+                    sku,
+                    _,
+                ) in self._parse_image_reference.__code__.co_consts:
                     if isinstance(alias, str) and isinstance(pub, str):
-                        images.append({
-                            "id": alias,
-                            "name": alias,
-                            "publisher": pub,
-                            "offer": offer,
-                            "sku": sku,
-                        })
+                        images.append(
+                            {
+                                "id": alias,
+                                "name": alias,
+                                "publisher": pub,
+                                "offer": offer,
+                                "sku": sku,
+                            }
+                        )
 
         except AzureError as e:
             log.warning(f"Failed to list Azure images: {e}")
 
         # Add common aliases as fallback
         common_images = [
-            {"id": "ubuntu-24.04", "name": "Ubuntu 24.04 LTS", "publisher": "Canonical"},
-            {"id": "ubuntu-22.04", "name": "Ubuntu 22.04 LTS", "publisher": "Canonical"},
-            {"id": "ubuntu-20.04", "name": "Ubuntu 20.04 LTS", "publisher": "Canonical"},
+            {
+                "id": "ubuntu-24.04",
+                "name": "Ubuntu 24.04 LTS",
+                "publisher": "Canonical",
+            },
+            {
+                "id": "ubuntu-22.04",
+                "name": "Ubuntu 22.04 LTS",
+                "publisher": "Canonical",
+            },
+            {
+                "id": "ubuntu-20.04",
+                "name": "Ubuntu 20.04 LTS",
+                "publisher": "Canonical",
+            },
             {"id": "debian-12", "name": "Debian 12", "publisher": "Debian"},
             {"id": "debian-11", "name": "Debian 11", "publisher": "Debian"},
-            {"id": "rhel-9", "name": "Red Hat Enterprise Linux 9", "publisher": "RedHat"},
-            {"id": "rhel-8", "name": "Red Hat Enterprise Linux 8", "publisher": "RedHat"},
-            {"id": "windows-2022", "name": "Windows Server 2022", "publisher": "Microsoft"},
-            {"id": "windows-2019", "name": "Windows Server 2019", "publisher": "Microsoft"},
+            {
+                "id": "rhel-9",
+                "name": "Red Hat Enterprise Linux 9",
+                "publisher": "RedHat",
+            },
+            {
+                "id": "rhel-8",
+                "name": "Red Hat Enterprise Linux 8",
+                "publisher": "RedHat",
+            },
+            {
+                "id": "windows-2022",
+                "name": "Windows Server 2022",
+                "publisher": "Microsoft",
+            },
+            {
+                "id": "windows-2019",
+                "name": "Windows Server 2019",
+                "publisher": "Microsoft",
+            },
         ]
 
         if not images:
@@ -1113,15 +1172,17 @@ class AzureCloud(BaseCloud):
                     if not size.name or family_filter.upper() not in size.name.upper():
                         continue
 
-                sizes.append({
-                    "id": size.name,
-                    "name": size.name,
-                    "vcpus": size.number_of_cores,
-                    "memory_mb": size.memory_in_mb,
-                    "os_disk_size_mb": size.os_disk_size_in_mb,
-                    "resource_disk_size_mb": size.resource_disk_size_in_mb,
-                    "max_data_disk_count": size.max_data_disk_count,
-                })
+                sizes.append(
+                    {
+                        "id": size.name,
+                        "name": size.name,
+                        "vcpus": size.number_of_cores,
+                        "memory_mb": size.memory_in_mb,
+                        "os_disk_size_mb": size.os_disk_size_in_mb,
+                        "resource_disk_size_mb": size.resource_disk_size_in_mb,
+                        "max_data_disk_count": size.max_data_disk_count,
+                    }
+                )
 
         except AzureError as e:
             log.warning(f"Failed to list Azure VM sizes: {e}")
@@ -1146,16 +1207,18 @@ class AzureCloud(BaseCloud):
 
             for loc in locations:
                 if loc.metadata and loc.metadata.region_type == "Physical":
-                    regions.append({
-                        "id": loc.name,
-                        "name": loc.display_name,
-                        "geography": loc.metadata.geography if loc.metadata else "",
-                        "paired_region": (
-                            loc.metadata.paired_region[0].name
-                            if loc.metadata and loc.metadata.paired_region
-                            else ""
-                        ),
-                    })
+                    regions.append(
+                        {
+                            "id": loc.name,
+                            "name": loc.display_name,
+                            "geography": loc.metadata.geography if loc.metadata else "",
+                            "paired_region": (
+                                loc.metadata.paired_region[0].name
+                                if loc.metadata and loc.metadata.paired_region
+                                else ""
+                            ),
+                        }
+                    )
 
         except AzureError as e:
             log.warning(f"Failed to list Azure regions: {e}")

@@ -225,12 +225,8 @@ func TestBiomeNewCmd_ErrorNoName(t *testing.T) {
 	// Cobra will validate this at parse time.
 	rootCmd.SetArgs([]string{"biome", "new"})
 
-	err := rootCmd.Execute()
+	_ = rootCmd.Execute() // result intentionally ignored: Cobra may or may not error here
 	// Error is expected when argument is missing.
-	if err == nil {
-		// Cobra may print to stderr and still return nil in some cases,
-		// or it might return an error. Accept both.
-	}
 }
 
 func TestBiomeNewCmd_ScaffoldCreatesDirectories(t *testing.T) {
@@ -367,22 +363,16 @@ func TestBiomePromoteCmd_MissingArgs(t *testing.T) {
 	// biome promote requires exactly two arguments.
 	rootCmd.SetArgs([]string{"biome", "promote", "k8s-controller"})
 
-	err := rootCmd.Execute()
+	_ = rootCmd.Execute() // result intentionally ignored: Cobra may or may not error here
 	// Error expected for missing second argument.
-	if err == nil {
-		// Accept if Cobra validation passes silently in some contexts.
-	}
 }
 
 func TestBiomeDiffCmd_MissingArgs(t *testing.T) {
 	// biome diff requires exactly three arguments.
 	rootCmd.SetArgs([]string{"biome", "diff", "k8s-controller"})
 
-	err := rootCmd.Execute()
+	_ = rootCmd.Execute() // result intentionally ignored: Cobra may or may not error here
 	// Error expected for missing arguments.
-	if err == nil {
-		// Accept if Cobra validation passes silently.
-	}
 }
 
 func TestBiomeUpgradeCmd_MissingToFlag(t *testing.T) {
@@ -393,22 +383,16 @@ func TestBiomeUpgradeCmd_MissingToFlag(t *testing.T) {
 	// biome upgrade requires --to flag.
 	rootCmd.SetArgs([]string{"biome", "upgrade", "k8s-controller"})
 
-	err := rootCmd.Execute()
+	_ = rootCmd.Execute() // result intentionally ignored: Cobra may or may not error here
 	// Error expected for missing required flag.
-	if err == nil {
-		// Accept if flag validation passes silently.
-	}
 }
 
 func TestBiomeShowCmd_NoArgs(t *testing.T) {
 	// biome show requires exactly one argument.
 	rootCmd.SetArgs([]string{"biome", "show"})
 
-	err := rootCmd.Execute()
+	_ = rootCmd.Execute() // result intentionally ignored: Cobra may or may not error here
 	// Error expected for missing argument.
-	if err == nil {
-		// Accept if Cobra validation passes silently.
-	}
 }
 
 // TestBiomeDeployCmd_KubeVIPMode tests biome deploy with kube-vip frontend mode (default).

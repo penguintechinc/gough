@@ -31,15 +31,16 @@ from ..licensing import feature_enabled
 from ..middleware import auth_required
 from ..models import get_db
 from ..workers.migration_engine import (
-    ClusterState,
-    BiomeSnapshot,
     FLAG_LIVE_MIGRATION,
-    MigrationPlan,
-    MigrationPolicy as PolicyDC,
-    NodeSnapshot,
     POLICY_FIELDS,
+    BiomeSnapshot,
+    ClusterState,
+    MigrationPlan,
+)
+from ..workers.migration_engine import MigrationPolicy as PolicyDC
+from ..workers.migration_engine import (
+    NodeSnapshot,
     SafetyResult,
-    Violation,
     evaluate,
     execute_migration,
     safety_result_to_dict,
@@ -81,23 +82,34 @@ def _scope_required(*required_scopes: str) -> Callable:
             if principal is not None:
                 granted = getattr(principal, "scopes", frozenset())
                 if not required.issubset(granted):
-                    return jsonify({
-                        "error": "Insufficient scope",
-                        "required": sorted(required),
-                    }), 403
+                    return (
+                        jsonify(
+                            {
+                                "error": "Insufficient scope",
+                                "required": sorted(required),
+                            }
+                        ),
+                        403,
+                    )
                 return await fn(*args, **kwargs)
 
             user = getattr(g, "current_user", None)
             if user is not None:
                 from ..security.scope_enforcement import extract_scopes_from_jwt
+
                 granted = extract_scopes_from_jwt(user.get("_jwt_payload") or {})
                 if required.issubset(granted):
                     return await fn(*args, **kwargs)
 
-            return jsonify({
-                "error": "Insufficient scope",
-                "required": sorted(required),
-            }), 403
+            return (
+                jsonify(
+                    {
+                        "error": "Insufficient scope",
+                        "required": sorted(required),
+                    }
+                ),
+                403,
+            )
 
         return wrapper
 
@@ -110,6 +122,7 @@ def _mfa_required(fn: Callable) -> Callable:
     Reads ``g.principal.mfa_verified`` (bool). The pre-OIDC test harness sets
     ``g.mfa_verified`` directly on the request context.
     """
+
     @wraps(fn)
     async def wrapper(*args: Any, **kwargs: Any) -> Any:
         principal = getattr(g, "principal", None)
@@ -119,10 +132,15 @@ def _mfa_required(fn: Callable) -> Callable:
         if not verified:
             verified = bool(getattr(g, "mfa_verified", False))
         if not verified:
-            return jsonify({
-                "error": "MFA required",
-                "code": "mfa_required",
-            }), 403
+            return (
+                jsonify(
+                    {
+                        "error": "MFA required",
+                        "code": "mfa_required",
+                    }
+                ),
+                403,
+            )
         return await fn(*args, **kwargs)
 
     return wrapper
@@ -217,17 +235,20 @@ def _policy_dict_to_dataclass(d: dict) -> PolicyDC:
         min_healthy_nodes=int(d["min_healthy_nodes"]),
         max_concurrent_migrations=int(d["max_concurrent_migrations"]),
         require_target_capacity_headroom_cpu_pct=int(
-            d["require_target_capacity_headroom_cpu_pct"]),
+            d["require_target_capacity_headroom_cpu_pct"]
+        ),
         require_target_capacity_headroom_mem_pct=int(
-            d["require_target_capacity_headroom_mem_pct"]),
+            d["require_target_capacity_headroom_mem_pct"]
+        ),
         require_target_capacity_headroom_disk_pct=int(
-            d["require_target_capacity_headroom_disk_pct"]),
+            d["require_target_capacity_headroom_disk_pct"]
+        ),
         rollback_on_destination_failure=bool(d["rollback_on_destination_failure"]),
         rollback_window_seconds=int(d["rollback_window_seconds"]),
-        forbid_migration_during_partition=bool(
-            d["forbid_migration_during_partition"]),
+        forbid_migration_during_partition=bool(d["forbid_migration_during_partition"]),
         forbid_migration_during_maintenance=bool(
-            d["forbid_migration_during_maintenance"]),
+            d["forbid_migration_during_maintenance"]
+        ),
         waddleai_risk_threshold=float(d["waddleai_risk_threshold"]),
         capacity_forecast_horizon_days=int(d["capacity_forecast_horizon_days"]),
     )
@@ -268,24 +289,24 @@ async def _load_cluster_state(cluster_id: str) -> ClusterState:
                     free = capacity_guard.free_percentages(db.engine, int(row.id))
                     cpu_free, mem_free = free.cpu_free_pct, free.mem_free_pct
                     disk_free, fresh = free.disk_free_pct, free.fresh
-                nodes.append(NodeSnapshot(
-                    node_id=row.id,
-                    state=str(row.state or "unknown"),
-                    cpu_free_pct=cpu_free,
-                    mem_free_pct=mem_free,
-                    disk_free_pct=disk_free,
-                    forecast_cpu_free_pct=cpu_free,
-                    forecast_mem_free_pct=mem_free,
-                    forecast_disk_free_pct=disk_free,
-                    hardware_tags=tags,
-                    composite_load_score=score,
-                    telemetry_fresh=fresh,
-                ))
+                nodes.append(
+                    NodeSnapshot(
+                        node_id=row.id,
+                        state=str(row.state or "unknown"),
+                        cpu_free_pct=cpu_free,
+                        mem_free_pct=mem_free,
+                        disk_free_pct=disk_free,
+                        forecast_cpu_free_pct=cpu_free,
+                        forecast_mem_free_pct=mem_free,
+                        forecast_disk_free_pct=disk_free,
+                        hardware_tags=tags,
+                        composite_load_score=score,
+                        telemetry_fresh=fresh,
+                    )
+                )
         in_flight = 0
         if "migration_events" in getattr(db, "tables", []):
-            in_flight = db(
-                db.migration_events.result == "in_flight"
-            ).count()
+            in_flight = db(db.migration_events.result == "in_flight").count()
         return ClusterState(
             cluster_id=cluster_id,
             nodes=tuple(nodes),
@@ -304,8 +325,9 @@ def _load_biome_snapshot(biome_instance_id: int) -> Optional[BiomeSnapshot]:
     unconditionally before this fix).
     """
     db = get_db()
-    if ("node_egg_assignments" not in getattr(db, "tables", [])
-            or "biomes" not in getattr(db, "tables", [])):
+    if "node_egg_assignments" not in getattr(
+        db, "tables", []
+    ) or "biomes" not in getattr(db, "tables", []):
         return None
     nba = db(db.node_egg_assignments.id == biome_instance_id).select().first()
     if nba is None:
@@ -443,27 +465,36 @@ async def patch_policy():
     """
     body = await request.get_json(silent=True) or {}
     if not isinstance(body, dict):
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "validation_failed",
-                "message": "Request body must be a JSON object",
-            },
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "Request body must be a JSON object",
+                    },
+                }
+            ),
+            422,
+        )
 
-    unknown = [k for k in body.keys() if k not in POLICY_FIELDS]
     field_violations = validate_policy_patch(body)
     if field_violations:
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "validation_failed",
-                "message": "Validation failed",
-                "details": {
-                    "violations": violations_to_dicts(field_violations),
-                },
-            },
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "Validation failed",
+                        "details": {
+                            "violations": violations_to_dicts(field_violations),
+                        },
+                    },
+                }
+            ),
+            422,
+        )
 
     cluster_id = _cluster_id()
 
@@ -483,29 +514,37 @@ async def patch_policy():
 
     db = get_db()
 
-    combo_violations = validate_combination(
-        merged, cluster_size=cluster_size or None
-    )
+    combo_violations = validate_combination(merged, cluster_size=cluster_size or None)
     if combo_violations:
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "validation_failed",
-                "message": "Validation failed",
-                "details": {
-                    "violations": violations_to_dicts(combo_violations),
-                },
-            },
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "validation_failed",
+                        "message": "Validation failed",
+                        "details": {
+                            "violations": violations_to_dicts(combo_violations),
+                        },
+                    },
+                }
+            ),
+            422,
+        )
 
     if "migration_policy" not in getattr(db, "tables", []):
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "schema_unavailable",
-                "message": "migration_policy table not present",
-            },
-        }), 500
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "schema_unavailable",
+                        "message": "migration_policy table not present",
+                    },
+                }
+            ),
+            500,
+        )
 
     now = datetime.now(timezone.utc)
 
@@ -536,7 +575,9 @@ async def patch_policy():
     refreshed = await run_db(_apply_patch)
     log.info(
         "migration_policy patched cluster_id=%s actor=%s fields=%s",
-        cluster_id, _principal_sub(), sorted(body.keys()),
+        cluster_id,
+        _principal_sub(),
+        sorted(body.keys()),
     )
     return jsonify({"status": "success", "data": refreshed}), 200
 
@@ -570,29 +611,44 @@ async def trigger_migration(instance_id: int):
     reason = str(body.get("reason", "")).strip()
 
     if not reason:
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "missing_field",
-                "message": "reason field is required",
-            },
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "missing_field",
+                        "message": "reason field is required",
+                    },
+                }
+            ),
+            422,
+        )
 
     if ignore_lock and "gough.migration.override-lock" not in _principal_scopes():
-        return jsonify({
-            "error": "Insufficient scope",
-            "required": ["gough.migration.override-lock"],
-            "message": "ignore_lock=true requires the override-lock scope",
-        }), 403
+        return (
+            jsonify(
+                {
+                    "error": "Insufficient scope",
+                    "required": ["gough.migration.override-lock"],
+                    "message": "ignore_lock=true requires the override-lock scope",
+                }
+            ),
+            403,
+        )
 
     # Regression: gh-22. Off the event loop via run_db() instead of
     # blocking the request coroutine inline.
     biome = await run_db(lambda: _load_biome_snapshot(instance_id))
     if biome is None:
-        return jsonify({
-            "error": "biome_instance_not_found",
-            "biome_instance_id": instance_id,
-        }), 404
+        return (
+            jsonify(
+                {
+                    "error": "biome_instance_not_found",
+                    "biome_instance_id": instance_id,
+                }
+            ),
+            404,
+        )
 
     cluster_id = _cluster_id()
     cluster_state = await _load_cluster_state(cluster_id)
@@ -615,13 +671,18 @@ async def trigger_migration(instance_id: int):
     )
 
     if synchronous and result.verdict == "rejected":
-        return jsonify({
-            "status": "error",
-            "error": {
-                "code": "safety_check_failed",
-                "message": result.reason,
-            },
-        }), 422
+        return (
+            jsonify(
+                {
+                    "status": "error",
+                    "error": {
+                        "code": "safety_check_failed",
+                        "message": result.reason,
+                    },
+                }
+            ),
+            422,
+        )
 
     # M2 real execution is behind FLAG_LIVE_MIGRATION (default OFF, per
     # critical-rules.md Feature Flags & License Tiers -- see that
@@ -641,9 +702,11 @@ async def trigger_migration(instance_id: int):
         "note": "execution-deferred-to-M2",
     }
 
-    if (not live_migration_enabled
-            or result.verdict == "rejected"
-            or result.chosen_target_node_id is None):
+    if (
+        not live_migration_enabled
+        or result.verdict == "rejected"
+        or result.chosen_target_node_id is None
+    ):
         return jsonify({"status": "success", "data": response_data}), 202
 
     exec_kwargs: dict[str, Any] = {
@@ -692,7 +755,16 @@ async def list_events():
     """
     db = get_db()
     if "migration_events" not in getattr(db, "tables", []):
-        return jsonify({"status": "success", "data": [], "meta": {"total": 0, "limit": 50, "offset": 0}}), 200
+        return (
+            jsonify(
+                {
+                    "status": "success",
+                    "data": [],
+                    "meta": {"total": 0, "limit": 50, "offset": 0},
+                }
+            ),
+            200,
+        )
 
     since_raw = request.args.get("since")
     until_raw = request.args.get("until")
@@ -722,13 +794,18 @@ async def list_events():
             since_ts = datetime.fromisoformat(since_raw.replace("Z", "+00:00"))
             query &= db.migration_events.started_at >= since_ts
         except ValueError:
-            return jsonify({
-                "status": "error",
-                "error": {
-                    "code": "invalid_param",
-                    "message": "Invalid 'since' timestamp",
-                },
-            }), 400
+            return (
+                jsonify(
+                    {
+                        "status": "error",
+                        "error": {
+                            "code": "invalid_param",
+                            "message": "Invalid 'since' timestamp",
+                        },
+                    }
+                ),
+                400,
+            )
 
     if until_raw:
         try:
@@ -742,9 +819,8 @@ async def list_events():
             nid = int(node_id_raw)
         except ValueError:
             return jsonify({"error": "Invalid node_id"}), 400
-        query &= (
-            (db.migration_events.src_node_id == nid)
-            | (db.migration_events.dst_node_id == nid)
+        query &= (db.migration_events.src_node_id == nid) | (
+            db.migration_events.dst_node_id == nid
         )
 
     if biome_id_raw:
@@ -758,7 +834,11 @@ async def list_events():
         if result_raw == "rejected":
             query &= db.migration_events.rejection_reason != None  # noqa: E711
         elif result_raw in {
-            "pass", "executing", "executed", "failed", "rolled_back",
+            "pass",
+            "executing",
+            "executed",
+            "failed",
+            "rolled_back",
             "safety_check",
         }:
             query &= db.migration_events.result == result_raw
@@ -779,15 +859,20 @@ async def list_events():
     total, rows = await run_db(_fetch_page)
     events = [_serialise_event(r) for r in rows]
 
-    return jsonify({
-        "status": "success",
-        "data": events,
-        "meta": {
-            "total": total,
-            "limit": limit,
-            "offset": offset,
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "status": "success",
+                "data": events,
+                "meta": {
+                    "total": total,
+                    "limit": limit,
+                    "offset": offset,
+                },
+            }
+        ),
+        200,
+    )
 
 
 def _serialise_event(row: Any) -> dict:
@@ -803,12 +888,10 @@ def _serialise_event(row: Any) -> dict:
         "rejection_reason": getattr(row, "rejection_reason", None),
         "safety_check": getattr(row, "safety_check_details_json", None),
         "started_at": (
-            row.started_at.isoformat() if getattr(row, "started_at", None)
-            else None
+            row.started_at.isoformat() if getattr(row, "started_at", None) else None
         ),
         "completed_at": (
-            row.completed_at.isoformat() if getattr(row, "completed_at", None)
-            else None
+            row.completed_at.isoformat() if getattr(row, "completed_at", None) else None
         ),
         "duration_seconds": getattr(row, "duration_seconds", None),
     }
@@ -837,10 +920,15 @@ async def get_safety_envelope():
         return policy, last_results
 
     policy, last_results = await run_db(_load_envelope)
-    return jsonify({
-        "status": "success",
-        "data": {
-            "policy": policy,
-            "recent_checks": last_results,
-        },
-    }), 200
+    return (
+        jsonify(
+            {
+                "status": "success",
+                "data": {
+                    "policy": policy,
+                    "recent_checks": last_results,
+                },
+            }
+        ),
+        200,
+    )

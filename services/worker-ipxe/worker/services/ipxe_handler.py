@@ -6,14 +6,17 @@ Queries api-manager for machine state and generates appropriate boot scripts.
 
 import re
 
-import structlog
 import httpx
+import structlog
 from prometheus_client import Counter
-
-from worker.boot_tokens import DISCOVERY_TOKEN_TTL_SECONDS, BootTokenStore, TokenCapError
-from worker.observations import ObservedClients
+from worker.boot_tokens import (
+    DISCOVERY_TOKEN_TTL_SECONDS,
+    BootTokenStore,
+    TokenCapError,
+)
 from worker.config import WorkerConfig
 from worker.enrollment import EnrollmentManager
+from worker.observations import ObservedClients
 
 logger = structlog.get_logger()
 
@@ -115,7 +118,9 @@ class IPXEHandler:
                         status=data.get("status"),
                     )
 
-                    return await self._embed_boot_token(script, mac_normalized, source_ip, discovery=False)
+                    return await self._embed_boot_token(
+                        script, mac_normalized, source_ip, discovery=False
+                    )
 
                 elif response.status_code == 404:
                     # Unknown machine - return discovery script
@@ -197,7 +202,9 @@ shell
         Returns YAML metadata for cloud-init datasource.
         """
         if not _MACHINE_ID_RE.fullmatch(machine_id):
-            logger.warning("cloud_init_invalid_machine_id", machine_id_length=len(machine_id))
+            logger.warning(
+                "cloud_init_invalid_machine_id", machine_id_length=len(machine_id)
+            )
             return _CLOUD_INIT_META_FALLBACK
         api_url = f"{self.config.api_manager_url}/api/v1/internal/cloud-init/{machine_id}/meta-data"
         headers = self.enrollment.get_auth_headers()
@@ -217,7 +224,9 @@ shell
                     return _CLOUD_INIT_META_FALLBACK
 
         except Exception as e:
-            logger.error("cloud_init_metadata_error", machine_id=machine_id, error=str(e))
+            logger.error(
+                "cloud_init_metadata_error", machine_id=machine_id, error=str(e)
+            )
             return _CLOUD_INIT_META_FALLBACK
 
     async def get_cloud_init_userdata(self, machine_id: str) -> str:
@@ -227,7 +236,9 @@ shell
         Returns merged cloud-init YAML with all biomes applied.
         """
         if not _MACHINE_ID_RE.fullmatch(machine_id):
-            logger.warning("cloud_init_invalid_machine_id", machine_id_length=len(machine_id))
+            logger.warning(
+                "cloud_init_invalid_machine_id", machine_id_length=len(machine_id)
+            )
             return _CLOUD_INIT_USERDATA_FALLBACK
         api_url = f"{self.config.api_manager_url}/api/v1/internal/cloud-init/{machine_id}/user-data"
         headers = self.enrollment.get_auth_headers()
@@ -247,5 +258,7 @@ shell
                     return _CLOUD_INIT_USERDATA_FALLBACK
 
         except Exception as e:
-            logger.error("cloud_init_userdata_error", machine_id=machine_id, error=str(e))
+            logger.error(
+                "cloud_init_userdata_error", machine_id=machine_id, error=str(e)
+            )
             return _CLOUD_INIT_USERDATA_FALLBACK

@@ -8,8 +8,7 @@ from __future__ import annotations
 import importlib
 from datetime import datetime, timezone
 from types import SimpleNamespace
-from typing import Any
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -47,6 +46,7 @@ def mock_db():
 @pytest.fixture()
 def teams_app(monkeypatch, mock_db):
     """Create a minimal Quart app with teams blueprint registered."""
+
     # Patch decorators to passthroughs
     def _passthrough(*dargs, **dkwargs):
         if len(dargs) == 1 and callable(dargs[0]) and not dkwargs:
@@ -62,15 +62,16 @@ def teams_app(monkeypatch, mock_db):
 
     # Reload teams module with patched decorators
     import app.api.teams as teams_mod
+
     teams_mod = importlib.reload(teams_mod)
 
     # Patch get_db and middleware functions
     monkeypatch.setattr(teams_mod, "get_db", lambda: mock_db)
-    monkeypatch.setattr(teams_mod, "get_current_user", lambda: {
-        "id": 1,
-        "email": "admin@test.com",
-        "role": "admin"
-    })
+    monkeypatch.setattr(
+        teams_mod,
+        "get_current_user",
+        lambda: {"id": 1, "email": "admin@test.com", "role": "admin"},
+    )
     monkeypatch.setattr(teams_mod, "user_has_role", lambda role: role == "admin")
 
     # Create Quart app
@@ -83,11 +84,7 @@ def teams_app(monkeypatch, mock_db):
 
     @app.before_request
     async def _inject_identity():
-        g.current_user = {
-            "id": 1,
-            "email": "admin@test.com",
-            "role": "admin"
-        }
+        g.current_user = {"id": 1, "email": "admin@test.com", "role": "admin"}
         g.tenant_context = SimpleNamespace(tenant_id="default")
 
     return app, teams_mod
@@ -105,7 +102,9 @@ async def test_create_team_success(teams_app):
     mock_db = teams_mod.get_db()
 
     # Setup mock DB responses
-    mock_db.return_value.select.return_value.first.return_value = None  # no existing team
+    mock_db.return_value.select.return_value.first.return_value = (
+        None  # no existing team
+    )
     mock_db.resource_teams.insert.return_value = 1  # new team_id
     team_obj = MagicMock()
     team_obj.id = 1
@@ -122,8 +121,8 @@ async def test_create_team_success(teams_app):
         json={
             "name": "Test Team",
             "description": "A test team",
-            "metadata": {"key": "value"}
-        }
+            "metadata": {"key": "value"},
+        },
     )
 
     assert response.status_code == 201
@@ -153,8 +152,7 @@ async def test_create_team_no_name(teams_app):
 
     client = app.test_client()
     response = await client.post(
-        "/api/v1/teams/",
-        json={"description": "No name provided"}
+        "/api/v1/teams/", json={"description": "No name provided"}
     )
 
     assert response.status_code == 400
@@ -168,10 +166,7 @@ async def test_create_team_empty_name(teams_app):
     app, _ = teams_app
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/",
-        json={"name": "   "}
-    )
+    response = await client.post("/api/v1/teams/", json={"name": "   "})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -184,10 +179,7 @@ async def test_create_team_name_too_long(teams_app):
     app, _ = teams_app
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/",
-        json={"name": "x" * 256}
-    )
+    response = await client.post("/api/v1/teams/", json={"name": "x" * 256})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -209,10 +201,7 @@ async def test_create_team_duplicate_name(teams_app):
     mock_db.return_value = db_query
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/",
-        json={"name": "Duplicate Team"}
-    )
+    response = await client.post("/api/v1/teams/", json={"name": "Duplicate Team"})
 
     assert response.status_code == 409
     data = await response.get_json()
@@ -232,10 +221,7 @@ async def test_create_team_db_error(teams_app):
     mock_db.resource_teams.insert.side_effect = Exception("DB error")
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/",
-        json={"name": "Test Team"}
-    )
+    response = await client.post("/api/v1/teams/", json={"name": "Test Team"})
 
     assert response.status_code == 500
     data = await response.get_json()
@@ -262,7 +248,7 @@ async def test_list_user_teams_success(teams_app):
                 "description": "First team",
                 "created_by": 1,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
         },
         {
@@ -272,9 +258,9 @@ async def test_list_user_teams_success(teams_app):
                 "description": "Second team",
                 "created_by": 2,
                 "is_active": True,
-                "created_at": datetime.now(timezone.utc)
+                "created_at": datetime.now(timezone.utc),
             }
-        }
+        },
     ]
 
     db_query = MagicMock()
@@ -416,7 +402,7 @@ async def test_update_team_success(teams_app):
     client = app.test_client()
     response = await client.patch(
         "/api/v1/teams/1",
-        json={"name": "Updated Team", "description": "Updated description"}
+        json={"name": "Updated Team", "description": "Updated description"},
     )
 
     assert response.status_code == 200
@@ -433,10 +419,7 @@ async def test_update_team_not_found(teams_app):
     mock_db.resource_teams.return_value = None
 
     client = app.test_client()
-    response = await client.patch(
-        "/api/v1/teams/999",
-        json={"name": "New Name"}
-    )
+    response = await client.patch("/api/v1/teams/999", json={"name": "New Name"})
 
     assert response.status_code == 404
 
@@ -468,10 +451,7 @@ async def test_update_team_empty_name(teams_app):
     mock_db.resource_teams.return_value = team
 
     client = app.test_client()
-    response = await client.patch(
-        "/api/v1/teams/1",
-        json={"name": "   "}
-    )
+    response = await client.patch("/api/v1/teams/1", json={"name": "   "})
 
     assert response.status_code == 400
 
@@ -487,10 +467,7 @@ async def test_update_team_name_too_long(teams_app):
     mock_db.resource_teams.return_value = team
 
     client = app.test_client()
-    response = await client.patch(
-        "/api/v1/teams/1",
-        json={"name": "x" * 256}
-    )
+    response = await client.patch("/api/v1/teams/1", json={"name": "x" * 256})
 
     assert response.status_code == 400
 
@@ -515,10 +492,7 @@ async def test_update_team_duplicate_name(teams_app):
     mock_db.return_value = db_query
 
     client = app.test_client()
-    response = await client.patch(
-        "/api/v1/teams/1",
-        json={"name": "Duplicate"}
-    )
+    response = await client.patch("/api/v1/teams/1", json={"name": "Duplicate"})
 
     assert response.status_code == 409
 
@@ -604,8 +578,7 @@ async def test_add_member_success(teams_app):
 
     client = app.test_client()
     response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 2, "role": "member"}
+        "/api/v1/teams/1/members", json={"user_id": 2, "role": "member"}
     )
 
     assert response.status_code == 201
@@ -623,10 +596,7 @@ async def test_add_member_team_not_found(teams_app):
     mock_db.resource_teams.return_value = None
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/999/members",
-        json={"user_id": 2}
-    )
+    response = await client.post("/api/v1/teams/999/members", json={"user_id": 2})
 
     assert response.status_code == 404
 
@@ -658,10 +628,7 @@ async def test_add_member_no_user_id(teams_app):
     mock_db.resource_teams.return_value = team
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"role": "member"}
-    )
+    response = await client.post("/api/v1/teams/1/members", json={"role": "member"})
 
     assert response.status_code == 400
     data = await response.get_json()
@@ -681,10 +648,7 @@ async def test_add_member_user_not_found(teams_app):
     mock_db.auth_user.return_value = None
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 999}
-    )
+    response = await client.post("/api/v1/teams/1/members", json={"user_id": 999})
 
     assert response.status_code == 404
     data = await response.get_json()
@@ -712,10 +676,7 @@ async def test_add_member_already_member(teams_app):
     mock_db.return_value = member_query
 
     client = app.test_client()
-    response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 2}
-    )
+    response = await client.post("/api/v1/teams/1/members", json={"user_id": 2})
 
     assert response.status_code == 409
     data = await response.get_json()
@@ -743,8 +704,7 @@ async def test_add_member_invalid_role(teams_app):
 
     client = app.test_client()
     response = await client.post(
-        "/api/v1/teams/1/members",
-        json={"user_id": 2, "role": "invalid_role"}
+        "/api/v1/teams/1/members", json={"user_id": 2, "role": "invalid_role"}
     )
 
     assert response.status_code == 400
@@ -780,7 +740,7 @@ async def test_list_members_success(teams_app):
             "role": "owner",
             "added_by": 1,
             "added_at": datetime.now(timezone.utc),
-            "expires_at": None
+            "expires_at": None,
         },
         {
             "id": 2,
@@ -788,8 +748,8 @@ async def test_list_members_success(teams_app):
             "role": "member",
             "added_by": 1,
             "added_at": datetime.now(timezone.utc),
-            "expires_at": None
-        }
+            "expires_at": None,
+        },
     ]
 
     # Mock user is a member
@@ -943,8 +903,8 @@ async def test_assign_resource_success(teams_app):
         json={
             "resource_type": "cloud",
             "resource_id": "res-123",
-            "permissions": ["read", "write"]
-        }
+            "permissions": ["read", "write"],
+        },
     )
 
     assert response.status_code == 201
@@ -965,7 +925,7 @@ async def test_assign_resource_no_resource_type(teams_app):
     client = app.test_client()
     response = await client.post(
         "/api/v1/teams/1/resources",
-        json={"resource_id": "res-123", "permissions": ["read"]}
+        json={"resource_id": "res-123", "permissions": ["read"]},
     )
 
     assert response.status_code == 400
@@ -994,7 +954,7 @@ async def test_list_resources_success(teams_app):
             "resource_id": "res-123",
             "permissions": '["read"]',
             "assigned_by": 1,
-            "assigned_at": datetime.now(timezone.utc)
+            "assigned_at": datetime.now(timezone.utc),
         }
     ]
 

@@ -74,19 +74,40 @@ def _seed_fresh_snapshot(dal_db: Any, node_id: int) -> None:
     body = {
         "schema": "gough.host_resources.v1",
         "collected_at": now.isoformat(),
-        "cpu": {"logical_cores": 16, "usage_pct": 10.0, "load1": 1.0, "load5": 1.0, "load15": 1.0},
-        "memory": {"total_bytes": 64 * gib, "available_bytes": 40 * gib,
-                   "swap_total_bytes": 0, "swap_used_bytes": 0},
+        "cpu": {
+            "logical_cores": 16,
+            "usage_pct": 10.0,
+            "load1": 1.0,
+            "load5": 1.0,
+            "load15": 1.0,
+        },
+        "memory": {
+            "total_bytes": 64 * gib,
+            "available_bytes": 40 * gib,
+            "swap_total_bytes": 0,
+            "swap_used_bytes": 0,
+        },
         "pressure": {
             "cpu": {"some_avg10": 1.0, "some_avg60": 1.0},
             "memory": {"some_avg10": 0.0, "some_avg60": 1.0, "full_avg60": 0.0},
             "io": {"some_avg60": 0.0, "full_avg60": 0.5},
         },
-        "storage_pools": [{"name": "default", "driver": "zfs",
-                           "total_bytes": 1000 * gib, "used_bytes": 100 * gib}],
+        "storage_pools": [
+            {
+                "name": "default",
+                "driver": "zfs",
+                "total_bytes": 1000 * gib,
+                "used_bytes": 100 * gib,
+            }
+        ],
         "host_root_fs": {"total_bytes": 100 * gib, "free_bytes": 60 * gib},
-        "committed": {"cpu_cores": 0.0, "memory_bytes": 0, "disk_bytes": {"default": 0},
-                      "instances": 0, "instances_without_limits": 0},
+        "committed": {
+            "cpu_cores": 0.0,
+            "memory_bytes": 0,
+            "disk_bytes": {"default": 0},
+            "instances": 0,
+            "instances_without_limits": 0,
+        },
         "errors": [],
     }
     snap = capacity_guard.parse_snapshot(body)
@@ -101,7 +122,9 @@ def _seed_biome(dal_db: Any, **overrides: Any) -> int:
     return int(dal_db.biomes.insert(**base))
 
 
-def _seed_assignment(dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any) -> int:
+def _seed_assignment(
+    dal_db: Any, *, node_id: int, egg_id: int, **overrides: Any
+) -> int:
     now = datetime.now(timezone.utc)
     base: dict[str, Any] = dict(
         node_id=node_id,
@@ -168,7 +191,9 @@ class TestMigrationTriggerRealTable:
         app = Quart(__name__)
         app.config["TESTING"] = True
         app.config["CLUSTER_ID"] = "test-cluster"
-        app.register_blueprint(migration_mod.migration_bp, url_prefix="/api/v1/migration")
+        app.register_blueprint(
+            migration_mod.migration_bp, url_prefix="/api/v1/migration"
+        )
 
         @app.before_request
         async def _inject_context() -> None:

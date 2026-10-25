@@ -26,8 +26,6 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from penguin_dal import Row, Rows
-
 from app.workers.plan_compiler import (
     CompiledPlan,
     DiskPlanInput,
@@ -36,8 +34,8 @@ from app.workers.plan_compiler import (
     PlanCompilationError,
     PlanCompiler,
     PlanRequest,
-    PlanValidationError,
-    _find_cycle,
+    _EggNode,
+    _merge_cloud_init_with_errors,
     _node_satisfies_tag,
     _node_tag_set_satisfies,
     _parse_numeric_tag,
@@ -46,9 +44,8 @@ from app.workers.plan_compiler import (
     _satisfies_version_range,
     _seal_luks_key,
     _topo_sort,
-    _EggNode,
-    _merge_cloud_init_with_errors,
 )
+from penguin_dal import Row, Rows
 
 # ---------------------------------------------------------------------------
 # Fixture loader helpers
@@ -92,10 +89,14 @@ class _FakePredicate:
         return bool(self._fn(row))
 
     def __and__(self, other: "_FakePredicate") -> "_FakePredicate":
-        return _FakePredicate(self._rows, lambda row: self.matches(row) and other.matches(row))
+        return _FakePredicate(
+            self._rows, lambda row: self.matches(row) and other.matches(row)
+        )
 
     def __or__(self, other: "_FakePredicate") -> "_FakePredicate":
-        return _FakePredicate(self._rows, lambda row: self.matches(row) or other.matches(row))
+        return _FakePredicate(
+            self._rows, lambda row: self.matches(row) or other.matches(row)
+        )
 
 
 class _FakeField:
@@ -137,10 +138,12 @@ class _FakeQuerySet:
     def select(
         self, *columns: Any, orderby: Any = None, limitby: tuple[int, int] | None = None
     ) -> Rows:
-        matched = [Row(dict(r)) for r in self._predicate._rows if self._predicate.matches(r)]
+        matched = [
+            Row(dict(r)) for r in self._predicate._rows if self._predicate.matches(r)
+        ]
         if limitby is not None:
             offset, limit = limitby
-            matched = matched[offset:offset + limit]
+            matched = matched[offset : offset + limit]
         return Rows(matched)
 
 
@@ -183,7 +186,9 @@ def _make_db_session(fixture: dict[str, Any]) -> _FakeDal:
     ``nodes`` fallbacks and defaults), but returns a ``_FakeDal`` that
     speaks the query-builder interface ``plan_compiler.py`` now uses.
     """
-    biomes: dict[int, dict[str, Any]] = {e["id"]: e for e in fixture.get("biomes", fixture.get("eggs", []))}
+    biomes: dict[int, dict[str, Any]] = {
+        e["id"]: e for e in fixture.get("biomes", fixture.get("eggs", []))
+    }
     joiner_secrets: list[dict[str, Any]] = fixture.get("joiner_secrets", [])
     node_data: dict[str, Any] = fixture.get("node", fixture.get("nodes", [{}])[0])
 
@@ -228,13 +233,17 @@ def _make_lxd_client(cluster_id: str = "default") -> MagicMock:
     lxd = MagicMock()
     token = MagicMock()
     token.token = base64.b64encode(
-        json.dumps({
-            "server_name": "join-abcd1234",
-            "fingerprint": "aa" * 32,
-            "addresses": ["192.168.1.1:8443"],
-            "secret": "testsecret",
-            "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
-        }).encode()
+        json.dumps(
+            {
+                "server_name": "join-abcd1234",
+                "fingerprint": "aa" * 32,
+                "addresses": ["192.168.1.1:8443"],
+                "secret": "testsecret",
+                "expires_at": (
+                    datetime.now(timezone.utc) + timedelta(hours=1)
+                ).isoformat(),
+            }
+        ).encode()
     ).decode()
     lxd.mint_join_token.return_value = token
     return lxd
@@ -423,8 +432,20 @@ class TestTopoSort:
 class TestCloudInitMerge:
     def test_no_collision(self) -> None:
         biomes = [
-            {"name": "A", "cloud_init": {"write_files": [{"path": "/a.txt", "content": "a"}], "runcmd": ["cmd-a"]}},
-            {"name": "B", "cloud_init": {"write_files": [{"path": "/b.txt", "content": "b"}], "runcmd": ["cmd-b"]}},
+            {
+                "name": "A",
+                "cloud_init": {
+                    "write_files": [{"path": "/a.txt", "content": "a"}],
+                    "runcmd": ["cmd-a"],
+                },
+            },
+            {
+                "name": "B",
+                "cloud_init": {
+                    "write_files": [{"path": "/b.txt", "content": "b"}],
+                    "runcmd": ["cmd-b"],
+                },
+            },
         ]
         b64, warnings, errors = _merge_cloud_init_with_errors(biomes)
         assert errors == []
@@ -435,8 +456,18 @@ class TestCloudInitMerge:
 
     def test_write_files_collision(self) -> None:
         biomes = [
-            {"name": "A", "cloud_init": {"write_files": [{"path": "/shared.conf", "content": "a"}]}},
-            {"name": "B", "cloud_init": {"write_files": [{"path": "/shared.conf", "content": "b"}]}},
+            {
+                "name": "A",
+                "cloud_init": {
+                    "write_files": [{"path": "/shared.conf", "content": "a"}]
+                },
+            },
+            {
+                "name": "B",
+                "cloud_init": {
+                    "write_files": [{"path": "/shared.conf", "content": "b"}]
+                },
+            },
         ]
         _, _, errors = _merge_cloud_init_with_errors(biomes)
         assert len(errors) == 1
@@ -491,7 +522,9 @@ class TestLuksSealing:
         assert prov["tier"] == "tpm2"
         assert "clevis_config" in prov
 
-    def test_cloud_kms_tier_without_config_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_cloud_kms_tier_without_config_raises(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Cloud-KMS tier is a recognised dispatch entry but fails closed
 
         without GOUGH_CLOUD_KMS_PROVIDER/GOUGH_CLOUD_KMS_KEY_ID configured
@@ -555,10 +588,16 @@ class TestJoinerSecretOptionalSoftDep:
 
         # Build egg_node with soft joiner secret consume
         egg_node = _EggNode(
-            egg_id=1, egg_name="optional-consumer", phase="post_deploy",
+            egg_id=1,
+            egg_name="optional-consumer",
+            phase="post_deploy",
             consumes_joiner_secrets_from=[
-                {"egg_kind": "k8s-controller", "extractor_name": "some_token",
-                 "scope": "cluster", "mode": "soft"}
+                {
+                    "egg_kind": "k8s-controller",
+                    "extractor_name": "some_token",
+                    "scope": "cluster",
+                    "mode": "soft",
+                }
             ],
         )
 
@@ -577,13 +616,17 @@ class TestVersionConstraintNoVersionField:
     def test_no_version_skips_check(self) -> None:
         nodes = {
             1: _EggNode(
-                egg_id=1, egg_name="consumer", phase="post_deploy",
+                egg_id=1,
+                egg_name="consumer",
+                phase="post_deploy",
                 deps=[2],
                 version_constraints=[{"egg_id": 2, "version_min": "1.0"}],
                 raw={"id": 1, "name": "consumer", "version": ""},
             ),
             2: _EggNode(
-                egg_id=2, egg_name="provider", phase="post_deploy",
+                egg_id=2,
+                egg_name="provider",
+                phase="post_deploy",
                 raw={"id": 2, "name": "provider"},
                 # No version field at all → raw.get("version", "") = ""
             ),
@@ -601,7 +644,8 @@ class TestEmptyPlanRequest:
     """Plan with no biome assignments."""
 
     def test_empty_assignments_load(self) -> None:
-        from app.workers.plan_compiler import PlanRequest as PR, EggAssignmentRef as EAR
+        from app.workers.plan_compiler import PlanRequest as PR
+
         plan_req = PR(egg_assignments=[], cluster_id="test")
 
         session = MagicMock()
@@ -651,15 +695,22 @@ class TestHashNodeTags:
     """Cover node tag parsing for string JSON and dict forms."""
 
     def test_node_hardware_tags_as_json_string(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
         import json
 
+        from app.workers.plan_compiler import PlanCompiler as PC
+
         egg_nodes = {
-            1: _EggNode(egg_id=1, egg_name="test", phase="post_deploy",
-                        requires_hardware_tags=["gpu:nvidia"], forbids_hardware_tags=[])
+            1: _EggNode(
+                egg_id=1,
+                egg_name="test",
+                phase="post_deploy",
+                requires_hardware_tags=["gpu:nvidia"],
+                forbids_hardware_tags=[],
+            )
         }
 
         from collections import namedtuple
+
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         # Tags as JSON string
         node = NodeRow(id=1, hardware_tags=json.dumps(["gpu:nvidia"]), hardware_json={})
@@ -673,11 +724,17 @@ class TestHashNodeTags:
         from app.workers.plan_compiler import PlanCompiler as PC
 
         egg_nodes = {
-            1: _EggNode(egg_id=1, egg_name="test", phase="post_deploy",
-                        requires_hardware_tags=["gpu:nvidia"], forbids_hardware_tags=[])
+            1: _EggNode(
+                egg_id=1,
+                egg_name="test",
+                phase="post_deploy",
+                requires_hardware_tags=["gpu:nvidia"],
+                forbids_hardware_tags=[],
+            )
         }
 
         from collections import namedtuple
+
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(id=1, hardware_tags={"gpu:nvidia": True}, hardware_json={})
 
@@ -697,7 +754,10 @@ class TestPlanCompilerValidate:
         plan_req = _build_plan_request(fixture)
 
         from collections import namedtuple
-        NodeRow = namedtuple("NodeRow", ["id", "name", "hardware_tags", "hardware_json"])
+
+        NodeRow = namedtuple(
+            "NodeRow", ["id", "name", "hardware_tags", "hardware_json"]
+        )
         node = NodeRow(
             id=node_data["id"],
             name=node_data["name"],
@@ -716,7 +776,10 @@ class TestPlanCompilerValidate:
         plan_req = _build_plan_request(fixture)
 
         from collections import namedtuple
-        NodeRow = namedtuple("NodeRow", ["id", "name", "hardware_tags", "hardware_json"])
+
+        NodeRow = namedtuple(
+            "NodeRow", ["id", "name", "hardware_tags", "hardware_json"]
+        )
         node = NodeRow(
             id=node_data["id"],
             name=node_data["name"],
@@ -741,7 +804,11 @@ class TestSingleNodeK8sPrimary:
         assert result.plan_id != ""
         assert result.lxd_join_token != ""
         assert result.cloud_init_bundle != ""
-        assert b"vault:v1" in result.luks_key_sealed or b"vault:v1".decode() in result.luks_key_sealed.decode("utf-8", errors="replace")
+        assert (
+            b"vault:v1" in result.luks_key_sealed
+            or b"vault:v1".decode()
+            in result.luks_key_sealed.decode("utf-8", errors="replace")
+        )
         assert result.luks_key_provenance["tier"] == "dev"
         assert "plan_id" in result.phase2_ipxe_script
 
@@ -815,7 +882,9 @@ class TestCycleTwoEgg:
         codes = [e.code for e in exc_info.value.errors]
         assert "egg_dependency_cycle" in codes
 
-        cycle_error = next(e for e in exc_info.value.errors if e.code == "egg_dependency_cycle")
+        cycle_error = next(
+            e for e in exc_info.value.errors if e.code == "egg_dependency_cycle"
+        )
         cycle_names = cycle_error.details.get("cycle", [])
         assert "biome-A" in cycle_names
         assert "biome-B" in cycle_names
@@ -860,7 +929,9 @@ class TestCycleDeep15:
         codes = [e.code for e in exc_info.value.errors]
         assert "egg_dependency_cycle" in codes
 
-        cycle_error = next(e for e in exc_info.value.errors if e.code == "egg_dependency_cycle")
+        cycle_error = next(
+            e for e in exc_info.value.errors if e.code == "egg_dependency_cycle"
+        )
         cycle_path = cycle_error.details.get("cycle", [])
         # Max 20 nodes printed (+ 1 closing = 21 max)
         assert len(cycle_path) <= 21
@@ -917,7 +988,9 @@ class TestTagUnsatisfiable:
         tag_err = next(
             e for e in exc_info.value.errors if e.code == "tag_constraint_unsatisfiable"
         )
-        assert "lifecycle:playground" in tag_err.details.get("forbidden_tags_present", [])
+        assert "lifecycle:playground" in tag_err.details.get(
+            "forbidden_tags_present", []
+        )
         missing = tag_err.details.get("missing_tags", [])
         assert any("gpu:nvidia" in m for m in missing)
 
@@ -1027,9 +1100,14 @@ class TestVersionRangeUnsatisfied:
 class TestVRAMScheduling:
     """Tests for GPU/VRAM constraint enforcement."""
 
-    def _make_gpu_node(self, vram_gb: int, bus_type: str = "pcie", free_ram_mb: int = 0) -> Any:
+    def _make_gpu_node(
+        self, vram_gb: int, bus_type: str = "pcie", free_ram_mb: int = 0
+    ) -> Any:
         from collections import namedtuple
-        NodeRow = namedtuple("NodeRow", ["id", "name", "hardware_tags", "hardware_json"])
+
+        NodeRow = namedtuple(
+            "NodeRow", ["id", "name", "hardware_tags", "hardware_json"]
+        )
         return NodeRow(
             id=999,
             name="gpu-node",
@@ -1053,11 +1131,16 @@ class TestVRAMScheduling:
 
     def test_vram_floor_satisfied(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(48)
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie", "vendor": "nvidia",
-            "vram_per_device_min_gb": 48, "total_vram_min_gb": 48,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vendor": "nvidia",
+            "vram_per_device_min_gb": 48,
+            "total_vram_min_gb": 48,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "ollama", needs_gpu)
@@ -1065,11 +1148,16 @@ class TestVRAMScheduling:
 
     def test_vram_floor_not_satisfied(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(8)  # only 8 GB, needs 48
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie", "vendor": "nvidia",
-            "vram_per_device_min_gb": 48, "total_vram_min_gb": 48,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vendor": "nvidia",
+            "vram_per_device_min_gb": 48,
+            "total_vram_min_gb": 48,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "ollama", needs_gpu)
@@ -1078,11 +1166,15 @@ class TestVRAMScheduling:
 
     def test_integrated_gpu_disqualified_by_default(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(0, bus_type="integrated", free_ram_mb=65536)
         needs_gpu = {
-            "kind": "gpu", "bus_type": "any",
-            "vram_per_device_min_gb": 8, "total_vram_min_gb": 8,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "any",
+            "vram_per_device_min_gb": 8,
+            "total_vram_min_gb": 8,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "test-biome", needs_gpu)
@@ -1090,12 +1182,16 @@ class TestVRAMScheduling:
 
     def test_integrated_gpu_allowed_with_enough_free_ram(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         # free_ram_mb=32768 = 32 GB, needs 8+2(buffer)=10 GB → satisfied
         node = self._make_gpu_node(0, bus_type="integrated", free_ram_mb=32768)
         needs_gpu = {
-            "kind": "gpu", "bus_type": "any",
-            "vram_per_device_min_gb": 8, "total_vram_min_gb": 0,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "any",
+            "vram_per_device_min_gb": 8,
+            "total_vram_min_gb": 0,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": True,
         }
         errors = _check_vram_requirements(
@@ -1109,11 +1205,15 @@ class TestVRAMScheduling:
     ) -> None:
         """No snapshot (None) or too little MemAvailable refuses; hardware_json is ignored."""
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(0, bus_type="integrated", free_ram_mb=65536)
         needs_gpu = {
-            "kind": "gpu", "bus_type": "any",
-            "vram_per_device_min_gb": 8, "total_vram_min_gb": 0,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "any",
+            "vram_per_device_min_gb": 8,
+            "total_vram_min_gb": 0,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": True,
         }
         errors = _check_vram_requirements(
@@ -1123,12 +1223,16 @@ class TestVRAMScheduling:
 
     def test_aggregate_vram_floor_fails(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(24)  # 24 GB, aggregate needs 48
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie", "vendor": "nvidia",
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vendor": "nvidia",
             "vram_per_device_min_gb": 24,
             "total_vram_min_gb": 48,  # aggregate fails — only 1 card
-            "device_count_min": 1, "device_count_max": 4,
+            "device_count_min": 1,
+            "device_count_max": 4,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "llm-biome", needs_gpu)
@@ -1136,11 +1240,15 @@ class TestVRAMScheduling:
 
     def test_external_gpu_disqualified_by_default(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(8, bus_type="external")
         needs_gpu = {
-            "kind": "gpu", "bus_type": "any",
-            "vram_per_device_min_gb": 8, "total_vram_min_gb": 8,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "any",
+            "vram_per_device_min_gb": 8,
+            "total_vram_min_gb": 8,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "test", needs_gpu)
@@ -1148,11 +1256,16 @@ class TestVRAMScheduling:
 
     def test_vendor_mismatch_no_eligible(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(48)  # nvidia
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie", "vendor": "amd",  # wants AMD
-            "vram_per_device_min_gb": 40, "total_vram_min_gb": 40,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vendor": "amd",  # wants AMD
+            "vram_per_device_min_gb": 40,
+            "total_vram_min_gb": 40,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "amd-biome", needs_gpu)
@@ -1160,26 +1273,40 @@ class TestVRAMScheduling:
 
     def test_compute_capability_mismatch(self) -> None:
         from app.workers.plan_compiler import _check_vram_requirements
+
         node = self._make_gpu_node(48)  # sm-89
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie", "vendor": "nvidia",
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vendor": "nvidia",
             "min_compute_capability": "sm-90",  # needs sm-90, node has sm-89
-            "vram_per_device_min_gb": 48, "total_vram_min_gb": 48,
-            "device_count_min": 1, "device_count_max": 1,
+            "vram_per_device_min_gb": 48,
+            "total_vram_min_gb": 48,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "h100-biome", needs_gpu)
         assert any(e.code == "no_eligible_node" for e in errors)
 
     def test_no_accelerators_on_node(self) -> None:
-        from app.workers.plan_compiler import _check_vram_requirements
         from collections import namedtuple
-        NodeRow = namedtuple("NodeRow", ["id", "name", "hardware_tags", "hardware_json"])
-        node = NodeRow(id=5, name="bare", hardware_tags=[], hardware_json={"accelerators": []})
+
+        from app.workers.plan_compiler import _check_vram_requirements
+
+        NodeRow = namedtuple(
+            "NodeRow", ["id", "name", "hardware_tags", "hardware_json"]
+        )
+        node = NodeRow(
+            id=5, name="bare", hardware_tags=[], hardware_json={"accelerators": []}
+        )
         needs_gpu = {
-            "kind": "gpu", "bus_type": "pcie",
-            "vram_per_device_min_gb": 8, "total_vram_min_gb": 8,
-            "device_count_min": 1, "device_count_max": 1,
+            "kind": "gpu",
+            "bus_type": "pcie",
+            "vram_per_device_min_gb": 8,
+            "total_vram_min_gb": 8,
+            "device_count_min": 1,
+            "device_count_max": 1,
             "shared_memory_acceptable": False,
         }
         errors = _check_vram_requirements(node, 1, "gpu-biome", needs_gpu)
@@ -1302,7 +1429,9 @@ def test_benchmark_50egg(benchmark: Any) -> None:
         sorted_times = sorted(result_times)
         p95_idx = max(0, int(len(sorted_times) * 0.95) - 1)
         p95_ms = sorted_times[p95_idx] * 1000
-        assert p95_ms < 1000, f"50-biome plan p95={p95_ms:.1f}ms exceeds 1000ms threshold"
+        assert (
+            p95_ms < 1000
+        ), f"50-biome plan p95={p95_ms:.1f}ms exceeds 1000ms threshold"
 
 
 def test_benchmark_250egg(benchmark: Any) -> None:
@@ -1320,7 +1449,9 @@ def test_benchmark_250egg(benchmark: Any) -> None:
         sorted_times = sorted(result_times)
         p95_idx = max(0, int(len(sorted_times) * 0.95) - 1)
         p95_ms = sorted_times[p95_idx] * 1000
-        assert p95_ms < 5000, f"250-biome plan p95={p95_ms:.1f}ms exceeds 5000ms threshold"
+        assert (
+            p95_ms < 5000
+        ), f"250-biome plan p95={p95_ms:.1f}ms exceeds 5000ms threshold"
 
 
 # ===========================================================================
@@ -1333,11 +1464,13 @@ class TestTagBaseHelper:
 
     def test_numeric_tag_returns_prefix(self) -> None:
         from app.workers.plan_compiler import _tag_base
+
         result = _tag_base("mem:total-gb:512")
         assert result == "mem:total-gb:"
 
     def test_categorical_tag_returned_unchanged(self) -> None:
         from app.workers.plan_compiler import _tag_base
+
         result = _tag_base("gpu:nvidia")
         assert result == "gpu:nvidia"
 
@@ -1347,8 +1480,15 @@ class TestMergeCloudInitLegacy:
 
     def test_no_collision_returns_b64(self) -> None:
         from app.workers.plan_compiler import _merge_cloud_init
+
         biomes = [
-            {"name": "X", "cloud_init": {"write_files": [{"path": "/x.txt", "content": "x"}], "runcmd": ["do-x"]}},
+            {
+                "name": "X",
+                "cloud_init": {
+                    "write_files": [{"path": "/x.txt", "content": "x"}],
+                    "runcmd": ["do-x"],
+                },
+            },
         ]
         b64, warnings = _merge_cloud_init(biomes)
         assert b64 != ""
@@ -1356,9 +1496,16 @@ class TestMergeCloudInitLegacy:
 
     def test_collision_returns_empty(self) -> None:
         from app.workers.plan_compiler import _merge_cloud_init
+
         biomes = [
-            {"name": "A", "cloud_init": {"write_files": [{"path": "/dup.conf", "content": "a"}]}},
-            {"name": "B", "cloud_init": {"write_files": [{"path": "/dup.conf", "content": "b"}]}},
+            {
+                "name": "A",
+                "cloud_init": {"write_files": [{"path": "/dup.conf", "content": "a"}]},
+            },
+            {
+                "name": "B",
+                "cloud_init": {"write_files": [{"path": "/dup.conf", "content": "b"}]},
+            },
         ]
         b64, warnings = _merge_cloud_init(biomes)
         assert b64 == ""
@@ -1369,6 +1516,7 @@ class TestFindCycleEarlyReturn:
 
     def test_find_cycle_with_disconnected_node(self) -> None:
         from app.workers.plan_compiler import _find_cycle
+
         # A→B→A is a cycle; node 3 is disconnected
         nodes = {
             1: _EggNode(egg_id=1, egg_name="A", phase="post_deploy", deps=[2]),
@@ -1380,6 +1528,7 @@ class TestFindCycleEarlyReturn:
 
     def test_find_cycle_no_cycle_returns_start(self) -> None:
         from app.workers.plan_compiler import _find_cycle
+
         # No cycle — DFS exhausts without finding one
         nodes = {
             1: _EggNode(egg_id=1, egg_name="A", phase="post_deploy", deps=[]),
@@ -1393,6 +1542,7 @@ class TestParseSemverNonNumericParts:
 
     def test_non_numeric_part_treated_as_zero(self) -> None:
         from app.workers.plan_compiler import _parse_semver
+
         result = _parse_semver("1.alpha.3")
         assert result == (1, 0, 3)
 
@@ -1407,7 +1557,6 @@ class TestResolveLuksTierBranches:
     """
 
     def test_cloud_vm_platform_selects_cloud_kms(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
 
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
@@ -1421,9 +1570,8 @@ class TestResolveLuksTierBranches:
         assert tier == "cloud-kms"
 
     def test_hardware_json_as_json_string_parsed(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
-        from collections import namedtuple
         import json
+        from collections import namedtuple
 
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(
@@ -1431,14 +1579,17 @@ class TestResolveLuksTierBranches:
             hardware_tags=[],
             hardware_json=json.dumps({"platform": "cloud-vm"}),
         )
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         tier = compiler._resolve_luks_tier(node)
         assert tier == "cloud-kms"
 
     def test_hardware_tags_as_json_string_tpm_detected(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
-        from collections import namedtuple
         import json
+        from collections import namedtuple
 
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(
@@ -1446,27 +1597,37 @@ class TestResolveLuksTierBranches:
             hardware_tags=json.dumps(["tpm:2.0"]),
             hardware_json={},
         )
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         tier = compiler._resolve_luks_tier(node)
         assert tier == "tpm2"
 
     def test_hardware_json_invalid_string_falls_back_to_dev(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
 
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(id=1, hardware_tags=[], hardware_json="not-valid-json{{{")
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         tier = compiler._resolve_luks_tier(node)
         assert tier == "dev"
 
     def test_hardware_tags_invalid_json_falls_back_to_dev(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
 
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(id=1, hardware_tags="[[[not json", hardware_json={})
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         tier = compiler._resolve_luks_tier(node)
         assert tier == "dev"
 
@@ -1475,18 +1636,26 @@ class TestHardwareTagsInvalidJson:
     """Cover _check_hardware_tags() invalid JSON string branch."""
 
     def test_invalid_json_hardware_tags_treated_as_empty(self) -> None:
-        from app.workers.plan_compiler import PlanCompiler as PC
         from collections import namedtuple
 
         # Biome requires no tags, no forbidden — so even with empty hw_tags it should pass
         egg_nodes = {
-            1: _EggNode(egg_id=1, egg_name="bare", phase="post_deploy",
-                        requires_hardware_tags=[], forbids_hardware_tags=[])
+            1: _EggNode(
+                egg_id=1,
+                egg_name="bare",
+                phase="post_deploy",
+                requires_hardware_tags=[],
+                forbids_hardware_tags=[],
+            )
         }
         NodeRow = namedtuple("NodeRow", ["id", "hardware_tags", "hardware_json"])
         node = NodeRow(id=1, hardware_tags="[[[bad", hardware_json={})
 
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         errors = compiler._check_hardware_tags(egg_nodes, node)
         assert errors == []
 
@@ -1504,7 +1673,9 @@ class TestValidateLoadErrors:
             egg_assignments=[EggAssignmentRef(egg_id=99999)],
             cluster_id="test",
         )
-        NodeRow = namedtuple("NodeRow", ["id", "name", "hardware_tags", "hardware_json"])
+        NodeRow = namedtuple(
+            "NodeRow", ["id", "name", "hardware_tags", "hardware_json"]
+        )
         node = NodeRow(id=1, name="n1", hardware_tags=[], hardware_json={})
 
         errors = compiler.validate(plan_req, node)
@@ -1519,31 +1690,52 @@ class TestCompileCloudInitCollision:
         cloud-init collision path in compile() after topo-sort succeeds."""
         fixture = {
             "node": {
-                "id": 1, "name": "test-node",
+                "id": 1,
+                "name": "test-node",
                 "primary_nic_mac": "aa:bb:cc:dd:ee:01",
                 "hardware_tags": [],
                 "hardware_json": {},
             },
             "biomes": [
                 {
-                    "id": 301, "name": "biome-X", "version": "1.0", "phase": "post_deploy",
-                    "workload_type": "lxc", "lock_to_host": False,
-                    "requires_hardware_tags": [], "prefers_hardware_tags": [], "forbids_hardware_tags": [],
-                    "dependencies": [], "consumes_joiner_secrets_from": [],
+                    "id": 301,
+                    "name": "biome-X",
+                    "version": "1.0",
+                    "phase": "post_deploy",
+                    "workload_type": "lxc",
+                    "lock_to_host": False,
+                    "requires_hardware_tags": [],
+                    "prefers_hardware_tags": [],
+                    "forbids_hardware_tags": [],
+                    "dependencies": [],
+                    "consumes_joiner_secrets_from": [],
                     "emits_joiner_secrets": False,
-                    "cloud_init": {"write_files": [{"path": "/etc/collision.conf", "content": "X"}]},
+                    "cloud_init": {
+                        "write_files": [{"path": "/etc/collision.conf", "content": "X"}]
+                    },
                     "storage_requirements_json": {},
-                    "egg_kind": "custom", "tenant_id": "__default__",
+                    "egg_kind": "custom",
+                    "tenant_id": "__default__",
                 },
                 {
-                    "id": 302, "name": "biome-Y", "version": "1.0", "phase": "post_deploy",
-                    "workload_type": "lxc", "lock_to_host": False,
-                    "requires_hardware_tags": [], "prefers_hardware_tags": [], "forbids_hardware_tags": [],
-                    "dependencies": [], "consumes_joiner_secrets_from": [],
+                    "id": 302,
+                    "name": "biome-Y",
+                    "version": "1.0",
+                    "phase": "post_deploy",
+                    "workload_type": "lxc",
+                    "lock_to_host": False,
+                    "requires_hardware_tags": [],
+                    "prefers_hardware_tags": [],
+                    "forbids_hardware_tags": [],
+                    "dependencies": [],
+                    "consumes_joiner_secrets_from": [],
                     "emits_joiner_secrets": False,
-                    "cloud_init": {"write_files": [{"path": "/etc/collision.conf", "content": "Y"}]},
+                    "cloud_init": {
+                        "write_files": [{"path": "/etc/collision.conf", "content": "Y"}]
+                    },
                     "storage_requirements_json": {},
-                    "egg_kind": "custom", "tenant_id": "__default__",
+                    "egg_kind": "custom",
+                    "tenant_id": "__default__",
                 },
             ],
             "joiner_secrets": [],
@@ -1571,23 +1763,31 @@ class TestLoadEggsStringConsumesJoiner:
         """Fixture biomes where consumes_joiner_secrets_from is list of strings."""
         fixture = {
             "node": {
-                "id": 1, "name": "n1",
+                "id": 1,
+                "name": "n1",
                 "primary_nic_mac": "aa:bb:cc:00:00:01",
                 "hardware_tags": [],
                 "hardware_json": {},
             },
             "biomes": [
                 {
-                    "id": 401, "name": "string-consumer", "version": "1.0",
-                    "phase": "post_deploy", "workload_type": "lxc", "lock_to_host": False,
-                    "requires_hardware_tags": [], "prefers_hardware_tags": [], "forbids_hardware_tags": [],
+                    "id": 401,
+                    "name": "string-consumer",
+                    "version": "1.0",
+                    "phase": "post_deploy",
+                    "workload_type": "lxc",
+                    "lock_to_host": False,
+                    "requires_hardware_tags": [],
+                    "prefers_hardware_tags": [],
+                    "forbids_hardware_tags": [],
                     "dependencies": [],
                     # String-form consume spec (egg_kind shorthand)
                     "consumes_joiner_secrets_from": ["k8s-controller"],
                     "emits_joiner_secrets": False,
                     "cloud_init": {},
                     "storage_requirements_json": {},
-                    "egg_kind": "custom", "tenant_id": "__default__",
+                    "egg_kind": "custom",
+                    "tenant_id": "__default__",
                 },
             ],
             "joiner_secrets": [
@@ -1624,7 +1824,9 @@ class TestVersionConstraintExternalDep:
         """Version constraint referencing biome 9999 (not in plan) — should be skipped."""
         nodes = {
             1: _EggNode(
-                egg_id=1, egg_name="consumer", phase="post_deploy",
+                egg_id=1,
+                egg_name="consumer",
+                phase="post_deploy",
                 deps=[9999],
                 version_constraints=[{"egg_id": 9999, "version_min": "5.0"}],
                 raw={"id": 1, "name": "consumer", "version": "1.0"},
@@ -1645,12 +1847,18 @@ class TestVersionConstraintNoDepId:
     def test_version_constraint_missing_dep_id_skipped(self) -> None:
         nodes = {
             1: _EggNode(
-                egg_id=1, egg_name="consumer", phase="post_deploy",
+                egg_id=1,
+                egg_name="consumer",
+                phase="post_deploy",
                 version_constraints=[{"version_min": "1.0"}],  # no egg_id or id key
                 raw={"id": 1, "name": "consumer", "version": "1.0"},
             ),
         }
-        compiler = PlanCompiler(db_session=MagicMock(), vault_client=_make_vault_client(), lxd_client=_make_lxd_client())
+        compiler = PlanCompiler(
+            db_session=MagicMock(),
+            vault_client=_make_vault_client(),
+            lxd_client=_make_lxd_client(),
+        )
         errors = compiler._check_version_ranges(nodes)
         assert errors == []
 

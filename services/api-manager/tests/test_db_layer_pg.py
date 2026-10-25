@@ -26,7 +26,6 @@ from unittest.mock import MagicMock, call
 
 from app.db import galera
 
-
 # ---------------------------------------------------------------------------
 # galera.set_wsrep_sync_wait -> db.executesql (SQL-assertion, MySQL-only syntax)
 # ---------------------------------------------------------------------------
