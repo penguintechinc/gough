@@ -52,6 +52,20 @@
   "overrides": {
     "@remix-run/router": "1.23.2",
     "body-parser": "1.20.9",
-    "path-to-regexp": "0.1.13"
+    "path-to-regexp": "0.1.13",
+    "proxy-addr": "2.0.8",
+    "zod": "4.6.6",
+    "micromatch": {
+      "picomatch": "2.3.2"
+    },
+    "anymatch": {
+      "picomatch": "2.3.2"
+    },
+    "readdirp": {
+      "picomatch": "2.3.2"
+    },
+    "tinyglobby": {
+      "picomatch": "4.0.4"
+    }
   }
 }
