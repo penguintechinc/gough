@@ -1,0 +1,210 @@
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "pip"
+    directory: "/services/access-agent"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "pip"
+    directory: "/services/api-manager"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "pip"
+    directory: "/services/worker-ipxe"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "pip"
+    directory: "/tests"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "npm"
+    directory: "/services/webui"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "gomod"
+    directory: "/cli/gough"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "gomod"
+    directory: "/services/discovery-agent"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/access-agent"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/api-manager"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/discovery-agent"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/webui"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/worker-ipxe"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
+  - package-ecosystem: "docker"
+    directory: "/services/worker-ipxe/helper-image"
+    schedule:
+      interval: "weekly"
+    groups:
+      all-dependencies:
+        applies-to: version-updates
+        patterns:
+          - "*"
+      security:
+        applies-to: security-updates
+        patterns:
+          - "*"
