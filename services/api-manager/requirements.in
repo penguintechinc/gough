@@ -151,5 +151,8 @@ penguin-utils==0.3.0
 
 # Transitive security pins (CVE fixes). Explicit so the lock pins them even when
 # penguin-libs wheels, installed earlier in the Dockerfile, pull older copies.
-msgpack==1.2.1
+msgpack==1.2.3
+authlib==1.9.1
+dnspython==2.9.0
+joserfc==1.7.5
 setuptools==81.0.0

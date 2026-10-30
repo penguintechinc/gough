@@ -1,5 +1,5 @@
 # Stage 1: builder — compile and install dependencies
-FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530 AS builder
+FROM python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir \
     rm -rf /tmp/penguin-libs
 
 # Stage 2: runtime — minimal image with installed packages only (no build tools)
-FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530
+FROM python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f
 
 LABEL org.opencontainers.image.source="https://github.com/penguintechinc/gough"
 

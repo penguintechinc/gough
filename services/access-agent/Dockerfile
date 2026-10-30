@@ -1,7 +1,7 @@
 # Gough Access Agent Dockerfile
 # Provides rssh server for remote shell access to managed resources
 
-FROM python:3.13-slim-bookworm@sha256:e32be0e55814a08977501ca863271d9bd02443710db8f2afaf8372e2c4508530
+FROM python:3.13-slim-bookworm@sha256:281d39ff02e3b389401586134ff9e6572954687822a58055ec07a60ded4e0b7f
 
 # Labels
 LABEL maintainer="Penguin Tech Inc <support@penguintech.io>"

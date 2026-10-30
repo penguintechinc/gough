@@ -14,4 +14,4 @@ penguin-utils==0.3.0
 
 # Transitive security pins (CVE fixes): explicit so the lock pins them
 urllib3==2.8.0
-msgpack==1.2.1
+msgpack==1.2.3
