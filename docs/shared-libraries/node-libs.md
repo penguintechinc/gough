@@ -634,7 +634,7 @@ Ensure your `package.json` includes:
 
 GNU Affero General Public License v3 (AGPL-3.0)
 
-This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE file for details.
+This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE.md for details.
 
 ## Support
 

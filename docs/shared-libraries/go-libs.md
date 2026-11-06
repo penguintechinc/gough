@@ -594,7 +594,7 @@ openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365
 
 GNU Affero General Public License v3 (AGPL-3.0)
 
-This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE file for details.
+This library is part of the Penguin Tech Inc penguin-libs monorepo. See LICENSE.md for details.
 
 ## Support
 
