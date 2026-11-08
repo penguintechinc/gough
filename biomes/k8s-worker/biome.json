@@ -1,0 +1,239 @@
+{
+  "name": "k8s-worker",
+  "version": "1.0.0",
+  "description": "kubeadm worker join for an existing gough Kubernetes control plane, airgap-capable.",
+  "lxd": {
+    "instance_type": "container",
+    "image": "{{ image_alias }}",
+    "profile_name": "gough-k8s-worker",
+    "config": {
+      "security.nesting": true,
+      "security.privileged": true,
+      "linux.kernel_modules": "ip_tables,ip6_tables,nf_nat,overlay,br_netfilter",
+      "raw.lxc": "lxc.apparmor.profile=unconfined\nlxc.cap.drop=\nlxc.cgroup.devices.allow=a\nlxc.mount.auto=proc:rw sys:rw cgroup:rw\n"
+    },
+    "devices": {
+      "eth0": {
+        "type": "nic",
+        "nictype": "bridged",
+        "parent": "{{ bridge }}",
+        "name": "eth0"
+      }
+    }
+  },
+  "resources": {
+    "cpu_cores": {
+      "default": 4,
+      "min": 2
+    },
+    "memory": {
+      "default": "8GiB",
+      "min": "4GiB"
+    },
+    "root_disk": {
+      "default": "100GiB",
+      "min": "20GiB",
+      "pool": "default"
+    }
+  },
+  "parameters": [
+    {
+      "name": "cpu_cores",
+      "type": "int",
+      "resource": true,
+      "description": "LXD limits.cpu. Integer cores; must be >= resources.cpu_cores.min."
+    },
+    {
+      "name": "memory",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[1-9][0-9]{0,11}(KiB|MiB|GiB|TiB)$",
+      "description": "LXD limits.memory (hard, no swap). IEC units only; must be >= resources.memory.min."
+    },
+    {
+      "name": "root_disk_size",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[1-9][0-9]{0,11}(KiB|MiB|GiB|TiB)$",
+      "description": "Root disk size for the instance device. IEC units only; must be >= resources.root_disk.min."
+    },
+    {
+      "name": "storage_pool",
+      "type": "string",
+      "resource": true,
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "description": "LXD storage pool holding the root disk."
+    },
+    {
+      "name": "hostname",
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "description": "Guest hostname and Kubernetes node name. Per instance."
+    },
+    {
+      "name": "instance_name",
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "description": "LXD instance name. Per instance, so it can share a hypervisor with k8s-controller."
+    },
+    {
+      "name": "static_ip",
+      "type": "string",
+      "required": true,
+      "pattern": "^(?:\\d{1,3}\\.){3}\\d{1,3}/\\d{1,2}$",
+      "description": "Static IPv4 CIDR for eth0, e.g. 192.168.8.51/24."
+    },
+    {
+      "name": "gateway",
+      "type": "string",
+      "required": true,
+      "pattern": "^(?:\\d{1,3}\\.){3}\\d{1,3}$",
+      "description": "Default gateway IPv4. No default."
+    },
+    {
+      "name": "dns_servers",
+      "type": "string",
+      "required": true,
+      "pattern": "^\\s*(?:\\d{1,3}\\.){3}\\d{1,3}\\s*(?:,\\s*(?:\\d{1,3}\\.){3}\\d{1,3}\\s*)*$",
+      "description": "Comma-separated DNS server IPv4 list. Whitespace around entries is stripped; each entry must be a valid IPv4 address."
+    },
+    {
+      "name": "join_endpoint",
+      "type": "string",
+      "required": true,
+      "pattern": "^[a-z0-9.-]+:\\d{1,5}$",
+      "description": "Control-plane endpoint host:port, supplied by the hub from the controller's join report."
+    },
+    {
+      "name": "join_token",
+      "type": "string",
+      "required": true,
+      "secret": true,
+      "pattern": "^[a-z0-9]{6}\\.[a-z0-9]{16}$",
+      "description": "kubeadm bootstrap token. Secret."
+    },
+    {
+      "name": "join_ca_cert_hash",
+      "type": "string",
+      "required": true,
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Cluster CA public-key pin for discovery."
+    },
+    {
+      "name": "bridge",
+      "type": "string",
+      "default": "br0",
+      "pattern": "^[A-Za-z0-9_.-]+$",
+      "description": "Host bridge the NIC attaches to."
+    },
+    {
+      "name": "image_alias",
+      "type": "string",
+      "default": "ubuntu/26.04",
+      "pattern": "^[A-Za-z0-9._/-]+$",
+      "description": "LXD image alias or fingerprint."
+    },
+    {
+      "name": "allow_privileged",
+      "type": "bool",
+      "default": false,
+      "description": "Explicit opt-in for security.privileged and the unconfined AppArmor raw.lxc. Renders fail without true."
+    },
+    {
+      "name": "apt_mirror",
+      "type": "string",
+      "required": true,
+      "pattern": "https?://\\S+",
+      "description": "Ubuntu archive mirror base URL.",
+      "scheme": "mirror"
+    },
+    {
+      "name": "k8s_apt_repo",
+      "type": "string",
+      "required": true,
+      "pattern": "https?://\\S+",
+      "description": "Kubernetes apt repo for the minor line.",
+      "scheme": "mirror"
+    },
+    {
+      "name": "k8s_apt_key_url",
+      "type": "string",
+      "required": true,
+      "pattern": "https?://\\S+",
+      "description": "URL of the armored Kubernetes apt signing key on the mirror.",
+      "scheme": "mirror"
+    },
+    {
+      "name": "k8s_apt_key_sha256",
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "sha256 of the armored key file."
+    },
+    {
+      "name": "k8s_version",
+      "type": "string",
+      "default": "1.35.9",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Expected kubeadm version; must match the controller."
+    },
+    {
+      "name": "k8s_package_version",
+      "type": "string",
+      "default": "1.35.9-1.1",
+      "pattern": "^[0-9][A-Za-z0-9.+~:-]*$",
+      "description": "Exact apt version for kubelet, kubeadm, kubectl."
+    },
+    {
+      "name": "containerd_package_version",
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9][A-Za-z0-9.+~:-]*$",
+      "description": "Exact Ubuntu archive apt version for containerd (no default)."
+    },
+    {
+      "name": "registry_mirror",
+      "type": "string",
+      "required": true,
+      "pattern": "https?://\\S+",
+      "description": "Mirror registry URL serving upstream repository paths.",
+      "scheme": "mirror"
+    },
+    {
+      "name": "mirrored_registries",
+      "type": "string",
+      "default": "docker.io,quay.io,registry.k8s.io,ghcr.io",
+      "pattern": "^[a-z0-9.-]+(?:,[a-z0-9.-]+)*$",
+      "description": "Upstream registries routed through registry_mirror."
+    },
+    {
+      "name": "internal_ca_url",
+      "type": "string",
+      "default": "",
+      "pattern": "^(?:https?://\\S+)?$",
+      "description": "Optional PEM CA for a private mirror TLS chain. Empty skips.",
+      "scheme": "mirror"
+    },
+    {
+      "name": "internal_ca_sha256",
+      "type": "string",
+      "default": "",
+      "pattern": "^(?:[0-9a-f]{64})?$",
+      "description": "sha256 of internal_ca_url content."
+    },
+    {
+      "name": "allow_insecure_mirrors",
+      "type": "bool",
+      "default": false,
+      "description": "Allow plain http:// for mirror URLs (airgapped labs). Logged as a warning. Default false; report_url is always https."
+    },
+    {
+      "name": "allow_registry_fallback",
+      "type": "bool",
+      "default": false,
+      "description": "Add the public upstream (e.g. registry-1.docker.io) as a containerd fallback behind registry_mirror. Default false: mirror-only, so airgapped nodes never dial public registries."
+    }
+  ]
+}
