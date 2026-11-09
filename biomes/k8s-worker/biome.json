@@ -8,8 +8,10 @@
     "profile_name": "gough-k8s-worker",
     "config": {
       "security.nesting": true,
+      "linux.kernel_modules": "ip_tables,ip6_tables,nf_nat,overlay,br_netfilter"
+    },
+    "privileged_config": {
       "security.privileged": true,
-      "linux.kernel_modules": "ip_tables,ip6_tables,nf_nat,overlay,br_netfilter",
       "raw.lxc": "lxc.apparmor.profile=unconfined\nlxc.cap.drop=\nlxc.cgroup.devices.allow=a\nlxc.mount.auto=proc:rw sys:rw cgroup:rw\n"
     },
     "devices": {
@@ -21,6 +23,7 @@
       }
     }
   },
+  "secrets_file": true,
   "resources": {
     "cpu_cores": {
       "default": 4,
@@ -139,7 +142,13 @@
       "name": "allow_privileged",
       "type": "bool",
       "default": false,
-      "description": "Explicit opt-in for security.privileged and the unconfined AppArmor raw.lxc. Renders fail without true."
+      "description": "Explicit opt-in for the privileged_config block (security.privileged, unconfined AppArmor raw.lxc). Requires accept_host_root_risk=true too; default output is unprivileged."
+    },
+    {
+      "name": "allow_ssh",
+      "type": "bool",
+      "default": false,
+      "description": "Keep ssh.service and ssh.socket running. Default false: both are disabled and masked inside the instance."
     },
     {
       "name": "apt_mirror",
@@ -171,6 +180,13 @@
       "required": true,
       "pattern": "^[0-9a-f]{64}$",
       "description": "sha256 of the armored key file."
+    },
+    {
+      "name": "k8s_apt_key_fingerprint",
+      "type": "string",
+      "required": true,
+      "pattern": "^[0-9A-Fa-f]{40}$",
+      "description": "Primary GPG fingerprint (40 hex) of the Kubernetes apt signing key; verified after fetch."
     },
     {
       "name": "k8s_version",

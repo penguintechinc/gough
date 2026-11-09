@@ -9,12 +9,51 @@ STATE_DIR=/var/lib/gough/biome/state
 JOIN_CONFIG=/var/lib/gough/biome/join-config.yaml
 LOG_FILE=/var/log/gough-biome.log
 PARAMS_FILE="$BIOME_DIR/params.env"
+SECRETS_FILE="$BIOME_DIR/secrets.env"
+REPORT_DIR=/var/lib/gough
+CURRENT_STEP=startup
+
+# Delete a file with shred when available (overwrite then unlink), else rm; a missing file is fine.
+remove_file_securely() {
+  local path="$1"
+  [[ -e "$path" ]] || return 0
+  if command -v shred >/dev/null 2>&1; then
+    shred -u "$path"
+  else
+    rm -f "$path"
+  fi
+}
+
+# Write the host-visible outcome marker: biome-report.done on success (written last), biome-report.failed with a non-secret reason otherwise.
+report_biome_outcome() {
+  local rc="$1" marker
+  install -d -m 0755 "$REPORT_DIR"
+  umask 077
+  if [[ "$rc" == 0 ]]; then
+    marker="$REPORT_DIR/biome-report.done"
+    printf 'k8s-worker biome complete\n' > "$marker"
+    rm -f "$REPORT_DIR/biome-report.failed"
+  else
+    marker="$REPORT_DIR/biome-report.failed"
+    printf 'k8s-worker biome failed during step %s (exit %s); see /var/log/gough-biome.log\n' "$CURRENT_STEP" "$rc" > "$marker"
+    rm -f "$REPORT_DIR/biome-report.done"
+  fi
+}
+
+# EXIT trap: remove the secrets file and any rendered join config on success and on every failure path, then write the outcome marker.
+cleanup_join_material() {
+  local rc=$?
+  remove_file_securely "$SECRETS_FILE"
+  remove_file_securely "$JOIN_CONFIG"
+  report_biome_outcome "$rc"
+}
 
 install -d -m 0755 "$STATE_DIR"
 [[ -f "$LOG_FILE" ]] || install -m 0600 /dev/null "$LOG_FILE"
 chmod 0600 "$LOG_FILE"
 exec > >(tee -a "$LOG_FILE") 2>&1
 
+trap cleanup_join_material EXIT
 [[ -f "$PARAMS_FILE" ]] || { echo "missing $PARAMS_FILE" >&2; exit 1; }
 set -a
 # shellcheck source=/dev/null
@@ -33,7 +72,7 @@ die() { log "FATAL: $*"; exit 1; }
 fetch_verified() {
   local url="$1" sha="$2" dest="$3" tmp
   tmp="$(mktemp)"
-  if ! curl --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
+  if ! curl -q --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
     rm -f "$tmp"
     die "download failed: $url"
   fi
@@ -69,11 +108,26 @@ SRC
   : > /etc/apt/sources.list
 }
 
-# Install the Kubernetes apt repo from the mirror, verifying the signing key by checksum.
+# Verify the primary GPG fingerprint of the armored apt key against the pinned value (case-insensitive, full match).
+verify_apt_key_fingerprint() {
+  local keyfile="$1" want fprs primary count
+  want="$(printf '%s' "$GOUGH_K8S_APT_KEY_FINGERPRINT" | tr '[:lower:]' '[:upper:]')"
+  [[ "$want" =~ ^[0-9A-F]{40}$ ]] || die "k8s_apt_key_fingerprint is not 40 hex characters"
+  fprs="$(gpg --batch --no-default-keyring --with-colons --show-keys "$keyfile" | awk -F: '$1 == "fpr" { print toupper($10) }')" \
+    || die "gpg could not read the apt key at $keyfile"
+  [[ -n "$fprs" ]] || die "no fingerprint found in the apt key"
+  primary="$(printf '%s\n' "$fprs" | awk 'NR == 1')"
+  count="$(printf '%s\n' "$fprs" | awk 'END { print NR }')"
+  [[ "$primary" == "$want" ]] || die "apt key fingerprint mismatch: expected ${want}, got ${primary}"
+  log "apt key fingerprint verified (${count} fingerprint(s) examined)"
+}
+
+# Install the Kubernetes apt repo from the mirror, verifying the signing key by checksum and fingerprint.
 prep_k8s_apt() {
   install -d -m 0755 /etc/apt/keyrings
   local armored=/etc/apt/keyrings/gough-kubernetes.asc
   fetch_verified "$GOUGH_K8S_APT_KEY_URL" "$GOUGH_K8S_APT_KEY_SHA256" "$armored"
+  verify_apt_key_fingerprint "$armored"
   gpg --batch --yes --dearmor -o /etc/apt/keyrings/gough-kubernetes.gpg "$armored"
   rm -f "$armored"
   cat > /etc/apt/sources.list.d/gough-kubernetes.sources <<SRC
@@ -136,7 +190,10 @@ prep_containerd() {
   install -d -m 0755 /etc/containerd
   containerd config default > /etc/containerd/config.toml
   sed -i -E 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
-  grep -q 'SystemdCgroup = true' /etc/containerd/config.toml || die "containerd SystemdCgroup not enabled"
+  local cgroup_count
+  cgroup_count="$(awk '/SystemdCgroup = true/ { n++ } END { print n + 0 }' /etc/containerd/config.toml)"
+  log "containerd SystemdCgroup = true matches: ${cgroup_count}"
+  [[ "$cgroup_count" == "1" ]] || die "expected exactly one SystemdCgroup = true in containerd config, found ${cgroup_count}"
   sed -i -E "s|config_path = ['\"]['\"]|config_path = \"/etc/containerd/certs.d\"|" /etc/containerd/config.toml
   grep -q 'config_path = "/etc/containerd/certs.d"' /etc/containerd/config.toml || die "containerd config_path not set"
   write_registry_mirrors
@@ -189,6 +246,7 @@ mark_done() { touch "$STATE_DIR/$1"; }
 run_step() {
   local name="$1"; shift
   if step_done "$name"; then log "skip $name (already done)"; return 0; fi
+  CURRENT_STEP="$name"
   log "step $name"
   "$@"
   mark_done "$name"
@@ -202,6 +260,40 @@ require_params() {
   done
 }
 
+# Read one GOUGH_ value from the secrets file into SECRET_VALUE by parsing (never sourcing), so it is never exported.
+# Not run in a subshell: a die here must exit the script, not a command substitution.
+read_secret() {
+  local key="$1" line value mode
+  [[ -f "$SECRETS_FILE" ]] || die "secrets file missing: ${SECRETS_FILE}; the launcher must push secrets.env (mode 0600) before first boot"
+  mode="$(stat -c %a "$SECRETS_FILE")"
+  [[ "$mode" == "600" ]] || die "secrets file ${SECRETS_FILE} must be mode 0600, found ${mode}"
+  line="$(awk -v k="${key}=" 'index($0, k) == 1 { print; exit }' "$SECRETS_FILE")"
+  [[ -n "$line" ]] || die "secrets file has no ${key}"
+  value="${line#"${key}="}"
+  value="${value#\'}"
+  value="${value%\'}"
+  SECRET_VALUE="$value"
+}
+
+# Disable and mask ssh.service and ssh.socket unless allow_ssh=true; each unit is checked for existence before acting.
+mask_ssh_units() {
+  if [[ "${GOUGH_ALLOW_SSH:-false}" == "true" ]]; then
+    log "allow_ssh=true; leaving ssh units unchanged"
+    return 0
+  fi
+  local unit present
+  for unit in ssh.service ssh.socket; do
+    present="$(systemctl list-unit-files --no-legend "$unit" | awk -v u="$unit" '$1 == u { print $1 }')"
+    if [[ -z "$present" ]]; then
+      log "ssh unit ${unit} not present; nothing to mask"
+      continue
+    fi
+    systemctl disable --now "$unit"
+    systemctl mask "$unit"
+    log "disabled and masked ${unit}"
+  done
+}
+
 # Join the cluster using a config file so the bootstrap token never appears in process arguments.
 worker_join() {
   if [[ -f /etc/kubernetes/kubelet.conf ]]; then
@@ -209,7 +301,9 @@ worker_join() {
     log "node already joined and kubelet active; not re-joining"
     return 0
   fi
-  [[ "$GOUGH_JOIN_TOKEN" =~ ^[a-z0-9]{6}\.[a-z0-9]{16}$ ]] || die "join token has invalid format"
+  read_secret GOUGH_JOIN_TOKEN
+  local join_token="$SECRET_VALUE"
+  [[ "$join_token" =~ ^[a-z0-9]{6}\.[a-z0-9]{16}$ ]] || die "join token has invalid format"
   [[ "$GOUGH_JOIN_CA_CERT_HASH" =~ ^sha256:[0-9a-f]{64}$ ]] || die "join CA cert hash has invalid format"
   if [[ -e /var/lib/kubelet/config.yaml ]]; then
     log "resetting partial join state"
@@ -221,7 +315,7 @@ apiVersion: kubeadm.k8s.io/v1beta4
 kind: JoinConfiguration
 discovery:
   bootstrapToken:
-    token: "${GOUGH_JOIN_TOKEN}"
+    token: "${join_token}"
     apiServerEndpoint: "${GOUGH_JOIN_ENDPOINT}"
     caCertHashes:
       - "${GOUGH_JOIN_CA_CERT_HASH}"
@@ -243,10 +337,11 @@ evictionHard:
   nodefs.available: "10%"
 YAML
   if ! kubeadm join --config "$JOIN_CONFIG"; then
-    rm -f "$JOIN_CONFIG"
     die "kubeadm join failed. If the join token expired (join_token_ttl), request a fresh join token from the hub and rerun"
   fi
-  rm -f "$JOIN_CONFIG"
+  remove_file_securely "$JOIN_CONFIG"
+  remove_file_securely "$SECRETS_FILE"
+  log "join material removed from the instance"
 }
 
 # Confirm kubelet is running after join; node Ready is verified by the controller side.
@@ -258,9 +353,10 @@ worker_verify() {
 # Entry point: prepare the node, join the cluster, verify kubelet.
 main() {
   require_params GOUGH_HOSTNAME GOUGH_APT_MIRROR GOUGH_K8S_APT_REPO GOUGH_K8S_APT_KEY_URL \
-    GOUGH_K8S_APT_KEY_SHA256 GOUGH_K8S_VERSION GOUGH_K8S_PACKAGE_VERSION \
+    GOUGH_K8S_APT_KEY_SHA256 GOUGH_K8S_APT_KEY_FINGERPRINT GOUGH_K8S_VERSION GOUGH_K8S_PACKAGE_VERSION \
     GOUGH_CONTAINERD_PACKAGE_VERSION GOUGH_REGISTRY_MIRROR GOUGH_MIRRORED_REGISTRIES \
-    GOUGH_JOIN_ENDPOINT GOUGH_JOIN_TOKEN GOUGH_JOIN_CA_CERT_HASH
+    GOUGH_JOIN_ENDPOINT GOUGH_JOIN_CA_CERT_HASH
+  mask_ssh_units
   run_step node-prep prepare_node
   run_step kubeadm-join worker_join
   run_step kubelet-verify worker_verify

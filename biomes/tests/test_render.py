@@ -10,7 +10,7 @@ import unittest
 BIOMES = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, os.path.join(BIOMES, "_lib"))
 
-import render  # noqa: E402  (path inserted above)
+import render
 
 CTL_DIR = os.path.join(BIOMES, "k8s-controller")
 WRK_DIR = os.path.join(BIOMES, "k8s-worker")
@@ -42,6 +42,7 @@ def controller_params(**overrides):
         "report_url": "https://hub.example.internal/api/v1/biomes/join-material",
         "report_bootstrap_token": "bootstraptoken0123456789",
         "allow_privileged": True,
+        "accept_host_root_risk": True,
     }
     base.update(overrides)
     return base
@@ -62,9 +63,11 @@ def worker_params(**overrides):
         "k8s_apt_repo": "https://mirror.example.internal/k8s/v1.35/",
         "k8s_apt_key_url": "https://mirror.example.internal/k8s/Release.key",
         "k8s_apt_key_sha256": ZERO_SHA,
+        "k8s_apt_key_fingerprint": "0123456789ABCDEF0123456789ABCDEF01234567",
         "containerd_package_version": "2.2.0-0ubuntu1",
         "registry_mirror": "https://registry.example.internal",
         "allow_privileged": True,
+        "accept_host_root_risk": True,
     }
     base.update(overrides)
     return base
@@ -318,9 +321,11 @@ class RenderOutputTests(unittest.TestCase):
 
     def test_missing_manifest_fails(self):
         """A directory without biome.json is rejected loudly."""
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaisesRegex(render.RenderError, "missing manifest"):
-                render.render_biome(tmp, {})
+        with (
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaisesRegex(render.RenderError, "missing manifest"),
+        ):
+            render.render_biome(tmp, {})
 
     def test_manifest_missing_key_fails(self):
         """A manifest lacking a required top-level key is rejected."""
@@ -339,14 +344,14 @@ class RenderOutputTests(unittest.TestCase):
                 render.render_biome(tmp, {})
 
     def test_cli_writes_files_and_fails_nonzero(self):
-        """The CLI writes four files on success and returns 1 with no output directory on bad params."""
+        """The CLI writes five files on success (secrets.env included for the worker) and returns 1 with no output directory on bad params."""
         with tempfile.TemporaryDirectory() as tmp:
             params_path = os.path.join(tmp, "p.json")
             with open(params_path, "w", encoding="utf-8") as fh:
                 json.dump(worker_params(), fh)
             out = os.path.join(tmp, "out")
             self.assertEqual(render.main(["--biome", WRK_DIR, "--params", params_path, "--out", out]), 0)
-            self.assertEqual(sorted(os.listdir(out)), ["instance.json", "network-config", "profile.json", "user-data"])
+            self.assertEqual(sorted(os.listdir(out)), ["instance.json", "network-config", "profile.json", "secrets.env", "user-data"])
             bad_path = os.path.join(tmp, "bad.json")
             with open(bad_path, "w", encoding="utf-8") as fh:
                 json.dump({}, fh)

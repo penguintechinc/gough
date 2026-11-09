@@ -33,7 +33,7 @@ die() { log "FATAL: $*"; exit 1; }
 fetch_verified() {
   local url="$1" sha="$2" dest="$3" tmp
   tmp="$(mktemp)"
-  if ! curl --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
+  if ! curl -q --fail --silent --show-error --location --retry 3 -o "$tmp" "$url"; then
     rm -f "$tmp"
     die "download failed: $url"
   fi
@@ -398,7 +398,7 @@ report_to_hub() {
   trap 'rm -f "$body" "$hdr"; trap - RETURN' RETURN
   printf '%s' "$json" > "$body"
   printf 'header = "Authorization: Bearer %s"\ndata-binary = "@%s"\n' "$GOUGH_REPORT_BOOTSTRAP_TOKEN" "$body" > "$hdr"
-  curl --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 30 \
+  curl -q --fail --silent --show-error --retry 5 --retry-delay 5 --max-time 30 \
     --config "$hdr" -H 'Content-Type: application/json' -X POST "$GOUGH_REPORT_URL" >/dev/null
   log "join material reported to hub"
 }

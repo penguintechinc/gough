@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """Render a gough biome directory into cloud-init user-data, network-config and an LXD profile.
 
 Shared by the hub-api and gough-install.py. Standard library only, so it runs on
@@ -25,6 +24,8 @@ USER_DATA_HEADER = "#cloud-config\n"
 UNIT_RE = re.compile(r"^([1-9][0-9]{0,11})(KiB|MiB|GiB|TiB)$")
 UNIT_BYTES = {"KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
 INT_RE = re.compile(r"^[1-9][0-9]{0,3}$")
+# Reserved caller flags: accepted by any biome, never rendered into params.env. Not manifest parameters.
+RESERVED_FLAGS = ("accept_host_root_risk",)
 
 
 class RenderError(Exception):
@@ -67,7 +68,7 @@ def resolve_params(manifest, supplied):
         if not name or name in declared:
             raise RenderError(f"invalid or duplicate parameter declaration: {name!r}")
         declared[name] = spec
-    unknown = sorted(set(supplied) - set(declared))
+    unknown = sorted(set(supplied) - set(declared) - set(RESERVED_FLAGS))
     if unknown:
         raise RenderError("unknown parameters: " + ", ".join(unknown))
     resolved = {}
@@ -187,6 +188,28 @@ def _resolve_one(name, spec, supplied, insecure_ok):
     return value
 
 
+def _reserved_flag(supplied, name):
+    """Return a reserved boolean caller flag (default false), rejecting a non-boolean value."""
+    value = supplied.get(name, False)
+    if not isinstance(value, bool):
+        raise RenderError(f"parameter {name} must be a boolean")
+    return value
+
+
+def split_secrets(manifest, resolved):
+    """Remove secret parameters from resolved and return them, only for manifests that opt in with secrets_file true."""
+    if manifest.get("secrets_file") is not True:
+        return {}
+    names = [p["name"] for p in manifest["parameters"] if p.get("secret") is True and p["name"] in resolved]
+    return {name: resolved.pop(name) for name in names}
+
+
+def env_text(mapping):
+    """Render a mapping as GOUGH_-prefixed, shell-quoted KEY=value lines that bootstrap.sh can source or parse."""
+    lines = [f"GOUGH_{name.upper()}={shlex.quote(stringify(value))}" for name, value in sorted(mapping.items())]
+    return "\n".join(lines) + "\n"
+
+
 def _b64(data):
     """Return base64 text for bytes, safe to embed in YAML."""
     return base64.b64encode(data).decode("ascii")
@@ -207,14 +230,9 @@ def dns_server_list(text):
 
 def derived_values(biome_dir, resolved):
     """Compute template values derived from the parameters and the biome's bootstrap script."""
-    env_lines = [
-        f"GOUGH_{name.upper()}={shlex.quote(stringify(value))}"
-        for name, value in sorted(resolved.items())
-    ]
-    env_text = "\n".join(env_lines) + "\n"
     with open(os.path.join(biome_dir, "scripts", "bootstrap.sh"), "rb") as fh:
         script = fh.read()
-    derived = {"params_env_b64": _b64(env_text.encode("utf-8")), "bootstrap_b64": _b64(script)}
+    derived = {"params_env_b64": _b64(env_text(resolved).encode("utf-8")), "bootstrap_b64": _b64(script)}
     if "dns_servers" in resolved:
         ips = dns_server_list(resolved["dns_servers"])
         derived["dns_yaml_list"] = ", ".join(f'"{ip}"' for ip in ips)
@@ -229,15 +247,26 @@ def render_text(text, values):
     return PLACEHOLDER.sub(lambda m: values[m.group(1)], text)
 
 
-def build_profile(manifest, resolved, values):
-    """Build the per-biome LXD profile: biome-wide security and kernel settings only, plus the privileged opt-in gate.
+def build_profile(manifest, resolved, values, accept_host_root_risk=False):
+    """Build the per-biome LXD profile: biome-wide security and kernel settings only, plus the privileged gate.
 
-    Profiles are shared by every instance of a biome, so per-instance limits and the root disk never go here.
+    Privileged settings (security.privileged, raw.lxc) are emitted only when allow_privileged AND
+    accept_host_root_risk are both true. Profiles are shared by every instance of a biome, so per-instance
+    limits and the root disk never go here.
     """
     lxd = json.loads(render_text(json.dumps(manifest["lxd"]), values))
     config = {key: stringify(val) for key, val in (lxd.get("config") or {}).items()}
-    if config.get("security.privileged") == "true" and resolved.get("allow_privileged") is not True:
-        raise RenderError("biome requires security.privileged; set allow_privileged=true to opt in")
+    privileged_block = {key: stringify(val) for key, val in (lxd.get("privileged_config") or {}).items()}
+    allow = resolved.get("allow_privileged") is True
+    requested = config.get("security.privileged") == "true" or "raw.lxc" in config
+    if requested or (privileged_block and allow):
+        if not allow:
+            raise RenderError("biome requires security.privileged; set allow_privileged=true to opt in")
+        if not accept_host_root_risk:
+            raise RenderError("privileged profile requires accept_host_root_risk=true (host-root risk acknowledgement)")
+    if privileged_block and allow:
+        # ROOT EXCEPTION (pending approval): lab-only. Unconfined AppArmor and privileged containers grant host root.
+        config.update(privileged_block)
     name = lxd.get("profile_name")
     if not name:
         raise RenderError("manifest lxd.profile_name is required")
@@ -290,6 +319,7 @@ def render_biome(biome_dir, supplied, allowed_pools=None):
     limits = resolve_resources(manifest, resolved, allowed_pools)
     for check in CROSS_CHECKS:
         check(resolved)
+    secrets = split_secrets(manifest, resolved)
     values = {name: stringify(value) for name, value in resolved.items()}
     values.update(derived_values(biome_dir, resolved))
     outputs = {}
@@ -299,7 +329,10 @@ def render_biome(biome_dir, supplied, allowed_pools=None):
         if out_name == "user-data" and not rendered.startswith(USER_DATA_HEADER):
             raise RenderError("user-data must start with the #cloud-config header")
         outputs[out_name] = rendered
-    profile = build_profile(manifest, resolved, values)
+    if secrets:
+        # Secrets never enter user-data or the profile; the launcher pushes this file (mode 0600) before first boot.
+        outputs["secrets.env"] = env_text(secrets)
+    profile = build_profile(manifest, resolved, values, _reserved_flag(supplied, "accept_host_root_risk"))
     outputs["profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
     outputs["instance.json"] = json.dumps(build_instance(limits), indent=2, sort_keys=True) + "\n"
     return outputs

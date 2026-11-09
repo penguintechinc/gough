@@ -1,6 +1,8 @@
 # Biomes
 
-A biome is a versioned directory that turns a fresh LXD instance into a workload. The gough hub caches pinned releases of this repo and renders a biome per instance into LXD cloud-init user-data, network-config and an LXD profile.
+A biome is a versioned directory that turns a fresh LXD instance into a workload. The gough hub caches pinned releases of the `biomes/` directory and renders a biome per instance into LXD cloud-init user-data, network-config and an LXD profile.
+
+Biomes were merged back into the gough repo (the earlier separate-repo split was reverted). Every path and command below is relative to the gough repo root.
 
 ## Layout
 

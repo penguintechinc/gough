@@ -11,17 +11,22 @@ CRD_DIRS=(
   "pkg/k8s/apis/cilium.io/client/crds/v2alpha1"
 )
 
-# Print usage and exit non-zero.
+# Print usage to stderr and exit 2.
+# Called when the argument count is wrong; never returns.
 usage() {
   echo "usage: $0 <version> [out_dir]" >&2
   exit 2
 }
 
 # Download every *.yaml CRD in one upstream directory at the given tag, appending to the bundle.
+# Lists names via the GitHub API (Bash 3.2-compatible read loop); exits 1 if none found.
+# Prints the number of files appended on stdout.
 append_dir() {
   local dir="$1" tag="$2" bundle="$3" name count=0
-  local -a names
-  mapfile -t names < <(gh api "repos/${REPO}/contents/${dir}?ref=${tag}" --jq '.[] | select(.type == "file") | .name' | grep -E '\.yaml$' | sort)
+  local -a names=()
+  while IFS= read -r name || [[ -n "$name" ]]; do
+    names+=("$name")
+  done < <(gh api "repos/${REPO}/contents/${dir}?ref=${tag}" --jq '.[] | select(.type == "file") | .name' | grep -E '\.yaml$' | sort)
   (( ${#names[@]} > 0 )) || { echo "no CRD yaml files under ${dir} at ${tag}" >&2; exit 1; }
   for name in "${names[@]}"; do
     {
@@ -34,6 +39,8 @@ append_dir() {
   echo "$count"
 }
 
+# Entry point: validates the version, builds the multi-document bundle, and prints tag, count and sha256.
+# Exits non-zero on bad input, an empty upstream directory, or an empty bundle.
 main() {
   (( $# >= 1 && $# <= 2 )) || usage
   local version="$1" out_dir="${2:-dist}"

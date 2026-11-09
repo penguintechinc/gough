@@ -100,13 +100,6 @@ class ScriptStaticTests(unittest.TestCase):
             self.assertNotIn("|| true", text, name)
             self.assertNotIn("|| :", text, name)
 
-    def test_node_prep_block_identical(self):
-        """The shared node-prep block is byte-identical in both scripts."""
-        blocks = [BLOCK.search(read(script_path(n))) for n in BIOME_NAMES]
-        for name, match in zip(BIOME_NAMES, blocks):
-            self.assertIsNotNone(match, f"{name} lacks the node-prep block")
-        self.assertEqual(blocks[0].group(0), blocks[1].group(0))
-
     def test_every_script_variable_is_a_declared_parameter(self):
         """Each GOUGH_* variable a script reads maps to a parameter declared in its manifest."""
         for name in BIOME_NAMES:
@@ -192,6 +185,134 @@ class ScriptStaticTests(unittest.TestCase):
         """Enabling Gateway API without its CRD URL and checksum fails loudly."""
         body = function_body(read(script_path("k8s-controller")), "controller_cilium")
         self.assertIn("cilium_gateway_api=true requires", body)
+
+
+# The biomes are separate by design: k8s-controller and k8s-worker each own their node-prep block,
+# and those blocks are allowed to diverge. The tests below check each block against its own invariants
+# and never compare the two biomes to each other.
+def node_prep_block(name):
+    """Return one biome's node-prep block, failing unless exactly one BEGIN and one END marker exist.
+
+    Extraction uses the same markers as the original cross-biome test, but only one biome is read at a time.
+    Raising here keeps a duplicated or missing block from passing silently.
+    """
+    text = read(script_path(name))
+    begins = text.count("# BEGIN node-prep")
+    ends = text.count("# END node-prep")
+    if begins != 1 or ends != 1:
+        raise AssertionError(f"{name}: expected one node-prep block, found {begins} BEGIN and {ends} END")
+    match = BLOCK.search(text)
+    if match is None:
+        raise AssertionError(f"{name}: node-prep block is malformed")
+    return match.group(0)
+
+
+def block_parses(block):
+    """Return the bash -n result for an extracted block.
+
+    The fragment is written to a temporary directory that is removed on return.
+    Syntax is checked on the extracted block alone, so each biome is validated independently.
+    """
+    bash = tool_or_fail("bash")
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "node_prep.sh")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(block)
+        return subprocess.run([bash, "-n", path], capture_output=True, text=True, check=False)
+
+
+class ControllerNodePrepTests(unittest.TestCase):
+    """Checks the controller's own node-prep block for the invariants it must keep.
+
+    The block is owned by k8s-controller and may diverge from the worker's by design.
+    Only properties the controller currently has are asserted; worker-only hardening is not required here.
+    """
+
+    def setUp(self):
+        """Extract the controller block once per test."""
+        self.block = node_prep_block("k8s-controller")
+
+    def test_node_prep_block_found_once_and_parses(self):
+        """The controller has exactly one node-prep block and it passes bash -n."""
+        result = block_parses(self.block)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_node_prep_containerd_systemd_cgroup_enabled(self):
+        """The controller flips containerd to SystemdCgroup and verifies the result."""
+        self.assertIn("s/SystemdCgroup = false/SystemdCgroup = true/", self.block)
+        self.assertIn("grep -q 'SystemdCgroup = true' /etc/containerd/config.toml", self.block)
+
+    def test_node_prep_kmsg_shim_unit_installed(self):
+        """The controller installs and enables the kmsg-fix systemd unit for LXC."""
+        self.assertIn("/etc/systemd/system/kmsg-fix.service", self.block)
+        self.assertIn("systemctl enable --now kmsg-fix.service", self.block)
+
+    def test_node_prep_ip_forward_and_bpffs(self):
+        """The controller enables IPv4 forwarding persistently and mounts bpffs for Cilium."""
+        self.assertIn("net.ipv4.ip_forward=1", self.block)
+        self.assertIn("/etc/sysctl.d/99-gough-k8s.conf", self.block)
+        self.assertIn("mount -t bpf bpffs /sys/fs/bpf", self.block)
+
+    def test_node_prep_kubernetes_packages_held(self):
+        """The controller holds containerd, kubelet, kubeadm and kubectl against unattended upgrades."""
+        self.assertIn("apt-mark hold containerd", self.block)
+        self.assertIn("apt-mark hold kubelet kubeadm kubectl", self.block)
+
+    def test_node_prep_downloads_verified_by_sha256(self):
+        """The controller's fetch helper verifies sha256 before installing any artifact."""
+        self.assertIn("sha256sum --check --strict", self.block)
+
+
+class WorkerNodePrepTests(unittest.TestCase):
+    """Checks the worker's own node-prep block, including its hardened apt-key and cgroup checks.
+
+    The block is owned by k8s-worker and may diverge from the controller's by design.
+    The shared invariants are repeated here so each biome is verified on its own.
+    """
+
+    def setUp(self):
+        """Extract the worker block once per test."""
+        self.block = node_prep_block("k8s-worker")
+
+    def test_node_prep_block_found_once_and_parses(self):
+        """The worker has exactly one node-prep block and it passes bash -n."""
+        result = block_parses(self.block)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_node_prep_apt_key_fingerprint_verified_before_dearmor(self):
+        """The worker checks the pinned primary fingerprint before the apt key is installed."""
+        self.assertIn("verify_apt_key_fingerprint() {", self.block)
+        self.assertIn("apt key fingerprint mismatch", self.block)
+        self.assertIn("k8s_apt_key_fingerprint is not 40 hex characters", self.block)
+        call = self.block.index('verify_apt_key_fingerprint "$armored"')
+        dearmor = self.block.index("gpg --batch --yes --dearmor")
+        self.assertLess(call, dearmor, "fingerprint check must run before dearmor")
+
+    def test_node_prep_systemd_cgroup_asserted_exactly_once(self):
+        """The worker counts SystemdCgroup = true matches and requires exactly one."""
+        self.assertIn("s/SystemdCgroup = false/SystemdCgroup = true/", self.block)
+        self.assertIn('[[ "$cgroup_count" == "1" ]]', self.block)
+        self.assertIn("expected exactly one SystemdCgroup = true", self.block)
+
+    def test_node_prep_kmsg_shim_unit_installed(self):
+        """The worker installs and enables the kmsg-fix systemd unit for LXC."""
+        self.assertIn("/etc/systemd/system/kmsg-fix.service", self.block)
+        self.assertIn("systemctl enable --now kmsg-fix.service", self.block)
+
+    def test_node_prep_ip_forward_and_bpffs(self):
+        """The worker enables IPv4 forwarding persistently and mounts bpffs for Cilium."""
+        self.assertIn("net.ipv4.ip_forward=1", self.block)
+        self.assertIn("/etc/sysctl.d/99-gough-k8s.conf", self.block)
+        self.assertIn("mount -t bpf bpffs /sys/fs/bpf", self.block)
+
+    def test_node_prep_kubernetes_packages_held(self):
+        """The worker holds containerd, kubelet, kubeadm and kubectl against unattended upgrades."""
+        self.assertIn("apt-mark hold containerd", self.block)
+        self.assertIn("apt-mark hold kubelet kubeadm kubectl", self.block)
+
+    def test_node_prep_downloads_verified_by_sha256(self):
+        """The worker's fetch helper verifies sha256 before installing any artifact."""
+        self.assertIn("sha256sum --check --strict", self.block)
 
 
 class ShellcheckFailureShapeTest(unittest.TestCase):

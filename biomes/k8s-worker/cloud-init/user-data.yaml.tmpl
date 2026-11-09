@@ -1,5 +1,5 @@
 #cloud-config
-# Rendered by _lib/render.py. Parameters land in params.env (mode 0600); the bootstrap
+# Rendered by _lib/render.py. Non-secret parameters land in params.env (mode 0600); the join token is pushed as secrets.env, never embedded here. The bootstrap
 # script is delivered base64-encoded so no template indentation can alter it.
 hostname: "{{ hostname }}"
 manage_etc_hosts: true
