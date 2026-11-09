@@ -1,0 +1,13 @@
+# Managed by hypervisor-prep.sh: SSH only via enp3s0f0np0; explicit drops on br0 and bond0.
+add table inet gough_ssh_mgmt
+delete table inet gough_ssh_mgmt
+table inet gough_ssh_mgmt {
+  chain input {
+    type filter hook input priority -10; policy accept;
+    iifname "lo" accept
+    iifname "enp3s0f0np0" tcp dport 22 accept
+    iifname "br0" tcp dport 22 drop
+    iifname "bond0" tcp dport 22 drop
+    tcp dport 22 drop
+  }
+}
