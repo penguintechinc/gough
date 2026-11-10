@@ -1,0 +1,36 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: "ok(&[\"config\", \"list\", \"-o\", \"json\"])"
+---
+[
+  {
+    "key": "cluster.url",
+    "source": "context",
+    "value": "https://prod.example.com"
+  },
+  {
+    "key": "tenant_id",
+    "source": "context",
+    "value": "t-prod"
+  },
+  {
+    "key": "current_context",
+    "source": "file",
+    "value": "prod"
+  },
+  {
+    "key": "contexts.dev.cluster_url",
+    "source": "file",
+    "value": "http://127.0.0.1:9"
+  },
+  {
+    "key": "contexts.prod.cluster_url",
+    "source": "file",
+    "value": "https://prod.example.com"
+  },
+  {
+    "key": "contexts.prod.tenant_id",
+    "source": "file",
+    "value": "t-prod"
+  }
+]

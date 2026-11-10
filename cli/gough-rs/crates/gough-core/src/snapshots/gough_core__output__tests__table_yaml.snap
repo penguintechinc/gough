@@ -1,0 +1,10 @@
+---
+source: crates/gough-core/src/output.rs
+expression: out
+---
+- cpu: '16'
+  host_name: alpha-01
+  id: n-1
+- cpu: ''
+  host_name: b
+  id: n-2

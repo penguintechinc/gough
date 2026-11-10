@@ -1,0 +1,12 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: "ok(&[\"config\", \"get-contexts\", \"-o\", \"yaml\"])"
+---
+- active: ''
+  cluster_url: http://127.0.0.1:9
+  name: dev
+  tenant_id: ''
+- active: '*'
+  cluster_url: https://prod.example.com
+  name: prod
+  tenant_id: t-prod

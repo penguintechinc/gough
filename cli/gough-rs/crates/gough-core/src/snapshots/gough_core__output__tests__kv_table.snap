@@ -1,0 +1,6 @@
+---
+source: crates/gough-core/src/output.rs
+expression: out
+---
+version     1.0.0
+cluster_id  c-1

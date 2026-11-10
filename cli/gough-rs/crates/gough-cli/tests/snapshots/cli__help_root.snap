@@ -1,0 +1,66 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Hardware-layer orchestration for LXD clusters
+
+Usage: gough [OPTIONS] [COMMAND]
+
+Commands:
+  version       Print version information
+  login         Authenticate against the cluster (device flow)
+  logout        Remove stored credentials
+  config        Read and write the local config file and contexts
+  init          Bootstrap the primary node of a new cluster
+  sync          Export or import cluster state
+  vault         Vault operations
+  primary       Primary-node lifecycle operations
+  node          Manage nodes
+  disk          Manage node disks
+  biome         Manage biomes (workload definitions)
+  cluster       Cluster-wide operations
+  lxd           LXD trust-password operations
+  capacity      Capacity forecasting and risk
+  migration     Workload migration policy and triggers
+  dr            Disaster recovery
+  restore       Restore a cluster from backup (same as `dr restore`)
+  audit         Audit log operations
+  dev           Development helpers (simulated nodes, seed data)
+  integrations  Third-party integrations
+  doctor        Run diagnostic checks
+  webhook       Webhook operations
+  deployment    Manage deployments
+  storage       Storage quotas
+  completion    Generate shell completion scripts
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+      --version          Print version information and exit
+  -o, --output <FORMAT>  Output format: table, json, yaml or jsonpath=<RFC 9535 expression> [default: table]
+  -q, --quiet            Suppress all output except errors
+      --no-color         Disable colored output
+      --cluster <URL>    Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+      --context <NAME>   Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+  -v, --verbose          Log requests and diagnostics to stderr (tokens are masked)
+      --ca-file <FILE>   Extra PEM CA bundle to trust for the cluster's TLS certificate
+  -h, --help             Print help
+
+Credentials never travel on argv: set GOUGH_TOKEN in the environment (or pipe the token on
+stdin where a command supports it). TLS verification is always on; use --ca-file to trust an
+extra CA. The tenant always comes from your token, never from a flag.
+
+Exit codes:
+   0  success
+   1  generic error
+   2  vault sealed
+   3  not authenticated / insufficient scope (401, 403)
+   4  tenant mismatch
+   5  rate limited (429)
+   6  validation failed (422)
+   7  plan compilation failed
+   8  safety envelope rejected
+   9  cluster unhealthy (503)
+  10  DR drill failed
+  64  usage error (bad flags or arguments)
+  69  command not implemented yet (server contract pending)
+  78  configuration error

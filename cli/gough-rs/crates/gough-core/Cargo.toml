@@ -1,0 +1,26 @@
+[package]
+name = "gough-core"
+description = "Config, contexts, output writer, error type and exit codes for the gough CLI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+comfy-table.workspace = true
+gough-api.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_json_path.workspace = true
+serde_norway.workspace = true
+tempfile.workspace = true
+thiserror.workspace = true
+url.workspace = true
+
+[dev-dependencies]
+rstest.workspace = true
+insta.workspace = true

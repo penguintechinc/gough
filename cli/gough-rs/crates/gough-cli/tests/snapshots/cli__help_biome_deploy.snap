@@ -1,0 +1,60 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Deploy a biome to a node
+
+Usage: gough biome deploy [OPTIONS] --node <NODE> <NAME>
+
+Arguments:
+  <NAME>
+          Biome name
+
+Options:
+      --node <NODE>
+          Target node id
+
+      --frontend-mode <FRONTEND_MODE>
+          Frontend mode
+
+          Possible values:
+          - kube-vip: kube-vip managed virtual IP
+          - external: An external load balancer
+          - none:     No frontend
+          
+          [default: kube-vip]
+
+  -o, --output <FORMAT>
+          Output format: table, json, yaml or jsonpath=<RFC 9535 expression>
+          
+          [default: table]
+
+      --frontend-endpoint <FRONTEND_ENDPOINT>
+          Frontend endpoint (required for kube-vip and external; forbidden for none)
+
+  -q, --quiet
+          Suppress all output except errors
+
+      --frontend-interface <FRONTEND_INTERFACE>
+          Frontend network interface
+
+      --no-color
+          Disable colored output
+
+      --cluster <URL>
+          Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+
+      --frontend-baseline <FRONTEND_BASELINE>
+          Frontend network baseline (default: external when kube-vip)
+
+      --context <NAME>
+          Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+
+  -v, --verbose
+          Log requests and diagnostics to stderr (tokens are masked)
+
+      --ca-file <FILE>
+          Extra PEM CA bundle to trust for the cluster's TLS certificate
+
+  -h, --help
+          Print help (see a summary with '-h')

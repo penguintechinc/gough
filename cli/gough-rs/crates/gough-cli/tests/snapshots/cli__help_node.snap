@@ -1,0 +1,29 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Manage nodes
+
+Usage: gough node [OPTIONS] <COMMAND>
+
+Commands:
+  list          List nodes
+  show          Show one node
+  deploy        Deploy a plan to a node
+  reject        Reject a node enrollment
+  decommission  Decommission a node
+  evacuate      Evacuate workloads from a node
+  rekey         Rotate a node's keys
+  tag           Add or remove node tags
+  tags          List a node's tags
+  help          Print this message or the help of the given subcommand(s)
+
+Options:
+  -o, --output <FORMAT>  Output format: table, json, yaml or jsonpath=<RFC 9535 expression> [default: table]
+  -q, --quiet            Suppress all output except errors
+      --no-color         Disable colored output
+      --cluster <URL>    Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+      --context <NAME>   Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+  -v, --verbose          Log requests and diagnostics to stderr (tokens are masked)
+      --ca-file <FILE>   Extra PEM CA bundle to trust for the cluster's TLS certificate
+  -h, --help             Print help
