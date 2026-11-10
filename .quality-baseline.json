@@ -1,0 +1,46 @@
+{
+  "base_ref": "origin/release/v1.0.X",
+  "tools": {
+    "bandit": {
+      "examined": 165,
+      "findings": 114
+    },
+    "gitleaks": {
+      "examined": 938,
+      "findings": 35
+    },
+    "hadolint": {
+      "examined": 6,
+      "findings": 18
+    },
+    "mypy": {
+      "examined": 164,
+      "findings": 1073
+    },
+    "npm_audit": {
+      "examined": 574,
+      "findings": 39
+    },
+    "pip_audit": {
+      "examined": 290,
+      "findings": 268
+    },
+    "ruff_check": {
+      "examined": 404,
+      "findings": 2222
+    },
+    "ruff_format": {
+      "examined": 404,
+      "findings": 331
+    },
+    "shellcheck": {
+      "examined": 27,
+      "findings": 30
+    },
+    "spectral": {
+      "examined": 1,
+      "findings": 46
+    }
+  },
+  "version": 1
+}

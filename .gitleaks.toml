@@ -1,0 +1,14 @@
+# Default gitleaks rules plus path allowlist for vendored/generated dirs.
+# The gate scans the working tree (--no-git), so local venvs would otherwise be scanned.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "vendored and generated directories"
+paths = [
+  '''(^|/)\.venv/''',
+  '''(^|/)venv/''',
+  '''(^|/)node_modules/''',
+  '''(^|/)\.worktrees/''',
+  '''(^|/)\.mypy_cache/''',
+]
