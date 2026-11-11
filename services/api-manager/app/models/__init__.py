@@ -9,11 +9,14 @@ functions from the parent module here.
 
 # Re-export functions that were in models.py
 # These are imported from the parent module by manipulating sys.modules
+import logging
 from datetime import datetime
 from quart import Quart, g
 from penguin_dal import DB
 from ..config import Config
 from ..models_sqlalchemy import create_all_tables
+
+logger = logging.getLogger(__name__)
 
 # Valid roles for RBAC
 VALID_ROLES = ["admin", "maintainer", "viewer"]
@@ -40,8 +43,10 @@ def validate_database_schema(db_uri: str) -> bool:
 
     Checks for critical tables and columns without creating them.
     Returns True if validation passes, False if schema needs initialization.
+    Whether an admin exists is no longer a schema question: the first admin
+    is created by ``seed_initial_admin`` on every startup (see init_db).
     """
-    from sqlalchemy import create_engine, inspect
+    from sqlalchemy import inspect
     from ..models_sqlalchemy import get_sqlalchemy_engine
 
     engine = get_sqlalchemy_engine(db_uri)
@@ -53,7 +58,7 @@ def validate_database_schema(db_uri: str) -> bool:
 
     for table in expected_tables:
         if table not in existing_tables:
-            print(f"Missing table: {table}")
+            logger.info("Missing table: %s", table)
             return False
 
     # Check auth_user table has expected columns
@@ -62,33 +67,10 @@ def validate_database_schema(db_uri: str) -> bool:
 
     if not expected_columns.issubset(auth_user_columns):
         missing = expected_columns - auth_user_columns
-        print(f"Missing columns in auth_user: {missing}")
+        logger.info("Missing columns in auth_user: %s", sorted(missing))
         return False
 
-    # Check if default admin exists (penguin-dal runtime query). This runs at
-    # app-startup, before app.config["db"] exists and with no request/tenant
-    # context -- app.db.rls's RLS GUC wiring would fail-closed (0 rows) on a
-    # table it protects. `auth_user` is deliberately NOT in the baseline
-    # migration's `rls_tables` list (see
-    # alembic/versions/20260805_1000_baseline_full_schema.py) -- it carries
-    # no RLS policy at all, so no tenant scoping is needed here (verified:
-    # grepped every migration for an `auth_user` RLS policy, found none).
-    # Short-lived, pool_size=1 connection, closed immediately after this one
-    # check -- app.config["db"]'s real pool is constructed separately, right
-    # after this function returns (see init_db below).
-    from ..models_sqlalchemy import convert_pydal_to_sqlalchemy_uri
-
-    check_db = DB(convert_pydal_to_sqlalchemy_uri(db_uri), pool_size=1, reflect=True)
-    try:
-        admin_count = check_db(check_db.auth_user.email == "admin@gough.local").count()
-    finally:
-        check_db.close()
-
-    if admin_count == 0:
-        print("Default admin user not found")
-        return False
-
-    print("Database schema validation passed")
+    logger.info("Database schema validation passed")
     return True
 
 
@@ -99,38 +81,67 @@ def init_db(app: Quart) -> DB:
 
     Startup workflow:
     1. Validate database schema has expected keys
-    2. If validation fails, run SQLAlchemy schema creation
-    3. Create default admin if missing
+    2. If validation fails, run SQLAlchemy schema creation (roles seeded)
+    3. Seed the first admin when no users exist (``seed_initial_admin``)
     4. Connect penguin-dal for runtime queries (no table definitions)
 
-    Graceful degradation: if penguin-dal connection fails (e.g., in-memory SQLite with
-    pooling issues), logs a warning and returns None so the app can still boot with
-    a degraded /health endpoint.
+    Graceful degradation: an unreachable database (SQLAlchemy errors) logs a
+    warning and the app boots with a degraded /health endpoint. An
+    ``AdminBootstrapError`` (weak/ambiguous admin credential config) is never
+    degraded -- it propagates and aborts startup.
     """
-    from ..models_sqlalchemy import convert_pydal_to_sqlalchemy_uri
+    from sqlalchemy.exc import SQLAlchemyError
+
+    from ..models_sqlalchemy import (
+        convert_pydal_to_sqlalchemy_uri,
+        get_sqlalchemy_engine,
+        seed_initial_admin,
+    )
 
     pydal_uri = Config.get_db_uri()
 
-    # Step 1: Validate schema or create it
+    # Step 1: Validate schema or create it. The URI carries DB credentials,
+    # so it is never logged.
     try:
         if not validate_database_schema(pydal_uri):
-            print(f"Database schema validation failed, creating schema with SQLAlchemy: {pydal_uri}")
+            logger.info("Database schema validation failed, creating schema with SQLAlchemy")
             create_all_tables(pydal_uri)
-            print("Database schema created successfully")
+            logger.info("Database schema created successfully")
         else:
-            print("Database schema already exists and is valid")
-    except Exception as e:
-        print(f"WARNING: Database schema validation/creation failed: {e}")
-        print("Continuing with degraded database support...")
+            logger.info("Database schema already exists and is valid")
+    except Exception:
+        logger.warning(
+            "Database schema validation/creation failed; continuing with "
+            "degraded database support",
+            exc_info=True,
+        )
+
+    # Step 1b: first-admin bootstrap (single seeding path). AdminBootstrapError
+    # is deliberately NOT caught here -- misconfiguration must fail loudly.
+    try:
+        engine = get_sqlalchemy_engine(pydal_uri)
+        try:
+            seed_initial_admin(engine)
+        finally:
+            engine.dispose()
+    except SQLAlchemyError:
+        logger.warning(
+            "Admin bootstrap skipped: database unavailable; continuing with "
+            "degraded database support",
+            exc_info=True,
+        )
 
     # Step 2: Connect penguin-dal for runtime operations
     # penguin-dal expects SQLAlchemy format, so convert PyDAL URI
     try:
         sa_uri = convert_pydal_to_sqlalchemy_uri(pydal_uri)
         db = DB(sa_uri, pool_size=Config.DB_POOL_SIZE)
-    except Exception as e:
-        print(f"WARNING: penguin-dal DB connection failed: {e}")
-        print("App will boot with degraded database support (no runtime queries)")
+    except Exception:
+        logger.warning(
+            "penguin-dal DB connection failed; app will boot with degraded "
+            "database support (no runtime queries)",
+            exc_info=True,
+        )
         # Return a None-like object that won't crash the app
         # The health endpoint will handle this gracefully
         db = None
@@ -188,6 +199,9 @@ def get_user_by_id(user_id: int) -> dict | None:
         "full_name": user.full_name,
         "role": role_name,
         "is_active": user.active,
+        # Strict bool: an unmigrated row (column absent) raises here rather
+        # than silently reading as "no change required".
+        "must_change_password": bool(user.must_change_password),
         "created_at": user.created_at,
         "updated_at": user.updated_at,
     }
@@ -233,8 +247,13 @@ def create_user(
     password_hash: str,
     full_name: str = "",
     role: str = "viewer",
+    must_change_password: bool = True,
 ) -> dict:
-    """Create a new user with the specified role."""
+    """Create a new user with the specified role.
+
+    ``must_change_password`` defaults to True: a password chosen by an admin
+    is known to that admin, so the user must replace it at first login.
+    """
     import uuid
 
     db = get_db()
@@ -246,6 +265,7 @@ def create_user(
         full_name=full_name,
         active=True,
         fs_uniquifier=str(uuid.uuid4()),
+        must_change_password=must_change_password,
     )
 
     # Assign role

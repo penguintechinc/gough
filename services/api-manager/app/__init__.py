@@ -11,7 +11,6 @@ This module creates and configures the Quart application with:
 
 import os
 import json
-import bcrypt
 import yaml
 from pathlib import Path
 from quart import Quart, Response
@@ -82,10 +81,11 @@ async def create_app(config_class: type = Config) -> Quart:
         if app.config.get("AUDIT_ENABLED", True):
             try:
                 init_audit_logger(app)
-            except Exception as e:
-                import sys
-                print(f"WARNING: Audit logger initialization failed: {e}", file=sys.stderr)
-                print("Continuing without audit logger", file=sys.stderr)
+            except Exception:
+                app.logger.warning(
+                    "Audit logger initialization failed; continuing without audit logger",
+                    exc_info=True,
+                )
 
         # Initialize rate limiter (graceful degradation if fails). Also installs
         # the global /api/ rate-limit floor (regression: security audit
@@ -96,10 +96,11 @@ async def create_app(config_class: type = Config) -> Quart:
             try:
                 init_rate_limiter(app)
                 install_global_rate_limiting(app)
-            except Exception as e:
-                import sys
-                print(f"WARNING: Rate limiter initialization failed: {e}", file=sys.stderr)
-                print("Continuing without rate limiter", file=sys.stderr)
+            except Exception:
+                app.logger.warning(
+                    "Rate limiter initialization failed; continuing without rate limiter",
+                    exc_info=True,
+                )
 
         # Initialize SSH Certificate Authority
         ssh_ca = SSHCertificateAuthority(app)
@@ -113,11 +114,11 @@ async def create_app(config_class: type = Config) -> Quart:
         if db is not None:
             try:
                 seed_builtin_biomes(db)
-            except Exception as e:
-                import sys
-                print(f"WARNING: Failed to seed built-in biomes: {e}", file=sys.stderr)
+            except Exception:
+                app.logger.warning("Failed to seed built-in biomes", exc_info=True)
 
-        # Note: Default admin is created by SQLAlchemy during schema initialization
+        # Note: the first admin is seeded by init_db -> seed_initial_admin
+        # (no default password; see app.security.admin_bootstrap).
 
     # Initialize capacity predictor (used by /capacity/* endpoints)
     @app.before_serving
@@ -515,36 +516,3 @@ async def create_app(config_class: type = Config) -> Quart:
 
     return app
 
-
-def _create_default_admin(user_datastore: PyDALUserDatastore, db) -> None:
-    """Create default admin user if no users exist."""
-    # Check if any users exist
-    user_count = db(db.auth_user.id > 0).count()
-    if user_count > 0:
-        return
-
-    # Get admin credentials from environment or use defaults
-    admin_email = os.getenv("ADMIN_EMAIL", "admin@gough.local")
-    admin_password = os.getenv("ADMIN_PASSWORD", "changeme123")
-
-    # Hash password using bcrypt
-    password_hash = bcrypt.hashpw(admin_password.encode(), bcrypt.gensalt()).decode()
-
-    # Find or create admin role
-    admin_role = user_datastore.find_role("admin")
-    if not admin_role:
-        admin_role = user_datastore.create_role(
-            name="admin",
-            description="Full system access"
-        )
-
-    # Create admin user
-    user_datastore.create_user(
-        email=admin_email,
-        password=password_hash,
-        full_name="System Administrator",
-        roles=[admin_role],
-        active=True,
-    )
-
-    db.commit()

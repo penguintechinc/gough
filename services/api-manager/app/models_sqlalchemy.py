@@ -4,6 +4,9 @@ This module defines all database tables using SQLAlchemy for schema creation
 and migrations. PyDAL is used for runtime operations as required by CLAUDE.md.
 """
 
+import logging
+import os
+from collections.abc import Mapping
 from datetime import datetime
 
 from sqlalchemy import (
@@ -16,10 +19,18 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    false,
+    func,
+    inspect,
+    select,
 )
 from sqlalchemy.dialects import postgresql
+from sqlalchemy.engine import Engine
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import Session, relationship
+
+logger = logging.getLogger(__name__)
 
 #: JSON column that becomes JSONB on PostgreSQL, matching models_m1's
 #: convention. Used for the cloud tables' dict/list-valued fields, which the
@@ -68,6 +79,11 @@ class AuthUser(Base):
     tf_totp_secret = Column(String(255))
     tf_primary_method = Column(String(64))
     full_name = Column(String(255))
+    # Set on bootstrap/admin-issued passwords; while true, every authenticated
+    # route except change-password and logout answers 403 (app.middleware).
+    must_change_password = Column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -816,73 +832,111 @@ def get_sqlalchemy_engine(db_uri: str):
 
 
 def create_all_tables(db_uri: str):
-    """Create all tables using SQLAlchemy and seed default data."""
-    import uuid
+    """Create all tables using SQLAlchemy and seed the default roles.
 
-    import bcrypt
-    from sqlalchemy.orm import sessionmaker
-
+    Seeds roles only. The first administrator is created by
+    ``seed_initial_admin`` -- the single admin-seeding path -- which init_db
+    runs on every startup; there is no default user or password here.
+    """
     # Register M1 ORM classes on Base.metadata
     from . import models_m1  # noqa: F401
 
     engine = get_sqlalchemy_engine(db_uri)
     Base.metadata.create_all(engine)
 
-    # Create session for seeding default data
-    Session = sessionmaker(bind=engine)
-    session = Session()
-
-    try:
-        # Create default roles if they don't exist
-        default_roles = [
-            {"name": "admin", "description": "Full system access"},
-            {"name": "maintainer", "description": "Read/write access, no user management"},
-            {"name": "viewer", "description": "Read-only access"},
-        ]
-
-        for role_data in default_roles:
-            existing = session.query(AuthRole).filter_by(name=role_data["name"]).first()
-            if not existing:
-                role = AuthRole(**role_data)
-                session.add(role)
-                print(f"Created role: {role_data['name']}")
-
-        session.commit()
-
-        # Create default admin user if doesn't exist
-        admin_email = "admin@gough.local"
-        existing_admin = session.query(AuthUser).filter_by(email=admin_email).first()
-
-        if not existing_admin:
-            # Hash default password 'admin'
-            password_hash = bcrypt.hashpw(b"admin", bcrypt.gensalt()).decode('utf-8')
-
-            admin_user = AuthUser(
-                email=admin_email,
-                password=password_hash,
-                full_name="Administrator",
-                active=True,
-                fs_uniquifier=str(uuid.uuid4()),
-            )
-            session.add(admin_user)
+    default_roles = [
+        {"name": "admin", "description": "Full system access"},
+        {"name": "maintainer", "description": "Read/write access, no user management"},
+        {"name": "viewer", "description": "Read-only access"},
+    ]
+    with Session(engine) as session:
+        try:
+            for role_data in default_roles:
+                existing = session.scalar(
+                    select(AuthRole).filter_by(name=role_data["name"])
+                )
+                if not existing:
+                    session.add(AuthRole(**role_data))
+                    logger.info("Created role: %s", role_data["name"])
             session.commit()
-
-            # Assign admin role
-            admin_role = session.query(AuthRole).filter_by(name="admin").first()
-            if admin_role:
-                user_role = AuthUserRole(user_id=admin_user.id, role_id=admin_role.id)
-                session.add(user_role)
-                session.commit()
-
-            print(f"Created default admin user: {admin_email} with password 'admin'")
-            print("IMPORTANT: Change the default admin password immediately!")
-
-        session.close()
-
-    except Exception as e:
-        session.rollback()
-        session.close()
-        print(f"Error seeding default data: {e}")
-        raise
+        except Exception:
+            session.rollback()
+            logger.exception("Error seeding default roles")
+            raise
 
     return engine
+
+
+def seed_initial_admin(engine: Engine, env: Mapping[str, str] | None = None) -> bool:
+    """Create the first administrator when ``auth_user`` is empty; True if created.
+
+    Single admin-seeding path (security fix: no hardcoded/default password).
+    The credential comes from ``app.security.admin_bootstrap`` -- an
+    operator secret that passed the strength policy, or a random one-time
+    password written once to a 0600 file and flagged must-change. Raises
+    ``AdminBootstrapError`` on any misconfiguration so startup aborts.
+    """
+    import uuid
+
+    import bcrypt
+
+    from .security.admin_bootstrap import (
+        AdminBootstrapError,
+        credential_output_path,
+        resolve_admin_credential,
+        write_one_time_credential,
+    )
+
+    env = os.environ if env is None else env
+    columns = {c["name"] for c in inspect(engine).get_columns("auth_user")}
+    if "must_change_password" not in columns:
+        raise AdminBootstrapError(
+            "auth_user.must_change_password is missing: run the Alembic "
+            "migrations (alembic upgrade head) before starting api-manager"
+        )
+
+    with Session(engine) as session:
+        if session.scalar(select(func.count()).select_from(AuthUser)):
+            return False
+
+        credential = resolve_admin_credential(env)
+        admin_role = session.scalar(select(AuthRole).filter_by(name="admin"))
+        if admin_role is None:
+            raise AdminBootstrapError(
+                "role 'admin' is missing; schema seeding did not run"
+            )
+
+        admin_user = AuthUser(
+            email=credential.email,
+            password=bcrypt.hashpw(
+                credential.password.encode(), bcrypt.gensalt()
+            ).decode(),
+            full_name="System Administrator",
+            active=True,
+            fs_uniquifier=str(uuid.uuid4()),
+            must_change_password=credential.generated,
+        )
+        session.add(admin_user)
+        try:
+            session.flush()
+        except IntegrityError:
+            # A concurrent replica won the race and created the first admin.
+            session.rollback()
+            logger.info("Bootstrap admin already created by a concurrent starter")
+            return False
+        session.add(AuthUserRole(user_id=admin_user.id, role_id=admin_role.id))
+        session.flush()
+
+        written = None
+        if credential.generated:
+            written = write_one_time_credential(credential_output_path(env), credential)
+        try:
+            session.commit()
+        except Exception:
+            if written is not None:
+                written.unlink(missing_ok=True)
+            raise
+
+    if not credential.generated:
+        logger.info("Bootstrap admin created from the operator-supplied password")
+    return True
