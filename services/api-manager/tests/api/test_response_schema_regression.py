@@ -285,8 +285,16 @@ class TestStorageConfigNeverLeaksCredentials:
 
 
 @pytest.fixture()
-def ipxe_app():
+def ipxe_app(monkeypatch):
     from app.api import ipxe as ipxe_module
+    from app.integrations import elder_egress
+
+    # elder_url is vetted against the Elder egress policy (DNS resolution);
+    # pin resolution so these output-shape tests stay offline and deterministic.
+    async def _resolve(host, port):
+        return ["93.184.216.34"]
+
+    monkeypatch.setattr(elder_egress, "_resolve_host", _resolve)
 
     app = Quart(__name__)
     app.config["JWT_SECRET_KEY"] = "test-secret-key"
@@ -296,7 +304,12 @@ def ipxe_app():
 
     @app.before_request
     async def _inject_admin():
-        g.current_user = {"id": 1, "role": "admin", "_jwt_payload": {}}
+        # Global iPXE/Elder writes are superadmin-only (security review of PR #52).
+        g.current_user = {
+            "id": 1,
+            "role": "admin",
+            "_jwt_payload": {"scope": "gough.cluster.superadmin"},
+        }
 
     return app
 

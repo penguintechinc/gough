@@ -75,14 +75,12 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     ("PATCH", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/deploy"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/nodes/<int:node_id>/reject"): frozenset({"gough.nodes.provision"}),
-    ("POST", "/api/v1/nodes/<int:node_id>/rekey"): frozenset({"gough.nodes.rekey"}),
     ("POST", "/api/v1/nodes/<int:node_id>/evacuate"): frozenset({"gough.nodes.provision"}),
     ("DELETE", "/api/v1/nodes/<int:node_id>"): frozenset({"gough.nodes.decommission"}),
     # POST /nodes/<id>/events authenticates with a service SVID (mTLS) inside
     # the handler, not an OIDC bearer -> ANONYMOUS_PATHS (see below).
     ("GET", "/api/v1/nodes/<int:node_id>/tags"): frozenset({"gough.nodes.read"}),
     ("PATCH", "/api/v1/nodes/<int:node_id>/tags"): frozenset({"gough.nodes.provision"}),
-    ("POST", "/api/v1/nodes/manual"): frozenset({"gough.nodes.provision", "gough.cluster.admin"}),
     # POST /nodes/discover authenticates with a one-time bootstrap token (HS256)
     # validated inside the handler, not an OIDC bearer -> ANONYMOUS_PATHS (below).
     ("POST", "/api/v1/nodes/<int:node_id>/biomes"): frozenset({"gough.biomes.deploy"}),
@@ -143,16 +141,12 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     ("POST", "/api/v1/primary/replace"): frozenset({"gough.cluster.admin"}),
     ("POST", "/api/v1/primary/force-recover"): frozenset({"gough.cluster.superadmin"}),
 
-    # DR endpoints
-    ("POST", "/api/v1/dr/drill"): frozenset({"gough.dr.drill"}),
-    ("GET", "/api/v1/dr/drills"): frozenset({"gough.dr.read"}),
-    ("POST", "/api/v1/dr/promote"): frozenset({"gough.dr.promote"}),
-
-    # Webhooks endpoints
+    # Webhooks endpoints (real rules use a bare <webhook_id> converter; the
+    # former duplicate <int:...>/<string:...> blocks collapsed to one).
     ("GET", "/api/v1/webhooks"): frozenset({"gough.cluster.admin"}),
     ("POST", "/api/v1/webhooks"): frozenset({"gough.cluster.admin"}),
-    ("DELETE", "/api/v1/webhooks/<int:webhook_id>"): frozenset({"gough.cluster.admin"}),
-    ("POST", "/api/v1/webhooks/<int:webhook_id>/test"): frozenset({"gough.cluster.admin"}),
+    ("DELETE", "/api/v1/webhooks/<webhook_id>"): frozenset({"gough.cluster.admin"}),
+    ("POST", "/api/v1/webhooks/<webhook_id>/test"): frozenset({"gough.cluster.admin"}),
     # GET /webhooks/keys/<tenant> serves a PUBLIC JWKS -> ANONYMOUS_PATHS (below).
 
     # Integrations endpoints
@@ -163,12 +157,6 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # iPXE endpoints
     ("POST", "/api/v1/ipxe/bind-mac"): frozenset({"gough.nodes.provision"}),
     ("POST", "/api/v1/ipxe/mint-bootstrap-token"): frozenset({"gough.nodes.provision"}),
-
-    # Webhooks
-    ("GET", "/api/v1/webhooks"): frozenset({"gough.cluster.admin"}),
-    ("POST", "/api/v1/webhooks"): frozenset({"gough.cluster.admin"}),
-    ("DELETE", "/api/v1/webhooks/<string:webhook_id>"): frozenset({"gough.cluster.admin"}),
-    ("POST", "/api/v1/webhooks/<string:webhook_id>/test"): frozenset({"gough.cluster.admin"}),
 
     # Authentication endpoints (regression: gh-31 Bug 3)
     # These require authentication but no specific scopes (any valid user can call them)
@@ -181,6 +169,77 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     # read the API surface documentation.
     ("GET", "/api/v1/openapi.json"): frozenset(),
     ("GET", "/api/v1/openapi.yaml"): frozenset(),
+    # ------------------------------------------------------------------
+    # Reviewed mappings (security review of 385dd0f). Each entry below was
+    # checked in its handler; routes that failed review are NOT here -- they
+    # are listed in INTENTIONALLY_UNMAPPED with the fix they wait on.
+    # The route | decision | reason | evidence table is in the PR description.
+    # ------------------------------------------------------------------
+
+    # Superadmin only: global (non-tenant) stores and CA / control-plane ops.
+    # A tenant ``admin`` (gough.cluster.admin) must never reach these: the
+    # user store has no tenant filter (password reset / role grant on any
+    # account) and the secrets store is global with caller-chosen paths.
+    ("GET", "/api/v1/users"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/users"): frozenset({"gough.cluster.superadmin"}),
+    ("GET", "/api/v1/users/roles"): frozenset({"gough.cluster.superadmin"}),
+    ("GET", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/users/<int:user_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("GET", "/api/v1/secrets"): frozenset({"gough.cluster.superadmin"}),
+    ("GET", "/api/v1/secrets/backends"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/secrets/backends"): frozenset({"gough.cluster.superadmin"}),
+    ("GET", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/secrets/<path:secret_path>"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/ssh-ca/initialize"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/primary/rotate-ca"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/primary/frontend-switch"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/vault/rotate-keys"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/integrations/<product>/compromise-response"): frozenset({"gough.cluster.superadmin"}),
+
+    # SSH CA: public key is non-secret; sign is admin-scoped AND the handler
+    # caps validity (<=3600 s), enforces a principal allowlist (root never),
+    # and binds the certificate to one in-tenant node.
+    ("GET", "/api/v1/ssh-ca/public-key"): frozenset({"gough.cluster.read"}),
+    ("POST", "/api/v1/ssh-ca/sign"): frozenset({"gough.cluster.admin"}),
+
+    # iPXE boot configuration WRITES: gough.cluster.superadmin. These rows
+    # (ipxe_config, boot configs, images, elder_config) are platform-wide with
+    # no tenant_id, so a tenant admin (gough.cluster.admin) changing them
+    # would rewrite every tenant's boot chain. Delegating them to tenant
+    # admins needs a tenant-scoped iPXE model first (follow-up). Handlers
+    # repeat the superadmin check, type-check input, vet the Elder URL
+    # against the Elder egress policy (https, public-only unless
+    # allowlisted), return allow-listed DTOs and audit-log every change. The
+    # matching GET routes stay unmapped (raw row echo) -- see
+    # INTENTIONALLY_UNMAPPED. Regression: security review of PR #52.
+    ("PUT", "/api/v1/ipxe/config"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/elder/config"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/ipxe/boot-configs"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/ipxe/images"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.superadmin"}),
+
+    # Tenant-scoped handlers that passed review (tenant guard + validation +
+    # explicit response shape).
+    ("GET", "/api/v1/clusters/<cluster_id>/lxd/status"): frozenset({"gough.cluster.read"}),
+    ("GET", "/api/v1/clusters/<cluster_id>/network-baseline-topology"): frozenset({"gough.cluster.read"}),
+    ("PATCH", "/api/v1/clusters/<cluster_id>/network-baseline-topology"): frozenset({"gough.cluster.admin"}),
+    ("GET", "/api/v1/nodes/<int:node_id>/cloud-init"): frozenset({"gough.nodes.read"}),
+
+    # Deployment-global integration status (no tenant data; product name
+    # validated; credentials returned only via _safe_credentials_view).
+    ("GET", "/api/v1/integrations/<product>"): frozenset({"gough.cluster.read"}),
+    ("POST", "/api/v1/integrations/<product>/validate-scope"): frozenset({"gough.cluster.admin"}),
+
+    # Example routes: any authenticated principal / read scope. Unused by any
+    # client -- candidates for removal.
+    ("GET", "/api/v1/hello"): frozenset(),
+    ("GET", "/api/v1/hello/protected"): frozenset({"gough.cluster.read"}),
 }
 
 
@@ -202,9 +261,10 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     # scope needed).
     ("GET", "/api/v1/ipxe/helper/<string:mac>"),
     ("GET", "/api/v1/ipxe/deploy/<string:mac>"),
-    ("GET", "/api/v1/ipxe/kernel/<string:name>"),
-    ("GET", "/api/v1/ipxe/initrd/<string:name>"),
-    ("GET", "/api/v1/ipxe/helper-efi/<string:mac>"),
+    # /ipxe/kernel, /ipxe/initrd and /ipxe/helper-efi entries were removed:
+    # no such routes exist in this service (artifacts are served from the
+    # primary's artifact URL). A dead anonymous entry would silently make any
+    # future route at that path unauthenticated.
     # Authentication endpoints (regression: gh-31 and gh-31 Bug 3)
     # login, refresh: entry points (no JWT required)
     ("POST", "/api/v1/auth/login"),
@@ -214,6 +274,8 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     ("POST", "/api/v1/auth/reset-password"),
     # Public status endpoint (hello.status; no auth by design).
     ("GET", "/api/v1/status"),
+    # Auth service liveness probe (no secrets; mirrors /health).
+    ("GET", "/api/v1/auth/health"),
     # Endpoints that authenticate with a NON-OIDC scheme inside the handler
     # (regression: gh-31 -- the ES256 ASGI gate must skip these or their real
     # callers can never reach the handler that runs their own auth check).
@@ -229,6 +291,149 @@ ANONYMOUS_PATHS: frozenset[tuple[str, str]] = frozenset({
     # Public webhook JWKS (verification keys for a tenant).
     ("GET", "/api/v1/webhooks/keys/<string:tenant>"),
 })
+
+
+# ==============================================================================
+# Intentionally Unmapped (fail-closed 403 pending a handler fix)
+# ==============================================================================
+#
+# Real routes deliberately left OUT of SCOPE_POLICY, so the fail-closed
+# scope middleware answers 403 for every caller (superadmin included) until
+# the named follow-up lands. The route-coverage gate
+# (tests/security/test_scope_policy_route_coverage.py) requires every real
+# route to be in SCOPE_POLICY, ANONYMOUS_PATHS or here, requires each reason
+# to name its follow-up, and fails on entries that match no real route.
+# Mapping one of these means fixing the handler first, then moving the entry.
+
+_FU_STORAGE_TENANT = (
+    "Follow-up: bind storage_config/bucket/object operations to the JWT tenant "
+    "(storage_config has no tenant_id; bucket/config chosen by the caller)."
+)
+_FU_STORAGE_QUOTA = (
+    "Follow-up: take tenant from the validated JWT, never a query/body param "
+    "(quotas lists every tenant when the param is absent)."
+)
+_FU_TEAMS = (
+    "Follow-up: tenant-scope teams/members/resources queries and replace int-id "
+    "lookups with tenant-checked public_id UUIDs (current int-id IDOR)."
+)
+_FU_CLOUDS = (
+    "Follow-up: tenant-scope cloud_providers queries and replace int-id lookups "
+    "with tenant-checked public_id UUIDs (current int-id IDOR)."
+)
+_FU_IPXE_READ = (
+    "Follow-up: replace raw as_dict()/to_dict() echo with allow-listed DTOs "
+    "(bmc_address and internal fields leak) and decide tenancy of boot config."
+)
+_FU_IPXE_MACHINES = (
+    "Follow-up: ipxe_machines has no tenant_id; add tenant binding plus "
+    "allow-listed DTOs before any machine read or lifecycle action is mapped."
+)
+_FU_AGENTS = (
+    "Follow-up: access agents/enrollment keys are global with no tenant column; "
+    "decide superadmin-only vs tenant binding, then add DTOs."
+)
+_FU_SHELL = (
+    "Follow-up: shell sessions branch on the role name 'admin', are not "
+    "tenant-scoped, and list_sessions' ended_at filter is a no-op ('is None')."
+)
+_FU_DEPLOYMENTS = (
+    "Follow-up: filter deployments/upgrade_runs/deployment_logs by the JWT "
+    "tenant (handlers query by id only)."
+)
+_FU_NODE_LXD_JOIN = (
+    "Follow-up: verify cluster_id belongs to the caller's tenant and SSRF-vet "
+    "api_url before minting an LXD join token."
+)
+_FU_ELDER_STATUS = (
+    "Follow-up: stop echoing exception text (str(e)) and make the outbound "
+    "health probe connect to the vetted pinned IP."
+)
+
+INTENTIONALLY_UNMAPPED: dict[tuple[str, str], str] = {
+    # Storage
+    ("GET", "/api/v1/storage/configs"): _FU_STORAGE_TENANT,
+    ("POST", "/api/v1/storage/configs"): _FU_STORAGE_TENANT,
+    ("GET", "/api/v1/storage/configs/<int:config_id>"): _FU_STORAGE_TENANT,
+    ("PUT", "/api/v1/storage/configs/<int:config_id>"): _FU_STORAGE_TENANT,
+    ("DELETE", "/api/v1/storage/configs/<int:config_id>"): _FU_STORAGE_TENANT,
+    ("POST", "/api/v1/storage/configs/<int:config_id>/set-default"): _FU_STORAGE_TENANT,
+    ("POST", "/api/v1/storage/configs/<int:config_id>/test"): _FU_STORAGE_TENANT,
+    ("GET", "/api/v1/storage/buckets"): _FU_STORAGE_TENANT,
+    ("POST", "/api/v1/storage/buckets"): _FU_STORAGE_TENANT,
+    ("GET", "/api/v1/storage/objects"): _FU_STORAGE_TENANT,
+    ("DELETE", "/api/v1/storage/objects/<path:object_key>"): _FU_STORAGE_TENANT,
+    ("POST", "/api/v1/storage/objects/<path:object_key>/presigned-url"): _FU_STORAGE_TENANT,
+    ("GET", "/api/v1/storage/quotas"): _FU_STORAGE_QUOTA,
+    ("POST", "/api/v1/storage/quota-request"): _FU_STORAGE_QUOTA,
+    # Teams
+    ("GET", "/api/v1/teams/"): _FU_TEAMS,
+    ("POST", "/api/v1/teams/"): _FU_TEAMS,
+    ("GET", "/api/v1/teams/<int:team_id>"): _FU_TEAMS,
+    ("PATCH", "/api/v1/teams/<int:team_id>"): _FU_TEAMS,
+    ("DELETE", "/api/v1/teams/<int:team_id>"): _FU_TEAMS,
+    ("GET", "/api/v1/teams/<int:team_id>/members"): _FU_TEAMS,
+    ("POST", "/api/v1/teams/<int:team_id>/members"): _FU_TEAMS,
+    ("DELETE", "/api/v1/teams/<int:team_id>/members/<int:user_id>"): _FU_TEAMS,
+    ("GET", "/api/v1/teams/<int:team_id>/resources"): _FU_TEAMS,
+    ("POST", "/api/v1/teams/<int:team_id>/resources"): _FU_TEAMS,
+    ("DELETE", "/api/v1/teams/<int:team_id>/resources/<int:assignment_id>"): _FU_TEAMS,
+    # Clouds
+    ("GET", "/api/v1/clouds/"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>"): _FU_CLOUDS,
+    ("PUT", "/api/v1/clouds/<int:provider_id>"): _FU_CLOUDS,
+    ("DELETE", "/api/v1/clouds/<int:provider_id>"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/<int:provider_id>/test"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>/images"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>/regions"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>/sizes"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines"): _FU_CLOUDS,
+    ("GET", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"): _FU_CLOUDS,
+    ("DELETE", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/start"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/stop"): _FU_CLOUDS,
+    ("POST", "/api/v1/clouds/<int:provider_id>/machines/<machine_id>/reboot"): _FU_CLOUDS,
+    # iPXE reads (raw row echo)
+    ("GET", "/api/v1/ipxe/config"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/boot-configs"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/boot-configs/<int:config_id>/preview"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/images"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/images/<int:image_id>"): _FU_IPXE_READ,
+    ("GET", "/api/v1/ipxe/elder/status"): _FU_ELDER_STATUS,
+    # iPXE machines
+    ("GET", "/api/v1/ipxe/machines"): _FU_IPXE_MACHINES,
+    ("GET", "/api/v1/ipxe/machines/<string:machine_id>"): _FU_IPXE_MACHINES,
+    ("DELETE", "/api/v1/ipxe/machines/<string:machine_id>"): _FU_IPXE_MACHINES,
+    ("PUT", "/api/v1/ipxe/machines/<string:machine_id>/biomes"): _FU_IPXE_MACHINES,
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/commission"): _FU_IPXE_MACHINES,
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/deploy"): _FU_IPXE_MACHINES,
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/release"): _FU_IPXE_MACHINES,
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/power/<string:action>"): _FU_IPXE_MACHINES,
+    ("POST", "/api/v1/ipxe/machines/<string:machine_id>/sync-elder"): _FU_IPXE_MACHINES,
+    # Agents
+    ("GET", "/api/v1/agents/"): _FU_AGENTS,
+    ("GET", "/api/v1/agents/<agent_id>"): _FU_AGENTS,
+    ("POST", "/api/v1/agents/<agent_id>/suspend"): _FU_AGENTS,
+    ("POST", "/api/v1/agents/<agent_id>/resume"): _FU_AGENTS,
+    ("GET", "/api/v1/agents/enrollment-keys"): _FU_AGENTS,
+    ("POST", "/api/v1/agents/enrollment-keys"): _FU_AGENTS,
+    ("DELETE", "/api/v1/agents/enrollment-keys/<int:key_id>"): _FU_AGENTS,
+    # Shell
+    ("GET", "/api/v1/shell/sessions"): _FU_SHELL,
+    ("POST", "/api/v1/shell/sessions"): _FU_SHELL,
+    ("DELETE", "/api/v1/shell/sessions/<session_id>"): _FU_SHELL,
+    # Biome deployments / upgrade runs
+    ("GET", "/api/v1/biomes/deployments"): _FU_DEPLOYMENTS,
+    ("GET", "/api/v1/biomes/deployments/<string:deployment_id>"): _FU_DEPLOYMENTS,
+    ("GET", "/api/v1/biomes/deployments/<string:deployment_id>/logs"): _FU_DEPLOYMENTS,
+    ("POST", "/api/v1/biomes/deployments/<string:deployment_id>/cancel"): _FU_DEPLOYMENTS,
+    ("GET", "/api/v1/biomes/<int:biome_id>/upgrade-runs/<run_id>"): _FU_DEPLOYMENTS,
+    # Nodes
+    ("POST", "/api/v1/nodes/<int:node_id>/lxd/join"): _FU_NODE_LXD_JOIN,
+}
 
 
 # ==============================================================================
@@ -251,6 +456,14 @@ def assert_policy_well_formed() -> None:
     for anon_path in ANONYMOUS_PATHS:
         if anon_path in policy_keys:
             raise ValueError(f"Anonymous path {anon_path} conflicts with policy")
+
+    # An intentionally-unmapped route must stay unreachable: never granted a
+    # scope or anonymous access, and always carrying its follow-up reason.
+    for unmapped, reason in INTENTIONALLY_UNMAPPED.items():
+        if unmapped in policy_keys or unmapped in ANONYMOUS_PATHS:
+            raise ValueError(f"Intentionally-unmapped route {unmapped} is also granted")
+        if not reason or "Follow-up:" not in reason:
+            raise ValueError(f"Intentionally-unmapped route {unmapped} lacks a follow-up")
 
 
 # Enforce well-formedness at import time

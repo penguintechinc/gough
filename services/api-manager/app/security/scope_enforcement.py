@@ -167,6 +167,34 @@ def lookup_required_scopes(
     return None
 
 
+def _canonical_rule(rule: str) -> str:
+    """Canonicalise a route template: strip trailing slash, erase converters."""
+    if len(rule) > 1 and rule.endswith("/"):
+        rule = rule.rstrip("/")
+    return re.sub(r"<[^>]+>", "<>", rule)
+
+
+_CANONICAL_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
+    (method, _canonical_rule(path)): scopes for (method, path), scopes in SCOPE_POLICY.items()
+}
+
+
+def lookup_required_scopes_for_rule(
+    method: str,
+    rule: str,
+) -> frozenset[str] | None:
+    """Look up the policy entry for the route template Quart actually matched.
+
+    Matching on the routed template (``request.url_rule.rule``) rather than
+    regex-matching the concrete path closes template shadowing: e.g. the
+    concrete path ``/api/v1/biomes/deployments`` regex-matches the policy
+    template ``/api/v1/biomes/<int:biome_id>`` and used to inherit its scope,
+    although Quart routes it to a different handler. Returns None (fail
+    closed) when the matched route has no entry of its own.
+    """
+    return _CANONICAL_POLICY.get((method, _canonical_rule(rule)))
+
+
 def require_scopes(*required_scopes: str) -> Callable:
     """Decorator to enforce scope requirements on a handler.
 
@@ -244,8 +272,14 @@ async def scope_enforcement_middleware(app) -> None:
         if is_anonymous_request(method, path):
             return
 
-        # Lookup scopes in policy
-        required_scopes = lookup_required_scopes(method, path)
+        # Lookup scopes in policy: by the matched route template when Quart
+        # routed the request (no template shadowing), else by concrete path
+        # (unrouted requests, which Quart answers 404/405 anyway).
+        url_rule = request.url_rule
+        if url_rule is not None:
+            required_scopes = lookup_required_scopes_for_rule(method, url_rule.rule)
+        else:
+            required_scopes = lookup_required_scopes(method, path)
 
         if required_scopes is None:
             # Endpoint not in policy: fail-closed (deny by default)
