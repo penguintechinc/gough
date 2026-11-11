@@ -53,8 +53,6 @@ services:
     build:
       context: ./services/api-manager
       dockerfile: Dockerfile
-      additional_contexts:
-        penguin-libs: ../penguin-libs
     container_name: gough-api-manager
     environment:
       # Database configuration

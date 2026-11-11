@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Pre-commit hook: fast checks on STAGED files only (<30s). Full gate: `make pre-commit`.
+# Runs the count ratchet in staged mode (new files must be clean, modified files must not
+# get worse) plus gitleaks on the staged diff. Never runs Go tooling.
+# Fails if nothing was staged or if a required tool is missing. Bash 3.2-compatible.
+set -euo pipefail
+
+cd "$(git rev-parse --show-toplevel)"
+
+STAGED=$(git diff --cached --name-only --diff-filter=ACMR | wc -l | tr -d ' ')
+if [ "$STAGED" -eq 0 ]; then
+    echo "pre-commit: FAIL: no staged files, nothing was examined"
+    exit 1
+fi
+
+FAILED=0
+
+echo "pre-commit: count ratchet (staged mode): $STAGED staged file(s)"
+python3 scripts/quality_ratchet.py staged || FAILED=$((FAILED + 1))
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+    echo "pre-commit: FAIL: gitleaks not installed, $STAGED staged file(s) NOT scanned"
+    exit 1
+fi
+echo "pre-commit: gitleaks protect --staged: $STAGED staged file(s)"
+gitleaks protect --staged --redact --no-banner --exit-code 1 || FAILED=$((FAILED + 1))
+
+if [ "$FAILED" -gt 0 ]; then
+    echo "pre-commit: FAIL: $FAILED check(s) failed - commit blocked (full gate: make pre-commit)"
+    exit 1
+fi
+echo "pre-commit: PASS: $STAGED staged file(s) clean"

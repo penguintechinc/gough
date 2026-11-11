@@ -1,0 +1,10 @@
+# Single Python linter/formatter for the repo (replaces flake8, black, isort).
+# Pre-existing findings are capped by the count ratchet (.quality-baseline.json).
+target-version = "py313"
+line-length = 120
+extend-exclude = [".venv", "venv", "node_modules", ".worktrees", ".claude"]
+
+[lint]
+select = ["E", "F", "W", "I", "B"]
+# E501: line length is the formatter's job, matching the previous flake8 config.
+ignore = ["E501"]
