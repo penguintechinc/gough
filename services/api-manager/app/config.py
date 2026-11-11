@@ -8,7 +8,7 @@ class Config:
     """Base configuration."""
 
     # Flask/Quart core configuration
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-change-in-production")
+    SECRET_KEY = os.getenv("SECRET_KEY", "")
     DEBUG = os.getenv("QUART_DEBUG", "false").lower() == "true"
     TESTING = False
     PROPAGATE_EXCEPTIONS = None
@@ -19,9 +19,7 @@ class Config:
     PROVIDE_AUTOMATIC_OPTIONS = True
 
     # Flask-Security-Too Configuration (mandatory per CLAUDE.md)
-    SECURITY_PASSWORD_SALT = os.getenv(
-        "SECURITY_PASSWORD_SALT", "dev-salt-change-in-production"
-    )
+    SECURITY_PASSWORD_SALT = os.getenv("SECURITY_PASSWORD_SALT", "")
     SECURITY_PASSWORD_HASH = "bcrypt"
     SECURITY_REGISTERABLE = True
     SECURITY_SEND_REGISTER_EMAIL = False
@@ -73,7 +71,7 @@ class Config:
     DB_PORT = os.getenv("DB_PORT", "5432")
     DB_NAME = os.getenv("DB_NAME", "gough_db")
     DB_USER = os.getenv("DB_USER", "gough_user")
-    DB_PASS = os.getenv("DB_PASS", "gough_pass")
+    DB_PASS = os.getenv("DB_PASS", "")
     DB_POOL_SIZE = int(os.getenv("DB_POOL_SIZE", "10"))
 
     # Secrets Management
@@ -119,8 +117,10 @@ class Config:
     # hitting this default.
     CORS_ORIGINS = os.getenv("CORS_ORIGINS", "")
 
-    # Redis (for caching and sessions)
-    REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+    # Redis (for caching and sessions). Opt-in: unset means "not configured"
+    # (in-memory rate limiting, no cache). When set it MUST embed a strong
+    # password -- enforced at startup by app/security/required_secrets.py.
+    REDIS_URL = os.getenv("REDIS_URL", "")
 
     # Rate Limiting
     RATE_LIMIT_ENABLED = os.getenv("RATE_LIMIT_ENABLED", "true").lower() == "true"
@@ -177,40 +177,18 @@ class Config:
 
     @classmethod
     def validate_secrets(cls) -> None:
-        """Validate that secrets are properly configured.
+        """Validate that required secrets are configured (called by create_app).
 
-        In production/non-development environments, raises RuntimeError if any
-        critical secrets still have their dev-default values. Dev/test
-        environments can use defaults.
+        Delegates to app.security.required_secrets for every config class --
+        no DEBUG/TESTING bypass; tests supply explicit strong values.
 
         Raises:
-            RuntimeError: If running in production with dev-default secrets.
+            MissingSecretError: If any required secret is unset, empty or a
+                known default (a RuntimeError subclass).
         """
-        # Only enforce strict validation for production (non-DEBUG, non-TESTING)
-        is_dev_or_test = cls.DEBUG or cls.TESTING
-        if is_dev_or_test:
-            return
+        from .security.required_secrets import validate_required_secrets
 
-        # Check SECRET_KEY
-        if cls.SECRET_KEY == "dev-secret-key-change-in-production":
-            raise RuntimeError(
-                "SECRET_KEY is set to dev default in production. "
-                "Set SECRET_KEY environment variable to a secure random value."
-            )
-
-        # Check JWT_SECRET_KEY
-        if cls.JWT_SECRET_KEY == "dev-secret-key-change-in-production":
-            raise RuntimeError(
-                "JWT_SECRET_KEY is set to dev default in production. "
-                "Set JWT_SECRET_KEY environment variable to a secure random value."
-            )
-
-        # Check SECURITY_PASSWORD_SALT
-        if cls.SECURITY_PASSWORD_SALT == "dev-salt-change-in-production":
-            raise RuntimeError(
-                "SECURITY_PASSWORD_SALT is set to dev default in production. "
-                "Set SECURITY_PASSWORD_SALT environment variable to a secure random value."
-            )
+        validate_required_secrets(cls)
 
 
 class DevelopmentConfig(Config):

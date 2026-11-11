@@ -9,16 +9,9 @@ data:
   DB_NAME: gough
   DB_USER: gough
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: api-manager-secret
-type: Opaque
-stringData:
-  DB_PASS: changeme-in-production
-  SECRET_KEY: changeme-in-production
-  JWT_SECRET_KEY: changeme-jwt-secret
-  WORKER_API_KEY: worker-secret
+# Secret "api-manager-secret" is NOT committed -- create it out-of-band
+# (ESO / Sealed Secrets / kubectl) before applying. Required keys:
+# DB_PASS, JWT_SECRET_KEY, SECRET_KEY, WORKER_API_KEY. See docs/KUBERNETES.md "Required Secrets".
 ---
 apiVersion: apps/v1
 kind: Deployment

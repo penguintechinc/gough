@@ -129,9 +129,26 @@ create_namespace() {
     fi
 }
 
+# Fail loud when the out-of-band Secrets are missing -- secret values are never
+# committed (see docs/KUBERNETES.md "Required Secrets").
+require_secrets() {
+    local missing=0
+    for secret in postgres-secret api-manager-secret worker-ipxe-secret; do
+        if ! kubectl get secret "$secret" -n "$NAMESPACE" >/dev/null 2>&1; then
+            log_error "Required Secret '${secret}' not found in namespace ${NAMESPACE}"
+            missing=1
+        fi
+    done
+    if [ "$missing" -ne 0 ]; then
+        log_error "Create the Secrets first -- see docs/KUBERNETES.md \"Required Secrets\""
+        exit 1
+    fi
+}
+
 # Apply Kubernetes manifests
 apply_manifests() {
     log_info "Applying Kubernetes manifests..."
+    require_secrets
 
     # Update image references in manifests
     export REGISTRY_URL="$REGISTRY"

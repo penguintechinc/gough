@@ -9,13 +9,9 @@ data:
   TFTP_ENABLED: "true"
   HTTP_PORT: "8080"
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: worker-ipxe-secret
-type: Opaque
-stringData:
-  WORKER_API_KEY: worker-secret
+# Secret "worker-ipxe-secret" is NOT committed -- create it out-of-band
+# (ESO / Sealed Secrets / kubectl) before applying. Required keys:
+# WORKER_API_KEY. See docs/KUBERNETES.md "Required Secrets".
 ---
 apiVersion: apps/v1
 kind: DaemonSet

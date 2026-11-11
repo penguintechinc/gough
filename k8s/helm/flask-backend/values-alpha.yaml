@@ -3,7 +3,9 @@ namespace: gough
 replicaCount: 1
 image:
   pullPolicy: Never
-env:
+# Merged over values.yaml env by name (see templates/deployment.yaml) --
+# never replaces the base list, so secretKeyRefs survive.
+extraEnv:
   - name: LOG_LEVEL
     value: "DEBUG"
   - name: RELEASE_MODE

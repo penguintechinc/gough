@@ -181,7 +181,7 @@ alembic>=1.12.0
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATABASE_URL` | `postgresql://postgres:postgres@postgres:5432/management` | Database connection |
-| `REDIS_URL` | `redis://redis:6379/0` | Redis connection |
+| `REDIS_URL` | unset (Redis disabled) | Redis connection; when set must embed a strong password (`redis://:<password>@host:6379/0`) or startup fails |
 | `MAAS_URL` | `http://maas:5240/MAAS/` | MaaS API URL |
 | `FLEET_URL` | `https://fleetdm:8443` | FleetDM URL |
 | `SECRET_KEY` | - | Application secret key |

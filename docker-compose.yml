@@ -8,7 +8,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-gough}
       POSTGRES_USER: ${POSTGRES_USER:-gough}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gough}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (generate with openssl rand -base64 48)}
       POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
     expose:
       - "5432"
@@ -63,7 +63,7 @@ services:
       - DB_PORT=5432
       - DB_NAME=${POSTGRES_DB:-gough}
       - DB_USER=${POSTGRES_USER:-gough}
-      - DB_PASS=${POSTGRES_PASSWORD:-gough}
+      - DB_PASS=${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD (generate with openssl rand -base64 48)}
       # Storage configuration (optional - can be configured via API/WebUI)
       - STORAGE_ENDPOINT=${STORAGE_ENDPOINT:-}
       - STORAGE_ACCESS_KEY=${STORAGE_ACCESS_KEY:-}
@@ -72,9 +72,9 @@ services:
       - STORAGE_BUCKET_BIOMES=${STORAGE_BUCKET_BIOMES:-gough-biomes}
       - STORAGE_BUCKET_LXD=${STORAGE_BUCKET_LXD:-gough-lxd-images}
       # Security
-      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
-      - SECURITY_PASSWORD_SALT=${SECURITY_PASSWORD_SALT:-change-me-salt}
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-change-me-jwt-secret}
+      - SECRET_KEY=${SECRET_KEY:?set SECRET_KEY (generate with openssl rand -base64 48)}
+      - SECURITY_PASSWORD_SALT=${SECURITY_PASSWORD_SALT:?set SECURITY_PASSWORD_SALT (generate with openssl rand -base64 48)}
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:?set JWT_SECRET_KEY (generate with openssl rand -base64 48)}
       - WORKER_API_KEY=${WORKER_API_KEY:-worker-secret}
       # Admin user
       - ADMIN_EMAIL=${ADMIN_EMAIL:-admin@gough.local}

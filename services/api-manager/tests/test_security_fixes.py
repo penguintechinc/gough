@@ -245,7 +245,7 @@ class TestConfigValidationFailClosed:
                     "SECRET_KEY",
                     "dev-secret-key-change-in-production",
                 ):
-                    with pytest.raises(RuntimeError, match="SECRET_KEY is set to dev default"):
+                    with pytest.raises(RuntimeError, match="SECRET_KEY"):
                         ProductionConfig.validate_secrets()
 
     def test_production_config_with_dev_jwt_secret_raises(self):
@@ -261,7 +261,7 @@ class TestConfigValidationFailClosed:
                         "JWT_SECRET_KEY",
                         "dev-secret-key-change-in-production",
                     ):
-                        with pytest.raises(RuntimeError, match="JWT_SECRET_KEY is set to dev default"):
+                        with pytest.raises(RuntimeError, match="JWT_SECRET_KEY"):
                             ProductionConfig.validate_secrets()
 
     def test_production_config_with_dev_password_salt_raises(self):
@@ -281,7 +281,7 @@ class TestConfigValidationFailClosed:
                             "dev-salt-change-in-production",
                         ):
                             with pytest.raises(
-                                RuntimeError, match="SECURITY_PASSWORD_SALT is set to dev default"
+                                RuntimeError, match="SECURITY_PASSWORD_SALT"
                             ):
                                 ProductionConfig.validate_secrets()
 
@@ -302,10 +302,10 @@ class TestConfigValidationFailClosed:
                             # Should not raise
                             ProductionConfig.validate_secrets()
 
-    def test_development_config_with_dev_secrets_allowed(self):
-        """Development config allows dev-default secrets.
+    def test_development_config_with_dev_secrets_rejected(self):
+        """Development config no longer bypasses validation (fail-closed).
 
-        Regression: gh-SECURITY-FIX-3
+        Regression: gh-SECURITY-FIX-3; k8s default-secrets triage 2026-11-10
         """
         with patch.object(DevelopmentConfig, "DEBUG", True):
             with patch.object(DevelopmentConfig, "TESTING", False):
@@ -324,13 +324,13 @@ class TestConfigValidationFailClosed:
                             "SECURITY_PASSWORD_SALT",
                             "dev-salt-change-in-production",
                         ):
-                            # Should not raise in dev mode
-                            DevelopmentConfig.validate_secrets()
+                            with pytest.raises(RuntimeError, match="SECRET_KEY"):
+                                DevelopmentConfig.validate_secrets()
 
-    def test_testing_config_with_dev_secrets_allowed(self):
-        """Testing config allows dev-default secrets.
+    def test_testing_config_with_dev_secrets_rejected(self):
+        """Testing config no longer bypasses validation; tests pass strong values.
 
-        Regression: gh-SECURITY-FIX-3
+        Regression: gh-SECURITY-FIX-3; k8s default-secrets triage 2026-11-10
         """
         from app.config import TestingConfig
 
@@ -351,8 +351,8 @@ class TestConfigValidationFailClosed:
                             "SECURITY_PASSWORD_SALT",
                             "dev-salt-change-in-production",
                         ):
-                            # Should not raise in test mode
-                            TestingConfig.validate_secrets()
+                            with pytest.raises(RuntimeError, match="SECRET_KEY"):
+                                TestingConfig.validate_secrets()
 
     @pytest.mark.asyncio
     async def test_create_app_calls_validate_secrets(self):
