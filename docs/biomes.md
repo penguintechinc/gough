@@ -21,7 +21,7 @@ biomes/
 - Stdlib only. The renderer runs on bare hosts (the installer imports it); no pip. A test fails if any module under `_lib` imports a non-stdlib package.
 - Manifests are JSON (`biome.json`). Templates are plain text.
 - Tests: `python3 -I -W error -m unittest discover -s biomes/tests -p 'test_*.py'`. Needs `shellcheck` on PATH; a missing tool fails the test.
-- Render: `python3 -I biomes/_lib/render.py --biome biomes/k8s-worker --params params.json --out OUT` writes `user-data`, `network-config`, `profile.json`, `instance.json` (mode 0600), or exits 1 with no output.
+- Render: `python3 -I biomes/_lib/render.py --biome biomes/k8s-worker --params params.json --out OUT` writes `user-data`, `network-config`, `profile.json`, `instance.json` (mode 0600) and `host-requirements.json` (mode 0644), or exits 1 with no output.
 
 ## Manifest (`biome.json`)
 
@@ -33,9 +33,23 @@ biomes/
 | `lxd.config` | `security.nesting`, `security.privileged`, `linux.kernel_modules`, `raw.lxc` (runbook section 3). |
 | `lxd.devices.eth0` | Bridged NIC on `{{ bridge }}`. |
 | `resources` | Default and minimum `cpu_cores`, `memory`, `root_disk` (default, min, pool). See Resources. |
+| `host_requirements` | Optional. What the hypervisor host must provide before the instance exists. See Host requirements. |
 | `parameters[]` | `name`, `type` (`string`, `int`, `enum` or `bool`), `required`, `default`, `pattern` (full-match regex), `scheme` (`mirror`, see below), `secret`, `resource` (resource params, see Resources), `description`. |
 
 Placeholders are `{{ name }}`. Parameters are the only input. Values containing control characters, `"` or `\` are rejected, so templates can quote them safely.
+
+### Host requirements
+
+LXD containers cannot load kernel modules. `lxd.config` `linux.kernel_modules` makes LXD load them at instance start only; that runs after the instance exists and does not persist across host reboots. `host_requirements` covers the host side.
+
+| Field | Rule |
+|---|---|
+| `kernel_modules` | Required inside the block. List of module names, each `^[a-z0-9_]{1,56}$`, no duplicates. Both k8s biomes declare `["wireguard"]` (Cilium WireGuard). |
+
+- Unknown keys, wrong types, invalid names and duplicates fail the render.
+- The renderer writes `host-requirements.json` (`{"kernel_modules": [...]}`, sorted keys, mode 0644). No block means `{"kernel_modules": []}`.
+- `scripts/lxd-k8s/hypervisor-prep.sh` reads it right after rendering, before it creates the profile or instance. For each module it runs `modprobe` (fails loudly with the module name and `uname -r`), writes `/etc/modules-load.d/<name>.conf` containing only the name (only when the content differs), and checks `/sys/module/<name>` (or `modules.builtin`). The host `kernel` step (`KERNEL_MODULES`, which includes `wireguard` by default) uses the same per-module files, so the biome step writes nothing again.
+- Also list the module in `lxd.config` `linux.kernel_modules`.
 
 ### Cleartext policy
 

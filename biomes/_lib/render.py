@@ -26,6 +26,10 @@ UNIT_BYTES = {"KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
 INT_RE = re.compile(r"^[1-9][0-9]{0,3}$")
 # Reserved caller flags: accepted by any biome, never rendered into params.env. Not manifest parameters.
 RESERVED_FLAGS = ("accept_host_root_risk",)
+MODULE_RE = re.compile(r"^[a-z0-9_]{1,56}$")
+HOST_REQUIREMENT_KEYS = ("kernel_modules",)
+# Output files the hypervisor driver reads without secrets; every other output stays 0600.
+OUTPUT_MODES = {"host-requirements.json": 0o644}
 
 
 class RenderError(Exception):
@@ -278,6 +282,35 @@ def build_profile(manifest, resolved, values, accept_host_root_risk=False):
     }
 
 
+def resolve_host_requirements(manifest):
+    """Validate the optional host_requirements block and return it normalised for host-requirements.json.
+
+    The hypervisor applies these on the host before any instance exists (LXD containers cannot load kernel modules).
+    A biome without the block yields an empty module list; any malformed content fails rendering loudly.
+    """
+    if "host_requirements" not in manifest:
+        return {"kernel_modules": []}
+    block = manifest["host_requirements"]
+    if not isinstance(block, dict):
+        raise RenderError("manifest host_requirements must be an object")
+    unknown = sorted(set(block) - set(HOST_REQUIREMENT_KEYS))
+    if unknown:
+        raise RenderError("manifest host_requirements has unknown keys: " + ", ".join(unknown))
+    if "kernel_modules" not in block:
+        raise RenderError("manifest host_requirements missing key: kernel_modules")
+    modules = block["kernel_modules"]
+    if not isinstance(modules, list):
+        raise RenderError("manifest host_requirements.kernel_modules must be a list")
+    seen = set()
+    for module in modules:
+        if not isinstance(module, str) or not MODULE_RE.fullmatch(module):
+            raise RenderError(f"manifest host_requirements.kernel_modules entry {module!r} is not a valid module name")
+        if module in seen:
+            raise RenderError(f"manifest host_requirements.kernel_modules has duplicate entry {module!r}")
+        seen.add(module)
+    return {"kernel_modules": list(modules)}
+
+
 def build_instance(limits):
     """Build the per-instance document piped to `lxc launch`: limits and root disk for this instance only.
 
@@ -310,11 +343,12 @@ CROSS_CHECKS = (report_checks,)
 
 
 def render_biome(biome_dir, supplied, allowed_pools=None):
-    """Render user-data, network-config and profile.json for one biome instance.
+    """Render user-data, network-config, profile.json, instance.json and host-requirements.json for one biome instance.
 
     allowed_pools comes from the trusted caller (hub or installer), never from tenant-supplied parameters.
     """
     manifest = load_manifest(biome_dir)
+    host_requirements = resolve_host_requirements(manifest)
     resolved = resolve_params(manifest, supplied)
     limits = resolve_resources(manifest, resolved, allowed_pools)
     for check in CROSS_CHECKS:
@@ -335,6 +369,7 @@ def render_biome(biome_dir, supplied, allowed_pools=None):
     profile = build_profile(manifest, resolved, values, _reserved_flag(supplied, "accept_host_root_risk"))
     outputs["profile.json"] = json.dumps(profile, indent=2, sort_keys=True) + "\n"
     outputs["instance.json"] = json.dumps(build_instance(limits), indent=2, sort_keys=True) + "\n"
+    outputs["host-requirements.json"] = json.dumps(host_requirements, indent=2, sort_keys=True) + "\n"
     return outputs
 
 
@@ -360,8 +395,9 @@ def main(argv=None):
         return 1
     os.makedirs(args.out, exist_ok=True)
     for name, text in outputs.items():
-        fd = os.open(os.path.join(args.out, name), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        os.fchmod(fd, 0o600)  # O_CREAT ignores mode for pre-existing files; enforce 0600 on reused output dirs
+        mode = OUTPUT_MODES.get(name, 0o600)
+        fd = os.open(os.path.join(args.out, name), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+        os.fchmod(fd, mode)  # O_CREAT ignores mode (and umask applies); enforce the exact mode on reused output dirs
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(text)
     return 0

@@ -125,7 +125,13 @@ cat > "${WORK}/bin/systemctl" <<'EOF'
 printf 'systemctl %s\n' "$*" >> "${STUB_LOG}"
 if [[ "$1" == is-active ]]; then [[ "${STUB_SOCKET:-0}" == 1 ]]; else exit 0; fi
 EOF
-chmod 0755 "${WORK}/bin/lxc" "${WORK}/bin/ip" "${WORK}/bin/netplan" "${WORK}/bin/snap" "${WORK}/bin/systemctl"
+cat > "${WORK}/bin/modprobe" <<'EOF'
+#!/usr/bin/env bash
+# modprobe stub: logs the call in the shared stub log (so order against lxc is checkable) and marks the module loaded.
+printf 'modprobe %s\n' "$*" >> "${STUB_LOG}"
+mkdir -p "${SYS_MODULE_DIR}/$1"
+EOF
+chmod 0755 "${WORK}/bin/lxc" "${WORK}/bin/ip" "${WORK}/bin/netplan" "${WORK}/bin/snap" "${WORK}/bin/systemctl" "${WORK}/bin/modprobe"
 
 DRIVER="${WORK}/driver.sh"
 cat > "${DRIVER}" <<'EOF'
@@ -200,6 +206,7 @@ run_driver() {
   done
   if OUT="$(env -i PATH="${WORK}/bin:/usr/bin:/bin" STUB_BIN="${WORK}/bin" NODE_ENV_FILE="${node}" STUB_DIR="${CD}" STUB_LOG="${LOG}" \
       NETPLAN_OUT="${CD}/netplan.yaml" SYSFS_NET="${SYS}" BIOMES_DIR="${BIOMES_WORK}" \
+      MODULES_LOAD_DIR="${CD}/modules-load.d" SYS_MODULE_DIR="${CD}/sys-module" MODULES_BUILTIN_FILE="${CD}/modules.builtin" \
       "${COMMON[@]}" ${extra[@]+"${extra[@]}"} bash "${DRIVER}" "${HYP}" "${cmd}" 2>&1)"; then
     RC=0
   else
@@ -314,6 +321,11 @@ case_begin "success: biome flow, order, 0600 push, no lxc exec, token confined"
 mk_node "${CD}/node.env"
 run_driver "${CD}/node.env"
 want_rc 0
+want_order "^modprobe wireguard$" "^profile "
+want_order "^modprobe wireguard$" "^init "
+[[ "$(cat "${CD}/modules-load.d/wireguard.conf" 2>/dev/null)" == "wireguard" ]] || check_fail "wireguard.conf not written with the module name"
+has_fixed "${CD}/render/host-requirements.json" '"wireguard"'
+want_out "host kernel modules: 1 examined \\(wireguard\\)"
 want_order "^profile edit " "^init ubuntu:26.04 k3-worker -p default -p gough-k8s-worker$"
 want_order "^init " "^file push --mode 0600"
 want_order "^file push --mode 0600" "^start k3-worker$"

@@ -275,7 +275,7 @@ class RenderOutputTests(unittest.TestCase):
     def test_controller_renders_all_outputs(self):
         """Controller render yields user-data, network-config and profile with no leftover placeholders."""
         outputs = render.render_biome(CTL_DIR, controller_params())
-        self.assertEqual(set(outputs), {"user-data", "network-config", "profile.json", "instance.json"})
+        self.assertEqual(set(outputs), {"user-data", "network-config", "profile.json", "instance.json", "host-requirements.json"})
         for name, text in outputs.items():
             self.assertNotIn("{{", text, name)
 
@@ -351,7 +351,10 @@ class RenderOutputTests(unittest.TestCase):
                 json.dump(worker_params(), fh)
             out = os.path.join(tmp, "out")
             self.assertEqual(render.main(["--biome", WRK_DIR, "--params", params_path, "--out", out]), 0)
-            self.assertEqual(sorted(os.listdir(out)), ["instance.json", "network-config", "profile.json", "secrets.env", "user-data"])
+            self.assertEqual(
+                sorted(os.listdir(out)),
+                ["host-requirements.json", "instance.json", "network-config", "profile.json", "secrets.env", "user-data"],
+            )
             bad_path = os.path.join(tmp, "bad.json")
             with open(bad_path, "w", encoding="utf-8") as fh:
                 json.dump({}, fh)

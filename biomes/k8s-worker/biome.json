@@ -8,7 +8,7 @@
     "profile_name": "gough-k8s-worker",
     "config": {
       "security.nesting": true,
-      "linux.kernel_modules": "ip_tables,ip6_tables,nf_nat,overlay,br_netfilter"
+      "linux.kernel_modules": "ip_tables,ip6_tables,nf_nat,overlay,br_netfilter,wireguard"
     },
     "privileged_config": {
       "security.privileged": true,
@@ -22,6 +22,11 @@
         "name": "eth0"
       }
     }
+  },
+  "host_requirements": {
+    "kernel_modules": [
+      "wireguard"
+    ]
   },
   "secrets_file": true,
   "resources": {

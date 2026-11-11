@@ -4,7 +4,7 @@
 # kernel, netplan, lxd, profile, worker, ssh, help. --dry-run (or DRY_RUN=1) logs actions without running them.
 #
 # Worker flow: the k8s-worker biome in BIOMES_DIR is the single source of truth for the guest; this script only renders it.
-#   render (_lib/render.py) -> LXD profile -> lxc init (STOPPED) -> config + cloud-init -> lxc file push secrets.env
+#   render (_lib/render.py) -> host kernel modules (host-requirements.json) -> LXD profile -> lxc init (STOPPED) -> config + cloud-init -> lxc file push secrets.env
 #   -> lxc start -> poll biome-report.done via lxc file pull -> confirm secrets.env gone via lxc file pull
 # The only lxc file push is secrets.env (mode 0600). The biome never sees the host. lxc exec is never run on the
 # success path. SUPERSEDED: k8s-worker-bootstrap.sh (pushed and exec'd by older revisions) stays on disk untouched
@@ -31,7 +31,11 @@
 #   LXD_SNAP_ASSERT        [unset]          airgap: matching .assert file
 #   STORAGE_POOL           [default]        LXD storage pool for the root disk (the only pool the biome permits)
 #   STORAGE_DRIVER         [dir]            LXD storage driver for that pool
-#   KERNEL_MODULES         [ip_tables ip6_tables nf_nat overlay br_netfilter]  space-separated
+#   KERNEL_MODULES         [ip_tables ip6_tables nf_nat overlay br_netfilter wireguard]  space-separated; each is loaded and
+#                                           persisted as MODULES_LOAD_DIR/<name>.conf (same path the biome host_requirements use)
+#   MODULES_LOAD_DIR       [/etc/modules-load.d]  persistence directory for host kernel modules (overridable for tests)
+#   SYS_MODULE_DIR         [/sys/module]    loaded-module check; a built-in module is accepted via MODULES_BUILTIN_FILE
+#   MODULES_BUILTIN_FILE   [/lib/modules/<uname -r>/modules.builtin]  list of built-in modules (overridable for tests)
 #   BOND_NAME              [bond0]          LACP bond (802.3ad, lacp-rate slow, layer2 hash); no addresses
 #   BRIDGE_NAME            [br0]            bridge over bond0; LXD worker NIC attaches here (TOBOGGANING=0)
 #   BOND_MEMBER_1          [auto]           first NIC of the application bond (set both or neither; see detection)
@@ -388,7 +392,10 @@ DRY_RUN="${DRY_RUN:-0}"
 LXD_SNAP_CHANNEL="${LXD_SNAP_CHANNEL:-latest/stable}"
 STORAGE_POOL="${STORAGE_POOL:-default}"
 STORAGE_DRIVER="${STORAGE_DRIVER:-dir}"
-KERNEL_MODULES="${KERNEL_MODULES:-ip_tables ip6_tables nf_nat overlay br_netfilter}"
+KERNEL_MODULES="${KERNEL_MODULES:-ip_tables ip6_tables nf_nat overlay br_netfilter wireguard}"
+MODULES_LOAD_DIR="${MODULES_LOAD_DIR:-/etc/modules-load.d}"
+SYS_MODULE_DIR="${SYS_MODULE_DIR:-/sys/module}"
+MODULES_BUILTIN_FILE="${MODULES_BUILTIN_FILE:-/lib/modules/$(uname -r)/modules.builtin}"
 BOND_NAME="${BOND_NAME:-bond0}"
 BRIDGE_NAME="${BRIDGE_NAME:-br0}"
 SYSFS_NET="${SYSFS_NET:-/sys/class/net}"
@@ -1144,12 +1151,16 @@ validate_network_inputs() {
 }
 
 # host_kernel_prereqs loads and persists the kernel modules, enables ip_forward, and ensures bpffs.
+# Modules go through apply_host_kernel_modules, the same per-module path biome host_requirements use, so a later
+# biome launch finds MODULES_LOAD_DIR/<name>.conf already correct and writes nothing.
 host_kernel_prereqs() {
+  local -a mods=()
   local mod
   for mod in ${KERNEL_MODULES}; do
-    run modprobe "${mod}"
+    mods+=("${mod}")
   done
-  render_modules | write_file_if_changed /etc/modules-load.d/k8s-lxd.conf 0644
+  [[ ${#mods[@]} -gt 0 ]] || die "KERNEL_MODULES is empty; at least the default host modules are required"
+  apply_host_kernel_modules "${mods[@]}"
   if [[ "$(cat /proc/sys/net/ipv4/ip_forward)" != "1" ]]; then
     run sysctl -w net.ipv4.ip_forward=1
   fi
@@ -1157,12 +1168,64 @@ host_kernel_prereqs() {
   bpffs
 }
 
-# render_modules prints one kernel module per line for modules-load.d.
-render_modules() {
-  local mod
-  for mod in ${KERNEL_MODULES}; do
-    printf '%s\n' "${mod}"
+# module_loaded <name> succeeds when the module is loaded (SYS_MODULE_DIR/<name>) or built into the running kernel.
+module_loaded() {
+  local mod="$1"
+  [[ -d "${SYS_MODULE_DIR}/${mod}" ]] && return 0
+  [[ -f "${MODULES_BUILTIN_FILE}" ]] && grep -qE "/${mod}\.ko(\.[a-z]+)?$" "${MODULES_BUILTIN_FILE}"
+}
+
+# apply_host_kernel_modules <name>... loads each module on the host with modprobe, persists it as
+# MODULES_LOAD_DIR/<name>.conf (written only when content differs, mode 0644) and verifies it is loaded.
+# Idempotent; fails loudly naming the module and the running kernel. LXD containers cannot load modules themselves.
+apply_host_kernel_modules() {
+  local mod examined=0
+  for mod in "$@"; do
+    [[ "${mod}" =~ ^[a-z0-9_]{1,56}$ ]] || die "invalid kernel module name: ${mod}"
+    if [[ "${DRY_RUN}" == "1" ]]; then
+      log "[dry-run] modprobe ${mod}"
+    elif ! modprobe "${mod}"; then
+      die "modprobe ${mod} failed on kernel $(uname -r); the module is missing or cannot load in the running kernel"
+    fi
+    printf '%s\n' "${mod}" | write_file_if_changed "${MODULES_LOAD_DIR}/${mod}.conf" 0644
+    if [[ "${DRY_RUN}" != "1" ]] && ! module_loaded "${mod}"; then
+      die "kernel module ${mod} is not loaded after modprobe (no ${SYS_MODULE_DIR}/${mod}; kernel $(uname -r))"
+    fi
+    examined=$((examined + 1))
   done
+  if [[ $# -gt 0 && "${examined}" -ne $# ]]; then
+    die "host kernel modules: ${examined} of $# examined"
+  fi
+  log "host kernel modules: ${examined} examined ($*)"
+}
+
+# apply_biome_host_requirements <render-dir> reads host-requirements.json from the render output and applies its kernel
+# modules on the host. Parsed with stdlib json (python3 is already required by the renderer); nothing is eval'd.
+apply_biome_host_requirements() {
+  local file="$1/host-requirements.json" listing mod
+  local -a mods=()
+  [[ -f "${file}" ]] || die "renderer produced no host-requirements.json in the render directory"
+  listing="$(python3 -I -c '
+import json, re, sys
+data = json.load(open(sys.argv[1], encoding="utf-8"))
+mods = data.get("kernel_modules") if isinstance(data, dict) else None
+if not isinstance(mods, list):
+    sys.exit("host-requirements.json: kernel_modules must be a list")
+for mod in mods:
+    if not isinstance(mod, str) or not re.fullmatch(r"[a-z0-9_]{1,56}", mod):
+        sys.exit("host-requirements.json: invalid kernel module entry")
+    print(mod)
+' "${file}")" || die "cannot read host-requirements.json (see message above)"
+  while IFS= read -r mod; do
+    if [[ -n "${mod}" ]]; then
+      mods+=("${mod}")
+    fi
+  done <<< "${listing}"
+  if [[ ${#mods[@]} -eq 0 ]]; then
+    log "biome declares no host kernel modules (0 examined)"
+    return 0
+  fi
+  apply_host_kernel_modules "${mods[@]}"
 }
 
 # bpffs mounts /sys/fs/bpf when absent and persists that mount in /etc/fstab exactly once.
@@ -1575,7 +1638,8 @@ json_field() {
   python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1], encoding="utf-8"))[sys.argv[2]])' "$1" "$2"
 }
 
-# render_worker_biome renders the k8s-worker biome into RENDER_DIR (a fresh 0700 temp dir removed on EXIT).
+# render_worker_biome renders the k8s-worker biome into RENDER_DIR (a fresh 0700 temp dir removed on EXIT), then applies
+# the biome's host-requirements.json (kernel modules) on the host.
 # params.json (0600) holds non-secret parameters only. The join token is appended to the renderer's stdin, so it reaches
 # secrets.env and never params.json, argv, the environment or the profile.
 render_worker_biome() {
@@ -1593,7 +1657,9 @@ render_worker_biome() {
   fi
   unset full
   [[ -f "${RENDER_DIR}/secrets.env" ]] || die "renderer produced no secrets.env; the join token was not delivered"
-  log "biome rendered into the private render directory (params.json, user-data, network-config, profile.json, instance.json, secrets.env)"
+  log "biome rendered into the private render directory (params.json, user-data, network-config, profile.json, instance.json, host-requirements.json, secrets.env)"
+  # Host requirements apply here, on every path that renders, so modules are on the host before any profile or instance exists.
+  apply_biome_host_requirements "${RENDER_DIR}"
 }
 
 # check_worker_image <dir> verifies read-only (lxc image info) that the rendered image exists on IMAGE_REMOTE.
