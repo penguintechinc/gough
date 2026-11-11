@@ -15,6 +15,7 @@ boots. We:
 from __future__ import annotations
 
 import os
+import secrets as _secrets
 import threading
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -23,6 +24,19 @@ from typing import Any, Iterator
 import jwt
 import pytest
 from unittest.mock import MagicMock
+
+# Required-secret startup validation (app/security/required_secrets.py) has no
+# TESTING bypass, so the test session supplies explicit strong per-run values
+# BEFORE app.config is imported (Config reads env at import time). Redis is
+# left unconfigured (empty URLs) so no Redis password is required; tests that
+# exercise Redis pass their own URLs.
+
+os.environ["SECRET_KEY"] = _secrets.token_urlsafe(48)
+os.environ["SECURITY_PASSWORD_SALT"] = _secrets.token_urlsafe(48)
+os.environ["JWT_SECRET_KEY"] = _secrets.token_urlsafe(48)
+os.environ["DB_PASS"] = _secrets.token_urlsafe(32)
+os.environ["REDIS_URL"] = ""
+os.environ["RATE_LIMIT_REDIS_URL"] = ""
 
 # Registers the pg_url / pg_db real-Postgres fixtures (tests/pg_fixtures.py)
 # for every test module under tests/, so conversion tasks can depend on

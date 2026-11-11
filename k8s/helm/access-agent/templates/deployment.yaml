@@ -51,8 +51,30 @@ spec:
         resources:
           {{- toYaml . | nindent 12 }}
         {{- end }}
+        {{- /* Merge: base .Values.env, with per-environment .Values.extraEnv
+               overriding same-named entries in place and appending new ones.
+               Arrays REPLACE in Helm, so overriding env in alpha/beta values
+               used to silently drop every secretKeyRef. */}}
+        {{- $overrides := dict }}
+        {{- range (.Values.extraEnv | default list) }}
+        {{- $_ := set $overrides .name . }}
+        {{- end }}
+        {{- $merged := list }}
+        {{- range (.Values.env | default list) }}
+        {{- if hasKey $overrides .name }}
+        {{- $merged = append $merged (get $overrides .name) }}
+        {{- $_ := unset $overrides .name }}
+        {{- else }}
+        {{- $merged = append $merged . }}
+        {{- end }}
+        {{- end }}
+        {{- range (.Values.extraEnv | default list) }}
+        {{- if hasKey $overrides .name }}
+        {{- $merged = append $merged . }}
+        {{- end }}
+        {{- end }}
         env:
-        {{- toYaml .Values.env | nindent 12 }}
+          {{- toYaml $merged | nindent 12 }}
         {{- with .Values.volumeMounts }}
         volumeMounts:
           {{- toYaml . | nindent 12 }}

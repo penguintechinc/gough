@@ -17,13 +17,9 @@ data:
   POSTGRES_DB: gough
   POSTGRES_USER: gough
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: postgres-secret
-type: Opaque
-stringData:
-  POSTGRES_PASSWORD: changeme-in-production
+# Secret "postgres-secret" is NOT committed -- create it out-of-band
+# (ESO / Sealed Secrets / kubectl) before applying. Required keys:
+# POSTGRES_PASSWORD. See docs/KUBERNETES.md "Required Secrets".
 ---
 apiVersion: apps/v1
 kind: Deployment

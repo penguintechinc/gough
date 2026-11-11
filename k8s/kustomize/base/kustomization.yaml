@@ -11,11 +11,13 @@ commonLabels:
   app.kubernetes.io/name: project-template
   app.kubernetes.io/managed-by: kustomize
 
+# Secrets are NOT committed. Deployments reference an externally created
+# Secret (External Secrets Operator / Sealed Secrets / pre-created) by name
+# only -- see docs/KUBERNETES.md "Required Secrets".
 resources:
 - ../../manifests/namespace.yaml
 - ../../manifests/rbac.yaml
 - ../../manifests/configmap.yaml
-- ../../manifests/secrets.yaml
 - ../../manifests/flask-backend/deployment.yaml
 - ../../manifests/flask-backend/service.yaml
 - ../../manifests/go-backend/deployment.yaml

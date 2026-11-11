@@ -149,10 +149,13 @@ env:
         key: vault-addr
   - name: SPIRE_AGENT_SOCKET
     value: "unix:///run/spire/agent.sock"
+  # REDIS_URL embeds the Redis password, so it lives in the Secret, not the
+  # ConfigMap. The app refuses to start if a configured Redis URL has no
+  # password or a known-default one (app/security/required_secrets.py).
   - name: REDIS_URL
     valueFrom:
-      configMapKeyRef:
-        name: api-manager-config
+      secretKeyRef:
+        name: api-manager-secret
         key: redis-url
   # penguin-aaa ES256 OIDC token provider — gough is its own first-party
   # issuer/verifier (see services/api-manager/app/config.py). OIDC_ISSUER
@@ -211,7 +214,6 @@ configMapData:
   db-name: "gough_api"
   db-pool-size: "5"
   vault-addr: "http://vault:8200"
-  redis-url: "redis://redis:6379"
   license-server-url: "https://license.penguintech.io"
   release-mode: "false"
   # Placeholder — MUST be overridden per environment (see values-alpha.yaml,
@@ -220,11 +222,13 @@ configMapData:
   oidc-issuer: "https://api-manager.example.com"
   oidc-audience: "gough-api"
 
-# Secrets are NOT rendered by this chart by default. The Deployment references
-# the Secret named "<release>-api-manager-secret", which MUST be provisioned
-# out-of-band by Vault, the External Secrets Operator, or Sealed Secrets (see
-# devops standards). Required keys: secret-key, password-salt, db-user,
-# db-pass, license-key.
+# Secrets are NOT rendered by this chart. The Deployment references the
+# Secret named "api-manager-secret" by name (no optional refs -- a missing
+# Secret or key keeps the pod in CreateContainerConfigError), which MUST be
+# provisioned out-of-band by Vault, the External Secrets Operator, or Sealed
+# Secrets (see devops standards). Required keys: secret-key, password-salt,
+# db-user, db-pass, license-key, redis-url (redis[s]://:<password>@host:port/db).
+# See docs/KUBERNETES.md "Required Secrets".
 #
 # ES256 signing keystore (penguin-aaa FileKeyStore, mounted at
 # GOUGH_KEY_STORE_PATH above). ALL api-manager replicas share this SAME key

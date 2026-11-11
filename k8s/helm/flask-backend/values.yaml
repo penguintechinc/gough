@@ -190,9 +190,7 @@ configMapData:
   license-server-url: "https://license.penguintech.io"
   release-mode: "false"
 
-secretData:
-  secret-key: "changeme-in-production"
-  password-salt: "changeme-in-production"
-  db-user: "app_user"
-  db-pass: "changeme-in-production"
-  license-key: "PENG-XXXX-XXXX-XXXX-XXXX-ABCD"
+# Secrets are NOT rendered by this chart. The Deployment references the
+# Secret "flask-backend-secret" by name; it MUST be provisioned out-of-band (External
+# Secrets Operator, Sealed Secrets, or a pre-created Secret). Required keys:
+# secret-key, password-salt, db-user, db-pass, license-key. See docs/KUBERNETES.md "Required Secrets".

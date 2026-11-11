@@ -154,6 +154,31 @@ webui:
 ### For Kustomize
 Edit `k8s/kustomize/overlays/prod/kustomization.yaml` to customize resources, replicas, and environment variables for each overlay.
 
+## Required Secrets
+
+No secret values are committed — not in manifests, kustomize overlays, chart defaults or values files. Deployments reference Secrets **by name only** (no `optional: true`); a missing Secret keeps pods in `CreateContainerConfigError`. The api-manager also refuses to start if `SECRET_KEY`, `SECURITY_PASSWORD_SALT`, `DB_PASS` (non-sqlite) or a configured `REDIS_URL` password is unset, empty, shorter than 16 chars (key/salt) or a known default (`changeme*`, `prodpass*`, `devpass*`, `secret`, `password`, `gough`, ...).
+
+| Deploy path | Secret name | Required keys |
+|---|---|---|
+| Helm `api-manager` | `api-manager-secret` | `secret-key`, `password-salt`, `db-user`, `db-pass`, `license-key`, `redis-url` (`redis://:<password>@host:6379/0`) |
+| Helm `api-manager` | `api-manager-oidc-keystore` | `oidc_keys.json` (see chart README) |
+| Helm `worker-ipxe` | `worker-ipxe-secret` | `worker-api-key`, `storage-access-key`, `storage-secret-key` |
+| `infrastructure/k8s` (`make k8s-deploy`) | `postgres-secret`, `api-manager-secret`, `worker-ipxe-secret` | `POSTGRES_PASSWORD`; `DB_PASS`, `SECRET_KEY`, `SECURITY_PASSWORD_SALT`, `JWT_SECRET_KEY`, `WORKER_API_KEY`; `WORKER_API_KEY` |
+
+Preferred source: External Secrets Operator (Vault-backed `ClusterSecretStore`) or Sealed Secrets. For a pre-created Secret (values read from env, never typed on the command line):
+
+```bash
+kubectl --context <ctx> -n gough create secret generic api-manager-secret \
+  --from-literal=secret-key="$(openssl rand -base64 48)" \
+  --from-literal=password-salt="$(openssl rand -base64 48)" \
+  --from-literal=db-user="<db-user>" \
+  --from-literal=db-pass="$DB_PASS" \
+  --from-literal=license-key="$LICENSE_KEY" \
+  --from-literal=redis-url="$REDIS_URL"
+```
+
+TLS: Gateway/Ingress reference an existing certificate Secret by name (e.g. the wildcard `penguintech-wildcard-tls`), issued by cert-manager — never a committed key. Guard: `python3 tests/k8s/test_no_committed_secrets.py` fails on any committed Secret data or secret-like kustomize literal.
+
 ## Common Operations
 
 **Scale a deployment:**

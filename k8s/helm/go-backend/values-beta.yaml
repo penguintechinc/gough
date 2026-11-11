@@ -6,7 +6,9 @@ image:
   pullPolicy: Always
 imagePullSecrets:
   - name: ghcr-pull-secret
-env:
+# Merged over values.yaml env by name (see templates/deployment.yaml) --
+# never replaces the base list, so secretKeyRefs survive.
+extraEnv:
   - name: LOG_LEVEL
     value: "INFO"
   - name: RELEASE_MODE

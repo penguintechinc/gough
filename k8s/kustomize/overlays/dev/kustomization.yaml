@@ -30,13 +30,6 @@ configMapGenerator:
   - LOG_LEVEL=DEBUG
   - RELEASE_MODE=false
 
-secretGenerator:
-- name: project-template-secrets
-  behavior: merge
-  literals:
-  - DB_USER=devuser
-  - DB_PASS=devpass
-  - SECRET_KEY=devsecretkey
-  - SECURITY_PASSWORD_SALT=devsalt
-  - LICENSE_KEY=PENG-DEV-XXXX-XXXX-XXXX-ABCD
-  - REDIS_PASSWORD=devredis
+# No secretGenerator: secret values are never committed. Create the
+# Secret out-of-band (ESO / Sealed Secrets / kubectl) -- see
+# docs/KUBERNETES.md "Required Secrets".
