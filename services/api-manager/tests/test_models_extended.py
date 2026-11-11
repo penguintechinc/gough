@@ -68,28 +68,21 @@ class TestValidateDatabaseSchema:
 
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
-    @patch("app.models.DB")
-    def test_validate_database_schema_success(self, mock_db_cls, mock_inspect_cls, mock_get_engine):
+    def test_validate_database_schema_success(self, mock_inspect_cls, mock_get_engine):
         """Test validate_database_schema() returns True when schema valid.
 
-        The admin-exists check (former ``engine.connect()`` + raw
-        ``text("SELECT COUNT(*) ...")``) is now a penguin-dal runtime query
-        against a short-lived ``DB`` instance (task-7b) -- mock the ``DB``
-        class itself and its ``count()`` chain instead of a SQLAlchemy
-        connection/cursor.
+        Admin existence is no longer part of schema validation (security fix:
+        the default-admin row and its hardcoded password are gone; the first
+        admin is created by ``seed_initial_admin``), so no DB query is made.
         """
-        mock_engine = MagicMock()
-        mock_get_engine.return_value = mock_engine
+        mock_get_engine.return_value = MagicMock()
 
         mock_inspector = MagicMock()
         mock_inspect_cls.return_value = mock_inspector
 
-        # Setup expected tables
         mock_inspector.get_table_names.return_value = [
             "auth_user", "auth_role", "auth_user_roles"
         ]
-
-        # Setup auth_user columns
         mock_inspector.get_columns.return_value = [
             {"name": "id"},
             {"name": "email"},
@@ -98,16 +91,7 @@ class TestValidateDatabaseSchema:
             {"name": "fs_uniquifier"},
         ]
 
-        # Mock admin exists check: check_db(query).count() -> 1
-        mock_check_db = MagicMock()
-        mock_db_cls.return_value = mock_check_db
-        mock_check_db.return_value.count.return_value = 1
-
-        with patch("builtins.print"):
-            result = validate_database_schema("sqlite:///test.db")
-
-        assert result is True
-        mock_check_db.close.assert_called_once()
+        assert validate_database_schema("sqlite:///test.db") is True
 
     @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
     @patch("sqlalchemy.inspect")
@@ -156,89 +140,58 @@ class TestValidateDatabaseSchema:
 
         assert result is False
 
-    @patch("app.models_sqlalchemy.get_sqlalchemy_engine")
-    @patch("sqlalchemy.inspect")
-    @patch("app.models.DB")
-    def test_validate_database_schema_no_admin(self, mock_db_cls, mock_inspect_cls, mock_get_engine):
-        """Test validate_database_schema() returns False when admin missing.
 
-        See ``test_validate_database_schema_success`` docstring for why the
-        admin-exists check now mocks ``app.models.DB`` rather than a
-        SQLAlchemy connection.
-        """
-        mock_engine = MagicMock()
-        mock_get_engine.return_value = mock_engine
+class TestSeedInitialAdminRealPostgres:
+    """Real-Postgres proof of the single admin-seeding path (security fix).
 
-        mock_inspector = MagicMock()
-        mock_inspect_cls.return_value = mock_inspector
-
-        # All tables and columns present
-        mock_inspector.get_table_names.return_value = [
-            "auth_user", "auth_role", "auth_user_roles"
-        ]
-        mock_inspector.get_columns.return_value = [
-            {"name": "id"},
-            {"name": "email"},
-            {"name": "password"},
-            {"name": "active"},
-            {"name": "fs_uniquifier"},
-        ]
-
-        # No admin exists: check_db(query).count() -> 0
-        mock_check_db = MagicMock()
-        mock_db_cls.return_value = mock_check_db
-        mock_check_db.return_value.count.return_value = 0
-
-        with patch("builtins.print"):
-            result = validate_database_schema("sqlite:///test.db")
-
-        assert result is False
-        mock_check_db.close.assert_called_once()
-
-
-class TestValidateDatabaseSchemaRealPostgres:
-    """Real-Postgres proof of the admin-exists penguin-dal conversion (task-7b).
-
-    Unlike the mock-based tests above, this exercises the real
-    ``penguin_dal.DB(...).count()`` call end to end against Postgres --
-    proving the conversion actually queries the right table/column, not
-    just that ``app.models.DB`` gets constructed.
-
-    ``pg_url``'s Postgres instance is session-scoped and shared with the M1
-    Alembic-baseline fixtures (``pg_db``/``pg_db_scoped``) -- ``auth_user``
-    is a separate, non-Alembic-managed table set (see ``app.models.init_db``:
-    SQLAlchemy ``Base.metadata`` for legacy auth tables, Alembic for the M1
-    baseline), so creating it here doesn't collide with the M1 schema.
-    ``pg_db``'s per-test TRUNCATE reflects and wipes every table it finds,
-    including ``auth_user`` if a prior test already created it -- this test
-    doesn't assume ``auth_user`` starts empty/absent; it explicitly deletes
-    any pre-existing admin row before asserting the "missing" branch.
+    ``create_all_tables`` seeds roles only -- never a user -- and
+    ``seed_initial_admin`` creates exactly one flagged admin with a random
+    one-time password when ``auth_user`` is empty, then is a no-op.
+    ``pg_url``'s instance is session-scoped and shared, so auth rows left by
+    other tests are wiped first.
     """
 
-    def test_admin_missing_then_present(self, pg_url: str) -> None:
-        from sqlalchemy.orm import sessionmaker
+    def test_roles_only_then_one_flagged_admin(self, pg_url: str, tmp_path) -> None:
+        import bcrypt
+        from sqlalchemy import delete, func, select
+        from sqlalchemy.orm import Session
 
         from app import models_m1  # noqa: F401 — registers M1 ORM classes on Base.metadata
-        from app.models_sqlalchemy import AuthUser, Base, create_all_tables, get_sqlalchemy_engine
+        from app.models_sqlalchemy import (
+            AuthPasswordReset,
+            AuthRefreshToken,
+            AuthUser,
+            AuthUserRole,
+            create_all_tables,
+            seed_initial_admin,
+        )
 
-        engine = get_sqlalchemy_engine(pg_url)
-        Base.metadata.create_all(engine)  # schema only — no seed data yet
-
-        session = sessionmaker(bind=engine)()
-        try:
-            session.query(AuthUser).filter_by(email="admin@gough.local").delete()
+        engine = create_all_tables(pg_url)
+        with Session(engine) as session:
+            for model in (AuthUserRole, AuthRefreshToken, AuthPasswordReset, AuthUser):
+                session.execute(delete(model))
             session.commit()
-        finally:
-            session.close()
 
-        with patch("builtins.print"):
-            assert validate_database_schema(pg_url) is False
+        create_all_tables(pg_url)
+        with Session(engine) as session:
+            assert session.scalar(select(func.count()).select_from(AuthUser)) == 0
 
-        with patch("builtins.print"):
-            create_all_tables(pg_url)  # seeds the default admin@gough.local row
+        cred = tmp_path / "admin-initial-password"
+        env = {"ADMIN_BOOTSTRAP_CREDENTIAL_PATH": str(cred)}
+        assert seed_initial_admin(engine, env) is True
+        assert seed_initial_admin(engine, env) is False
 
-        with patch("builtins.print"):
-            assert validate_database_schema(pg_url) is True
+        password = next(
+            line.split("=", 1)[1]
+            for line in cred.read_text().splitlines()
+            if line.startswith("password=")
+        )
+        with Session(engine) as session:
+            users = session.scalars(select(AuthUser)).all()
+        assert len(users) == 1
+        assert users[0].must_change_password is True
+        assert bcrypt.checkpw(password.encode(), users[0].password.encode())
+        assert not bcrypt.checkpw(b"admin", users[0].password.encode())
 
 
 class TestInitDb:

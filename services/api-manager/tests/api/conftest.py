@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import os
+import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -637,6 +638,12 @@ async def real_auth_env(tmp_path, monkeypatch):
     _db_path = os.path.join(str(tmp_path), f"gh31-{os.getpid()}")
     monkeypatch.setattr(Config, "DB_TYPE", "sqlite")
     monkeypatch.setattr(Config, "DB_NAME", _db_path)
+    # Empty DB -> startup bootstraps the first admin. Supply an explicit strong
+    # random password (security fix: there is no default, and the generated
+    # one-time path would write under /var/gough). The bootstrap admin is
+    # unused here; this fixture seeds and mints for its own users below.
+    monkeypatch.delenv("ADMIN_PASSWORD_FILE", raising=False)
+    monkeypatch.setenv("ADMIN_PASSWORD", secrets.token_urlsafe(24))
 
     class _RealAuthTestConfig(Config):
         TESTING = True  # in-memory ES256 keystore + validate_secrets skip

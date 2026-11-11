@@ -21,6 +21,7 @@ from ..middleware import (
     cookies_are_secure,
 )
 from ..models import get_db
+from ..security.admin_bootstrap import AdminBootstrapError, check_password_strength
 from ..security.scope_policy import _expand_roles_to_scopes
 from ..security_datastore import PyDALUser, PyDALRole
 
@@ -324,6 +325,9 @@ async def login():
             "email": user.email,
             "full_name": user.full_name,
             "roles": [r.name for r in user.roles],
+            # Clients must route to change-password while this is true; every
+            # other authenticated route answers 403 password_change_required.
+            "must_change_password": bool(user_row.must_change_password),
         },
     }), 200)
     _set_auth_cookies(response, token_set.access_token, refresh_token)
@@ -482,6 +486,9 @@ async def change_password():
     if len(new_password) < 8:
         return jsonify({"error": "Password must be at least 8 characters"}), 400
 
+    if new_password == current_password:
+        return jsonify({"error": "New password must differ from the current password"}), 400
+
     # Get user from database. Regression: gh-22. Off the event loop via
     # run_db() instead of blocking the request coroutine inline.
     db = get_db()
@@ -494,19 +501,33 @@ async def change_password():
     if not verify_password(current_password, user_row.password):
         return jsonify({"error": "Invalid current password"}), 401
 
-    # Update password. Regression: gh-22. Update + commit is one unit of
-    # work -- off the event loop via run_db() instead of blocking the
-    # request coroutine inline.
+    # Replacing a bootstrap/admin-issued password: hold the new one to the
+    # same policy as the bootstrap credential (length + deny list).
+    if user_row.must_change_password:
+        try:
+            check_password_strength(new_password, user_row.email, "new_password")
+        except AdminBootstrapError as exc:
+            return jsonify({"error": str(exc)}), 400
+
+    # Update password and clear the forced-change flag. Regression: gh-22.
+    # Conditional on the hash we verified (run_db house rule: the write
+    # re-checks the predicate that gated it), so a concurrent change loses.
     new_hash = hash_password(new_password)
 
-    def _apply_password_change() -> None:
-        db(db.auth_user.id == user_row.id).update(
+    def _apply_password_change() -> int:
+        updated = db(
+            (db.auth_user.id == user_row.id)
+            & (db.auth_user.password == user_row.password)
+        ).update(
             password=new_hash,
+            must_change_password=False,
             updated_at=datetime.utcnow(),
         )
         db.commit()
+        return int(updated or 0)
 
-    await run_db(_apply_password_change)
+    if await run_db(_apply_password_change) != 1:
+        return jsonify({"error": "Password was changed concurrently; retry"}), 409
 
     return jsonify({"message": "Password changed successfully"}), 200
 
@@ -636,8 +657,11 @@ async def reset_password():
     new_hash = hash_password(new_password)
 
     def _apply_reset() -> None:
+        # The user chose this password themselves (emailed token), so any
+        # forced-change flag is satisfied.
         db(db.auth_user.id == user_row.id).update(
             password=new_hash,
+            must_change_password=False,
             updated_at=datetime.utcnow(),
         )
 

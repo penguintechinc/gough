@@ -63,6 +63,13 @@ CSRF_HEADER_NAME = "X-CSRF-Token"
 
 _STATE_CHANGING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
+# Routes a must-change-password user may still call (exact method + path).
+PASSWORD_CHANGE_EXEMPT_ROUTES = frozenset({
+    ("POST", "/api/v1/auth/change-password"),
+    ("POST", "/api/v1/auth/logout"),
+})
+PASSWORD_CHANGE_REQUIRED_CODE = "password_change_required"
+
 ASGIApp = Callable[..., Awaitable[None]]
 
 
@@ -446,6 +453,21 @@ async def install_security_middleware(app) -> None:
             # deleted or deactivated must be rejected here -- scope enforcement
             # trusts the token's own scope claim and would otherwise let it pass.
             return jsonify({"error": "User inactive or not found"}), 401
+
+        # Forced password change (bootstrap one-time / admin-issued password):
+        # until the user picks their own, only change-password and logout are
+        # reachable. Checked from the DB row on every request -- never a token
+        # claim -- so a flag set after login still takes effect immediately.
+        if (
+            user["must_change_password"]
+            and (request.method, request.path) not in PASSWORD_CHANGE_EXEMPT_ROUTES
+        ):
+            return jsonify({
+                "error": "Password change required: call POST "
+                         "/api/v1/auth/change-password first",
+                "code": PASSWORD_CHANGE_REQUIRED_CODE,
+                "status": PASSWORD_CHANGE_REQUIRED_CODE,
+            }), 403
 
         roles = list(claims.get("roles") or [])
         g.current_user = {

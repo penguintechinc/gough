@@ -160,6 +160,8 @@ async def update_existing_user(user_id: int):
         if len(password) < 8:
             return jsonify({"error": "Password must be at least 8 characters"}), 400
         update_data["password_hash"] = hash_password(password)
+        # Admin-issued reset: the admin knows this password, so force a change.
+        update_data["must_change_password"] = True
 
     if not update_data:
         return jsonify({"error": "No valid fields to update"}), 400
