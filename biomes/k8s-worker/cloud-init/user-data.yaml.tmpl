@@ -1,0 +1,18 @@
+#cloud-config
+# Rendered by _lib/render.py. Non-secret parameters land in params.env (mode 0600); the join token is pushed as secrets.env, never embedded here. The bootstrap
+# script is delivered base64-encoded so no template indentation can alter it.
+hostname: "{{ hostname }}"
+manage_etc_hosts: true
+write_files:
+  - path: /opt/gough/biome/params.env
+    permissions: "0600"
+    owner: root:root
+    encoding: b64
+    content: "{{ params_env_b64 }}"
+  - path: /opt/gough/biome/bootstrap.sh
+    permissions: "0755"
+    owner: root:root
+    encoding: b64
+    content: "{{ bootstrap_b64 }}"
+runcmd:
+  - [ "/bin/bash", "/opt/gough/biome/bootstrap.sh" ]

@@ -1,0 +1,34 @@
+network:
+  version: 2
+  renderer: networkd
+  ethernets:
+    enp1s0f0:
+      dhcp4: false
+      dhcp6: false
+    enp1s0f1:
+      dhcp4: false
+      dhcp6: false
+    enp3s0f0np0:
+      dhcp4: false
+      dhcp6: false
+      addresses: [192.168.4.10/24]
+  bonds:
+    bond0:
+      interfaces: [enp1s0f0, enp1s0f1]
+      parameters:
+        mode: 802.3ad
+        lacp-rate: slow
+        transmit-hash-policy: layer2
+        mii-monitor-interval: 100
+  bridges:
+    br0:
+      interfaces: [bond0]
+      addresses: [192.168.8.10/24]
+      routes:
+        - to: default
+          via: 192.168.8.1
+      nameservers:
+        addresses: [192.168.8.1]
+      parameters:
+        stp: false
+        forward-delay: 0

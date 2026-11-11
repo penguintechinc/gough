@@ -1,0 +1,14 @@
+# Static addressing for eth0 (the bridged NIC from the biome profile). Rendered by _lib/render.py.
+version: 2
+ethernets:
+  eth0:
+    dhcp4: false
+    dhcp6: false
+    accept-ra: false
+    addresses:
+      - "{{ static_ip }}"
+    routes:
+      - to: default
+        via: "{{ gateway }}"
+    nameservers:
+      addresses: [{{ dns_yaml_list }}]
