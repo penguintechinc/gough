@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import logging
+import re
 import socket
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -20,28 +22,25 @@ from quart import Quart, g
 
 import app.api.ipxe as ipxe_mod
 from app.audit import AuditEventType
-from app.clients import cluster_discovery
+from app.integrations import elder_egress
 
-
-class _FakeLoop:
-    """Event-loop stand-in whose ``getaddrinfo`` returns canned addresses."""
-
-    def __init__(self, addresses: list[str]) -> None:
-        self._addresses = addresses
-
-    async def getaddrinfo(self, host: str, port: int) -> list[tuple[Any, ...]]:
-        """Return one getaddrinfo tuple per canned address."""
-        out = []
-        for addr in self._addresses:
-            family = socket.AF_INET6 if ":" in addr else socket.AF_INET
-            out.append((family, socket.SOCK_STREAM, 6, "", (addr, port)))
-        return out
+ELDER_REFUSED = "elder_url is not an allowed destination"
 
 
 def _resolve_to(monkeypatch: pytest.MonkeyPatch, addresses: list[str]) -> None:
-    """Make the shared SSRF guard resolve every hostname to ``addresses``."""
-    fake_asyncio = SimpleNamespace(get_running_loop=lambda: _FakeLoop(addresses))
-    monkeypatch.setattr(cluster_discovery, "asyncio", fake_asyncio)
+    """Make the Elder egress guard resolve every hostname to ``addresses``."""
+
+    async def _fake(host: str, port: int) -> list[str]:
+        return list(addresses)
+
+    monkeypatch.setattr(elder_egress, "_resolve_host", _fake)
+
+
+@pytest.fixture(autouse=True)
+def _no_elder_allowlist(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Start each test with the default (empty) Elder allowlist."""
+    monkeypatch.delenv(elder_egress.ELDER_ALLOWED_HOSTS_ENV, raising=False)
+    monkeypatch.delenv(elder_egress.ELDER_ALLOWED_CIDRS_ENV, raising=False)
 
 
 @pytest.fixture
@@ -60,7 +59,11 @@ def client() -> Any:
 
     @app.before_request
     async def _admin() -> None:
-        g.current_user = {"id": 42, "role": "admin", "_jwt_payload": {}}
+        g.current_user = {
+            "id": 42,
+            "role": "admin",
+            "_jwt_payload": {"scope": "gough.cluster.superadmin"},
+        }
 
     return app.test_client()
 
@@ -126,7 +129,7 @@ class TestElderUrlSsrf:
             "/api/v1/ipxe/elder/config", json=_elder_body(elder_url=url)
         )
         assert resp.status_code == 400
-        assert "elder_url rejected" in (await resp.get_json())["error"]
+        assert (await resp.get_json())["error"] == ELDER_REFUSED
         db.elder_config.insert.assert_not_called()
         audit.log.assert_not_called()
 
@@ -141,7 +144,7 @@ class TestElderUrlSsrf:
             json=_elder_body(elder_url="https://rebind.attacker.example"),
         )
         assert resp.status_code == 400
-        assert "blocked address" in (await resp.get_json())["error"]
+        assert (await resp.get_json())["error"] == ELDER_REFUSED
 
     @pytest.mark.parametrize(
         "url",
@@ -201,9 +204,9 @@ class TestElderUrlSsrf:
         self, client: Any, audit: MagicMock, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """A public https URL is accepted, stored, and audited without the api_key value."""
-        _resolve_to(
-            monkeypatch, ["10.20.0.5"]
-        )  # private on-prem Elder: allowed (see helper docs)
+        _resolve_to(monkeypatch, ["10.20.0.5"])
+        # Private on-prem Elder: allowed only via the explicit operator allowlist.
+        monkeypatch.setenv(elder_egress.ELDER_ALLOWED_CIDRS_ENV, "10.20.0.0/16")
         db = _elder_db(existing=None, refetched=_elder_row())
         monkeypatch.setattr(ipxe_mod, "get_db", lambda: db)
         resp = await client.put(
@@ -219,6 +222,78 @@ class TestElderUrlSsrf:
         assert kwargs["user_id"] == 42
         assert "api_key" in kwargs["details"]["fields"]
         assert "elder-secret" not in repr(kwargs)
+
+
+class TestElderUrlErrorOracle:
+    """A refused elder_url returns one fixed message; detail stays server-side.
+
+    Regression: security review of PR #52 (error-echo oracle).
+    """
+
+    async def test_resolver_error_not_echoed(
+        self,
+        client: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Resolver failure text never reaches the response; it is logged at WARNING."""
+
+        async def _boom(host: str, port: int) -> list[str]:
+            raise socket.gaierror(-3, "Temporary failure in name resolution ZZQ")
+
+        monkeypatch.setattr(elder_egress, "_resolve_host", _boom)
+        monkeypatch.setattr(ipxe_mod, "get_db", MagicMock)
+        with caplog.at_level(logging.WARNING):
+            resp = await client.put(
+                "/api/v1/ipxe/elder/config",
+                json=_elder_body(elder_url="https://probe.internal.example"),
+            )
+        raw = await resp.get_data(as_text=True)
+        assert resp.status_code == 400
+        assert (await resp.get_json()) == {"error": ELDER_REFUSED}
+        assert (
+            "ZZQ" not in raw and "resolution" not in raw and "probe.internal" not in raw
+        )
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("ZZQ" in r.getMessage() for r in warnings)
+        assert all("elder-secret" not in r.getMessage() for r in caplog.records)
+
+    async def test_resolved_ip_not_echoed(
+        self,
+        client: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """An internal address the name resolved to is never disclosed to the caller."""
+        _resolve_to(monkeypatch, ["10.9.8.7"])
+        monkeypatch.setattr(ipxe_mod, "get_db", MagicMock)
+        with caplog.at_level(logging.WARNING):
+            resp = await client.put(
+                "/api/v1/ipxe/elder/config",
+                json=_elder_body(elder_url="https://probe.internal.example"),
+            )
+        raw = await resp.get_data(as_text=True)
+        assert resp.status_code == 400
+        assert (await resp.get_json()) == {"error": ELDER_REFUSED}
+        assert "10.9.8.7" not in raw
+        assert not re.search(r"\d+\.\d+\.\d+\.\d+", raw)
+        assert any("10.9.8.7" in r.getMessage() for r in caplog.records)
+
+    @pytest.mark.parametrize(
+        "url",
+        ["https://elder.example.com:99999/", "https://elder.example.com:abc/"],
+    )
+    async def test_bad_port_returns_fixed_message(
+        self, client: Any, monkeypatch: pytest.MonkeyPatch, url: str
+    ) -> None:
+        """A port that fails to parse (ValueError) gets the same fixed 400, not a 500."""
+        _resolve_to(monkeypatch, ["93.184.216.34"])
+        monkeypatch.setattr(ipxe_mod, "get_db", MagicMock)
+        resp = await client.put(
+            "/api/v1/ipxe/elder/config", json=_elder_body(elder_url=url)
+        )
+        assert resp.status_code == 400
+        assert (await resp.get_json()) == {"error": ELDER_REFUSED}
 
 
 class TestIpxeWriteAudit:

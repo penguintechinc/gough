@@ -22,6 +22,7 @@ from typing import Any, Optional
 import httpx
 
 from ..db.run_db import run_db
+from .elder_egress import ElderDestinationRefused, ElderEgressTransport
 
 log = logging.getLogger(__name__)
 
@@ -101,6 +102,7 @@ class ElderClient:
         api_key: str,
         timeout: float = REQUEST_TIMEOUT_SECONDS,
         max_retries: int = MAX_RETRIES,
+        inner_transport: httpx.AsyncBaseTransport | None = None,
     ):
         """Initialize Elder client.
 
@@ -109,11 +111,14 @@ class ElderClient:
             api_key: API key for authentication
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
+            inner_transport: Transport beneath the egress guard (tests only);
+                every request still goes through :class:`ElderEgressTransport`.
         """
         self.elder_url = elder_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
         self.max_retries = max_retries
+        self._inner_transport = inner_transport
         self._client: Optional[httpx.AsyncClient] = None
 
     async def __aenter__(self) -> ElderClient:
@@ -128,7 +133,13 @@ class ElderClient:
     async def _ensure_client(self) -> None:
         """Ensure async client is initialized."""
         if self._client is None:
+            # Every request is re-resolved, vetted against the Elder egress
+            # policy and sent to the pinned IP (Host/SNI keep the original
+            # name). Redirects stay off so a 3xx cannot bypass the pin.
+            # regression: PR #52 review (SSRF DNS-rebinding TOCTOU)
             self._client = httpx.AsyncClient(
+                transport=ElderEgressTransport(inner=self._inner_transport),
+                follow_redirects=False,
                 timeout=self.timeout,
                 headers={
                     "Authorization": f"Bearer {self.api_key}",
@@ -236,6 +247,13 @@ class ElderClient:
                 # Unexpected status code
                 log.error(f"Unexpected Elder response: {response.status_code}")
                 raise ElderError(f"Unexpected response code: {response.status_code}")
+
+            except ElderDestinationRefused as e:
+                # Policy refusal is not transient: never retried, detail logged only.
+                log.warning("Elder request refused by egress policy: %s", e)
+                raise ElderConnectionError(
+                    "Elder destination refused by egress policy"
+                ) from e
 
             except (httpx.ConnectError, httpx.TimeoutException) as e:
                 last_error = ElderConnectionError(f"Connection failed: {str(e)}")

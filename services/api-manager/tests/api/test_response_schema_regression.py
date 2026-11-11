@@ -287,17 +287,14 @@ class TestStorageConfigNeverLeaksCredentials:
 @pytest.fixture()
 def ipxe_app(monkeypatch):
     from app.api import ipxe as ipxe_module
-    from app.clients import cluster_discovery
+    from app.integrations import elder_egress
 
-    # elder_url is SSRF-vetted (DNS resolution) since the scope-policy
-    # security review; pin resolution so these output-shape tests stay
-    # offline and deterministic.
-    async def _vetted(endpoint):
-        return cluster_discovery._VettedEndpoint(
-            scheme="https", host="elder.example.com", pinned_ip="203.0.113.10", port=443
-        )
+    # elder_url is vetted against the Elder egress policy (DNS resolution);
+    # pin resolution so these output-shape tests stay offline and deterministic.
+    async def _resolve(host, port):
+        return ["93.184.216.34"]
 
-    monkeypatch.setattr(cluster_discovery, "vet_outbound_endpoint", _vetted)
+    monkeypatch.setattr(elder_egress, "_resolve_host", _resolve)
 
     app = Quart(__name__)
     app.config["JWT_SECRET_KEY"] = "test-secret-key"
@@ -307,7 +304,12 @@ def ipxe_app(monkeypatch):
 
     @app.before_request
     async def _inject_admin():
-        g.current_user = {"id": 1, "role": "admin", "_jwt_payload": {}}
+        # Global iPXE/Elder writes are superadmin-only (security review of PR #52).
+        g.current_user = {
+            "id": 1,
+            "role": "admin",
+            "_jwt_payload": {"scope": "gough.cluster.superadmin"},
+        }
 
     return app
 

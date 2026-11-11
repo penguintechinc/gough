@@ -31,7 +31,8 @@ from ..middleware import auth_required, admin_required, maintainer_or_admin_requ
 from ..models import get_db
 from .. import metrics as _metrics
 from ..audit import AuditEventType, get_audit_logger
-from ..clients import cluster_discovery
+from ..integrations import elder_egress
+from ..security.scope_enforcement import require_scopes
 from ._dto import project, serialize_elder_config
 
 log = logging.getLogger(__name__)
@@ -249,6 +250,18 @@ _VALID_DHCP_MODES = frozenset({"full", "proxy", "disabled"})
 #: https-only and SSRF-vetted instead.
 _BOOT_URL_SCHEMES = frozenset({"http", "https"})
 _MAX_URL_LEN = 1024
+
+#: iPXE/Elder config rows are platform-wide (no tenant_id): changing them
+#: rewrites every tenant's boot chain, so writes need superadmin, never the
+#: tenant-level ``gough.cluster.admin``. Must match SCOPE_POLICY.
+#: Regression: security review of PR #52 (HIGH over-broad grant).
+_PLATFORM_ADMIN_SCOPE = "gough.cluster.superadmin"
+
+#: Fixed client-facing refusal for elder_url. The resolver error / resolved
+#: address is logged server-side only, never echoed (that would turn the
+#: endpoint into an internal-DNS / network-reachability oracle).
+#: Regression: security review of PR #52 (error-echo oracle).
+ELDER_URL_REFUSED = "elder_url is not an allowed destination"
 _ELDER_TIMEOUT_RANGE = (1, 120)
 _ELDER_MAX_RETRIES_RANGE = (0, 10)
 _BOOT_TIMEOUT_RANGE = (1, 3600)
@@ -389,18 +402,21 @@ async def _validate_elder_payload(data: dict[str, Any]) -> tuple[dict[str, Any] 
     """Validate PUT /elder/config; return (normalised fields, None) or (None, error).
 
     ``elder_url`` is fetched by this server, so it must be https and must pass
-    the shared SSRF guard (:func:`app.clients.cluster_discovery.vet_outbound_endpoint`:
-    resolves once and rejects loopback/link-local/unspecified/metadata targets,
-    including hostnames that resolve to them).
+    the Elder egress policy (:func:`app.integrations.elder_egress.vet_elder_destination`:
+    public destinations only unless operator-allowlisted). This save-time check
+    is an early error only; the authoritative check runs on every outbound
+    request in :class:`~app.integrations.elder_egress.ElderEgressTransport`.
+    A refusal returns :data:`ELDER_URL_REFUSED`; the detail is logged only.
     """
     elder_url = data.get("elder_url")
     url_err = _url_error(elder_url, "elder_url", frozenset({"https"}))
     if url_err:
         return None, url_err
     try:
-        await cluster_discovery.vet_outbound_endpoint(str(elder_url))
-    except cluster_discovery.ClusterDiscoveryUnavailable as exc:
-        return None, f"elder_url rejected: {exc}"
+        await elder_egress.vet_elder_destination(str(elder_url))
+    except (elder_egress.ElderDestinationRefused, ValueError) as exc:
+        log.warning("elder_url refused by egress policy: %s", exc)
+        return None, ELDER_URL_REFUSED
 
     api_key = data.get("api_key")
     if not isinstance(api_key, str) or not api_key or len(api_key) > 4096:
@@ -484,7 +500,7 @@ async def get_ipxe_config():
 
 
 @ipxe_bp.route("/config", methods=["PUT"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def update_ipxe_config():
     """Update iPXE/DHCP configuration.
@@ -1183,7 +1199,7 @@ async def list_images():
 
 
 @ipxe_bp.route("/images", methods=["POST"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def create_image():
     """Create a new boot image.
@@ -1288,7 +1304,7 @@ async def get_image(image_id: int):
 
 
 @ipxe_bp.route("/images/<int:image_id>", methods=["PUT"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def update_image(image_id: int):
     """Update boot image.
@@ -1358,7 +1374,7 @@ async def update_image(image_id: int):
 
 
 @ipxe_bp.route("/images/<int:image_id>", methods=["DELETE"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def delete_image(image_id: int):
     """Delete boot image.
@@ -1444,7 +1460,7 @@ async def list_boot_configs():
 
 
 @ipxe_bp.route("/boot-configs", methods=["POST"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def create_boot_config():
     """Create a new boot configuration.
@@ -1536,7 +1552,7 @@ async def get_boot_config(config_id: int):
 
 
 @ipxe_bp.route("/boot-configs/<int:config_id>", methods=["PUT"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def update_boot_config(config_id: int):
     """Update boot configuration.
@@ -1604,7 +1620,7 @@ async def update_boot_config(config_id: int):
 
 
 @ipxe_bp.route("/boot-configs/<int:config_id>", methods=["DELETE"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def delete_boot_config(config_id: int):
     """Delete boot configuration.
@@ -2503,7 +2519,7 @@ async def mint_bootstrap_token():
 
 
 @ipxe_bp.route("/elder/config", methods=["PUT"])
-@admin_required
+@require_scopes(_PLATFORM_ADMIN_SCOPE)
 @auth_required
 async def update_elder_config():
     """Update Elder service configuration.

@@ -724,7 +724,12 @@ _FAKE_USER = {
     "_jwt_payload": {
         "sub": "1",
         "type": "access",
-        "scope": "admin:read admin:write gough:read gough:write gough.storage.read gough.storage.write",
+        # gough.cluster.superadmin: global iPXE/Elder writes are superadmin-only
+        # (security review of PR #52); these tests exercise handler logic.
+        "scope": (
+            "admin:read admin:write gough:read gough:write gough.storage.read "
+            "gough.storage.write gough.cluster.superadmin"
+        ),
     },
 }
 

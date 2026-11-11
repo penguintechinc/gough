@@ -205,19 +205,24 @@ SCOPE_POLICY: dict[tuple[str, str], frozenset[str] | None] = {
     ("GET", "/api/v1/ssh-ca/public-key"): frozenset({"gough.cluster.read"}),
     ("POST", "/api/v1/ssh-ca/sign"): frozenset({"gough.cluster.admin"}),
 
-    # iPXE boot configuration WRITES: gough.cluster.admin (not
-    # gough.bmc.configure, which governs BMC/IPMI credentials, not boot
-    # media). Handlers type-check input, SSRF-vet the Elder URL (https only),
-    # return allow-listed DTOs and audit-log every change. The matching GET
-    # routes stay unmapped (raw row echo) -- see INTENTIONALLY_UNMAPPED.
-    ("PUT", "/api/v1/ipxe/config"): frozenset({"gough.cluster.admin"}),
-    ("PUT", "/api/v1/ipxe/elder/config"): frozenset({"gough.cluster.admin"}),
-    ("POST", "/api/v1/ipxe/boot-configs"): frozenset({"gough.cluster.admin"}),
-    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
-    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.admin"}),
-    ("POST", "/api/v1/ipxe/images"): frozenset({"gough.cluster.admin"}),
-    ("PUT", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.admin"}),
-    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.admin"}),
+    # iPXE boot configuration WRITES: gough.cluster.superadmin. These rows
+    # (ipxe_config, boot configs, images, elder_config) are platform-wide with
+    # no tenant_id, so a tenant admin (gough.cluster.admin) changing them
+    # would rewrite every tenant's boot chain. Delegating them to tenant
+    # admins needs a tenant-scoped iPXE model first (follow-up). Handlers
+    # repeat the superadmin check, type-check input, vet the Elder URL
+    # against the Elder egress policy (https, public-only unless
+    # allowlisted), return allow-listed DTOs and audit-log every change. The
+    # matching GET routes stay unmapped (raw row echo) -- see
+    # INTENTIONALLY_UNMAPPED. Regression: security review of PR #52.
+    ("PUT", "/api/v1/ipxe/config"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/elder/config"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/ipxe/boot-configs"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("POST", "/api/v1/ipxe/images"): frozenset({"gough.cluster.superadmin"}),
+    ("PUT", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.superadmin"}),
+    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"): frozenset({"gough.cluster.superadmin"}),
 
     # Tenant-scoped handlers that passed review (tenant guard + validation +
     # explicit response shape).

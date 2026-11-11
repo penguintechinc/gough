@@ -58,6 +58,20 @@ SUPERADMIN_ONLY: list[tuple[str, str]] = [
     ("POST", "/api/v1/vault/rotate-keys"),
 ]
 
+#: Platform-wide iPXE / Elder boot-chain writes. These rows carry no
+#: tenant_id, so a tenant admin (``gough.cluster.admin``) must not reach them.
+#: Regression: security review of PR #52 (HIGH over-broad grant).
+IPXE_GLOBAL_WRITES: list[tuple[str, str]] = [
+    ("PUT", "/api/v1/ipxe/config"),
+    ("PUT", "/api/v1/ipxe/elder/config"),
+    ("POST", "/api/v1/ipxe/boot-configs"),
+    ("PUT", "/api/v1/ipxe/boot-configs/<int:config_id>"),
+    ("DELETE", "/api/v1/ipxe/boot-configs/<int:config_id>"),
+    ("POST", "/api/v1/ipxe/images"),
+    ("PUT", "/api/v1/ipxe/images/<int:image_id>"),
+    ("DELETE", "/api/v1/ipxe/images/<int:image_id>"),
+]
+
 
 def _concrete(path: str) -> str:
     """Substitute each ``<conv:name>`` placeholder with a concrete segment."""
@@ -89,7 +103,9 @@ def _build_app(routes: list[tuple[str, str]]) -> Quart:
 @pytest.fixture
 async def gated_app() -> Quart:
     """App gating every superadmin-only and intentionally-unmapped route."""
-    app = _build_app(SUPERADMIN_ONLY + sorted(INTENTIONALLY_UNMAPPED))
+    app = _build_app(
+        SUPERADMIN_ONLY + IPXE_GLOBAL_WRITES + sorted(INTENTIONALLY_UNMAPPED)
+    )
     await scope_enforcement_middleware(app)
     return app
 
@@ -124,6 +140,46 @@ class TestSuperadminOnly:
         assert body.get("reached") is None
 
     @pytest.mark.parametrize(("method", "path"), SUPERADMIN_ONLY)
+    async def test_superadmin_passes(
+        self, gated_app: Quart, method: str, path: str
+    ) -> None:
+        """The superadmin scope alone reaches the handler."""
+        status, body = await _call(gated_app, method, path, [SUPERADMIN])
+        assert status == 200
+        assert body == {"reached": "handler"}
+
+
+class TestIpxeGlobalWritesSuperadminOnly:
+    """Global iPXE/Elder boot-chain writes need superadmin, not tenant admin."""
+
+    def test_every_ipxe_write_route_is_covered(self) -> None:
+        """No iPXE config/boot-config/image/elder write escapes this list."""
+        writes = {
+            key
+            for key in SCOPE_POLICY
+            if key[0] in {"POST", "PUT", "PATCH", "DELETE"}
+            and re.match(
+                r"/api/v1/ipxe/(config|elder/config|boot-configs|images)", key[1]
+            )
+        }
+        assert writes == set(IPXE_GLOBAL_WRITES)
+
+    @pytest.mark.parametrize(("method", "path"), IPXE_GLOBAL_WRITES)
+    def test_policy_requires_exactly_superadmin(self, method: str, path: str) -> None:
+        """The policy entry is exactly the superadmin scope."""
+        assert SCOPE_POLICY[(method, path)] == frozenset({SUPERADMIN})
+
+    @pytest.mark.parametrize(("method", "path"), IPXE_GLOBAL_WRITES)
+    async def test_tenant_admin_gets_403(
+        self, gated_app: Quart, method: str, path: str
+    ) -> None:
+        """A tenant admin holding every non-superadmin scope cannot change the boot chain."""
+        status, body = await _call(gated_app, method, path, TENANT_ADMIN_SCOPES)
+        assert status == 403
+        assert body.get("required") == [SUPERADMIN]
+        assert body.get("reached") is None
+
+    @pytest.mark.parametrize(("method", "path"), IPXE_GLOBAL_WRITES)
     async def test_superadmin_passes(
         self, gated_app: Quart, method: str, path: str
     ) -> None:
