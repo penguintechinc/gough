@@ -1,0 +1,5 @@
+---
+source: crates/gough-core/src/output.rs
+expression: out
+---
+1.0.0

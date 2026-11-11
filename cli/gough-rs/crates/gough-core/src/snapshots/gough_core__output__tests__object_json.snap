@@ -1,0 +1,12 @@
+---
+source: crates/gough-core/src/output.rs
+expression: out
+---
+{
+  "cpu_count": 16,
+  "id": "n-1",
+  "tags": [
+    "a",
+    "b"
+  ]
+}

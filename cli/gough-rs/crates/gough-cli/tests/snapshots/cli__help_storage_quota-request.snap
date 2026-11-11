@@ -1,0 +1,35 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Request a quota increase
+
+Usage: gough storage quota-request [OPTIONS]
+
+Options:
+      --tenant-id <TENANT_ID>
+          Tenant id
+  -o, --output <FORMAT>
+          Output format: table, json, yaml or jsonpath=<RFC 9535 expression> [default: table]
+      --resource-type <RESOURCE_TYPE>
+          Resource type
+  -q, --quiet
+          Suppress all output except errors
+      --requested-value <REQUESTED_VALUE>
+          Requested value
+      --no-color
+          Disable colored output
+      --unit <UNIT>
+          Unit of the requested value
+      --cluster <URL>
+          Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+      --justification <JUSTIFICATION>
+          Why the increase is needed
+      --context <NAME>
+          Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+  -v, --verbose
+          Log requests and diagnostics to stderr (tokens are masked)
+      --ca-file <FILE>
+          Extra PEM CA bundle to trust for the cluster's TLS certificate
+  -h, --help
+          Print help

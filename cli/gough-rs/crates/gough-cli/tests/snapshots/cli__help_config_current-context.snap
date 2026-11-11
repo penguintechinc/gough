@@ -1,0 +1,17 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Print the active context name
+
+Usage: gough config current-context [OPTIONS]
+
+Options:
+  -o, --output <FORMAT>  Output format: table, json, yaml or jsonpath=<RFC 9535 expression> [default: table]
+  -q, --quiet            Suppress all output except errors
+      --no-color         Disable colored output
+      --cluster <URL>    Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+      --context <NAME>   Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+  -v, --verbose          Log requests and diagnostics to stderr (tokens are masked)
+      --ca-file <FILE>   Extra PEM CA bundle to trust for the cluster's TLS certificate
+  -h, --help             Print help

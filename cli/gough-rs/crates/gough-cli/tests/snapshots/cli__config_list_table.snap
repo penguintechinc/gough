@@ -1,0 +1,11 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: "ok(&[\"config\", \"list\"])"
+---
+KEY                        VALUE                     SOURCE
+cluster.url                https://prod.example.com  context
+tenant_id                  t-prod                    context
+current_context            prod                      file
+contexts.dev.cluster_url   http://127.0.0.1:9        file
+contexts.prod.cluster_url  https://prod.example.com  file
+contexts.prod.tenant_id    t-prod                    file

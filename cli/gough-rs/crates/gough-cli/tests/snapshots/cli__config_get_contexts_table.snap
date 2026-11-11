@@ -1,0 +1,7 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: "ok(&[\"config\", \"get-contexts\"])"
+---
+NAME  CLUSTER URL               TENANT ID  ACTIVE
+dev   http://127.0.0.1:9
+prod  https://prod.example.com  t-prod     *

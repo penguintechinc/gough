@@ -1,0 +1,22 @@
+---
+source: crates/gough-cli/tests/cli.rs
+expression: o.out
+---
+Promote a DR site
+
+Usage: gough dr promote [OPTIONS] --reason <REASON> <SITE_ID>
+
+Arguments:
+  <SITE_ID>  Site id
+
+Options:
+      --reason <REASON>     Why the site is promoted (audit logged)
+  -o, --output <FORMAT>     Output format: table, json, yaml or jsonpath=<RFC 9535 expression> [default: table]
+      --source-unreachable  The source site is unreachable
+  -q, --quiet               Suppress all output except errors
+      --no-color            Disable colored output
+      --cluster <URL>       Cluster API URL (env GOUGH_CLUSTER_URL); overrides the config file
+      --context <NAME>      Named context from the config file (env GOUGH_CURRENT_CONTEXT)
+  -v, --verbose             Log requests and diagnostics to stderr (tokens are masked)
+      --ca-file <FILE>      Extra PEM CA bundle to trust for the cluster's TLS certificate
+  -h, --help                Print help
