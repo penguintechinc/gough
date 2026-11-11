@@ -18,7 +18,7 @@ from quart import Quart
 # Try importing from api-manager
 try:
     import sys
-    sys.path.insert(0, '/home/penguin/code/Gough/services/api-manager')
+    sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2] / "services" / "api-manager"))
     from app import create_app
     from app.config import Config
     from app.models import init_db, get_db

@@ -64,7 +64,7 @@ def mock_database(tmp_path):
         # Load models_sqlalchemy using spec to avoid naming conflicts
         spec = importlib.util.spec_from_file_location(
             "models_sqlalchemy",
-            "/home/penguin/code/gough/services/api-manager/app/models_sqlalchemy.py"
+            str(Path(__file__).resolve().parents[1] / "services" / "api-manager" / "app" / "models_sqlalchemy.py")
         )
         models_sa = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(models_sa)

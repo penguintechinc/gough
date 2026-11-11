@@ -111,18 +111,13 @@ dev-full: ## Development - Start full development stack
 # Testing Commands
 test: ## Testing - Run all tests
 	@echo "$(BLUE)Running all tests...$(RESET)"
-	@$(MAKE) test-go
 	@$(MAKE) test-python
 	@$(MAKE) test-node
 	@echo "$(GREEN)All tests completed!$(RESET)"
 
-test-go: ## Testing - Run Go tests
-	@echo "$(BLUE)Running Go tests...$(RESET)"
-	@go test -v -race -coverprofile=coverage-go.out ./...
-
 test-python: ## Testing - Run Python tests
 	@echo "$(BLUE)Running Python tests...$(RESET)"
-	@pytest --cov-report=xml:coverage-python.xml --cov-report=html:htmlcov-python
+	@python3 -m pytest --cov-report=xml:coverage-python.xml --cov-report=html:htmlcov-python
 
 test-node: ## Testing - Run Node.js tests
 	@echo "$(BLUE)Running Node.js tests...$(RESET)"

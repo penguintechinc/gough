@@ -18,7 +18,7 @@ from io import StringIO
 
 import pytest
 
-_API_MANAGER_PATH = '/home/penguin/code/gough/services/api-manager'
+_API_MANAGER_PATH = str(__import__("pathlib").Path(__file__).resolve().parents[2] / "services" / "api-manager")
 if _API_MANAGER_PATH not in sys.path:
     sys.path.insert(0, _API_MANAGER_PATH)
 for _mod in list(sys.modules.keys()):
