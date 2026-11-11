@@ -11,6 +11,7 @@ Provides REST API for managing iPXE/MAAS-like provisioning operations:
 from __future__ import annotations
 
 import base64
+import ipaddress
 import json
 import logging
 import secrets
@@ -20,6 +21,7 @@ import uuid
 from datetime import datetime, timezone
 from functools import wraps
 from typing import Any, Callable, Literal, Optional
+from urllib.parse import urlparse
 
 import jwt
 from quart import Blueprint, Response, current_app, g, jsonify, request
@@ -28,7 +30,9 @@ from ..db.run_db import run_db
 from ..middleware import auth_required, admin_required, maintainer_or_admin_required
 from ..models import get_db
 from .. import metrics as _metrics
-from ._dto import serialize_elder_config
+from ..audit import AuditEventType, get_audit_logger
+from ..clients import cluster_discovery
+from ._dto import project, serialize_elder_config
 
 log = logging.getLogger(__name__)
 
@@ -217,6 +221,241 @@ def _log_boot_event(
 
 
 # =============================================================================
+# Write-path validation, response DTOs and audit (security review of 385dd0f)
+# =============================================================================
+
+#: Allow-listed response fields per iPXE table (security.md Output Validation).
+_IPXE_CONFIG_FIELDS: tuple[str, ...] = (
+    "id", "name", "dhcp_mode", "dhcp_interface", "dhcp_subnet",
+    "dhcp_range_start", "dhcp_range_end", "dhcp_gateway", "dns_servers",
+    "tftp_enabled", "http_boot_url", "minio_bucket", "chain_url",
+    "default_boot_script", "is_active", "created_at", "updated_at",
+)
+_IPXE_IMAGE_FIELDS: tuple[str, ...] = (
+    "id", "name", "display_name", "os_name", "os_version", "architecture",
+    "kernel_path", "initrd_path", "squashfs_path", "kernel_params",
+    "image_type", "minio_bucket", "checksum", "is_default", "is_active",
+    "size_bytes", "created_at", "updated_at",
+)
+_IPXE_BOOT_CONFIG_FIELDS: tuple[str, ...] = (
+    "id", "name", "description", "ipxe_script", "kernel_params", "boot_order",
+    "timeout_seconds", "default_image_id", "assigned_biome_group_id",
+    "is_default", "created_at", "updated_at",
+)
+
+_VALID_DHCP_MODES = frozenset({"full", "proxy", "disabled"})
+#: Boot URLs are handed to netbooting firmware, which often lacks TLS, so
+#: plain http is allowed here; the Elder URL (fetched by this server) is
+#: https-only and SSRF-vetted instead.
+_BOOT_URL_SCHEMES = frozenset({"http", "https"})
+_MAX_URL_LEN = 1024
+_ELDER_TIMEOUT_RANGE = (1, 120)
+_ELDER_MAX_RETRIES_RANGE = (0, 10)
+_BOOT_TIMEOUT_RANGE = (1, 3600)
+
+
+def _ipxe_dto(row: Any, fields: tuple[str, ...]) -> dict[str, Any]:
+    """Project an iPXE row onto ``fields`` with ISO-8601 timestamps."""
+    out = project(row, fields)
+    for key in ("created_at", "updated_at"):
+        value = out.get(key)
+        if isinstance(value, datetime):
+            out[key] = value.isoformat()
+    return out
+
+
+def _is_int(value: Any) -> bool:
+    """True for a real ``int`` (``bool`` is rejected despite subclassing int)."""
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _url_error(value: Any, field: str, schemes: frozenset[str]) -> str | None:
+    """Return an error if ``value`` is not an absolute URL in ``schemes``.
+
+    Rejects non-strings, over-long values, missing hosts and embedded
+    credentials (``user:pass@host``), which would otherwise be persisted
+    and echoed back.
+    """
+    if not isinstance(value, str) or not value or len(value) > _MAX_URL_LEN:
+        return f"{field} must be a URL string of at most {_MAX_URL_LEN} characters"
+    parsed = urlparse(value)
+    if parsed.scheme not in schemes:
+        return f"{field} scheme must be one of: {', '.join(sorted(schemes))}"
+    if not parsed.hostname:
+        return f"{field} must include a host"
+    if parsed.username is not None or parsed.password is not None:
+        return f"{field} must not embed credentials"
+    return None
+
+
+def _field_type_error(data: dict[str, Any], spec: dict[str, Callable[[Any], bool]]) -> str | None:
+    """Return the first field in ``data`` whose value fails its ``spec`` predicate."""
+    for field, ok in spec.items():
+        if field in data and not ok(data[field]):
+            return f"Invalid value for {field}"
+    return None
+
+
+def _opt_str(value: Any) -> bool:
+    """Optional string predicate."""
+    return value is None or isinstance(value, str)
+
+
+def _opt_int(value: Any) -> bool:
+    """Optional non-bool integer predicate."""
+    return value is None or _is_int(value)
+
+
+def _validate_ipxe_config_payload(data: dict[str, Any]) -> str | None:
+    """Validate the PUT /config body; return an error message or None."""
+    err = _field_type_error(data, {
+        "name": lambda v: isinstance(v, str) and 0 < len(v) <= 255,
+        "dhcp_mode": lambda v: v in _VALID_DHCP_MODES,
+        "dhcp_interface": _opt_str,
+        "minio_bucket": _opt_str,
+        "default_boot_script": _opt_str,
+        "tftp_enabled": lambda v: isinstance(v, bool),
+        "is_active": lambda v: isinstance(v, bool),
+    })
+    if err:
+        return err
+    for field in ("dhcp_subnet",):
+        if data.get(field) is not None:
+            try:
+                ipaddress.ip_network(str(data[field]), strict=False)
+            except ValueError:
+                return f"Invalid value for {field}"
+    for field in ("dhcp_range_start", "dhcp_range_end", "dhcp_gateway"):
+        if data.get(field) is not None:
+            try:
+                ipaddress.ip_address(str(data[field]))
+            except ValueError:
+                return f"Invalid value for {field}"
+    dns = data.get("dns_servers")
+    if dns is not None:
+        if not isinstance(dns, list):
+            return "Invalid value for dns_servers"
+        try:
+            for server in dns:
+                ipaddress.ip_address(str(server))
+        except ValueError:
+            return "Invalid value for dns_servers"
+    for field in ("http_boot_url", "chain_url"):
+        if data.get(field) is not None:
+            url_err = _url_error(data[field], field, _BOOT_URL_SCHEMES)
+            if url_err:
+                return url_err
+    return None
+
+
+def _validate_boot_config_payload(data: dict[str, Any]) -> str | None:
+    """Validate a boot-config create/update body; return an error or None."""
+    lo, hi = _BOOT_TIMEOUT_RANGE
+    return _field_type_error(data, {
+        "name": lambda v: isinstance(v, str) and 0 < len(v) <= 255,
+        "description": _opt_str,
+        "ipxe_script": _opt_str,
+        "kernel_params": _opt_str,
+        "boot_order": lambda v: isinstance(v, list) and all(isinstance(x, str) for x in v),
+        "timeout_seconds": lambda v: _is_int(v) and lo <= v <= hi,
+        "default_image_id": _opt_int,
+        "assigned_biome_group_id": _opt_int,
+        "is_default": lambda v: isinstance(v, bool),
+    })
+
+
+def _validate_image_payload(data: dict[str, Any]) -> str | None:
+    """Validate a boot-image create/update body; return an error or None."""
+    str_fields = (
+        "name", "display_name", "os_name", "os_version", "architecture",
+        "kernel_path", "initrd_path", "image_type",
+    )
+    spec: dict[str, Callable[[Any], bool]] = {
+        f: (lambda v: isinstance(v, str) and 0 < len(v) <= _MAX_URL_LEN) for f in str_fields
+    }
+    spec.update({
+        "squashfs_path": _opt_str,
+        "kernel_params": _opt_str,
+        "minio_bucket": _opt_str,
+        "checksum": _opt_str,
+        "is_default": lambda v: isinstance(v, bool),
+        "is_active": lambda v: isinstance(v, bool),
+        "size_bytes": lambda v: _is_int(v) and v >= 0,
+    })
+    return _field_type_error(data, spec)
+
+
+async def _validate_elder_payload(data: dict[str, Any]) -> tuple[dict[str, Any] | None, str | None]:
+    """Validate PUT /elder/config; return (normalised fields, None) or (None, error).
+
+    ``elder_url`` is fetched by this server, so it must be https and must pass
+    the shared SSRF guard (:func:`app.clients.cluster_discovery.vet_outbound_endpoint`:
+    resolves once and rejects loopback/link-local/unspecified/metadata targets,
+    including hostnames that resolve to them).
+    """
+    elder_url = data.get("elder_url")
+    url_err = _url_error(elder_url, "elder_url", frozenset({"https"}))
+    if url_err:
+        return None, url_err
+    try:
+        await cluster_discovery.vet_outbound_endpoint(str(elder_url))
+    except cluster_discovery.ClusterDiscoveryUnavailable as exc:
+        return None, f"elder_url rejected: {exc}"
+
+    api_key = data.get("api_key")
+    if not isinstance(api_key, str) or not api_key or len(api_key) > 4096:
+        return None, "api_key must be a non-empty string"
+    timeout = data.get("timeout", 10)
+    lo, hi = _ELDER_TIMEOUT_RANGE
+    if not _is_int(timeout) or not lo <= timeout <= hi:
+        return None, f"timeout must be an integer between {lo} and {hi}"
+    max_retries = data.get("max_retries", 3)
+    lo, hi = _ELDER_MAX_RETRIES_RANGE
+    if not _is_int(max_retries) or not lo <= max_retries <= hi:
+        return None, f"max_retries must be an integer between {lo} and {hi}"
+    is_active = data.get("is_active", True)
+    if not isinstance(is_active, bool):
+        return None, "is_active must be a boolean"
+    return {
+        "elder_url": elder_url,
+        "api_key": api_key,
+        "timeout": timeout,
+        "max_retries": max_retries,
+        "is_active": is_active,
+    }, None
+
+
+async def _audit_ipxe_change(
+    action: str, resource_type: str, resource_id: Any, fields: list[str]
+) -> None:
+    """Audit-log an iPXE/Elder configuration change.
+
+    Records WHICH fields changed, never their values (``api_key`` and boot
+    scripts must not land in the audit trail). Always emits an application
+    log line; also persists to the audit trail when the logger is configured.
+    """
+    user = g.get("current_user") or {}
+    actor = user.get("id")
+    changed = sorted(f for f in fields if f != "updated_at")
+    log.info(
+        "ipxe config change action=%s resource=%s/%s actor=%s fields=%s",
+        action, resource_type, resource_id, actor, changed,
+    )
+    audit_logger = get_audit_logger()
+    if audit_logger is None:
+        log.warning("audit logger unavailable; ipxe change recorded in app log only")
+        return
+    await run_db(lambda: audit_logger.log(
+        event_type=AuditEventType.SYSTEM_CONFIG_CHANGE,
+        message=f"iPXE {resource_type} {action}",
+        resource_type=resource_type,
+        resource_id=str(resource_id),
+        details={"action": action, "fields": changed},
+        user_id=actor,
+    ))
+
+
+# =============================================================================
 # iPXE Configuration Endpoints
 # =============================================================================
 
@@ -278,6 +517,9 @@ async def update_ipxe_config():
     validation_error = _validate_required_fields(data, ["name"])
     if validation_error:
         return validation_error
+    payload_error = _validate_ipxe_config_payload(data)
+    if payload_error:
+        return jsonify({"error": payload_error}), 400
 
     db = get_db()
 
@@ -313,7 +555,8 @@ async def update_ipxe_config():
             return db(db.ipxe_config.id == existing.id).select().first()
 
         updated = await run_db(_apply_update)
-        return jsonify(updated.as_dict()), 200
+        await _audit_ipxe_change("update", "ipxe_config", existing.id, list(update_fields))
+        return jsonify(_ipxe_dto(updated, _IPXE_CONFIG_FIELDS)), 200
     else:
         # Create new configuration
         update_fields["name"] = data["name"]
@@ -324,7 +567,8 @@ async def update_ipxe_config():
             return db(db.ipxe_config.id == config_id).select().first()
 
         created = await run_db(_apply_insert)
-        return jsonify(created.as_dict()), 201
+        await _audit_ipxe_change("create", "ipxe_config", _ipxe_dto(created, ("id",)).get("id"), list(update_fields))
+        return jsonify(_ipxe_dto(created, _IPXE_CONFIG_FIELDS)), 201
 
 
 # =============================================================================
@@ -975,6 +1219,9 @@ async def create_image():
     )
     if validation_error:
         return validation_error
+    payload_error = _validate_image_payload(data)
+    if payload_error:
+        return jsonify({"error": payload_error}), 400
 
     db = get_db()
 
@@ -1012,8 +1259,10 @@ async def create_image():
     created = await run_db(_create_image)
 
     log.info(f"Boot image created: {data['name']}")
+    created_dto = _ipxe_dto(created, _IPXE_IMAGE_FIELDS)
+    await _audit_ipxe_change("create", "ipxe_image", created_dto.get("id"), list(data))
 
-    return jsonify(created.as_dict()), 201
+    return jsonify(created_dto), 201
 
 
 @ipxe_bp.route("/images/<int:image_id>", methods=["GET"])
@@ -1074,6 +1323,9 @@ async def update_image(image_id: int):
 
     if not data:
         return jsonify({"error": "Request body required"}), 400
+    payload_error = _validate_image_payload(data)
+    if payload_error:
+        return jsonify({"error": payload_error}), 400
 
     db = get_db()
 
@@ -1100,8 +1352,9 @@ async def update_image(image_id: int):
     updated = await run_db(_apply_update)
 
     log.info(f"Boot image updated: {image['name']}")
+    await _audit_ipxe_change("update", "ipxe_image", image_id, list(update_fields))
 
-    return jsonify(updated.as_dict()), 200
+    return jsonify(_ipxe_dto(updated, _IPXE_IMAGE_FIELDS)), 200
 
 
 @ipxe_bp.route("/images/<int:image_id>", methods=["DELETE"])
@@ -1155,6 +1408,7 @@ async def delete_image(image_id: int):
     await run_db(_delete_image)
 
     log.info(f"Boot image deleted: {image['name']}")
+    await _audit_ipxe_change("delete", "ipxe_image", image_id, [])
 
     return jsonify({
         "message": "Boot image deleted",
@@ -1219,6 +1473,9 @@ async def create_boot_config():
     validation_error = _validate_required_fields(data, ["name"])
     if validation_error:
         return validation_error
+    payload_error = _validate_boot_config_payload(data)
+    if payload_error:
+        return jsonify({"error": payload_error}), 400
 
     db = get_db()
 
@@ -1250,8 +1507,10 @@ async def create_boot_config():
     created = await run_db(_create_config)
 
     log.info(f"Boot config created: {data['name']}")
+    created_dto = _ipxe_dto(created, _IPXE_BOOT_CONFIG_FIELDS)
+    await _audit_ipxe_change("create", "ipxe_boot_config", created_dto.get("id"), list(data))
 
-    return jsonify(created.as_dict()), 201
+    return jsonify(created_dto), 201
 
 
 @ipxe_bp.route("/boot-configs/<int:config_id>", methods=["GET"])
@@ -1311,6 +1570,9 @@ async def update_boot_config(config_id: int):
 
     if not data:
         return jsonify({"error": "Request body required"}), 400
+    payload_error = _validate_boot_config_payload(data)
+    if payload_error:
+        return jsonify({"error": payload_error}), 400
 
     db = get_db()
 
@@ -1336,8 +1598,9 @@ async def update_boot_config(config_id: int):
     updated = await run_db(_apply_update)
 
     log.info(f"Boot config updated: {config['name']}")
+    await _audit_ipxe_change("update", "ipxe_boot_config", config_id, list(update_fields))
 
-    return jsonify(updated.as_dict()), 200
+    return jsonify(_ipxe_dto(updated, _IPXE_BOOT_CONFIG_FIELDS)), 200
 
 
 @ipxe_bp.route("/boot-configs/<int:config_id>", methods=["DELETE"])
@@ -1382,6 +1645,7 @@ async def delete_boot_config(config_id: int):
     await run_db(_delete_config)
 
     log.info(f"Boot config deleted: {config['name']}")
+    await _audit_ipxe_change("delete", "ipxe_boot_config", config_id, [])
 
     return jsonify({
         "message": "Boot config deleted",
@@ -2268,6 +2532,10 @@ async def update_elder_config():
     if validation_error:
         return validation_error
 
+    elder_fields, elder_error = await _validate_elder_payload(data)
+    if elder_error or elder_fields is None:
+        return jsonify({"error": elder_error or "Invalid Elder configuration"}), 400
+
     db = get_db()
 
     # Create elder_config table if it doesn't exist
@@ -2284,14 +2552,7 @@ async def update_elder_config():
 
     existing = await run_db(_fetch_existing)
 
-    update_fields = {
-        "elder_url": data["elder_url"],
-        "api_key": data["api_key"],
-        "timeout": data.get("timeout", 10),
-        "max_retries": data.get("max_retries", 3),
-        "is_active": data.get("is_active", True),
-        "updated_at": datetime.utcnow()
-    }
+    update_fields = {**elder_fields, "updated_at": datetime.utcnow()}
 
     if existing:
         # Update existing configuration. Regression: gh-22. update +
@@ -2303,6 +2564,7 @@ async def update_elder_config():
 
         updated = await run_db(_apply_update)
         log.info("Elder configuration updated")
+        await _audit_ipxe_change("update", "elder_config", existing.id, list(update_fields))
 
         # Explicit allow-list projection -- never the raw row. Regression:
         # audit output-validation. This handler used to echo the just-stored
@@ -2326,6 +2588,7 @@ async def update_elder_config():
 
         created = await run_db(_create_config)
         log.info("Elder configuration created")
+        await _audit_ipxe_change("create", "elder_config", "default", list(update_fields))
 
         # Explicit allow-list projection -- never the raw row. See the
         # matching comment in the update branch above.

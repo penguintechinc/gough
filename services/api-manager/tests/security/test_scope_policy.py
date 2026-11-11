@@ -93,16 +93,23 @@ class TestScopePolicy:
         assert not re.search(r'#\s*(TODO|FIXME)', source), "TODO/FIXME markers remain in scope_policy"
 
     def test_anonymous_paths_includes_ipxe(self) -> None:
-        """Verify new anonymous iPXE paths are included."""
-        ipxe_paths = {
+        """Netboot script routes are anonymous; routeless artifact paths are not.
+
+        /ipxe/kernel, /ipxe/initrd and /ipxe/helper-efi have no route in this
+        service, so they were removed rather than left as dormant anonymous
+        grants (security review of 385dd0f).
+        """
+        for path in {
             ("GET", "/api/v1/ipxe/helper/<string:mac>"),
             ("GET", "/api/v1/ipxe/deploy/<string:mac>"),
+        }:
+            assert path in ANONYMOUS_PATHS, f"Missing anonymous path: {path}"
+        for path in {
             ("GET", "/api/v1/ipxe/kernel/<string:name>"),
             ("GET", "/api/v1/ipxe/initrd/<string:name>"),
             ("GET", "/api/v1/ipxe/helper-efi/<string:mac>"),
-        }
-        for path in ipxe_paths:
-            assert path in ANONYMOUS_PATHS, f"Missing anonymous path: {path}"
+        }:
+            assert path not in ANONYMOUS_PATHS, f"Dead anonymous path present: {path}"
 
 
 class TestAnonymousPaths:

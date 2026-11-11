@@ -285,8 +285,19 @@ class TestStorageConfigNeverLeaksCredentials:
 
 
 @pytest.fixture()
-def ipxe_app():
+def ipxe_app(monkeypatch):
     from app.api import ipxe as ipxe_module
+    from app.clients import cluster_discovery
+
+    # elder_url is SSRF-vetted (DNS resolution) since the scope-policy
+    # security review; pin resolution so these output-shape tests stay
+    # offline and deterministic.
+    async def _vetted(endpoint):
+        return cluster_discovery._VettedEndpoint(
+            scheme="https", host="elder.example.com", pinned_ip="203.0.113.10", port=443
+        )
+
+    monkeypatch.setattr(cluster_discovery, "vet_outbound_endpoint", _vetted)
 
     app = Quart(__name__)
     app.config["JWT_SECRET_KEY"] = "test-secret-key"

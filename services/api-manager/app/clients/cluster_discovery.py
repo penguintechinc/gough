@@ -186,12 +186,19 @@ def _parse_k8s_nodes(payload: dict) -> list[DiscoveredMember]:
 
 
 def _is_blocked_ip(ip: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
-    """True iff ``ip`` is loopback, link-local, or a known cloud-metadata
-    address -- the SSRF-relevant blocklist. Private ranges are NOT blocked
-    here; see module docstring."""
+    """True iff ``ip`` is loopback, link-local, unspecified, multicast, or a
+    known cloud-metadata address -- the SSRF-relevant blocklist. Private
+    ranges are NOT blocked here; see module docstring.
+
+    IPv4-mapped IPv6 (``::ffff:127.0.0.1``) is unwrapped first, and the
+    unspecified address (``0.0.0.0`` / ``::``) is blocked because connecting
+    to it reaches the local host on Linux.
+    """
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped is not None:
+        ip = ip.ipv4_mapped
     if str(ip) in _METADATA_EXACT_BLOCK:
         return True
-    return bool(ip.is_loopback or ip.is_link_local)
+    return bool(ip.is_loopback or ip.is_link_local or ip.is_unspecified or ip.is_multicast)
 
 
 async def _validate_discovery_endpoint(endpoint: str) -> _VettedEndpoint:
@@ -244,6 +251,17 @@ async def _validate_discovery_endpoint(endpoint: str) -> _VettedEndpoint:
         )
 
     return _VettedEndpoint(scheme=parsed.scheme, host=host, pinned_ip=pinned_ip, port=port)
+
+
+async def vet_outbound_endpoint(endpoint: str) -> _VettedEndpoint:
+    """Public entry point to the SSRF guard for other outbound integrations.
+
+    Same contract as :func:`_validate_discovery_endpoint` (raises
+    :class:`ClusterDiscoveryUnavailable` on a disallowed scheme, unresolvable
+    host, or blocked address); exposed so callers outside this module
+    (e.g. the Elder integration config) reuse one vetted implementation.
+    """
+    return await _validate_discovery_endpoint(endpoint)
 
 
 async def discover_inventory(

@@ -5,7 +5,7 @@ Implements the spec's "API Surface → Primary HA (M2)" section:
 * GET    /api/v1/primary/status                  gough.cluster.read
 * POST   /api/v1/primary/replace                 gough.cluster.admin + MFA
 * POST   /api/v1/primary/force-recover           gough.cluster.superadmin + MFA
-* POST   /api/v1/primary/frontend-switch         gough.cluster.admin + MFA
+* POST   /api/v1/primary/frontend-switch         gough.cluster.superadmin + MFA
 * POST   /api/v1/primary/rotate-ca               gough.cluster.superadmin + MFA
 
 M2 scope (implemented): status returns per-service quorum state; each mutating
@@ -942,7 +942,7 @@ async def _advertise_bgp_route(
 
 @primary_bp.route("/frontend-switch", methods=["POST"])
 @auth_required
-@_scope_required("gough.cluster.admin")
+@_scope_required("gough.cluster.superadmin")
 @_mfa_required
 async def switch_frontend():
     """Switch control plane frontend mode: kube-vip, external, or anycast (BGP).

@@ -10,6 +10,8 @@ Provides REST API for SSH certificate authority operations including:
 from __future__ import annotations
 
 import logging
+import os
+import re
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -25,6 +27,102 @@ from ..ssh_ca import SSHCertificateAuthority, SSHCAException
 log = logging.getLogger(__name__)
 
 ssh_ca_bp = Blueprint("ssh_ca", __name__, url_prefix="/api/v1/ssh-ca")
+
+#: Hard ceiling on user-certificate lifetime. Requests above it are rejected
+#: (400), never silently clamped, so a caller always knows what it holds.
+SSH_CERT_MAX_VALIDITY_SECONDS = 3600
+
+#: Env var holding the comma-separated principal allowlist. Unset/empty means
+#: no principal is signable (fail closed).
+SSH_PRINCIPAL_ALLOWLIST_ENV = "GOUGH_SSH_CA_ALLOWED_PRINCIPALS"
+
+#: Principals that are never signed, even if an operator lists them.
+_FORBIDDEN_PRINCIPALS: frozenset[str] = frozenset({"root"})
+
+#: POSIX-portable login name: what a principal must look like before it is
+#: even compared to the allowlist (keeps separators out of ssh-keygen -n).
+_PRINCIPAL_RE = re.compile(r"^[a-z_][a-z0-9_-]{0,31}$")
+
+#: Resource tables a certificate may be bound to. ``check_shell_access``
+#: resolves ``db[resource_type]`` -- an unrestricted value let a caller name
+#: any table whose row it "created" (e.g. its own enrollment key) and be
+#: granted shell. Only nodes are host-addressable and tenant-owned.
+_SIGNABLE_RESOURCE_TYPES: frozenset[str] = frozenset({"nodes"})
+
+_RESOURCE_ID_RE = re.compile(r"^[1-9][0-9]{0,17}$")
+
+#: Issued principals are bound to the target host: a node's sshd accepts
+#: ``<login>@node-<id>`` via its AuthorizedPrincipalsFile, so a certificate
+#: minted for node 7 is useless on node 8.
+_HOST_BOUND_PRINCIPAL_FMT = "{principal}@node-{resource_id}"
+
+
+def _allowed_principals() -> frozenset[str]:
+    """Read the operator-configured principal allowlist (never includes root)."""
+    raw = os.environ.get(SSH_PRINCIPAL_ALLOWLIST_ENV, "")
+    configured = frozenset(p.strip() for p in raw.split(",") if p.strip())
+    return configured - _FORBIDDEN_PRINCIPALS
+
+
+def _validate_principals(principals: Any) -> str | None:
+    """Return an error message if ``principals`` is not signable, else None.
+
+    Rejects non-lists, non-string or malformed entries, ``root`` (always), and
+    anything outside the configured allowlist (empty allowlist rejects all).
+    """
+    if not isinstance(principals, list) or not principals:
+        return "principals must be a non-empty list"
+    allowed = _allowed_principals()
+    for principal in principals:
+        if not isinstance(principal, str) or not _PRINCIPAL_RE.match(principal):
+            return "principals must be valid login names"
+        if principal in _FORBIDDEN_PRINCIPALS:
+            return f"principal '{principal}' is never signed"
+        if principal not in allowed:
+            return f"principal '{principal}' is not in the signing allowlist"
+    return None
+
+
+def _validate_validity(validity_seconds: Any) -> str | None:
+    """Return an error message unless ``validity_seconds`` is an int in (0, max]."""
+    if isinstance(validity_seconds, bool) or not isinstance(validity_seconds, int):
+        return "validity_seconds must be a positive integer"
+    if validity_seconds <= 0:
+        return "validity_seconds must be a positive integer"
+    if validity_seconds > SSH_CERT_MAX_VALIDITY_SECONDS:
+        return f"validity_seconds must not exceed {SSH_CERT_MAX_VALIDITY_SECONDS}"
+    return None
+
+
+def _current_tenant_id() -> str:
+    """Return the validated tenant from the request context (JWT ``tenant``)."""
+    tc = g.get("tenant_context")
+    if tc is not None:
+        return str(getattr(tc, "tenant_id", "__default__"))
+    user = g.get("current_user") or {}
+    payload = user.get("_jwt_payload") or {}
+    return str(payload.get("tenant", "__default__"))
+
+
+def _is_cross_tenant() -> bool:
+    """True iff the validated token is a cross-tenant (super-admin) token."""
+    tc = g.get("tenant_context")
+    if tc is not None:
+        return bool(getattr(tc, "cross_tenant", False))
+    user = g.get("current_user") or {}
+    payload = user.get("_jwt_payload") or {}
+    return bool(payload.get("cross_tenant", False))
+
+
+def _load_node_tenant(node_id: int) -> str | None:
+    """Return the owning tenant of node ``node_id``, or None if it does not exist."""
+    db = get_db()
+    if db is None:
+        raise RuntimeError("database not initialised")
+    node = db(db.nodes.id == node_id).select(db.nodes.id, db.nodes.tenant_id).first()
+    if node is None:
+        return None
+    return str(getattr(node, "tenant_id", None) or "__default__")
 
 
 # ============================================================================
@@ -177,10 +275,13 @@ async def sign_certificate():
 
     Request Body:
         public_key: User's SSH public key (required)
-        resource_type: Type of resource (e.g., 'vm', 'container') (required)
-        resource_id: UUID of resource (required)
-        principals: List of principals (e.g., ['ubuntu', 'root']) (required)
-        validity_seconds: Certificate validity period in seconds (required)
+        resource_type: Resource table; only ``nodes`` is signable (required)
+        resource_id: Node id, must belong to the caller's tenant (required)
+        principals: Login names from the ``GOUGH_SSH_CA_ALLOWED_PRINCIPALS``
+            allowlist; ``root`` is always rejected (required)
+        validity_seconds: Lifetime in seconds, 1..3600 (default 3600)
+
+    Issued principals are host-bound as ``<login>@node-<id>``.
 
     Returns:
         200: Certificate signed successfully
@@ -197,11 +298,11 @@ async def sign_certificate():
         return jsonify({"error": "Request body required"}), 400
 
     # Validate required fields
-    public_key = data.get("public_key", "").strip()
-    resource_type = data.get("resource_type", "").strip()
-    resource_id = data.get("resource_id", "").strip()
+    public_key = str(data.get("public_key") or "").strip()
+    resource_type = str(data.get("resource_type") or "").strip()
+    resource_id = str(data.get("resource_id") or "").strip()
     principals = data.get("principals", [])
-    validity_seconds = data.get("validity_seconds", 3600)
+    validity_seconds = data.get("validity_seconds", SSH_CERT_MAX_VALIDITY_SECONDS)
 
     if not all([public_key, resource_type, resource_id, principals]):
         return (
@@ -216,19 +317,33 @@ async def sign_certificate():
             400,
         )
 
-    if not isinstance(principals, list) or len(principals) == 0:
-        return jsonify({"error": "principals must be a non-empty list"}), 400
+    principal_error = _validate_principals(principals)
+    if principal_error:
+        return jsonify({"error": principal_error}), 400
 
-    if not isinstance(validity_seconds, int) or validity_seconds <= 0:
-        return (
-            jsonify(
-                {"error": "validity_seconds must be a positive integer"}
-            ),
-            400,
-        )
+    validity_error = _validate_validity(validity_seconds)
+    if validity_error:
+        return jsonify({"error": validity_error}), 400
+
+    if resource_type not in _SIGNABLE_RESOURCE_TYPES:
+        return jsonify({
+            "error": "resource_type must be one of: "
+            + ", ".join(sorted(_SIGNABLE_RESOURCE_TYPES))
+        }), 400
+    if not _RESOURCE_ID_RE.match(resource_id):
+        return jsonify({"error": "resource_id must be a node id"}), 400
+    node_id = int(resource_id)
 
     try:
         current_user = get_current_user()
+
+        # Bind to the requested host: the node must exist inside the caller's
+        # tenant (404, not 403, so existence is not confirmed cross-tenant).
+        node_tenant = await run_db(lambda: _load_node_tenant(node_id))
+        if node_tenant is None or (
+            not _is_cross_tenant() and node_tenant != _current_tenant_id()
+        ):
+            return jsonify({"error": "Resource not found"}), 404
 
         # Check user has shell access to resource. Regression: gh-22. Off
         # the event loop via run_db() instead of blocking the request
@@ -236,7 +351,7 @@ async def sign_certificate():
         # penguin-dal reads -- app.permissions.check_resource_permission).
         def _check_access() -> bool:
             return check_shell_access(
-                current_user["id"], resource_type, resource_id
+                current_user["id"], resource_type, node_id
             )
 
         if not await run_db(_check_access):
@@ -266,9 +381,13 @@ async def sign_certificate():
 
         # Initialize CA and sign certificate
         ca = SSHCertificateAuthority()
+        bound_principals = [
+            _HOST_BOUND_PRINCIPAL_FMT.format(principal=p, resource_id=node_id)
+            for p in principals
+        ]
         certificate, key_id = ca.sign_public_key(
             public_key=public_key,
-            principals=principals,
+            principals=bound_principals,
             valid_seconds=validity_seconds,
             user_id=current_user["id"],
         )
@@ -290,7 +409,7 @@ async def sign_certificate():
                 resource_id=resource_id,
                 details={
                     "action": "certificate_signed",
-                    "principals": principals,
+                    "principals": bound_principals,
                     "validity_seconds": validity_seconds,
                     "key_id": key_id,
                 },
@@ -298,7 +417,7 @@ async def sign_certificate():
 
         log.info(
             f"SSH certificate signed for user {current_user['id']} "
-            f"on {resource_type}/{resource_id}, principals={principals}"
+            f"on {resource_type}/{resource_id}, principals={bound_principals}"
         )
 
         return (
@@ -307,6 +426,7 @@ async def sign_certificate():
                     "certificate": certificate,
                     "valid_until": valid_until.isoformat(),
                     "key_id": key_id,
+                    "principals": bound_principals,
                 }
             ),
             200,

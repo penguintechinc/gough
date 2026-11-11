@@ -73,6 +73,10 @@ def ssh_ca_app(monkeypatch):
     # Don't patch get_db here - each test will patch it with proper mock config
     monkeypatch.setattr(ssh_ca_mod, "get_current_user", lambda: g.current_user)
     monkeypatch.setattr(ssh_ca_mod, "get_audit_logger", lambda: None)
+    # Sign hardening: principals must be allowlisted and the node must sit in
+    # the caller's tenant ("acme", injected above).
+    monkeypatch.setenv(ssh_ca_mod.SSH_PRINCIPAL_ALLOWLIST_ENV, "ubuntu,admin")
+    monkeypatch.setattr(ssh_ca_mod, "_load_node_tenant", lambda node_id: "acme")
 
     return app, ssh_ca_mod
 
@@ -273,8 +277,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
             }
@@ -319,8 +323,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": "ubuntu",
                 "validity_seconds": 3600,
             }
@@ -339,8 +343,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": [],
                 "validity_seconds": 3600,
             }
@@ -359,8 +363,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": "3600",
             }
@@ -379,8 +383,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 0,
             }
@@ -401,8 +405,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
             }
@@ -426,8 +430,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
             }
@@ -458,8 +462,8 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 3600,
             }
@@ -486,20 +490,21 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
-                "principals": ["ubuntu", "root", "admin"],
-                "validity_seconds": 7200,
+                "resource_type": "nodes",
+                "resource_id": "7",
+                "principals": ["ubuntu", "admin"],
+                "validity_seconds": 3600,
             }
         )
 
         assert response.status_code == 200
         data = await response.get_json()
         assert "certificate" in data
+        assert data["principals"] == ["ubuntu@node-7", "admin@node-7"]
 
     @pytest.mark.asyncio
     async def test_sign_certificate_long_validity(self, ssh_ca_client, ssh_ca_app, monkeypatch):
-        """Test signing with long validity period."""
+        """Validity above the 3600 s cap is rejected (security review of 385dd0f)."""
         app, ssh_ca_mod = ssh_ca_app
 
         ca_config = MagicMock()
@@ -516,11 +521,12 @@ class TestSignCertificate:
             "/api/v1/ssh-ca/sign",
             json={
                 "public_key": "ssh-rsa AAAA...",
-                "resource_type": "vm",
-                "resource_id": "res-123",
+                "resource_type": "nodes",
+                "resource_id": "7",
                 "principals": ["ubuntu"],
                 "validity_seconds": 86400,  # 1 day
             }
         )
 
-        assert response.status_code == 200
+        assert response.status_code == 400
+        ca_instance.sign_public_key.assert_not_called()
